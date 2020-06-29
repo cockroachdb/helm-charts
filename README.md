@@ -1,6 +1,6 @@
 # CockroachDB Helm Chart
 
-
+[CockroachDB](https://github.com/cockroachdb/cockroach) - the open source, cloud-native distributed SQL database.
 
 
 ## Documentation
@@ -42,13 +42,19 @@ This chart will do the following:
 
 
 
+## Add the CockroachDB Repository
+
+```shell
+helm repo add cockroachdb https://charts.cockroachdb.com/
+```
+
 
 ## Installing the Chart
 
 To install the chart with the release name `my-release`:
 
 ```shell
-helm install my-release stable/cockroachdb
+helm install my-release cockroachdb/cockroachdb
 ```
 
 Note that for a production cluster, you will likely want to override the following parameters in [`values.yaml`](values.yaml) with your own values.
@@ -149,7 +155,7 @@ Kick off the upgrade process by changing the new Docker image, where `$new_versi
 kubectl delete job my-release-cockroachdb-init
 ```
 ```shell
-helm upgrade my-release stable/cockroachdb \
+helm upgrade my-release cockroachdb/cockroachdb \
 --set image.tag=$new_version \
 --reuse-values
 ```
@@ -195,7 +201,7 @@ Due to a change in the label format in version 3.0.0 of this chart, upgrading re
 
 Get the new labels from the specs rendered by Helm:
 ```shell
-helm template -f deploy.vals.yml stable/cockroachdb -x templates/statefulset.yaml \
+helm template -f deploy.vals.yml cockroachdb/cockroachdb -x templates/statefulset.yaml \
 | yq r - spec.template.metadata.labels
 ```
 ```
@@ -311,7 +317,7 @@ Override the default parameters using the `--set key=value[,key=value]` argument
 
 Alternatively, a YAML file that specifies custom values for the parameters can be provided while installing the chart. For example:
 ```shell
-helm install my-release -f my-values.yaml stable/cockroachdb
+helm install my-release -f my-values.yaml cockroachdb/cockroachdb
 ```
 
 > **Tip**: You can use the default [values.yaml](values.yaml)
@@ -452,7 +458,7 @@ Scaling should be managed via the `helm upgrade` command. After resizing your cl
 ```shell
 helm upgrade \
 my-release \
-stable/cockroachdb \
+cockroachdb/cockroachdb \
 --set statefulset.replicas=4 \
 --reuse-values
 ```
