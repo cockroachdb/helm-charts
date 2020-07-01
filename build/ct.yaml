@@ -1,0 +1,4 @@
+target-branch: master
+chart-dirs:
+  - .
+helm-extra-args: --timeout 600

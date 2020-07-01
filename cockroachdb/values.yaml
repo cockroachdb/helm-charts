@@ -50,7 +50,7 @@ conf:
   # have been updated to know the new cluster name, the cluster can be restarted
   # again with `conf.disable-cluster-name-verification: no`.
   # This option has no effect if `conf.cluster-name` is not specified.
-  disable-cluster-name-verification: no
+  disable-cluster-name-verification: false
 
   # The addresses for connecting a CockroachDB nodes to an existing cluster.
   # If you are deploying a second CockroachDB instance that should join a first
@@ -123,7 +123,7 @@ conf:
   #          Usually, this option is intended to be used in conjunction with
   #          `statefulset.replicas: 1` for temporary one-time deployments (like
   #          running E2E tests, for example).
-  single-node: no
+  single-node: false
 
   # If non-empty, create a SQL audit log in the specified directory.
   sql-audit-dir: ""
@@ -255,7 +255,7 @@ storage:
   # If `enabled` is `true` then a PersistentVolumeClaim will be created and
   # used to store CockroachDB's data, otherwise `hostPath` is used.
   persistentVolume:
-    enabled: yes
+    enabled: true
 
     size: 100Gi
 
@@ -311,23 +311,23 @@ init:
 
 # Whether to run securely using TLS certificates.
 tls:
-  enabled: no
+  enabled: false
   serviceAccount:
     # Specifies whether this ServiceAccount should be created.
-    create: yes
+    create: true
     # The name of this ServiceAccount to use.
     # If not set and `create` is `true`, then a name is auto-generated.
     name: ""
   certs:
     # Bring your own certs scenario. If provided, tls.init section will be ignored.
-    provided: no
+    provided: false
     # Secret name for the client root cert.
     clientRootSecret: cockroachdb-root
     # Secret name for node cert.
     nodeSecret: cockroachdb-node
     # Enable if the secret is a dedicated TLS.
     # TLS secrets are created by cert-mananger, for example.
-    tlsSecret: no
+    tlsSecret: false
 
   init:
     # Image to use for requesting TLS certificates.
@@ -342,7 +342,7 @@ tls:
 
 
 networkPolicy:
-  enabled: no
+  enabled: false
 
   ingress:
     # List of sources which should be able to access the CockroachDB Pods via
