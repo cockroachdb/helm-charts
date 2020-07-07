@@ -1,6 +1,7 @@
 {{- if .Values.ingress.enabled -}}
 {{- $paths := .Values.ingress.paths -}}
 {{- $ports := .Values.service.ports -}}
+{{- $fullName := include "cockroachdb.fullname" . -}}
 apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
@@ -10,11 +11,11 @@ metadata:
     {{ $key }}: {{ $value | quote }}
   {{- end }}
 {{- end }}
-  name: {{ template "cockroachdb.fullname" $ }}-ingress
+  name: {{ $fullName }}-ingress
   namespace: {{ .Release.Namespace }}
   labels:
-    helm.sh/chart: {{ template "cockroachdb.chart" $ }}
-    app.kubernetes.io/name: {{ template "cockroachdb.name" $ }}
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ $.Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ $.Release.Service | quote }}
 {{- if .Values.ingress.labels }}
@@ -30,7 +31,7 @@ spec:
   {{- range $path := $paths }}
           - path: {{ $path }}
             backend:
-              serviceName: {{ template "cockroachdb.fullname" . }}-public
+              serviceName: {{ $fullName }}-public
               servicePort: {{ $ports.http.name | quote }}
   {{- end -}}
   {{- end -}}
@@ -40,7 +41,7 @@ spec:
   {{- range $path := $paths }}
           - path: {{ $path }}
             backend:
-              serviceName: {{ template "cockroachdb.fullname" . }}-public
+              serviceName: {{ $fullName }}-public
               servicePort: {{ $ports.http.name | quote }}
   {{- end -}}
   {{- end -}}
