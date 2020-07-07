@@ -1,5 +1,6 @@
 {{- if .Values.ingress.enabled -}}
 {{- $paths := .Values.ingress.paths -}}
+{{- $ports := .Values.service.ports -}}
 apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
