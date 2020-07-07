@@ -243,6 +243,7 @@ service:
     annotations: {}
 
 # CockroachDB's ingress for web ui.
+# Works only with insecure clusters
 ingress:
   enabled: false
   labels: {}
