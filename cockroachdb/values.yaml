@@ -242,6 +242,19 @@ service:
     # Additional annotations to apply to this Service.
     annotations: {}
 
+# CockroachDB's ingress for web ui.
+ingress:
+  enabled: false
+  labels: {}
+  annotations: {}
+  #   kubernetes.io/ingress.class: nginx
+  #   cert-manager.io/cluster-issuer: letsencrypt
+  paths: [/]
+  hosts: []
+  # - cockroachlabs.com
+  tls: []
+  # - hosts: [cockroachlabs.com]
+  #   secretName: cockroachlabs-tls
 
 # CockroachDB's data persistence.
 # If neither `persistentVolume` nor `hostPath` is used, then data will be
