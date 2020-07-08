@@ -268,12 +268,14 @@ ingress:
   # - hosts: [cockroachlabs.com]
   #   secretName: cockroachlabs-tls
 
-serviceMonitor:
+metrics:
   enabled: false
-  labels: {}
-  annotations: {}
-  interval: 30s
-  # scrapeTimeout: 10s
+  serviceMonitor:
+    enabled: false
+    labels: {}
+    annotations: {}
+    interval: 30s
+    # scrapeTimeout: 10s
 
 # CockroachDB's data persistence.
 # If neither `persistentVolume` nor `hostPath` is used, then data will be

@@ -1,3 +1,5 @@
+{{- if .Values.metrics.enabled }}
+{{- $ports := .Values.service.ports -}}
 kind: Service
 apiVersion: v1
 metadata:
@@ -29,3 +31,4 @@ spec:
   {{- with .Values.statefulset.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
+{{- end }}
