@@ -268,8 +268,10 @@ ingress:
   # - hosts: [cockroachlabs.com]
   #   secretName: cockroachlabs-tls
 
+# CockroachDB's metrics service
 metrics:
   enabled: false
+  # CockroachDB's Prometheus operator ServiceMonitor support
   serviceMonitor:
     enabled: false
     labels: {}
