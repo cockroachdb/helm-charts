@@ -1,5 +1,6 @@
 {{- if .Values.metrics.enabled }}
 {{- $ports := .Values.service.ports -}}
+{{- $metrics := .Values.service.metrics -}}
 kind: Service
 apiVersion: v1
 metadata:
@@ -10,17 +11,17 @@ metadata:
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}-metrics
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-  {{- with .Values.service.metrics.labels }}
+  {{- with $metrics.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
   {{- with .Values.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
-{{- with .Values.service.metrics.annotations }}
+{{- with $metrics.annotations }}
   annotations: {{- toYaml . | nindent 4 }}
 {{- end }}
 spec:
-  type: {{ .Values.service.metrics.type | quote }}
+  type: {{ $metrics.type | quote }}
   ports:
   - name: {{ $ports.metrics.name | quote }}
     port: {{ $ports.metrics.port | int64 }}
