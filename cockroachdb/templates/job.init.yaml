@@ -106,6 +106,9 @@ spec:
               {{- else }}
               --insecure
               {{- end }}
+              {{- with index .Values.conf "cluster-name" }}
+              --cluster-name={{.}}
+              {{- end }}
               --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
                      :{{ .Values.service.ports.grpc.internal.port | int64 }}
               2>&1);
