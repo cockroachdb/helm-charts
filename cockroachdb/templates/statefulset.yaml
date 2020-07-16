@@ -131,6 +131,9 @@ spec:
     {{- with .Values.statefulset.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
     {{- end }}
+    {{- if .Values.statefulset.priorityClassName }}
+      priorityClassName: {{ .Values.statefulset.priorityClassName }}
+    {{- end }}
     {{- with .Values.statefulset.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
     {{- end }}
