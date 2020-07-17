@@ -187,9 +187,14 @@ statefulset:
   # https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#nodeselector
   nodeSelector: {}
 
+  # PriorityClassName given to Pods of this StatefulSet
+  # https://kubernetes.io/docs/concepts/configuration/pod-priority-preemption/#priorityclass
+  priorityClassName: ""
+
   # Taints to be tolerated by Pods of this StatefulSet.
   # https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
   tolerations: []
+
 
   # Uncomment the following resources definitions or pass them from
   # command line to control the CPU and memory resources allocated
@@ -242,6 +247,19 @@ service:
     # Additional annotations to apply to this Service.
     annotations: {}
 
+# CockroachDB's ingress for web ui.
+ingress:
+  enabled: false
+  labels: {}
+  annotations: {}
+  #   kubernetes.io/ingress.class: nginx
+  #   cert-manager.io/cluster-issuer: letsencrypt
+  paths: [/]
+  hosts: []
+  # - cockroachlabs.com
+  tls: []
+  # - hosts: [cockroachlabs.com]
+  #   secretName: cockroachlabs-tls
 
 # CockroachDB's data persistence.
 # If neither `persistentVolume` nor `hostPath` is used, then data will be
