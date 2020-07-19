@@ -13,7 +13,7 @@ Note that the documentation requires Helm 3.0 or higher.
 
 * Kubernetes 1.8
 * PV support on the underlying infrastructure (only if using `storage.persistentVolume`). [Docker for windows hostpath provisioner is not supported](https://github.com/cockroachdb/docs/issues/3184).
-* If you want to secure your cluster to use TLS certificates for all network communication, [Helm must be installed with RBAC privileges](https://github.com/kubernetes/helm/blob/master/docs/rbac.md) or else you will get an "attempt to grant extra privileges" error.
+* If you want to secure your cluster to use TLS certificates for all network communication, [Helm must be installed with RBAC privileges](https://helm.sh/docs/topics/rbac/) or else you will get an "attempt to grant extra privileges" error.
 
 ## StatefulSet Details
 
