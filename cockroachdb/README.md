@@ -371,6 +371,10 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.clientRootSecret`                              | If certs are provided, secret name for client root cert         | `cockroachdb-root`                               |
 | `tls.certs.nodeSecret`                                    | If certs are provided, secret name for node cert                | `cockroachdb-node`                               |
 | `tls.certs.tlsSecret`                                     | Own certs are stored in TLS secret                              | `no`                                             |
+| `tls.certs.certManager`                                   | Provision certificates with cert-manager                        | `false`                                          |
+| `tls.certs.certManagerIssuer.group`                       | IssuerRef group to use when generating certificates             | `cert-manager.io`                                |
+| `tls.certs.certManagerIssuer.kind`                        | IssuerRef kind to use when generating certificates              | `Issuer`                                         |
+| `tls.certs.certManagerIssuer.name`                        | IssuerRef name to use when generating certificates              | `cockroachdb`                                    |
 | `tls.init.image.repository`                               | Image to use for requesting TLS certificates                    | `cockroachdb/cockroach-k8s-request-cert`         |
 | `tls.init.image.tag`                                      | Image tag to use for requesting TLS certificates                | `0.4`                                            |
 | `tls.init.image.pullPolicy`                               | Requesting TLS certificates container pull policy               | `IfNotPresent`                                   |
