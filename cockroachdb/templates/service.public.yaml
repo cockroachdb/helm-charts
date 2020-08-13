@@ -8,7 +8,7 @@ metadata:
   namespace: {{ .Release.Namespace | quote }}
   labels:
     helm.sh/chart: {{ template "cockroachdb.chart" . }}
-    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}-public
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
   {{- with .Values.service.public.labels }}
