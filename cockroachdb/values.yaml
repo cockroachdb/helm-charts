@@ -263,7 +263,7 @@ ingress:
 
 # CockroachDB's Prometheus operator ServiceMonitor support
 serviceMonitor:
-  enabled: true
+  enabled: false
   labels: {}
   annotations: {}
   interval: 10s
