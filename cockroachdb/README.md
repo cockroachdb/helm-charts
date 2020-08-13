@@ -13,7 +13,7 @@ Note that the documentation requires Helm 3.0 or higher.
 
 * Kubernetes 1.8
 * PV support on the underlying infrastructure (only if using `storage.persistentVolume`). [Docker for windows hostpath provisioner is not supported](https://github.com/cockroachdb/docs/issues/3184).
-* If you want to secure your cluster to use TLS certificates for all network communication, [Helm must be installed with RBAC privileges](https://github.com/kubernetes/helm/blob/master/docs/rbac.md) or else you will get an "attempt to grant extra privileges" error.
+* If you want to secure your cluster to use TLS certificates for all network communication, [Helm must be installed with RBAC privileges](https://helm.sh/docs/topics/rbac/) or else you will get an "attempt to grant extra privileges" error.
 
 ## StatefulSet Details
 
@@ -175,10 +175,10 @@ kubectl get pods \
 ```
 
 ```
-my-release-cockroachdb-0    cockroachdb/cockroach:v20.1.3
-my-release-cockroachdb-1    cockroachdb/cockroach:v20.1.3
-my-release-cockroachdb-2    cockroachdb/cockroach:v20.1.3
-my-release-cockroachdb-3    cockroachdb/cockroach:v20.1.3
+my-release-cockroachdb-0    cockroachdb/cockroach:v20.1.4
+my-release-cockroachdb-1    cockroachdb/cockroach:v20.1.4
+my-release-cockroachdb-2    cockroachdb/cockroach:v20.1.4
+my-release-cockroachdb-3    cockroachdb/cockroach:v20.1.4
 ```
 
 Resume normal operations. Once you are comfortable that the stability and performance of the cluster is what you'd expect post-upgrade, finalize the upgrade:
@@ -257,7 +257,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.port`                              | CockroachDB primary serving port in Pods                        | `26257`                                          |
 | `conf.http-port`                         | CockroachDB HTTP port in Pods                                   | `8080`                                           |
 | `image.repository`                       | Container image name                                            | `cockroachdb/cockroach`                          |
-| `image.tag`                              | Container image tag                                             | `v20.1.3`                                        |
+| `image.tag`                              | Container image tag                                             | `v20.1.4`                                        |
 | `image.pullPolicy`                       | Container pull policy                                           | `IfNotPresent`                                   |
 | `image.credentials`                      | `registry`, `user` and `pass` credentials to pull private image | `{}`                                             |
 | `statefulset.replicas`                   | StatefulSet replicas number                                     | `3`                                              |
