@@ -225,22 +225,10 @@ service:
       port: 8080
       name: http
 
-    metrics:
-      port: 8080
-      name: metrics
-
   # This Service is meant to be used by clients of the database.
   # It exposes a ClusterIP that will automatically load balance connections
   # to the different database Pods.
   public:
-    type: ClusterIP
-    # Additional labels to apply to this Service.
-    labels:
-      app.kubernetes.io/component: cockroachdb
-    # Additional annotations to apply to this Service.
-    annotations: {}
-
-  metrics:
     type: ClusterIP
     # Additional labels to apply to this Service.
     labels:
@@ -273,16 +261,13 @@ ingress:
   # - hosts: [cockroachlabs.com]
   #   secretName: cockroachlabs-tls
 
-# CockroachDB's metrics service
-metrics:
-  enabled: false
-  # CockroachDB's Prometheus operator ServiceMonitor support
-  serviceMonitor:
-    enabled: false
-    labels: {}
-    annotations: {}
-    interval: 30s
-    # scrapeTimeout: 10s
+# CockroachDB's Prometheus operator ServiceMonitor support
+serviceMonitor:
+  enabled: true
+  labels: {}
+  annotations: {}
+  interval: 10s
+  # scrapeTimeout: 10s
 
 # CockroachDB's data persistence.
 # If neither `persistentVolume` nor `hostPath` is used, then data will be
