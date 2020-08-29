@@ -118,6 +118,10 @@ spec:
               [[ "$initOUT" == *"cluster has already been initialized"* ]] && exit 0;
               sleep 5;
               done
+          env:
+          {{- with .Values.statefulset.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
         {{- if .Values.tls.enabled }}
           volumeMounts:
             - name: client-certs
