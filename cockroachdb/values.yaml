@@ -176,6 +176,9 @@ statefulset:
   # You may either toggle options below for default anti-affinity rules,
   # or specify the whole set of anti-affinity rules instead of them.
   podAntiAffinity:
+    # The topologyKey to be used.
+    # Can be used to spread across different nodes, AZs, regions etc.
+    topologyKey: kubernetes.io/hostname
     # Type of anti-affinity rules: either `soft`, `hard` or empty value (which
     # disables anti-affinity rules).
     type: soft
