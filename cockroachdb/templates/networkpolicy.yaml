@@ -23,10 +23,9 @@ spec:
   ingress:
     - ports:
         - port: grpc
-    {{- with .Values.networkPolicy.ingress.grpc }}
       from:
         # Allow connections via custom rules.
-        {{- toYaml . | nindent 8 }}
+        {{- toYaml .Values.networkPolicy.ingress.grpc | nindent 8 }}
         # Allow client connection via pre-considered label.
         - podSelector:
             matchLabels:
@@ -49,7 +48,6 @@ spec:
               {{- toYaml . | nindent 14 }}
             {{- end }}
       {{- end }}
-    {{- end }}
     # Allow connections to admin UI and for Prometheus.
     - ports:
         - port: http
