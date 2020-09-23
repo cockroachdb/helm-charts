@@ -220,7 +220,6 @@ service:
         port: 26257
         # If using Istio set it to `cockroach`.
         name: grpc-internal
-
     http:
       port: 8080
       name: http
