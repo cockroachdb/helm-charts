@@ -1,0 +1,46 @@
+{{- $serviceMonitor := .Values.serviceMonitor -}}
+{{- $ports := .Values.service.ports -}}
+{{- if $serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ template "cockroachdb.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+  {{- if $serviceMonitor.labels }}
+    {{ toYaml $serviceMonitor.labels | nindent 4 }}
+  {{- end }}
+  {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if $serviceMonitor.annotations }}
+  annotations:
+    {{ toYaml $serviceMonitor.annotations | nindent 4 }}
+  {{- end }}
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    {{- with .Values.service.discovery.labels }}
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+    {{- with .Values.labels }}
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  namespaceSelector:
+    any: true
+  endpoints:
+  - port: {{ $ports.http.name | quote }}
+    path: /_status/vars
+    {{- if $serviceMonitor.interval }}
+    interval: {{ $serviceMonitor.interval }}
+    {{- end }}
+    {{- if $serviceMonitor.scrapeTimeout }}
+    scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
+    {{- end }}
+{{- end }}

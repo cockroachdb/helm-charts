@@ -289,6 +289,18 @@ For details see the [`values.yaml`](values.yaml) file.
 | `service.public.annotations`             | Additional annotations of public Service                        | `{}`                                             |
 | `service.discovery.labels`               | Additional labels of discovery Service                          | `{"app.kubernetes.io/component": "cockroachdb"}` |
 | `service.discovery.annotations`          | Additional annotations of discovery Service                     | `{}`                                             |
+| `ingress.enabled`                        | Enable ingress resource for CockroachDB                     | `false`                                             |
+| `ingress.labels`                         | Additional labels of Ingress                     | `{}`                                             |
+| `ingress.annotations`                    | Additional annotations of Ingress                     | `{}`                                             |
+| `ingress.paths`                          | Paths for the default host                     | `[/]`                                             |
+| `ingress.hosts`                          | CockroachDB Ingress hostnames                     | `[]`                                             |
+| `ingress.tls[0].hosts`                   | CockroachDB Ingress tls hostnames                     | `nil`                                             |
+| `ingress.tls[0].secretName`              | CockroachDB Ingress tls secret name                     | `nil`                                             |
+| `serviceMonitor.enabled`                 | Create [ServiceMonitor](https://github.com/prometheus-operator/prometheus-operator/blob/master/Documentation/design.md#servicemonitor) Resource for scraping metrics using [PrometheusOperator](https://github.com/prometheus-operator/prometheus-operator/blob/master/Documentation/user-guides/getting-started.md#prometheus-operator)                     | `false`                                             |
+| `serviceMonitor.labels`                  | Additional labels of ServiceMonitor                     | `{}`                                             |
+| `serviceMonitor.annotations`             | Additional annotations of ServiceMonitor                     | `{}`                                             |
+| `serviceMonitor.interval`                | ServiceMonitor scrape metrics interval                     | `10s`                                             |
+| `serviceMonitor.scrapeTimeout`           | ServiceMonitor scrape timeout                     | `nil`                                             |
 | `storage.hostPath`                       | Absolute path on host to store data                             | `""`                                             |
 | `storage.persistentVolume.enabled`       | Whether to use PersistentVolume to store data                   | `yes`                                            |
 | `storage.persistentVolume.size`          | PersistentVolume size                                           | `100Gi`                                          |

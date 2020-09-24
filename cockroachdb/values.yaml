@@ -207,7 +207,6 @@ statefulset:
     #   cpu: 100m
     #   memory: 512Mi
 
-
 service:
   ports:
     # You can set a different external and internal gRPC ports and their name.
@@ -260,6 +259,14 @@ ingress:
   tls: []
   # - hosts: [cockroachlabs.com]
   #   secretName: cockroachlabs-tls
+
+# CockroachDB's Prometheus operator ServiceMonitor support
+serviceMonitor:
+  enabled: false
+  labels: {}
+  annotations: {}
+  interval: 10s
+  # scrapeTimeout: 10s
 
 # CockroachDB's data persistence.
 # If neither `persistentVolume` nor `hostPath` is used, then data will be
