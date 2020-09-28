@@ -198,6 +198,11 @@ statefulset:
   # https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
   tolerations: []
 
+  # https://kubernetes.io/docs/concepts/workloads/pods/pod-topology-spread-constraints/
+  topologySpreadConstraints:
+    maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
 
   # Uncomment the following resources definitions or pass them from
   # command line to control the CPU and memory resources allocated
