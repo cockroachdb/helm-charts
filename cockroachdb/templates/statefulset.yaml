@@ -197,8 +197,12 @@ spec:
               --http-port={{ index .Values.conf `http-port` | int64 }}
               --port={{ .Values.conf.port | int64 }}
               --cache={{ .Values.conf.cache }}
-              --max-disk-temp-storage={{ index .Values.conf `max-disk-temp-storage` }}
-              --max-offset={{ index .Values.conf `max-offset` }}
+            {{- with index .Values.conf `max-disk-temp-storage` }}
+              --max-disk-temp-storage={{ . }}
+            {{- end }}
+            {{- with index .Values.conf `max-offset` }}
+              --max-offset={{ . }}
+            {{- end }}
               --max-sql-memory={{ index .Values.conf `max-sql-memory` }}
             {{- with .Values.conf.locality }}
               --locality={{ . }}

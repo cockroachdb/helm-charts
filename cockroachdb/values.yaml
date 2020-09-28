@@ -78,7 +78,7 @@ conf:
   # temporary "disk" data is also kept in-memory.
   # A percentage value is interpreted as a percentage of the available internal
   # memory.
-  max-disk-temp-storage: 0
+  # max-disk-temp-storage: 0GB
 
   # Maximum allowed clock offset for the cluster. If observed clock offsets
   # exceed this limit, servers will crash to minimize the likelihood of
@@ -88,7 +88,7 @@ conf:
   # Note, that this value must be the same on all nodes in the cluster.
   # In order to change it, all nodes in the cluster must be stopped
   # simultaneously and restarted with the new value.
-  max-offset: 500ms
+  # max-offset: 500ms
 
   # Maximum memory capacity available to store temporary data for SQL clients,
   # including prepared queries and intermediate data rows during query

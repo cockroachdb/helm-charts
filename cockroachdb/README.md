@@ -248,8 +248,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.cluster-name`                      | Name of CockroachDB cluster                                     | `""`                                             |
 | `conf.disable-cluster-name-verification` | Disable CockroachDB cluster name verification                   | `no`                                             |
 | `conf.join`                              | List of already-existing CockroachDB instances                  | `[]`                                             |
-| `conf.max-disk-temp-storage`             | Max storage capacity for temp data                              | `0`                                              |
-| `conf.max-offset`                        | Max allowed clock offset for CockroachDB cluster                | `500ms`                                          |
+| `conf.max-disk-temp-storage`             | Max storage capacity for temp data                              | `nil`                                              |
+| `conf.max-offset`                        | Max allowed clock offset for CockroachDB cluster                | `nil`                                          |
 | `conf.max-sql-memory`                    | Max memory to use processing SQL querie                         | `25%`                                            |
 | `conf.locality`                          | Locality attribute for this deployment                          | `""`                                             |
 | `conf.single-node`                       | Disable CockroachDB clustering (standalone mode)                | `no`                                             |
