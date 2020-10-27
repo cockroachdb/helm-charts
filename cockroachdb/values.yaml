@@ -207,6 +207,20 @@ statefulset:
     #   cpu: 100m
     #   memory: 512Mi
 
+  # The init container generates CSRs and exposes the cluster CA's cert to the pod.
+  # It finishes quickly and doesn't continue to consume resources in the Kubernetes
+  # cluster. Normally, you should leave this section commented out, but if your
+  # Kubernetes cluster uses Resource Quotas and requires all pods to specify
+  # resource requests or limits, you can set those here.
+  init:
+    resources: {}
+      # requests:
+      #   cpu: "10m"
+      #   memory: "128Mi"
+      # limits:
+      #   cpu: "10m"
+      #   memory: "128Mi"
+
 service:
   ports:
     # You can set a different external and internal gRPC ports and their name.

@@ -87,6 +87,9 @@ spec:
           volumeMounts:
             - name: certs
               mountPath: /cockroach-certs/
+        {{- with .Values.statefulset.init.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+        {{- end }}
       {{- end }}
     {{- end }}
     {{- if or .Values.statefulset.nodeAffinity .Values.statefulset.podAffinity .Values.statefulset.podAntiAffinity }}
