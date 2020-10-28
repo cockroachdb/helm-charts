@@ -248,9 +248,9 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.cluster-name`                      | Name of CockroachDB cluster                                     | `""`                                             |
 | `conf.disable-cluster-name-verification` | Disable CockroachDB cluster name verification                   | `no`                                             |
 | `conf.join`                              | List of already-existing CockroachDB instances                  | `[]`                                             |
-| `conf.max-disk-temp-storage`             | Max storage capacity for temp data                              | `nil`                                              |
-| `conf.max-offset`                        | Max allowed clock offset for CockroachDB cluster                | `nil`                                          |
-| `conf.max-sql-memory`                    | Max memory to use processing SQL querie                         | `25%`                                            |
+| `conf.max-disk-temp-storage`             | Max storage capacity for temp data                              | `nil`                                            |
+| `conf.max-offset`                        | Max allowed clock offset for CockroachDB cluster                | `nil`                                            |
+| `conf.max-sql-memory`                    | Max memory to use processing SQL queries                        | `25%`                                            |
 | `conf.locality`                          | Locality attribute for this deployment                          | `""`                                             |
 | `conf.single-node`                       | Disable CockroachDB clustering (standalone mode)                | `no`                                             |
 | `conf.sql-audit-dir`                     | Directory for SQL audit log                                     | `""`                                             |
@@ -278,6 +278,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `statefulset.priorityClassName`          | [PriorityClassName][4] for StatefulSet Pods                     | `""`                                             |
 | `statefulset.tolerations`                | Node taints to tolerate by StatefulSet Pods                     | `[]`                                             |
 | `statefulset.resources`                  | Resource requests and limits for StatefulSet Pods               | `{}`                                             |
+| `statefulset.init.resources`             | Resource requests and limits for StatefulSet Pod init containers| `{}`                                             |
 | `service.ports.grpc.external.port`       | CockroachDB primary serving port in Services                    | `26257`                                          |
 | `service.ports.grpc.external.name`       | CockroachDB primary serving port name in Services               | `grpc`                                           |
 | `service.ports.grpc.internal.port`       | CockroachDB inter-communication port in Services                | `26257`                                          |
