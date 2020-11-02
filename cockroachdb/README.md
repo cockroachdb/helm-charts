@@ -272,6 +272,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `statefulset.nodeAffinity`               | [Node affinity rules][2] of StatefulSet Pods                    | `{}`                                             |
 | `statefulset.podAffinity`                | [Inter-Pod affinity rules][1] of StatefulSet Pods               | `{}`                                             |
 | `statefulset.podAntiAffinity`            | [Anti-affinity rules][1] of StatefulSet Pods                    | auto                                             |
+| `statefulset.podAntiAffinity.topologyKey`| The topologyKey for auto [anti-affinity rules][1]               | `kubernetes.io/hostname`                         |
 | `statefulset.podAntiAffinity.type`       | Type of auto [anti-affinity rules][1]                           | `soft`                                           |
 | `statefulset.podAntiAffinity.weight`     | Weight for `soft` auto [anti-affinity rules][1]                 | `100`                                            |
 | `statefulset.nodeSelector`               | Node labels for StatefulSet Pods assignment                     | `{}`                                             |
