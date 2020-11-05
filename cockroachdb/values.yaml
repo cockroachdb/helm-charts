@@ -1,6 +1,6 @@
 image:
   repository: cockroachdb/cockroach
-  tag: v20.1.7
+  tag: v20.1.8
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
@@ -176,6 +176,9 @@ statefulset:
   # You may either toggle options below for default anti-affinity rules,
   # or specify the whole set of anti-affinity rules instead of them.
   podAntiAffinity:
+    # The topologyKey to be used.
+    # Can be used to spread across different nodes, AZs, regions etc.
+    topologyKey: kubernetes.io/hostname
     # Type of anti-affinity rules: either `soft`, `hard` or empty value (which
     # disables anti-affinity rules).
     type: soft
@@ -195,6 +198,11 @@ statefulset:
   # https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
   tolerations: []
 
+  # https://kubernetes.io/docs/concepts/workloads/pods/pod-topology-spread-constraints/
+  topologySpreadConstraints:
+    maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
 
   # Uncomment the following resources definitions or pass them from
   # command line to control the CPU and memory resources allocated
