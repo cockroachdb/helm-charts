@@ -1,5 +1,6 @@
 {{- $serviceMonitor := .Values.serviceMonitor -}}
 {{- $ports := .Values.service.ports -}}
+{{- $tlsEnabled := .Values.tls.enabled -}}
 {{- if $serviceMonitor.enabled }}
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -42,5 +43,9 @@ spec:
     {{- end }}
     {{- if $serviceMonitor.scrapeTimeout }}
     scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
+    {{- end }}
+    {{- if $tlsEnabled }}
+    tlsConfig:
+      insecureSkipVerify: true
     {{- end }}
 {{- end }}
