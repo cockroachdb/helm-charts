@@ -1,0 +1,6 @@
+# Artifact Hub repository metadata file
+# Template here: https://github.com/artifacthub/hub/blob/master/docs/metadata/artifacthub-repo.yml
+repositoryID: 512b17d4-7376-4d95-9f9c-8d24ba964cab
+owners:
+  - name: cockroachlabs
+    email: helm-charts@cockroachlabs.com
