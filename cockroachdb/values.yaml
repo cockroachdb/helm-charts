@@ -254,6 +254,27 @@ service:
     # Additional annotations to apply to this Service.
     annotations: {}
 
+
+users:
+- name: test
+  password: test
+  options: [LOGIN]
+- name: test2
+  options: [LOGIN, CREATEROLE]
+
+
+databases:
+- name: test
+  options: [encoding='utf-8', connection limit=-1]
+  owners: [admin]
+  backup:
+    into: s3:whatever
+    options: [revision_history, encryption_passphrase=123]
+    recurring: '@always'
+    schedule:
+      options: [first_run = 'now']
+- name: test2
+
 # CockroachDB's ingress for web ui.
 ingress:
   enabled: false
