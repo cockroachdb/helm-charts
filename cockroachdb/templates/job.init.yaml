@@ -134,7 +134,7 @@ spec:
                 done
               }
 
-              initCluster
+              initCluster;
             {{- end }}
 
             {{- if $isDatabaseInitEnabled }}
@@ -205,7 +205,7 @@ spec:
                 echo $output;
               }
 
-              initDatabases
+              initDatabases;
             {{- end }}
         {{- if .Values.tls.enabled }}
           volumeMounts:
