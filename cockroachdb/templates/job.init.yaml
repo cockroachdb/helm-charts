@@ -1,4 +1,6 @@
-{{- if and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`)) }}
+{{ $isMultinodeCluster := and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`)) }}
+{{ $isDatabaseInitEnabled := .Values.init.database.enabled }}
+{{- if or $isMultinodeCluster $isDatabaseInitEnabled }}
 kind: Job
 apiVersion: batch/v1
 metadata:
@@ -86,6 +88,7 @@ spec:
         - name: cluster-init
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          # TODO: COMMENT
           # Run the command in an `while true` loop because this Job is bound
           # to come up before the CockroachDB Pods (due to the time needed to
           # get PersistentVolumes attached to Nodes), and sleeping 5 seconds
@@ -95,29 +98,112 @@ spec:
           # Command completes either when cluster initialization succeeds,
           # or when cluster has been initialized already.
           command:
-            - /bin/bash
-            - -c
-            - >-
-              while true; do
-              initOUT=$(set -x;
-              /cockroach/cockroach init
-              {{- if .Values.tls.enabled }}
-              --certs-dir=/cockroach-certs/
-              {{- else }}
-              --insecure
-              {{- end }}
-              {{- with index .Values.conf "cluster-name" }}
-              --cluster-name={{.}}
-              {{- end }}
-              --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
-                     :{{ .Values.service.ports.grpc.internal.port | int64 }}
-              2>&1);
-              initRC="$?";
-              echo $initOUT;
-              [[ "$initRC" == "0" ]] && exit 0;
-              [[ "$initOUT" == *"cluster has already been initialized"* ]] && exit 0;
-              sleep 5;
-              done
+          - /bin/bash
+          - -c
+          - >-
+            {{- if $isMultinodeCluster }}
+              initCluster() {
+                while true; do
+                  local output=$(
+                    set -x;
+
+                    /cockroach/cockroach init
+                      {{- if .Values.tls.enabled }}
+                      --certs-dir=/cockroach-certs/
+                      {{- else }}
+                      --insecure
+                      {{- end }}
+                      {{- with index .Values.conf "cluster-name" }}
+                      --cluster-name={{.}}
+                      {{- end }}
+                      --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
+                              :{{ .Values.service.ports.grpc.internal.port | int64 }}
+                  2>&1);
+
+                  local returnCode="$?";
+                  echo $output;
+
+                  if [[ "$returnCode" == "0" || "$output" == *"cluster has already been initialized"* ]]
+                    then break;
+                  fi
+
+                  sleep 5;
+                done
+              }
+
+              initCluster
+            {{- end }}
+
+            {{- if $isDatabaseInitEnabled }}
+              initDatabases() {
+                local output=$(
+                  set -x;
+
+                  /cockroach/cockroach sql
+                    {{- if .Values.tls.enabled }}
+                    --certs-dir=/cockroach-certs/
+                    {{- else }}
+                    --insecure
+                    {{- end }}
+                    {{- with index .Values.conf "cluster-name" }}
+                    --cluster-name={{.}}
+                    {{- end }}
+                    --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
+                            :{{ .Values.service.ports.grpc.internal.port | int64 }}
+                    --execute="
+                      {{- if .Values.init.database.organization }}
+                        SET CLUSTER SETTING cluster.organization = '{{ .Values.init.organization }}';
+                      {{- end }}
+
+                      {{- if .Values.init.database.license }}
+                        SET CLUSTER SETTING enterprise.license = '{{ .Values.init.license }}';
+                      {{- end }}
+
+                      {{- range $user := .Values.init.database.users }}
+                        CREATE USER IF NOT EXISTS {{ $user.name }} WITH
+                        {{- if $user.password }}
+                          PASSWORD '{{ $user.password }}'
+                        {{- else }}
+                          PASSWORD null
+                        {{- end }}
+                          {{ join " " $user.options }}
+                        ;
+                      {{- end }}
+
+                      {{- range $database := .Values.init.database.databases }}
+                        CREATE DATABASE IF NOT EXISTS '{{ $database.name }}'
+                          {{- if $database.options }}
+                            {{ join " " $database.options }}
+                          {{- end }}
+                        ;
+
+                      {{- range $owner := $database.owners }}
+                        GRANT ALL ON DATABASE '{{ $database.name }}' TO {{ $owner }};
+                      {{- end }}
+
+                      {{- if $database.backup }}
+                        CREATE SCHEDULE {{ $database.name }}_scheduled_backup
+                          FOR BACKUP DATABASE '{{ $database.name }}' INTO '{{ $database.backup.into }}'
+
+                        {{- if $database.backup.options }}
+                          WITH {{ join "," $database.backup.options }}
+                        {{- end }}
+                          RECURRING '{{ $database.backup.recurring }}' FULL BACKUP ALWAYS
+
+                        {{- if and $database.backup.schedule $database.backup.schedule.options }}
+                          WITH SCHEDULE OPTIONS {{ join "," $database.backup.schedule.options }}
+                        {{- end }}
+                        ;
+                      {{- end }}
+                      {{- end }}
+                    "
+                  2>&1);
+
+                echo $output;
+              }
+
+              initDatabases
+            {{- end }}
         {{- if .Values.tls.enabled }}
           volumeMounts:
             - name: client-certs

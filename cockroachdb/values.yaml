@@ -255,26 +255,6 @@ service:
     annotations: {}
 
 
-users:
-- name: test
-  password: test
-  options: [LOGIN]
-- name: test2
-  options: [LOGIN, CREATEROLE]
-
-
-databases:
-- name: test
-  options: [encoding='utf-8', connection limit=-1]
-  owners: [admin]
-  backup:
-    into: s3:whatever
-    options: [revision_history, encryption_passphrase=123]
-    recurring: '@always'
-    schedule:
-      options: [first_run = 'now']
-- name: test2
-
 # CockroachDB's ingress for web ui.
 ingress:
   enabled: false
@@ -361,6 +341,29 @@ init:
     # limits:
     #   cpu: "10m"
     #   memory: "128Mi"
+
+  # TODO: dbms? cluster? provisioning? initialization? configuration?
+  database:
+    enabled: true
+    organization: org
+    license: license
+    users:
+    - name: test
+      password: test
+      options: [LOGIN]
+    - name: test2
+      options: [LOGIN, CREATEROLE]
+    databases:
+    - name: test
+      options: [encoding='utf-8', connection limit=-1]
+      owners: [admin]
+      backup:
+        into: s3:whatever
+        options: [revision_history, encryption_passphrase=123]
+        recurring: '@always'
+        schedule:
+          options: [first_run = 'now']
+    - name: test2
 
 
 # Whether to run securely using TLS certificates.
