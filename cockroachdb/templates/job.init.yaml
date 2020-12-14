@@ -211,7 +211,6 @@ spec:
                     2>&1);
 
                   local returnCode="$?";
-                  echo $output;
 
                   if [[ "$returnCode" == "0" || "$output" == *"Provisioning completed successfully"* ]]
                     then break;
