@@ -139,70 +139,81 @@ spec:
 
             {{- if $isDatabaseInitEnabled }}
               initDatabases() {
-                local output=$(
-                  set -x;
+                while true; do
+                  local output=$(
+                    set -x;
 
-                  /cockroach/cockroach sql \
-                    {{- if .Values.tls.enabled }}
-                    --certs-dir=/cockroach-certs/ \
-                    {{- else }}
-                    --insecure \
-                    {{- end }}
-                    {{- with index .Values.conf "cluster-name" }}
-                    --cluster-name={{.}} \
-                    {{- end }}
-                    --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
-                            :{{ .Values.service.ports.grpc.internal.port | int64 }} \
-                    --execute="
-                      {{- if .Values.init.database.organization }}
-                        SET CLUSTER SETTING cluster.organization = '{{ .Values.init.database.organization }}';
+                    /cockroach/cockroach sql \
+                      {{- if .Values.tls.enabled }}
+                      --certs-dir=/cockroach-certs/ \
+                      {{- else }}
+                      --insecure \
                       {{- end }}
-
-                      {{- if .Values.init.database.license }}
-                        SET CLUSTER SETTING enterprise.license = '{{ .Values.init.database.license }}';
+                      {{- with index .Values.conf "cluster-name" }}
+                      --cluster-name={{.}} \
                       {{- end }}
-
-                      {{- range $user := .Values.init.database.users }}
-                        CREATE USER IF NOT EXISTS {{ $user.name }} WITH
-                        {{- if $user.password }}
-                          PASSWORD '{{ $user.password }}'
-                        {{- else }}
-                          PASSWORD null
+                      --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
+                              :{{ .Values.service.ports.grpc.internal.port | int64 }} \
+                      --execute="
+                        {{- if .Values.init.database.organization }}
+                          SET CLUSTER SETTING cluster.organization = '{{ .Values.init.database.organization }}';
                         {{- end }}
-                          {{ join " " $user.options }}
-                        ;
-                      {{- end }}
 
-                      {{- range $database := .Values.init.database.databases }}
-                        CREATE DATABASE IF NOT EXISTS {{ $database.name }}
-                          {{- if $database.options }}
-                            {{ join " " $database.options }}
+                        {{- if .Values.init.database.license }}
+                          SET CLUSTER SETTING enterprise.license = '{{ .Values.init.database.license }}';
+                        {{- end }}
+
+                        {{- range $user := .Values.init.database.users }}
+                          CREATE USER IF NOT EXISTS {{ $user.name }} WITH
+                          {{- if $user.password }}
+                            PASSWORD '{{ $user.password }}'
+                          {{- else }}
+                            PASSWORD null
                           {{- end }}
-                        ;
-
-                      {{- range $owner := $database.owners }}
-                        GRANT ALL ON DATABASE {{ $database.name }} TO {{ $owner }};
-                      {{- end }}
-
-                      {{- if $database.backup }}
-                        CREATE SCHEDULE {{ $database.name }}_scheduled_backup
-                          FOR BACKUP DATABASE {{ $database.name }} INTO '{{ $database.backup.into }}'
-
-                        {{- if $database.backup.options }}
-                          WITH {{ join "," $database.backup.options }}
+                            {{ join " " $user.options }}
+                          ;
                         {{- end }}
-                          RECURRING '{{ $database.backup.recurring }}' FULL BACKUP ALWAYS
 
-                        {{- if and $database.backup.schedule $database.backup.schedule.options }}
-                          WITH SCHEDULE OPTIONS {{ join "," $database.backup.schedule.options }}
+                        {{- range $database := .Values.init.database.databases }}
+                          CREATE DATABASE IF NOT EXISTS {{ $database.name }}
+                            {{- if $database.options }}
+                              {{ join " " $database.options }}
+                            {{- end }}
+                          ;
+
+                        {{- range $owner := $database.owners }}
+                          GRANT ALL ON DATABASE {{ $database.name }} TO {{ $owner }};
                         {{- end }}
-                        ;
-                      {{- end }}
-                      {{- end }}
-                    "
-                  2>&1);
 
-                echo $output;
+                        {{- if $database.backup }}
+                          CREATE SCHEDULE {{ $database.name }}_scheduled_backup
+                            FOR BACKUP DATABASE {{ $database.name }} INTO '{{ $database.backup.into }}'
+
+                          {{- if $database.backup.options }}
+                            WITH {{ join "," $database.backup.options }}
+                          {{- end }}
+                            RECURRING '{{ $database.backup.recurring }}' FULL BACKUP ALWAYS
+
+                          {{- if and $database.backup.schedule $database.backup.schedule.options }}
+                            WITH SCHEDULE OPTIONS {{ join "," $database.backup.schedule.options }}
+                          {{- end }}
+                          ;
+                        {{- end }}
+                        {{- end }}
+
+                        SELECT 'Provisioning completed successfully';
+                      "
+                    2>&1);
+
+                  local returnCode="$?";
+                  echo $output;
+
+                  if [[ "$returnCode" == "0" || "$output" == *"Provisioning completed successfully"* ]]
+                    then break;
+                  fi
+
+                  sleep 5;
+                done
               }
 
               initDatabases;
