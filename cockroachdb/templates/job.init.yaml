@@ -152,11 +152,11 @@ spec:
                             :{{ .Values.service.ports.grpc.internal.port | int64 }}
                     --execute="
                       {{- if .Values.init.database.organization }}
-                        SET CLUSTER SETTING cluster.organization = '{{ .Values.init.organization }}';
+                        SET CLUSTER SETTING cluster.organization = '{{ .Values.init.database.organization }}';
                       {{- end }}
 
                       {{- if .Values.init.database.license }}
-                        SET CLUSTER SETTING enterprise.license = '{{ .Values.init.license }}';
+                        SET CLUSTER SETTING enterprise.license = '{{ .Values.init.database.license }}';
                       {{- end }}
 
                       {{- range $user := .Values.init.database.users }}
