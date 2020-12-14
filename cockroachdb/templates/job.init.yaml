@@ -110,14 +110,14 @@ spec:
                   local output=$(
                     set -x;
 
-                    /cockroach/cockroach init
+                    /cockroach/cockroach init \
                       {{- if .Values.tls.enabled }}
-                      --certs-dir=/cockroach-certs/
+                      --certs-dir=/cockroach-certs/ \
                       {{- else }}
-                      --insecure
+                      --insecure \
                       {{- end }}
                       {{- with index .Values.conf "cluster-name" }}
-                      --cluster-name={{.}}
+                      --cluster-name={{.}} \
                       {{- end }}
                       --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
                               :{{ .Values.service.ports.grpc.internal.port | int64 }}
@@ -142,17 +142,17 @@ spec:
                 local output=$(
                   set -x;
 
-                  /cockroach/cockroach sql
+                  /cockroach/cockroach sql \
                     {{- if .Values.tls.enabled }}
-                    --certs-dir=/cockroach-certs/
+                    --certs-dir=/cockroach-certs/ \
                     {{- else }}
-                    --insecure
+                    --insecure \
                     {{- end }}
                     {{- with index .Values.conf "cluster-name" }}
-                    --cluster-name={{.}}
+                    --cluster-name={{.}} \
                     {{- end }}
                     --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
-                            :{{ .Values.service.ports.grpc.internal.port | int64 }}
+                            :{{ .Values.service.ports.grpc.internal.port | int64 }} \
                     --execute="
                       {{- if .Values.init.database.organization }}
                         SET CLUSTER SETTING cluster.organization = '{{ .Values.init.database.organization }}';
