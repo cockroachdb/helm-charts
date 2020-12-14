@@ -166,7 +166,7 @@ spec:
                         {{- range $user := .Values.init.database.users }}
                           CREATE USER IF NOT EXISTS {{ $user.name }} WITH
                           {{- if $user.password }}
-                            PASSWORD '{{ $user.password }}'
+                            PASSWORD '${{ $user.password }}_PASSWORD'
                           {{- else }}
                             PASSWORD null
                           {{- end }}
@@ -218,6 +218,14 @@ spec:
 
               initDatabases;
             {{- end }}
+          env:
+        {{- range $user := .Values.init.database.users }}
+          - name: {{ $user.name }}_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ template "cockroachdb.fullname" . }}-init
+                key: users.{{ $user.name }}_PASSWORD
+        {{- end }}
         {{- if .Values.tls.enabled }}
           volumeMounts:
             - name: client-certs
