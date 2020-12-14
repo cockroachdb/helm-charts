@@ -192,7 +192,12 @@ spec:
                           {{- if $database.backup.options }}
                             WITH {{ join "," $database.backup.options }}
                           {{- end }}
-                            RECURRING '{{ $database.backup.recurring }}' FULL BACKUP ALWAYS
+                            RECURRING '{{ $database.backup.recurring }}'
+                          {{- if $database.backup.fullBackup }}
+                            FULL BACKUP '{{ $database.backup.fullBackup }}'
+                          {{- else }}
+                            FULL BACKUP ALWAYS
+                          {{- end }}
 
                           {{- if and $database.backup.schedule $database.backup.schedule.options }}
                             WITH SCHEDULE OPTIONS {{ join "," $database.backup.schedule.options }}

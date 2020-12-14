@@ -361,6 +361,7 @@ init:
         into: s3:whatever
         options: [revision_history, encryption_passphrase=123]
         recurring: '@always'
+        fullBackup: '@daily'
         schedule:
           options: [first_run = 'now']
     - name: test2
