@@ -174,19 +174,19 @@ spec:
                       {{- end }}
 
                       {{- range $database := .Values.init.database.databases }}
-                        CREATE DATABASE IF NOT EXISTS '{{ $database.name }}'
+                        CREATE DATABASE IF NOT EXISTS {{ $database.name }}
                           {{- if $database.options }}
                             {{ join " " $database.options }}
                           {{- end }}
                         ;
 
                       {{- range $owner := $database.owners }}
-                        GRANT ALL ON DATABASE '{{ $database.name }}' TO {{ $owner }};
+                        GRANT ALL ON DATABASE {{ $database.name }} TO {{ $owner }};
                       {{- end }}
 
                       {{- if $database.backup }}
                         CREATE SCHEDULE {{ $database.name }}_scheduled_backup
-                          FOR BACKUP DATABASE '{{ $database.name }}' INTO '{{ $database.backup.into }}'
+                          FOR BACKUP DATABASE {{ $database.name }} INTO '{{ $database.backup.into }}'
 
                         {{- if $database.backup.options }}
                           WITH {{ join "," $database.backup.options }}
