@@ -225,7 +225,7 @@ spec:
             valueFrom:
               secretKeyRef:
                 name: {{ $secretName }}
-                key: users.{{ $user.name }}_PASSWORD
+                key: {{ $user.name }}-password
         {{- end }}
         {{- if .Values.tls.enabled }}
           volumeMounts:
