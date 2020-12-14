@@ -221,11 +221,13 @@ spec:
           env:
         {{- $secretName := printf "%s-init" (include "cockroachdb.fullname" .) }}
         {{- range $user := .Values.init.database.users }}
+        {{- if $user.password }}
           - name: {{ $user.name }}_PASSWORD
             valueFrom:
               secretKeyRef:
                 name: {{ $secretName }}
                 key: {{ $user.name }}-password
+        {{- end }}
         {{- end }}
         {{- if .Values.tls.enabled }}
           volumeMounts:
