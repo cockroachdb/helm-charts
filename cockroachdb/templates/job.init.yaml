@@ -206,7 +206,7 @@ spec:
                         {{- end }}
                         {{- end }}
 
-                        SELECT 'Provisioning completed successfully';
+                          SELECT 'Provisioning completed successfully';
                       "
                     2>&1);
 
