@@ -219,11 +219,12 @@ spec:
               initDatabases;
             {{- end }}
           env:
+        {{- $secretName := printf "%s-init" (include "cockroachdb.fullname" .) }}
         {{- range $user := .Values.init.database.users }}
           - name: {{ $user.name }}_PASSWORD
             valueFrom:
               secretKeyRef:
-                name: {{ template "cockroachdb.fullname" . }}-init
+                name: {{ $secretName }}
                 key: users.{{ $user.name }}_PASSWORD
         {{- end }}
         {{- if .Values.tls.enabled }}
