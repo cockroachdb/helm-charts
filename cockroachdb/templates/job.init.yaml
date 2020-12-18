@@ -91,7 +91,6 @@ spec:
         - name: cluster-init
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
-          # TODO: COMMENT
           # Run the command in an `while true` loop because this Job is bound
           # to come up before the CockroachDB Pods (due to the time needed to
           # get PersistentVolumes attached to Nodes), and sleeping 5 seconds

@@ -342,29 +342,31 @@ init:
     #   cpu: "10m"
     #   memory: "128Mi"
 
-  # TODO: dbms? cluster? provisioning? initialization? configuration?
   database:
-    enabled: true
-    organization: org
-    license: license
-    users:
-    - name: test
-      password: test
-      options: [LOGIN]
-    - name: test2
-      options: [LOGIN, CREATEROLE]
-    databases:
-    - name: test
-      options: [encoding='utf-8', connection limit=-1]
-      owners: [admin]
-      backup:
-        into: s3:whatever
-        options: [revision_history, encryption_passphrase=123]
-        recurring: '@always'
-        fullBackup: '@daily'
-        schedule:
-          options: [first_run = 'now']
-    - name: test2
+    enabled: false
+    # organization: 
+    # license: 
+    users: []
+    # - name: 
+    #   password: 
+    #   # https://www.cockroachlabs.com/docs/stable/create-user.html#parameters
+    #   options: [LOGIN]
+    databases: []
+    # - name: 
+    #   # https://www.cockroachlabs.com/docs/stable/create-database.html#parameters
+    #   options: [encoding='utf-8']
+    #   owners: []
+    #   backup:
+    #     into: s3://
+    #     # Enterprise-only option (revision_history)
+    #     # https://www.cockroachlabs.com/docs/stable/create-schedule-for-backup.html#backup-options
+    #     options: [revision_history]
+    #     recurring: '@always'
+    #     # Enterprise-only feature. Remove this value to use `FULL BACKUP ALWAYS`
+    #     fullBackup: '@daily'
+    #     schedule:
+    #       # https://www.cockroachlabs.com/docs/stable/create-schedule-for-backup.html#schedule-options
+    #       options: [first_run = 'now']
 
 
 # Whether to run securely using TLS certificates.
