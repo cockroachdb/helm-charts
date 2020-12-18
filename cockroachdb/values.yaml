@@ -344,15 +344,15 @@ init:
 
   database:
     enabled: false
-    # organization: 
-    # license: 
+    # organization:
+    # license:
     users: []
-    # - name: 
-    #   password: 
+    # - name:
+    #   password:
     #   # https://www.cockroachlabs.com/docs/stable/create-user.html#parameters
     #   options: [LOGIN]
     databases: []
-    # - name: 
+    # - name:
     #   # https://www.cockroachlabs.com/docs/stable/create-database.html#parameters
     #   options: [encoding='utf-8']
     #   owners: []
