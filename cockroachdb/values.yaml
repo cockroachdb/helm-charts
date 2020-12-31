@@ -344,8 +344,10 @@ init:
 
   database:
     enabled: false
-    # organization:
-    # license:
+    # https://www.cockroachlabs.com/docs/stable/cluster-settings.html
+    clusterSettings:
+      # cluster.organization: "'FooCorp - Local Testing'"
+      # enterprise.license: "'xxxxx'"
     users: []
     # - name:
     #   password:

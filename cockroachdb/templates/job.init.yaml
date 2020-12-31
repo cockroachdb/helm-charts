@@ -154,12 +154,8 @@ spec:
                       --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
                               :{{ .Values.service.ports.grpc.internal.port | int64 }} \
                       --execute="
-                        {{- if .Values.init.database.organization }}
-                          SET CLUSTER SETTING cluster.organization = '{{ .Values.init.database.organization }}';
-                        {{- end }}
-
-                        {{- if .Values.init.database.license }}
-                          SET CLUSTER SETTING enterprise.license = '{{ .Values.init.database.license }}';
+                        {{- range $clusterSetting := .Values.init.database.clusterSettings }}
+                          SET CLUSTER SETTING {{ $clusterSetting }} = ${{ $clusterSetting }}CLUSTER_SETTING
                         {{- end }}
 
                         {{- range $user := .Values.init.database.users }}
@@ -230,6 +226,15 @@ spec:
               secretKeyRef:
                 name: {{ $secretName }}
                 key: {{ $user.name }}-password
+        {{- end }}
+        {{- end }}
+        {{- range $clusterSetting, $clusterSettingValue := .Values.init.database.clusterSettings }}
+        {{- if $clusterSettingValue }}
+          - name: {{ $clusterSetting }}_CLUSTER_SETTING
+            valueFrom:
+              secretKeyRef:
+                name: {{ $secretName }}
+                key: {{ $clusterSetting }}-cluster-setting
         {{- end }}
         {{- end }}
         {{- if .Values.tls.enabled }}
