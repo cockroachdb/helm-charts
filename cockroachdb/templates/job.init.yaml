@@ -154,14 +154,14 @@ spec:
                       --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
                               :{{ .Values.service.ports.grpc.internal.port | int64 }} \
                       --execute="
-                        {{- range $clusterSetting := .Values.init.database.clusterSettings }}
-                          SET CLUSTER SETTING {{ $clusterSetting }} = ${{ $clusterSetting }}CLUSTER_SETTING
+                        {{- range $clusterSetting, $clusterSettingValue := .Values.init.database.clusterSettings }}
+                          SET CLUSTER SETTING {{ $clusterSetting }} = '${{ $clusterSetting | replace "." "_" }}_CLUSTER_SETTING';
                         {{- end }}
 
                         {{- range $user := .Values.init.database.users }}
                           CREATE USER IF NOT EXISTS {{ $user.name }} WITH
                           {{- if $user.password }}
-                            PASSWORD '${{ $user.password }}_PASSWORD'
+                            PASSWORD '${{ $user.name }}_PASSWORD'
                           {{- else }}
                             PASSWORD null
                           {{- end }}
@@ -230,11 +230,11 @@ spec:
         {{- end }}
         {{- range $clusterSetting, $clusterSettingValue := .Values.init.database.clusterSettings }}
         {{- if $clusterSettingValue }}
-          - name: {{ $clusterSetting }}_CLUSTER_SETTING
+          - name: {{ $clusterSetting | replace "." "_" }}_CLUSTER_SETTING
             valueFrom:
               secretKeyRef:
                 name: {{ $secretName }}
-                key: {{ $clusterSetting }}-cluster-setting
+                key: {{ $clusterSetting | replace "." "-" }}-cluster-setting
         {{- end }}
         {{- end }}
         {{- if .Values.tls.enabled }}
