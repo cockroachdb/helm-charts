@@ -122,10 +122,10 @@ spec:
                               :{{ .Values.service.ports.grpc.internal.port | int64 }}
                   2>&1);
 
-                  local returnCode="$?";
+                  local exitCode="$?";
                   echo $output;
 
-                  if [[ "$returnCode" == "0" || "$output" == *"cluster has already been initialized"* ]]
+                  if [[ "$exitCode" == "0" || "$output" == *"cluster has already been initialized"* ]]
                     then break;
                   fi
 
@@ -205,9 +205,9 @@ spec:
                       "
                     2>&1);
 
-                  local returnCode="$?";
+                  local exitCode="$?";
 
-                  if [[ "$returnCode" == "0" || "$output" == *"Provisioning completed successfully"* ]]
+                  if [[ "$exitCode" == "0" || "$output" == *"Provisioning completed successfully"* ]]
                     then break;
                   fi
 
