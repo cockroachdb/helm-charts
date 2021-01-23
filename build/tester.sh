@@ -3,7 +3,7 @@
 set -euo pipefail
 
 image="quay.io/helmpack/chart-testing"
-version="v2.4.1"
+version="v3.3.1"
 
 if [ "${1-}" = "pull" ]; then
   docker pull "${image}:${version}"
