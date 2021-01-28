@@ -139,75 +139,72 @@ spec:
             {{- if $isDatabaseInitEnabled }}
               initDatabases() {
                 while true; do
-                  local output=$(
-                    set -x;
-
-                    /cockroach/cockroach sql \
-                      {{- if .Values.tls.enabled }}
-                      --certs-dir=/cockroach-certs/ \
-                      {{- else }}
-                      --insecure \
+                  /cockroach/cockroach sql \
+                    {{- if .Values.tls.enabled }}
+                    --certs-dir=/cockroach-certs/ \
+                    {{- else }}
+                    --insecure \
+                    {{- end }}
+                    {{- with index .Values.conf "cluster-name" }}
+                    --cluster-name={{.}} \
+                    {{- end }}
+                    --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
+                            :{{ .Values.service.ports.grpc.internal.port | int64 }} \
+                    --execute="
+                      {{- range $clusterSetting, $clusterSettingValue := .Values.init.database.clusterSettings }}
+                        SET CLUSTER SETTING {{ $clusterSetting }} = '${{ $clusterSetting | replace "." "_" }}_CLUSTER_SETTING';
                       {{- end }}
-                      {{- with index .Values.conf "cluster-name" }}
-                      --cluster-name={{.}} \
+
+                      {{- range $user := .Values.init.database.users }}
+                        CREATE USER IF NOT EXISTS {{ $user.name }} WITH
+                        {{- if $user.password }}
+                          PASSWORD '${{ $user.name }}_PASSWORD'
+                        {{- else }}
+                          PASSWORD null
+                        {{- end }}
+                          {{ join " " $user.options }}
+                        ;
                       {{- end }}
-                      --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
-                              :{{ .Values.service.ports.grpc.internal.port | int64 }} \
-                      --execute="
-                        {{- range $clusterSetting, $clusterSettingValue := .Values.init.database.clusterSettings }}
-                          SET CLUSTER SETTING {{ $clusterSetting }} = '${{ $clusterSetting | replace "." "_" }}_CLUSTER_SETTING';
-                        {{- end }}
 
-                        {{- range $user := .Values.init.database.users }}
-                          CREATE USER IF NOT EXISTS {{ $user.name }} WITH
-                          {{- if $user.password }}
-                            PASSWORD '${{ $user.name }}_PASSWORD'
-                          {{- else }}
-                            PASSWORD null
+                      {{- range $database := .Values.init.database.databases }}
+                        CREATE DATABASE IF NOT EXISTS {{ $database.name }}
+                          {{- if $database.options }}
+                            {{ join " " $database.options }}
                           {{- end }}
-                            {{ join " " $user.options }}
-                          ;
+                        ;
+
+                      {{- range $owner := $database.owners }}
+                        GRANT ALL ON DATABASE {{ $database.name }} TO {{ $owner }};
+                      {{- end }}
+
+                      {{- if $database.backup }}
+                        CREATE SCHEDULE {{ $database.name }}_scheduled_backup
+                          FOR BACKUP DATABASE {{ $database.name }} INTO '{{ $database.backup.into }}'
+
+                        {{- if $database.backup.options }}
+                          WITH {{ join "," $database.backup.options }}
+                        {{- end }}
+                          RECURRING '{{ $database.backup.recurring }}'
+                        {{- if $database.backup.fullBackup }}
+                          FULL BACKUP '{{ $database.backup.fullBackup }}'
+                        {{- else }}
+                          FULL BACKUP ALWAYS
                         {{- end }}
 
-                        {{- range $database := .Values.init.database.databases }}
-                          CREATE DATABASE IF NOT EXISTS {{ $database.name }}
-                            {{- if $database.options }}
-                              {{ join " " $database.options }}
-                            {{- end }}
-                          ;
-
-                        {{- range $owner := $database.owners }}
-                          GRANT ALL ON DATABASE {{ $database.name }} TO {{ $owner }};
+                        {{- if and $database.backup.schedule $database.backup.schedule.options }}
+                          WITH SCHEDULE OPTIONS {{ join "," $database.backup.schedule.options }}
                         {{- end }}
+                        ;
+                      {{- end }}
+                      {{- end }}
 
-                        {{- if $database.backup }}
-                          CREATE SCHEDULE {{ $database.name }}_scheduled_backup
-                            FOR BACKUP DATABASE {{ $database.name }} INTO '{{ $database.backup.into }}'
-
-                          {{- if $database.backup.options }}
-                            WITH {{ join "," $database.backup.options }}
-                          {{- end }}
-                            RECURRING '{{ $database.backup.recurring }}'
-                          {{- if $database.backup.fullBackup }}
-                            FULL BACKUP '{{ $database.backup.fullBackup }}'
-                          {{- else }}
-                            FULL BACKUP ALWAYS
-                          {{- end }}
-
-                          {{- if and $database.backup.schedule $database.backup.schedule.options }}
-                            WITH SCHEDULE OPTIONS {{ join "," $database.backup.schedule.options }}
-                          {{- end }}
-                          ;
-                        {{- end }}
-                        {{- end }}
-
-                          SELECT 'Provisioning completed successfully';
-                      "
-                    2>&1);
+                        SELECT 'Provisioning completed successfully';
+                    "
+                  &>/dev/null;
 
                   local exitCode="$?";
 
-                  if [[ "$exitCode" == "0" || "$output" == *"Provisioning completed successfully"* ]]
+                  if [[ "$exitCode" == "0" ]]
                     then break;
                   fi
 
