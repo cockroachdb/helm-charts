@@ -5,10 +5,14 @@
 apiVersion: networking.k8s.io/v1beta1
 kind: Ingress
 metadata:
-{{- if .Values.ingress.annotations }}
+{{- if or .Values.ingress.annotations .Values.iap.enabled }}
   annotations:
   {{- range $key, $value := .Values.ingress.annotations }}
     {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- if .Values.iap.enabled }}
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.allow-http: "false"
   {{- end }}
 {{- end }}
   name: {{ $fullName }}-ingress
