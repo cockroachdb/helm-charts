@@ -192,7 +192,6 @@ spec:
                   ${STATEFULSET_NAME}-{{ $i }}.${STATEFULSET_FQDN}:{{ $.Values.service.ports.grpc.internal.port | int64 -}}
                 {{- end -}}
               {{- end }}
-              --advertise-host=$(hostname).${STATEFULSET_FQDN}
             {{- with index .Values.conf `cluster-name` }}
               --cluster-name={{ . }}
             {{- if index $.Values.conf `disable-cluster-name-verification` }}
@@ -200,6 +199,7 @@ spec:
             {{- end }}
             {{- end }}
             {{- end }}
+              --advertise-host=$(hostname).${STATEFULSET_FQDN}
               --logtostderr={{ .Values.conf.logtostderr }}
             {{- if .Values.tls.enabled }}
               --certs-dir=/cockroach/cockroach-certs/
