@@ -152,8 +152,8 @@ spec:
         - name: client-certs
           emptyDir: {}
           {{- if .Values.tls.certs.provided }}
-          {{- if .Values.tls.certs.tlsSecret }}
         - name: certs-secret
+          {{- if .Values.tls.certs.tlsSecret }}
           projected:
             sources:
             - secret:
