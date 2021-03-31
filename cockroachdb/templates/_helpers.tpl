@@ -74,7 +74,7 @@ Return CockroachDB store expression
 {{- $_ := set $store "type" ($isInMemory | ternary "type=mem" "") -}}
 {{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.store.path)) -}}
 {{- $_ := set $store "size" (print "size=" ($isInMemory | ternary .Values.conf.store.size $persistentSize)) -}}
-{{- $_ := set $store "attrs" .Values.conf.store.attrs -}}
+{{- $_ := set $store "attrs" (empty .Values.conf.store.attrs | ternary "" (print "attrs=" .Values.conf.store.attrs)) -}}
 
 {{ compact (values $store) | join "," }}
 {{- end -}}
