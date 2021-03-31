@@ -137,11 +137,13 @@ conf:
   # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v20.2/cockroach-start.html#storage
   store:
     enabled: false
-    type: # mem
+    # Should be empty or 'mem'
+    type:
     path: cockroach-data
-    # Required for type=mem. If persistent and empty .Values.storage.persistentVolume.size is used
+    # Required for type=mem. If type and size is empty - storage.persistentVolume.size is used
     size:
-    attrs: # hdd:7200rpm
+    # hdd:7200rpm
+    attrs:
 
 statefulset:
   replicas: 3
