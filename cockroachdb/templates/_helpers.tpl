@@ -62,3 +62,19 @@ Return the appropriate apiVersion for StatefulSets
     {{- print "apps/v1" -}}
 {{- end -}}
 {{- end -}}
+
+{{/*
+Return CockroachDB store expression
+*/}}
+{{- define "cockroachdb.conf.store" -}}
+{{- $isInMemory := eq (.Values.conf.store.type | toString) "mem" -}}
+{{- $persistentSize := empty .Values.conf.store.size | ternary .Values.storage.persistentVolume.size .Values.conf.store.size -}}
+
+{{- $store := dict -}}
+{{- $_ := set $store "type" ($isInMemory | ternary "type=mem" "") -}}
+{{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.store.path)) -}}
+{{- $_ := set $store "size" (print "size=" ($isInMemory | ternary .Values.conf.store.size $persistentSize)) -}}
+{{- $_ := set $store "attrs" .Values.conf.store.attrs -}}
+
+{{ compact (values $store) | join "," }}
+{{- end -}}

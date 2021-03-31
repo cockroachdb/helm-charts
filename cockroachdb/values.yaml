@@ -134,6 +134,14 @@ conf:
   # CockroachDB's port to listen to HTTP requests.
   http-port: 8080
 
+  # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v20.2/cockroach-start.html#storage
+  store:
+    enabled: false
+    type: # mem
+    path: cockroach-data
+    # Required for type=mem. If persistent and empty .Values.storage.persistentVolume.size is used
+    size:
+    attrs: # hdd:7200rpm
 
 statefulset:
   replicas: 3
