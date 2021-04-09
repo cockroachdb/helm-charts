@@ -88,6 +88,26 @@ spec:
             - name: certs
               mountPath: /cockroach-certs/
       {{- end }}
+      {{- if .Values.tls.certs.provided }}
+      initContainers:
+        - name: copy-certs
+          image: "busybox"
+          imagePullPolicy: {{ .Values.tls.init.image.pullPolicy | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - "cp -f /certs/* /cockroach-certs/; chmod 0400 /cockroach-certs/*.key"
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: certs
+              mountPath: /cockroach-certs/
+            - name: certs-secret
+              mountPath: /certs/
+      {{- end }}
     {{- end }}
     {{- if or .Values.statefulset.nodeAffinity .Values.statefulset.podAffinity .Values.statefulset.podAntiAffinity }}
       affinity:
@@ -179,7 +199,7 @@ spec:
             # See details explained here:
             # https://github.com/helm/charts/pull/18993#issuecomment-558795102
             - >-
-              exec /cockroach/cockroach
+              exec /cockroach/cockroach 
             {{- if index .Values.conf `single-node` }}
               start-single-node
             {{- else }}
@@ -251,6 +271,10 @@ spec:
           {{- if .Values.tls.enabled }}
             - name: certs
               mountPath: /cockroach/cockroach-certs/
+              {{- if .Values.tls.certs.provided }}
+            - name: certs-secret
+              mountPath: /cockroach/certs/
+              {{- end }}
           {{- end }}
           {{- range .Values.statefulset.secretMounts }}
             - name: {{ printf "secret-%s" . | quote }}
@@ -292,7 +316,9 @@ spec:
         {{- end }}
       {{- if .Values.tls.enabled }}
         - name: certs
+          emptyDir: {}
           {{- if .Values.tls.certs.provided }}
+        - name: certs-secret
           {{- if .Values.tls.certs.tlsSecret }}
           projected:
             sources:
@@ -301,20 +327,18 @@ spec:
                 items:
                 - key: ca.crt
                   path: ca.crt
-                  mode: 0400
+                  mode: 256
                 - key: tls.crt
                   path: node.crt
-                  mode: 0400
+                  mode: 256
                 - key: tls.key
                   path: node.key
-                  mode: 0400
+                  mode: 256
           {{- else }}
           secret:
             secretName: {{ .Values.tls.certs.nodeSecret }}
-            defaultMode: 0400
+            defaultMode: 256
           {{- end }}
-          {{- else }}
-          emptyDir: {}
           {{- end }}
       {{- end }}
       {{- range .Values.statefulset.secretMounts }}
