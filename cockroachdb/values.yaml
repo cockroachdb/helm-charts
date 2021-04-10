@@ -135,6 +135,7 @@ conf:
   http-port: 8080
 
   # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v20.2/cockroach-start.html#storage
+  # Uses --store flag
   store:
     enabled: false
     # Should be empty or 'mem'
