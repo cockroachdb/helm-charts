@@ -145,7 +145,7 @@ conf:
     type:
     # Required for type=mem. If type and size is empty - storage.persistentVolume.size is used
     size:
-    # hdd:7200rpm
+    # Arbitrary strings, separated by colons, specifying disk type or capability
     attrs:
 
 statefulset:
