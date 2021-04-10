@@ -72,7 +72,7 @@ Return CockroachDB store expression
 
 {{- $store := dict -}}
 {{- $_ := set $store "type" ($isInMemory | ternary "type=mem" "") -}}
-{{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.store.path)) -}}
+{{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.path)) -}}
 {{- $_ := set $store "size" (print "size=" ($isInMemory | ternary .Values.conf.store.size $persistentSize)) -}}
 {{- $_ := set $store "attrs" (empty .Values.conf.store.attrs | ternary "" (print "attrs=" .Values.conf.store.attrs)) -}}
 

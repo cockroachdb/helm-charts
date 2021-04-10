@@ -134,13 +134,15 @@ conf:
   # CockroachDB's port to listen to HTTP requests.
   http-port: 8080
 
+  # CockroachDB's data mount path.
+  path: cockroach-data
+
   # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v20.2/cockroach-start.html#storage
   # Uses --store flag
   store:
     enabled: false
     # Should be empty or 'mem'
     type:
-    path: cockroach-data
     # Required for type=mem. If type and size is empty - storage.persistentVolume.size is used
     size:
     # hdd:7200rpm

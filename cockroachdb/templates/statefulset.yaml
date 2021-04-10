@@ -270,7 +270,7 @@ spec:
               protocol: TCP
           volumeMounts:
             - name: datadir
-              mountPath: /cockroach/{{ .Values.conf.store.path }}/
+              mountPath: /cockroach/{{ .Values.conf.path }}/
           {{- if .Values.tls.enabled }}
             - name: certs
               mountPath: /cockroach/cockroach-certs/
