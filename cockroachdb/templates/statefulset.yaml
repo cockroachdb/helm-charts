@@ -245,6 +245,9 @@ spec:
             {{- with index .Values.conf `sql-audit-dir` }}
               --sql-audit-dir={{ . }}
             {{- end }}
+            {{- if .Values.conf.store.enabled }}
+              --store={{ template "cockroachdb.conf.store" . }}
+            {{- end }}
             {{- range .Values.statefulset.args }}
               {{ . }}
             {{- end }}
@@ -267,7 +270,7 @@ spec:
               protocol: TCP
           volumeMounts:
             - name: datadir
-              mountPath: /cockroach/cockroach-data/
+              mountPath: /cockroach/{{ .Values.conf.path }}/
           {{- if .Values.tls.enabled }}
             - name: certs
               mountPath: /cockroach/cockroach-certs/
