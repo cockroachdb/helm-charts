@@ -17,9 +17,18 @@ metadata:
   {{- with .Values.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
-{{- with .Values.service.public.annotations }}
-  annotations: {{- toYaml . | nindent 4 }}
-{{- end }}
+  {{- if or .Values.service.public.annotations .Values.tls.enabled .Values.iap.enabled }}
+  annotations:
+  {{- with .Values.service.public.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if .Values.tls.enabled }}
+    service.alpha.kubernetes.io/app-protocols: '{"http":"HTTPS"}'
+  {{- end }}
+  {{- if .Values.iap.enabled }}
+    beta.cloud.google.com/backend-config: '{"default": "{{ template "cockroachdb.fullname" . }}"}'
+  {{- end }}
+  {{- end }}
 spec:
   type: {{ .Values.service.public.type | quote }}
   ports:
