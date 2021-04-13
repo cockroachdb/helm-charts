@@ -2,6 +2,7 @@
 {{- $paths := .Values.ingress.paths -}}
 {{- $ports := .Values.service.ports -}}
 {{- $fullName := include "cockroachdb.fullname" . -}}
+{{- $capabilities := .Capabilities -}}
 {{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
 apiVersion: networking.k8s.io/v1
 {{- else if semverCompare ">=1.14-0" .Capabilities.KubeVersion.GitVersion -}}
@@ -40,11 +41,11 @@ spec:
         paths:
   {{- range $path := $paths }}
           - path: {{ $path }}
-            {{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
+            {{- if semverCompare ">=1.19-0" $capabilities.KubeVersion.GitVersion -}}
             pathType: Prefix
             {{- end }}
             backend:
-              {{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
+              {{- if semverCompare ">=1.19-0" $capabilities.KubeVersion.GitVersion -}}
               service:
                 name: {{ $fullName }}-public
                 port:
@@ -60,11 +61,11 @@ spec:
         paths:
   {{- range $path := $paths }}
           - path: {{ $path }}
-            {{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
+            {{- if semverCompare ">=1.19-0" $capabilities.KubeVersion.GitVersion -}}
             pathType: Prefix
             {{- end }}
             backend:
-              {{- if semverCompare ">=1.19-0" .Capabilities.KubeVersion.GitVersion -}}
+              {{- if semverCompare ">=1.19-0" $capabilities.KubeVersion.GitVersion -}}
               service:
                 name: {{ $fullName }}-public
                 port:
