@@ -134,6 +134,19 @@ conf:
   # CockroachDB's port to listen to HTTP requests.
   http-port: 8080
 
+  # CockroachDB's data mount path.
+  path: cockroach-data
+
+  # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v20.2/cockroach-start.html#storage
+  # Uses --store flag
+  store:
+    enabled: false
+    # Should be empty or 'mem'
+    type:
+    # Required for type=mem. If type and size is empty - storage.persistentVolume.size is used
+    size:
+    # Arbitrary strings, separated by colons, specifying disk type or capability
+    attrs:
 
 statefulset:
   replicas: 3
@@ -424,3 +437,10 @@ networkPolicy:
       # - namespaceSelector:
       #     matchLabels:
       #       project: my-project
+
+# To put the admin interface behind Identity Aware Proxy (IAP) on Google Cloud Platform
+iap:
+  enabled: false
+  # Create Google Cloud OAuth credentials and set client id and secret
+  # clientId:
+  # clientSecret:

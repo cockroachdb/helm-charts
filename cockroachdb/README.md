@@ -256,6 +256,11 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.sql-audit-dir`                                      | Directory for SQL audit log                                     | `""`                                             |
 | `conf.port`                                               | CockroachDB primary serving port in Pods                        | `26257`                                          |
 | `conf.http-port`                                          | CockroachDB HTTP port in Pods                                   | `8080`                                           |
+| `conf.path`                                               | CockroachDB data directory mount path                           | `cockroach-data`                                 |
+| `conf.store.enabled`                                      | Enable store configuration for CockroachDB                      | `false`                                          |
+| `conf.store.type`                                         | CockroachDB storage type                                        | `""`                                             |
+| `conf.store.size`                                         | CockroachDB storage size                                        | `""`                                             |
+| `conf.store.attrs`                                        | CockroachDB storage attributes                                  | `""`                                             |
 | `image.repository`                                        | Container image name                                            | `cockroachdb/cockroach`                          |
 | `image.tag`                                               | Container image tag                                             | `v20.2.7`                                        |
 | `image.pullPolicy`                                        | Container pull policy                                           | `IfNotPresent`                                   |
