@@ -355,7 +355,7 @@ init:
     #   cpu: "10m"
     #   memory: "128Mi"
 
-  database:
+  provisioning:
     enabled: false
     # https://www.cockroachlabs.com/docs/stable/cluster-settings.html
     clusterSettings:

@@ -1,6 +1,6 @@
-{{ $isMultinodeCluster := and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`)) }}
-{{ $isDatabaseInitEnabled := .Values.init.database.enabled }}
-{{- if or $isMultinodeCluster $isDatabaseInitEnabled }}
+{{ $isClusterInitEnabled := and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`)) }}
+{{ $isClusterProvisioningEnabled := .Values.init.provisioning.enabled }}
+{{- if or $isClusterInitEnabled $isClusterProvisioningEnabled }}
 kind: Job
 apiVersion: batch/v1
 metadata:
@@ -124,7 +124,7 @@ spec:
           - /bin/bash
           - -c
           - >-
-            {{- if $isMultinodeCluster }}
+            {{- if $isClusterInitEnabled }}
               initCluster() {
                 while true; do
                   local output=$(
@@ -157,8 +157,8 @@ spec:
               initCluster;
             {{- end }}
 
-            {{- if $isDatabaseInitEnabled }}
-              initDatabases() {
+            {{- if $isClusterProvisioningEnabled }}
+              provisionCluster() {
                 while true; do
                   /cockroach/cockroach sql \
                     {{- if .Values.tls.enabled }}
@@ -172,11 +172,11 @@ spec:
                     --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
                             :{{ .Values.service.ports.grpc.internal.port | int64 }} \
                     --execute="
-                      {{- range $clusterSetting, $clusterSettingValue := .Values.init.database.clusterSettings }}
+                      {{- range $clusterSetting, $clusterSettingValue := .Values.init.provisioning.clusterSettings }}
                         SET CLUSTER SETTING {{ $clusterSetting }} = '${{ $clusterSetting | replace "." "_" }}_CLUSTER_SETTING';
                       {{- end }}
 
-                      {{- range $user := .Values.init.database.users }}
+                      {{- range $user := .Values.init.provisioning.users }}
                         CREATE USER IF NOT EXISTS {{ $user.name }} WITH
                         {{- if $user.password }}
                           PASSWORD '${{ $user.name }}_PASSWORD'
@@ -187,7 +187,7 @@ spec:
                         ;
                       {{- end }}
 
-                      {{- range $database := .Values.init.database.databases }}
+                      {{- range $database := .Values.init.provisioning.databases }}
                         CREATE DATABASE IF NOT EXISTS {{ $database.name }}
                           {{- if $database.options }}
                             {{ join " " $database.options }}
@@ -233,11 +233,11 @@ spec:
                 done
               }
 
-              initDatabases;
+              provisionCluster;
             {{- end }}
           env:
         {{- $secretName := printf "%s-init" (include "cockroachdb.fullname" .) }}
-        {{- range $user := .Values.init.database.users }}
+        {{- range $user := .Values.init.provisioning.users }}
         {{- if $user.password }}
           - name: {{ $user.name }}_PASSWORD
             valueFrom:
@@ -246,7 +246,7 @@ spec:
                 key: {{ $user.name }}-password
         {{- end }}
         {{- end }}
-        {{- range $clusterSetting, $clusterSettingValue := .Values.init.database.clusterSettings }}
+        {{- range $clusterSetting, $clusterSettingValue := .Values.init.provisioning.clusterSettings }}
         {{- if $clusterSettingValue }}
           - name: {{ $clusterSetting | replace "." "_" }}_CLUSTER_SETTING
             valueFrom:
