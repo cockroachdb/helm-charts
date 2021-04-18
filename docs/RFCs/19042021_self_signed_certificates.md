@@ -1,13 +1,16 @@
 Feature Name: Add a method to generate certificates without using kubernetes CA
+
 Status: Draft
+
 Start Date: 19-04-2021
+
 Authors: @prafull01, @abhishek, @madhurnawandar
 
 # Summary
 
-This RFC proposes a method of deploying the cockroach db helm chart in a secure mode by generating certificates without using kubernetes CA.
-The new method will allow users to specify their own CA otherwise CA will be generated as part of this method. Using the CA, node and client certificates will be generated. Rotation of CA, node and clinet certificates is also considered.
-This manual steps for any user could be error prone and might discourage users to run cockroach db in secure mode for test environments.
+This RFC proposes a method of deploying the cockroach db helm chart in a secure mode by generating certificates without using kubernetes CA.  
+The new method will allow users to specify their own CA otherwise CA will be generated as part of this method. Using the CA, node and client certificates will be generated. Rotation of CA, node and clinet certificates is also considered.  
+This manual steps for any user could be error prone and might discourage users to run cockroach db in secure mode for test environments.  
 Also, this RFC eliminates the need of kubernetes CA to sign our certificates. We will sign our own certificates and manage those certificates.
 
 # Motivation
@@ -34,32 +37,32 @@ Cocroachdb user needs a default mechanism of cert management which should work o
 ## Helm Configuration
 This section specifies the suggested changes around user input in helm chart
 
-1. Add option specifying cockroach db to manage the certificates, `tls.certs.generate.enabled` as true/false.
+1. Add option specifying cockroach db to manage the certificates, `tls.certs.generate.enabled` as true/false.  
    Enabling this option will result into cockroach db creating node and client certificates using a CA(either generated or provided by user). 
 
-2. Add option specifying cockroach db to use user provided CA, `tls.certs.generate.caProvided` as true/false.
+2. Add option specifying cockroach db to use user provided CA, `tls.certs.generate.caProvided` as true/false.  
    Enabling this option will result into generation of node and client certificates using the CA provided by the user.
    
-3. Add option specifying the secret name containing user provide CA, `tls.certs.generate.caSecret`.
+3. Add option specifying the secret name containing user provide CA, `tls.certs.generate.caSecret`.  
    The secret name specified in this option will be used as a source for user provided CA.
    This option is mandatory if the `tls.certs.generate.caProvided` is true.
    
-4. Add option specifying the CA certificate expiration duration, `tls.certs.generate.caCertDuration`.
+4. Add option specifying the CA certificate expiration duration, `tls.certs.generate.caCertDuration`.  
    This duration will only be used when we create our own CA. The duration value from this option will be used to set the expiry of the generated CA certificate.
    By default, the CA expiry would be set to 10 years.
    
-5. Add option specifying the client certificate expiration duration, `tls.certs.generate.clientCertDuration`.
+5. Add option specifying the client certificate expiration duration, `tls.certs.generate.clientCertDuration`.  
    The duration value from this option will be used to set the expiry of the generated client certificates. By default, client certificate expiry would be set to 1 year.
 
-6. Add option specifying the node certificate expiration duration, `tls.certs.generate.nodeCertDuration`.
+6. Add option specifying the node certificate expiration duration, `tls.certs.generate.nodeCertDuration`.  
    The duration value from this option will be used to set the expiry of the generated node certificates. By default, node certificate expiry would be set to 1 year.
    
-7. Add option specifying cocroach db to manage rotation of the generated certificates, `tls.certs.generate.rotateCerts` as true/false
+7. Add option specifying cocroach db to manage rotation of the generated certificates, `tls.certs.generate.rotateCerts` as true/false.  
    Enabling this option will result into auto-rotation of the certificates, before the expiry.
 
 ## Helm Input Validation
 
-1. If value for`tls.certs.generate.caProvided` is set to true, then value for `tls.certs.generate.caSecret` must be provided.
+1. If `tls.certs.generate.caProvided` is set to true, then value for `tls.certs.generate.caSecret` must be provided.
    
 2. If value for `tls.certs.generate.caSecret` is provided, secret should exist in the cockroach db install namespace.
    
@@ -84,7 +87,6 @@ This section specifies the suggested changes around user input in helm chart
 
   * After all the `pre-install` hooks completed successfully, they will be deleted by hook deletion-policy defined in
   annotations.
-    
 
   * This `pre-install` job will have two work-flows depending upon the value of `tls.certs.generate.caProvided` 
       - When CA is self-signed i.e. `tls.certs.generate.caProvided: false`:
