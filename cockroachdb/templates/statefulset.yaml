@@ -148,7 +148,7 @@ spec:
         {{- end }}
       {{- end }}
     {{- end }}
-    {{- if semverCompare ">=1.16-0" .Capabilities.KubeVersion.GitVersion }}
+    {{- if semverCompare ">=1.16-0" .Capabilities.KubeVersion.Version }}
       topologySpreadConstraints:
       - labelSelector:
           matchLabels:
@@ -199,7 +199,7 @@ spec:
             # See details explained here:
             # https://github.com/helm/charts/pull/18993#issuecomment-558795102
             - >-
-              exec /cockroach/cockroach 
+              exec /cockroach/cockroach
             {{- if index .Values.conf `single-node` }}
               start-single-node
             {{- else }}

@@ -45,9 +45,9 @@ Create the name of the ServiceAccount to use.
 Return the appropriate apiVersion for NetworkPolicy.
 */}}
 {{- define "cockroachdb.networkPolicy.apiVersion" -}}
-{{- if semverCompare ">=1.4-0, <=1.7-0" .Capabilities.KubeVersion.GitVersion -}}
+{{- if semverCompare ">=1.4-0, <=1.7-0" .Capabilities.KubeVersion.Version -}}
     {{- print "extensions/v1beta1" -}}
-{{- else if semverCompare "^1.7-0" .Capabilities.KubeVersion.GitVersion -}}
+{{- else if semverCompare "^1.7-0" .Capabilities.KubeVersion.Version -}}
     {{- print "networking.k8s.io/v1" -}}
 {{- end -}}
 {{- end -}}
@@ -56,7 +56,7 @@ Return the appropriate apiVersion for NetworkPolicy.
 Return the appropriate apiVersion for StatefulSets
 */}}
 {{- define "cockroachdb.statefulset.apiVersion" -}}
-{{- if semverCompare "<1.12-0" .Capabilities.KubeVersion.GitVersion -}}
+{{- if semverCompare "<1.12-0" .Capabilities.KubeVersion.Version -}}
     {{- print "apps/v1beta1" -}}
 {{- else -}}
     {{- print "apps/v1" -}}
