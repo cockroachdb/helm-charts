@@ -2,9 +2,9 @@
 {{- $paths := .Values.ingress.paths -}}
 {{- $ports := .Values.service.ports -}}
 {{- $fullName := include "cockroachdb.fullname" . -}}
-{{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" -}}
+{{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" -}}
 apiVersion: networking.k8s.io/v1
-{{- else if $.Capabilities.APIVersions.Has "networking.k8s.io/v1beta1" -}}
+{{- else if $.Capabilities.APIVersions.Has "networking.k8s.io/v1beta1/Ingress" -}}
 apiVersion: networking.k8s.io/v1beta1
 {{- else -}}
 apiVersion: extensions/v1beta1
@@ -40,11 +40,11 @@ spec:
         paths:
   {{- range $path := $paths }}
           - path: {{ $path }}
-            {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" }}
+            {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
             pathType: Prefix
             {{- end }}
             backend:
-              {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" }}
+              {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
               service:
                 name: {{ $fullName }}-public
                 port:
@@ -60,11 +60,11 @@ spec:
         paths:
   {{- range $path := $paths }}
           - path: {{ $path }}
-            {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" }}
+            {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
             pathType: Prefix
             {{- end }}
             backend:
-              {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" }}
+              {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
               service:
                 name: {{ $fullName }}-public
                 port:
