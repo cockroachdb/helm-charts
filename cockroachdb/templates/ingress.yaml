@@ -40,16 +40,16 @@ spec:
         paths:
   {{- range $path := $paths }}
           - path: {{ $path }}
-            {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" -}}
+            {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" }}
             pathType: Prefix
             {{- end }}
             backend:
-              {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" -}}
+              {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" }}
               service:
                 name: {{ $fullName }}-public
                 port:
                   name: {{ $ports.http.name | quote }}
-              {{- else -}}
+              {{- else }}
               serviceName: {{ $fullName }}-public
               servicePort: {{ $ports.http.name | quote }}
               {{- end }}
@@ -60,16 +60,16 @@ spec:
         paths:
   {{- range $path := $paths }}
           - path: {{ $path }}
-            {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" -}}
+            {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" }}
             pathType: Prefix
             {{- end }}
             backend:
-              {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" -}}
+              {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1" }}
               service:
                 name: {{ $fullName }}-public
                 port:
                   name: {{ $ports.http.name | quote }}
-              {{- else -}}
+              {{- else }}
               serviceName: {{ $fullName }}-public
               servicePort: {{ $ports.http.name | quote }}
               {{- end }}
