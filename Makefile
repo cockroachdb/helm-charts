@@ -5,6 +5,11 @@ all: build
 build:
 	build/make.sh
 
+
+.PHONY: test
+test:
+	go test ./test
+
 .PHONY: lint
 lint:
 	build/lint.sh
