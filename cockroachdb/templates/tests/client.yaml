@@ -11,11 +11,16 @@ metadata:
     helm.sh/hook: test-success
 spec:
   restartPolicy: Never
-{{- if .Values.image.credentials }}
+{{- if or .Values.image.credentials .Values.image.imagePullSecrets }}
   imagePullSecrets:
-    - name: {{ template "cockroachdb.fullname" . }}.db.registry
+  {{- if .Values.image.credentials }}
+  - name: {{ template "cockroachdb.fullname" . }}.db.registry
+  {{- end }}
+  {{- if .Values.image.imagePullSecrets }}
+  - name: {{ .Values.image.imagePullSecrets }}
+  {{- end }}
 {{- end }}
-  {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager }}
+{{- if or .Values.tls.certs.provided .Values.tls.certs.certManager }}
   volumes:
     - name: client-certs
       {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager }}

@@ -2,6 +2,7 @@ image:
   repository: cockroachdb/cockroach
   tag: v20.2.8
   pullPolicy: IfNotPresent
+  imagePullSecrets: ""
   credentials: {}
     # registry: docker.io
     # username: john_doe
@@ -390,6 +391,7 @@ tls:
       repository: cockroachdb/cockroach-k8s-request-cert
       tag: "0.4"
       pullPolicy: IfNotPresent
+      imagePullSecrets: ""
       credentials: {}
         # registry: docker.io
         # username: john_doe
