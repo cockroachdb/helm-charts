@@ -2,25 +2,18 @@
 
 set -euo pipefail
 
-image="quay.io/helmpack/chart-testing"
-version="v3.3.1"
+image="crdb-chart-tester"
+version="latest"
 
-if [ "${1-}" = "pull" ]; then
-  docker pull "${image}:${version}"
-  exit 0
-fi
 
-if [ "${1-}" = "version" ]; then
-  echo "${version}"
-  exit 0
-fi
+helm_charts_toplevel=$(dirname "$(cd "$(dirname "${0}")"; pwd)")
 
-if [ -t 0 ]; then
-  tty=--tty
-fi
+
+docker build --tag=${image} -f ./build/tester/Dockerfile ${helm_charts_toplevel}
+
 
 # Absolute path to the toplevel helm-charts directory.
-helm_charts_toplevel=$(dirname "$(cd "$(dirname "${0}")"; pwd)")
+
 
 container_home=/charts/
 
