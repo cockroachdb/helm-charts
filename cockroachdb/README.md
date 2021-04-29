@@ -310,6 +310,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `image.repository`                                        | Container image name                                            | `cockroachdb/cockroach`                          |
 | `image.tag`                                               | Container image tag                                             | `v20.2.8`                                        |
 | `image.pullPolicy`                                        | Container pull policy                                           | `IfNotPresent`                                   |
+| `image.imagePullSecrets`                                  | Specify existing Image pull secret                              | `
+`
 | `image.credentials`                                       | `registry`, `user` and `pass` credentials to pull private image | `{}`                                             |
 | `statefulset.replicas`                                    | StatefulSet replicas number                                     | `3`                                              |
 | `statefulset.updateStrategy`                              | Update strategy for StatefulSet Pods                            | `{"type": "RollingUpdate"}`                      |
