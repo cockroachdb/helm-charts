@@ -1,4 +1,4 @@
-{{- if and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`)) }}
+{{- if eq (len .Values.conf.join) 0 }}
 kind: Job
 apiVersion: batch/v1
 metadata:
