@@ -1,6 +1,6 @@
 image:
   repository: cockroachdb/cockroach
-  tag: v20.2.9
+  tag: v21.1.0
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
@@ -137,7 +137,7 @@ conf:
   # CockroachDB's data mount path.
   path: cockroach-data
 
-  # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v20.2/cockroach-start.html#storage
+  # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v21.1/cockroach-start.html#storage
   # Uses --store flag
   store:
     enabled: false
