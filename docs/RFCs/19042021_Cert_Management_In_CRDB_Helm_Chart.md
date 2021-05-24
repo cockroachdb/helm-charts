@@ -30,6 +30,8 @@ CockroachDB user needs a default mechanism of cert management which should work 
 * Dependency on external cert-manager should not be mandatory for creating CockroachDB cluster in a secure mode.
  
 * Manual steps should not be required for creating the CockroachDB cluster in a secure mode.
+
+* Deprecation plan for the CA signing method using kubernetes CA.
   
 ## Non-Goals
  
@@ -48,17 +50,23 @@ This section specifies the suggested changes around user input in the Helm chart
   The secret name specified in this option will be used as a source for user-provided CA.
   This option is mandatory if the `tls.certs.generate.caProvided` is true.
  
-4. Add option specifying the CA certificate expiration duration, `tls.certs.generate.caCertDuration`.  
+4. Add option specifying the minimum certificate duration, `tls.certs.generate.minimumCertDuration`
+   This duration will be used to validate all other certificate durations, which must be greater than this duration.
+   
+5. Add option specifying the CA certificate duration, `tls.certs.generate.caCertDuration`.  
   This duration will only be used when we create our own CA. The duration value from this option will be used to set the expiry of the generated CA certificate.
   By default, the CA expiry would be set to 10 years.
  
-5. Add option specifying the Client certificate expiration duration, `tls.certs.generate.clientCertDuration`.  
+6. Add option specifying the CA certificate expiry window, `tls.certs.generate.caCertExpiryWindow`
+   This duration will be used to rotate the CA certs before its actual expiry.    
+
+7. Add option specifying the Client certificate duration, `tls.certs.generate.clientCertDuration`.  
   The duration value from this option will be used to set the expiry of the generated Client certificates. By default, Client certificate expiry would be set to 1 year.
  
-6. Add option specifying the Node certificate expiration duration, `tls.certs.generate.nodeCertDuration`.  
+8. Add option specifying the Node certificate duration, `tls.certs.generate.nodeCertDuration`.  
   The duration value from this option will be used to set the expiry of the generated Node certificates. By default, Node certificate expiry would be set to 1 year.
  
-7. Add option specifying CockroachDB to manage rotation of the generated certificates, `tls.certs.generate.rotateCerts` as true/false.  
+9. Add option specifying CockroachDB to manage rotation of the generated certificates, `tls.certs.generate.rotateCerts` as true/false.  
   Enabling this option will result in auto-rotation of the certificates, before the expiry.
  
 ## Helm Input Validation
@@ -66,11 +74,12 @@ This section specifies the suggested changes around user input in the Helm chart
 1. If `tls.certs.generate.caProvided` is set to true, then value for `tls.certs.generate.caSecret` must be provided.
  
 2. If value for `tls.certs.generate.caSecret` is provided, secret should exist in the CockroachDB install namespace.
+
+3. Value for `tls.certs.generate.caCertExpiryWindow` should be greater than `tls.certs.generate.minimumCertDuration`
  
-3. Value for `tls.certs.generate.caCertDuration` should be at least some delta months greater than the maximum of value for 
-   `tls.certs.generate.clientCertDuration` and `tls.certs.generate.nodeCertDuration`.
- 
- 
+4. Value for `tls.certs.generate.caCertDuration` - `tls.certs.generate.caCertExpiryWindow` should be greater than `tls.certs.generate.minimumCertDuration` 
+   `tls.certs.generate.clientCertDuration` and `tls.certs.generate.nodeCertDuration` should also be greater than `tls.certs.generate.minimumCertDuration`.
+   
 ## Implementation Details
  
 ### Helm Components:
@@ -96,8 +105,7 @@ When `tls.certs.generate.enabled` is set to `true`, the following components are
    | RoleBindings      | 3             | 3rd                       |
    | Job               | 4             | 4th                       |
  
- * After all the `pre-install` hooks completed successfully, they will be deleted by hook deletion-policy defined in
- annotations.
+ * After all the `pre-install` hooks completed successfully, only the job will be deleted. The other resources will be required to rotate the certificates by cronjob. 
  
  * All the certificate generation-related info will be passed on to the `pre-install` job as env variables.
     ```yaml
@@ -123,10 +131,11 @@ When `tls.certs.generate.enabled` is set to `true`, the following components are
   * In case CA is provided by the user, then `cockroachdb-ca` secret is skipped.
   * Annotation is set on all the secrets created by CockroachDB; eg: `managed-by: cockroachdb`
  
-* A cronjob will be created in Helm chart when `tls.certs.generate.rotateCerts` is set.
-  * This cronjob will run periodically to rotate the certificates.
-  * The schedule of the cronjob will be of minimum `clientCertDuration` and `nodeCertDuration` minus some delta.
-  * On every scheduled run, it will check if there is any certificate that is going to expire before the next scheduled run,
+* Two cronjob will be created in Helm chart when `tls.certs.generate.rotateCerts` is set.
+  * These cronjobs will run periodically to rotate the certificates. One will rotate node and client certificates and another one rotate CA certificate.
+  * The schedule of the node and client rotation cronjob will be `tls.certs.generate.minimumCertDuration`.
+  * The schedule of the CA rotation cronjonb will be `tls.certs.generate.caCertDuration` - `tls.certs.generate.caCertExpiryWindow`  
+  * On every scheduled run, cronjobs will check if there is any certificate that is going to expire before the next scheduled run,
    if yes then it will renew the certificates.
   
   * <b>The cronjob will use the same `pre-install` job image for certificate rotations. The `pre-install` job image binary will have an argument `--rotate` for handling certificate rotation.</b>
@@ -136,11 +145,8 @@ When `tls.certs.generate.enabled` is set to `true`, the following components are
 * The post-install job will be changed to only run `copy-certs` initContainer to copy the certificates from Client secret to emptyDir volume.
   The rest of the main cluster-init container flow will remain the same.
  
-`TODO: Need to identify how to generate the SIGHUP signal in all the Nodes for certificate renewal`
- 
 ### Certificate Management Service Implementation
- 
- 
+
 ### Overall Flow
  
 * Check if CA secret is empty
@@ -187,7 +193,7 @@ When `tls.certs.generate.enabled` is set to `true`, the following components are
 * CA rotation will follow the same workflow as [CA Generation Workflow](#generate-ca), except the new CA is a combined CA certificate that contains 
   the new CA certificate followed by the old CA certificate.
 * This new combined CA certificate will be updated in the CA secret and all the Node and Client secret.
-  `TODO: Need to identify how to generate the SIGHUP signal in all the Nodes for certificate renewal`
+  Follow [Node restart after certificate generation](#node-restart-after-cert-rotation)
 * In addition, Client secret and Node secret will be patched with annotation `needsRegeneration: True`, which specifies that their certificates
   need to be regenerated in the next cronjob run. This is done in accordance with the suggestion in CockroachDB [doc](https://www.cockroachlabs.com/docs/v20.2/rotate-certificates.html#why-rotate-ca-certificates-in-advance)
  
@@ -197,13 +203,18 @@ When `tls.certs.generate.enabled` is set to `true`, the following components are
  
 #### Check-cert-for-regeneration
 * Check if the certificate secret has annotation `managed-by: cockroachdb`, if not return False
-* Check if the certificate is expiring in the next 2 months using the values from annotations `creationTime` and `duration` on secret, if expiring return True, else False
+* Check if the certificate is expiring before the next cron schedule using the values from annotations `creationTime` and `duration` on secret, if expiring return True, else False
  
 #### Validate-Secret-Annotations
 * Check if annotation for `resourceVersion` and `creationTime` exists, if not return False
 * Check if resourceVersion of the secret matches with the value of `resourceVersion` annotation, if not means secret is changed, return False
 * Else, return True
  
+#### Node-restart-after-cert-rotation
+This could be done in either of the two ways mentioned:
+1. Trigger a rolling restart of the nodes so that the new certs are consumed.
+2. Trigger a SIGHUP signal using a sidecar container, which will restart the cockroachDB process without restarting entire node.
+
 ### Certificate Generation cases during Helm upgrade:
  
 In case of Helm upgrade:
@@ -234,10 +245,10 @@ In case of Helm upgrade:
  
 * Only renew CA certificate by generating new CA key and new combined CA along with the old CA.
 * Update CA secret and add CA certificate in Node and Client secret.
-`TODO: Need to identify how to generate the SIGHUP signal in all the Nodes for certificate renewal`
+* Follow [Node restart after certificate generation](#node-restart-after-cert-rotation)
 * Add annotation on CA secret with the date of rotation.
 * Add annotations on Node and Client certs `to-be-rotated: true`.
 * Do not process Node and Client certificate.
 * On the next scheduled iteration, if `to-be-rotated: true` annotation found, then renew Node or Client certificate.
 * Remove `to-be-rotated: true` from Node secret and Client secret.
-`TODO: Need to identify how to generate the SIGHUP signal in all the Nodes for certificate renewal`
+* Follow [Node restart after certificate generation](#node-restart-after-cert-rotation)
