@@ -228,6 +228,9 @@ statefulset:
     #   cpu: 100m
     #   memory: 512Mi
 
+  customLivenessProbe: {}
+  customReadinessProbe: {}
+
 service:
   ports:
     # You can set a different external and internal gRPC ports and their name.
