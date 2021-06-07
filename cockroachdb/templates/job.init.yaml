@@ -218,8 +218,6 @@ spec:
                         ;
                       {{- end }}
                       {{- end }}
-
-                        SELECT 'Provisioning completed successfully';
                     "
                   &>/dev/null;
 
@@ -231,6 +229,8 @@ spec:
 
                   sleep 5;
                 done
+
+                echo "Provisioning completed successfully";
               }
 
               provisionCluster;
