@@ -267,7 +267,6 @@ service:
     # Additional annotations to apply to this Service.
     annotations: {}
 
-
 # CockroachDB's ingress for web ui.
 ingress:
   enabled: false
