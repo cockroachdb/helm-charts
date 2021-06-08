@@ -1,0 +1,33 @@
+{{- if and .Values.tls.certs.generator.enabled .Values.tls.certs.generator.rotateCerts }}
+  {{- if eq false .Values.tls.certs.generator.caProvided }}
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: {{ template "selfcerts.fullname" . }}-ca-rotate
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+spec:
+  schedule: {{ template "selfcerts.caRotateSchedule" . }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: cert-rotate-job
+            image: "{{ .Values.tls.generator.image.repository }}:{{ .Values.tls.generator.image.tag }}"
+            imagePullPolicy: "{{ .Values.tls.generator.image.pullPolicy }}"
+            args:
+            - --ca-duration={{ .Values.tls.certs.generator.caCertDuration }}
+            - --ca-expiry={{ .Values.tls.certs.generator.caCertExpiryWindow }}
+            env:
+            - name: STATEFULSET_NAME
+              value: {{ template "cockroachdb.fullname" . }}
+            - name: NAMESPACE
+              value: {{ .Release.Namespace }}
+          serviceAccountName: {{ template "selfcerts.fullname" . }}
+  {{- end}}
+  {{- end}}

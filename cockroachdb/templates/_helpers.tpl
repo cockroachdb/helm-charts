@@ -78,3 +78,106 @@ Return CockroachDB store expression
 
 {{ compact (values $store) | join "," }}
 {{- end -}}
+
+{{/*
+Define the default values for the certificate generator inputs
+*/}}
+{{- define "selfcerts.fullname" -}}
+    {{- if .Values.fullnameOverride -}}
+        {{- .Values.fullnameOverride | trunc 56 | trimSuffix "-" -}}
+    {{- else -}}
+        {{- printf "%s-%s" "selfcerts" .Release.Name | trunc 56 | trimSuffix "-" -}}
+    {{- end -}}
+{{- end -}}
+
+{{- define "selfcerts.minimumCertDuration" -}}
+  {{- if .Values.tls.certs.generator.minimumCertDuration -}}
+    {{- print (.Values.tls.certs.generator.minimumCertDuration | trimSuffix "h") -}}
+  {{- else }}
+    {{- $minCertDuration := min (sub (.Values.tls.certs.generator.clientCertDuration | trimSuffix "h" ) (.Values.tls.certs.generator.clientCertExpiryWindow | trimSuffix "h")) (sub (.Values.tls.certs.generator.nodeCertDuration | trimSuffix "h") (.Values.tls.certs.generator.nodeCertExpiryWindow | trimSuffix "h")) -}}
+    {{- print $minCertDuration -}}
+  {{- end }}
+{{- end -}}
+
+{{/*
+Define the cron schedules for certificate rotate jobs
+*/}}
+{{- define "selfcerts.caRotateSchedule" -}}
+{{- $schedule := sub (.Values.tls.certs.generator.caCertDuration | trimSuffix "h") (.Values.tls.certs.generator.caCertExpiryWindow | trimSuffix "h") -}}
+{{- printf "0 %s%s * * *" "*/" (toString $schedule) | quote -}}
+{{- end -}}
+
+{{- define "selfcerts.clientRotateSchedule" -}}
+{{- printf "0 %s%s * * *" "*/" (include "selfcerts.minimumCertDuration" .) | quote -}}
+{{- end -}}
+
+{{/*
+Define the appropriate validations for the certificate generator inputs
+*/}}
+
+{{/*
+Validate that if caProvided is true, then the caSecret must not be empty and secret must be present in the namespace.
+*/}}
+{{- define "cockroachdb.tls.certs.generator.caProvidedValidation" -}}
+{{- if eq true .Values.tls.certs.generator.caProvided -}}
+{{- if eq "" .Values.tls.certs.generator.caSecret -}}
+    {{ fail "CA secret can't be empty if caProvided is set to true" }}
+{{- else -}}
+    {{- if not (lookup "v1" "Secret" .Release.Namespace .Values.tls.certs.generator.caSecret) }}
+        {{ fail "CA secret is not present in the release namespace" }}
+    {{- end }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Validate that if caCertDuration or caCertExpiryWindow must not be empty and caCertExpiryWindow must be greater than
+minimumCertDuration.
+*/}}
+{{- define "cockroachdb.tls.certs.generator.caCertValidation" -}}
+{{- if eq false .Values.tls.certs.generator.caProvided -}}
+{{- if or (not .Values.tls.certs.generator.caCertDuration) (not .Values.tls.certs.generator.caCertExpiryWindow) }}
+  {{ fail "CA cert duration or CA cert expiry window can not be empty" }}
+{{- else }}
+{{- if gt (int64 (include "selfcerts.minimumCertDuration" .)) (int64 (.Values.tls.certs.generator.caCertExpiryWindow | trimSuffix "h")) -}}
+  {{ fail "CA cert expiration window should not be less than minimum Cert duration" }}
+{{- end -}}
+{{- if gt (int64 (include "selfcerts.minimumCertDuration" .)) (sub (.Values.tls.certs.generator.caCertDuration | trimSuffix "h") (.Values.tls.certs.generator.caCertExpiryWindow | trimSuffix "h")) -}}
+  {{ fail "CA cert Duration minus CA cert expiration window should not be less than minimum Cert duration" }}
+{{- end -}}
+{{- end -}}
+{{- end }}
+{{- end -}}
+
+{{/*
+Validate that if clientCertDuration must not be empty and it must be greater than minimumCertDuration.
+*/}}
+{{- define "cockroachdb.tls.certs.generator.clientCertValidation" -}}
+{{- if or (not .Values.tls.certs.generator.clientCertDuration) (not .Values.tls.certs.generator.clientCertExpiryWindow) }}
+  {{ fail "Client cert duration can not be empty" }}
+{{- else }}
+{{- if lt (sub (.Values.tls.certs.generator.clientCertDuration | trimSuffix "h") (.Values.tls.certs.generator.clientCertExpiryWindow | trimSuffix "h")) (int64 (include "selfcerts.minimumCertDuration" .)) }}
+   {{ fail "Client cert duration minus client cert expiry window should not be less than minimum Cert duration" }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{/*
+Validate that if nodeCertDuration must not be empty and it must be greater than minimumCertDuration.
+*/}}
+{{- define "cockroachdb.tls.certs.generator.nodeCertValidation" -}}
+{{- if or (not .Values.tls.certs.generator.nodeCertDuration) (not .Values.tls.certs.generator.nodeCertExpiryWindow) }}
+  {{ fail "Node cert duration can not be empty" }}
+{{- else }}
+{{- if gt (int64 .Values.tls.certs.generator.minimumCertDuration) (sub (.Values.tls.certs.generator.nodeCertDuration | trimSuffix "h") (.Values.tls.certs.generator.nodeCertExpiryWindow | trimSuffix "h"))}}
+   {{ fail "Node cert duration minus node cert expiry window should not be less than minimum Cert duration" }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+{{- define "cockroachdb.tls.certs.generator.validation" -}}
+{{ include "cockroachdb.tls.certs.generator.caProvidedValidation" . }}
+{{ include "cockroachdb.tls.certs.generator.caCertValidation" . }}
+{{ include "cockroachdb.tls.certs.generator.clientCertValidation" . }}
+{{ include "cockroachdb.tls.certs.generator.nodeCertValidation" . }}
+{{- end -}}

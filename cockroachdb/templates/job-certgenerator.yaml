@@ -1,0 +1,49 @@
+{{- if .Values.tls.certs.generator.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "selfcerts.fullname" . }}
+  annotations:
+    # This is what defines this resource as a hook. Without this line, the
+    # job is considered part of the release.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "4"
+    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+spec:
+  template:
+    metadata:
+      name: {{ template "selfcerts.fullname" . }}
+      labels:
+        helm.sh/chart: {{ template "cockroachdb.chart" . }}
+        app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: cert-generate-job
+          image: "{{ .Values.tls.generator.image.repository }}:{{ .Values.tls.generator.image.tag }}"
+          imagePullPolicy: "{{ .Values.tls.generator.image.pullPolicy }}"
+          args:
+            {{- if eq true .Values.tls.certs.generator.caProvided }}
+            - --ca-secret={{ .Values.tls.certs.generator.caSecret }}
+            {{- else }}
+            - --ca-duration={{ .Values.tls.certs.generator.caCertDuration }}
+            - --ca-expiry={{ .Values.tls.certs.generator.caCertExpiryWindow }}
+            {{- end }}
+            - --client-duration={{ .Values.tls.certs.generator.clientCertDuration }}
+            - --client-expiry={{ .Values.tls.certs.generator.clientCertExpiryWindow }}
+            - --node-duration={{ .Values.tls.certs.generator.nodeCertDuration }}
+            - --node-expiry={{ .Values.tls.certs.generator.nodeCertExpiryWindow }}
+          env:
+          - name: STATEFULSET_NAME
+            value: {{ template "cockroachdb.fullname" . }}
+          - name: NAMESPACE
+            value: {{ .Release.Namespace | quote }}
+      serviceAccountName: {{ template "selfcerts.fullname" . }}
+{{- end}}

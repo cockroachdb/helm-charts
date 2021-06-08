@@ -357,7 +357,7 @@ init:
 
 # Whether to run securely using TLS certificates.
 tls:
-  enabled: false
+  enabled: true
   serviceAccount:
     # Specifies whether this ServiceAccount should be created.
     create: true
@@ -374,6 +374,31 @@ tls:
     # Enable if the secret is a dedicated TLS.
     # TLS secrets are created by cert-mananger, for example.
     tlsSecret: false
+    # Enable if the you want cockroach db to create its own certificates
+    generator:
+      # If set, the cockroach db will generate its own certificates
+      enabled: true
+      # If set, the user should provide the CA certificate to sign other certificates.
+      caProvided: false
+      # It holds the name of the secret with caCerts. If caProvided is set, this can not be empty.
+      caSecret: ""
+      # Minimum Certificate duration for all the certificates, all certs duration will be validated against this.
+      minimumCertDuration: 624h
+      # Duration of CA certificates in hour
+      caCertDuration: 43800h
+      # Expiry window of CA certificates means a window before actual expiry in which CA certs should be rotated.
+      caCertExpiryWindow: 648h
+      # Duration of Client certificates in hour
+      clientCertDuration: 672h
+      # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.
+      clientCertExpiryWindow: 48h
+      # Duration of node certificates in hour
+      nodeCertDuration: 8760h
+      # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
+      nodeCertExpiryWindow: 168h
+      # If set, the cockroachdb cert generator will rotate the certificates before expiry.
+      rotateCerts: true
+
     # Use cert-manager to issue certificates for mTLS.
     certManager: false
     # Specify an Issuer or a ClusterIssuer to use, when issuing
@@ -383,6 +408,17 @@ tls:
       group: cert-manager.io
       kind: Issuer
       name: cockroachdb
+
+  generator:
+    # Image to use for generating certificates
+    image:
+      repository: cockroachdb/cockroach-generate-cert
+      tag: "0.1"
+      pullPolicy: IfNotPresent
+      credentials: {}
+      # registry: docker.io
+      # username: john_doe
+      # password: changeme
 
   init:
     # Image to use for requesting TLS certificates.
