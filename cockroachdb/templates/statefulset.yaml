@@ -249,6 +249,9 @@ spec:
               readOnly: true
           {{- end }}
           livenessProbe:
+          {{- if .Values.statefulset.customLivenessProbe }}
+            {{ toYaml .Values.statefulset.customLivenessProbe | nindent 12 }}
+          {{- else }}
             httpGet:
               path: /health
               port: http
@@ -257,7 +260,11 @@ spec:
             {{- end }}
             initialDelaySeconds: 30
             periodSeconds: 5
+          {{- end }}
           readinessProbe:
+          {{- if .Values.statefulset.customReadinessProbe }}
+            {{ toYaml .Values.statefulset.customReadinessProbe | nindent 12 }}
+          {{- else }}
             httpGet:
               path: /health?ready=1
               port: http
@@ -267,6 +274,7 @@ spec:
             initialDelaySeconds: 10
             periodSeconds: 5
             failureThreshold: 2
+          {{- end }}
         {{- with .Values.statefulset.resources }}
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
