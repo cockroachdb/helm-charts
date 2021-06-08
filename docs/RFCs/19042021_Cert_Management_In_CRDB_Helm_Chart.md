@@ -40,65 +40,65 @@ CockroachDB user needs a default mechanism of cert management which should work 
 ## Helm Configuration
 This section specifies the suggested changes around user input in the Helm chart
  
-1. Add option specifying CockroachDB to manage the certificates, `tls.certs.generator.enabled` as true/false.  
+1. Add option specifying CockroachDB to manage the certificates, `tls.certs.selfSigner.enabled` as true/false.  
    Enabling this option will result in CockroachDB creating Node and Client certificates using a CA(either generated or provided by the user).
  
-2. Add option specifying CockroachDB to use user provided CA, `tls.certs.generator.caProvided` as true/false.  
+2. Add option specifying CockroachDB to use user provided CA, `tls.certs.selfSigner.caProvided` as true/false.  
    Enabling this option will result in the generation of Node and Client certificates using the CA provided by the user.
  
-3. Add option specifying the secret name containing user provide CA, `tls.certs.generator.caSecret`.  
+3. Add option specifying the secret name containing user provide CA, `tls.certs.selfSigner.caSecret`.  
    The secret name specified in this option will be used as a source for user-provided CA.
-   This option is mandatory if the `tls.certs.generator.caProvided` is true.
+   This option is mandatory if the `tls.certs.selfSigner.caProvided` is true.
  
-4. Add option specifying the minimum certificate duration, `tls.certs.generator.minimumCertDuration`
+4. Add option specifying the minimum certificate duration, `tls.certs.selfSigner.minimumCertDuration`
    This duration will be used to validate all other certificate durations, which must be greater than this duration.
    If this input is not provide by user,it will be derived from client/node cert duration and expiry.
    
-5. Add option specifying the CA certificate duration, `tls.certs.generator.caCertDuration`.  
+5. Add option specifying the CA certificate duration, `tls.certs.selfSigner.caCertDuration`.  
    This duration will only be used when we create our own CA. The duration value from this option will be used to set the expiry of the generated CA certificate.
    By default, the CA expiry would be set to 10 years.
  
-6. Add option specifying the CA certificate expiry window, `tls.certs.generator.caCertExpiryWindow`
+6. Add option specifying the CA certificate expiry window, `tls.certs.selfSigner.caCertExpiryWindow`
    This duration will be used to rotate the CA certs before its actual expiry.    
 
-7. Add option specifying the Client certificate duration, `tls.certs.generator.clientCertDuration`.  
+7. Add option specifying the Client certificate duration, `tls.certs.selfSigner.clientCertDuration`.  
    The duration value from this option will be used to set the expiry of the generated Client certificates. By default, Client certificate expiry would be set to 1 year.
  
-8. Add option specifying the Client certificate expiry window, `tls.certs.generator.clientCertExpiryWindow`
+8. Add option specifying the Client certificate expiry window, `tls.certs.selfSigner.clientCertExpiryWindow`
    This duration will be used to rotate the Client certs before its actual expiry.
    
-9. Add option specifying the Node certificate duration, `tls.certs.generator.nodeCertDuration`.  
+9. Add option specifying the Node certificate duration, `tls.certs.selfSigner.nodeCertDuration`.  
    The duration value from this option will be used to set the expiry of the generated Node certificates. By default, Node certificate expiry would be set to 1 year.
  
-10. Add option specifying the Node certificate expiry window, `tls.certs.generator.nodeCertExpiryWindow`
+10. Add option specifying the Node certificate expiry window, `tls.certs.selfSigner.nodeCertExpiryWindow`
     This duration will be used to rotate the Node certs before its actual expiry.
     
-11. Add option specifying CockroachDB to manage rotation of the generated certificates, `tls.certs.generator.rotateCerts` as true/false.  
+11. Add option specifying CockroachDB to manage rotation of the generated certificates, `tls.certs.selfSigner.rotateCerts` as true/false.  
     Enabling this option will result in auto-rotation of the certificates, before the expiry.
  
 ## Helm Input Validation
  
-1. If `tls.certs.generator.caProvided` is set to true, then value for `tls.certs.generator.caSecret` must be provided.
+1. If `tls.certs.selfSigner.caProvided` is set to true, then value for `tls.certs.selfSigner.caSecret` must be provided.
  
-2. If value for `tls.certs.generator.caSecret` is provided, secret should exist in the CockroachDB install namespace.
+2. If value for `tls.certs.selfSigner.caSecret` is provided, secret should exist in the CockroachDB install namespace.
 
-3. If value for `tls.certs.generator.minimumCertDuration` is not provided, it will derive from following:
+3. If value for `tls.certs.selfSigner.minimumCertDuration` is not provided, it will derive from following:
    ```
-   tls.certs.generator.minimumCertDuration = Min((tls.certs.generator.clientCertDuration - tls.certs.generator.clientCertExpiryWindow), 
-   (tls.certs.generator.nodeCertDuration - tls.certs.generator.nodeCertExpiryWindow))
+   tls.certs.selfSigner.minimumCertDuration = Min((tls.certs.selfSigner.clientCertDuration - tls.certs.selfSigner.clientCertExpiryWindow), 
+   (tls.certs.selfSigner.nodeCertDuration - tls.certs.selfSigner.nodeCertExpiryWindow))
    ```
 
-4. Value for `tls.certs.generator.caCertExpiryWindow` should be greater than `tls.certs.generator.minimumCertDuration`
+4. Value for `tls.certs.selfSigner.caCertExpiryWindow` should be greater than `tls.certs.selfSigner.minimumCertDuration`
  
-5. Value for `tls.certs.generator.caCertDuration` - `tls.certs.generator.caCertExpiryWindow` should be greater than `tls.certs.generator.minimumCertDuration` 
-   `tls.certs.generator.clientCertDuration` - `tls.certs.generator.clientCertExpiryWindow` and `tls.certs.generator.nodeCertDuration` - `tls.certs.generator.nodeCertExpiryWindow` 
-   should also be greater than `tls.certs.generator.minimumCertDuration`.
+5. Value for `tls.certs.selfSigner.caCertDuration` - `tls.certs.selfSigner.caCertExpiryWindow` should be greater than `tls.certs.selfSigner.minimumCertDuration` 
+   `tls.certs.selfSigner.clientCertDuration` - `tls.certs.selfSigner.clientCertExpiryWindow` and `tls.certs.selfSigner.nodeCertDuration` - `tls.certs.selfSigner.nodeCertExpiryWindow` 
+   should also be greater than `tls.certs.selfSigner.minimumCertDuration`.
    
 ## Implementation Details
  
 ### Helm Components:
  
-When `tls.certs.generator.enabled` is set to `true`, the following components are created for certificate generation and rotation:
+When `tls.certs.selfSigner.enabled` is set to `true`, the following components are created for certificate generation and rotation:
  1. Certificate Management Service as a `pre-install` job.
  2. ServiceAccount, for `pre-install` job. (deleted after pre-install hook succeeds)
  3. Role, for adding a role to perform an operation on the secret resource. (deleted after pre-install hook succeeds)
@@ -107,7 +107,7 @@ When `tls.certs.generator.enabled` is set to `true`, the following components ar
  
 ### Helm Flow:   
 * A `pre-install` [chart hook](https://helm.sh/docs/topics/charts_hooks/) will be used to create a job for the Certificate Management Service, that runs before all the Helm chart resources are installed.
-  * This job will only run when `tls.certs.generator.enabled` is set to `true`.
+  * This job will only run when `tls.certs.selfSigner.enabled` is set to `true`.
   * This job will take care of generating all the required certificates.
   * Along with the `pre-install` hook job, serviceAccount, role, and roleBinding will also be created as part of `pre-install` hooks with different `hook-weight` so that the `pre-install`
     job has sufficient permissions to perform certificate generation.
@@ -125,13 +125,13 @@ When `tls.certs.generator.enabled` is set to `true`, the following components ar
     ```yaml
     env:
        - name: CA_CERT_DURATION
-         value: {{ default 3650 .Values.tls.certs.generator.caCertDuration}}
+         value: {{ default 3650 .Values.tls.certs.selfSigner.caCertDuration}}
        - name: NODE_CERT_DURATION
-         value: {{ default 365 .Values.tls.certs.generator.nodeCertDuration}}
+         value: {{ default 365 .Values.tls.certs.selfSigner.nodeCertDuration}}
        - name: Client_CERT_DURATION
-         value: {{ default 365 .Values.tls.certs.generator.clientCertDuration}}
-       {{- if and (tls.certs.generator.caProvided .Values.tls.certs.generator.caSecret) }}
-           {{- if not (lookup "v1" "Secret" ".Release.Namespace" ".Values.tls.certs.generator.caSecret")}}
+         value: {{ default 365 .Values.tls.certs.selfSigner.clientCertDuration}}
+       {{- if and (tls.certs.selfSigner.caProvided .Values.tls.certs.selfSigner.caSecret) }}
+           {{- if not (lookup "v1" "Secret" ".Release.Namespace" ".Values.tls.certs.selfSigner.caSecret")}}
            {{ fail "CA secret doesn't exist in cluster"}}
            {{- end }}
        - name: CA_SECRET
@@ -139,16 +139,16 @@ When `tls.certs.generator.enabled` is set to `true`, the following components ar
        {{- end }}
     ```
  
-* 3 empty secret will be created in Helm chart for `cockroachdb-ca`, `cockroachdb-node` and `cockroachdb-root` if `tls.certs.generator.enabled`
+* 3 empty secret will be created in Helm chart for `cockroachdb-ca`, `cockroachdb-node` and `cockroachdb-root` if `tls.certs.selfSigner.enabled`
     is set.
   * Data to these secrets will be populated in the `pre-install` job.
   * In case CA is provided by the user, then `cockroachdb-ca` secret is skipped.
   * Annotation is set on all the secrets created by CockroachDB; eg: `managed-by: cockroachdb`
  
-* Two cronjob will be created in Helm chart when `tls.certs.generator.rotateCerts` is set.
+* Two cronjob will be created in Helm chart when `tls.certs.selfSigner.rotateCerts` is set.
   * These cronjobs will run periodically to rotate the certificates. One will rotate node and client certificates and another one rotate CA certificate.
-  * The schedule of the node and client rotation cronjob will be `tls.certs.generator.minimumCertDuration`.
-  * The schedule of the CA rotation cronjonb will be `tls.certs.generator.caCertDuration` - `tls.certs.generator.caCertExpiryWindow`  
+  * The schedule of the node and client rotation cronjob will be `tls.certs.selfSigner.minimumCertDuration`.
+  * The schedule of the CA rotation cronjonb will be `tls.certs.selfSigner.caCertDuration` - `tls.certs.selfSigner.caCertExpiryWindow`  
   * On every scheduled run, cronjobs will check if there is any certificate that is going to expire before the next scheduled run,
     if yes then it will renew the certificates.
   
@@ -177,26 +177,26 @@ When `tls.certs.generator.enabled` is set to `true`, the following components ar
  
 #### Generate-CA
 * A self-signed CA will be generated
-* Expiry of the certificate will be driven by the Helm value for `tls.certs.generator.caCertDuration`, passed as env variable
+* Expiry of the certificate will be driven by the Helm value for `tls.certs.selfSigner.caCertDuration`, passed as env variable
 * Contents of the CA certificate will be stored in the default CA secret `cockroachdb-ca`.
 * An annotation `managed-by: cockroachdb` will be added on secret
 * Follow [CA Annotation Workflow](#annotate-ca)
  
 #### Generate-Node-Cert
 * A Node certificate will be generated signed by the generated CA or user custom CA.
-* Expiry of the certificate will be driven by the Helm value for `tls.certs.generator.nodeCertDuration`, passed as env variable
+* Expiry of the certificate will be driven by the Helm value for `tls.certs.selfSigner.nodeCertDuration`, passed as env variable
 * Contents of the Node certificate will be stored in the Node secret `cockroachdb-node`.
 * An annotation `managed-by: cockroachdb` will be added on secret
 * Node secret will be patched with annotation `resourceVersion` with the value of its current resourceVersion
-* Node secret will be patched with annotation `creationTime` and `duration` with current UTC time and value from `tls.certs.generator.nodeCertDuration`
+* Node secret will be patched with annotation `creationTime` and `duration` with current UTC time and value from `tls.certs.selfSigner.nodeCertDuration`
  
 #### Generate-Client-Cert
 * A Client certificate will be generated by signing it with the generated CA.
-* Expiry of the certificate will be driven by the Helm value for `tls.certs.generator.clientCertDuration`, passed as env variable
+* Expiry of the certificate will be driven by the Helm value for `tls.certs.selfSigner.clientCertDuration`, passed as env variable
 * Contents of the Client certificate will be stored in the Client secret `cockroachdb-root`
 * An annotation `managed-by: cockroachdb` will be added on secret
 * Client secret will be patched with annotation `resourceVersion` with the value of its current resourceVersion
-* Client secret will be patched with annotation `creationTime` and `duration` with current UTC time and value from `tls.certs.generator.clientCertDuration`
+* Client secret will be patched with annotation `creationTime` and `duration` with current UTC time and value from `tls.certs.selfSigner.clientCertDuration`
 
 #### Generate-Certs-for-additional-users
 * A helm plugin will be provided for generating any user's certificate apart from the root user certificate.
@@ -210,7 +210,7 @@ helm crdb create-certs --user=<required> --user-secret=<optional> --release=<coc
  
 #### Annotate-CA
 * CA secret will be patched with annotation `resourceVersion` with the value of its current resourceVersion
-* CA secret will be patched with annotation `creationTime` and `duration` with current UTC time and value from `tls.certs.generator.caCertDuration`
+* CA secret will be patched with annotation `creationTime` and `duration` with current UTC time and value from `tls.certs.selfSigner.caCertDuration`
 * Now that CA is annotated with required info, it will be followed by [Node cert generation workflow](#generate-node-cert)
  
 #### Rotate-CA
