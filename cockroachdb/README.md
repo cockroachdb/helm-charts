@@ -334,6 +334,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `statefulset.topologySpreadConstraints.topologyKey`       | The key of node labels                                          | `topology.kubernetes.io/zone`                    |
 | `statefulset.topologySpreadConstraints.whenUnsatisfiable` | `ScheduleAnyway`/`DoNotSchedule` for unsatisfiable constraints  | `ScheduleAnyway`                                 |
 | `statefulset.resources`                                   | Resource requests and limits for StatefulSet Pods               | `{}`                                             |
+| `statefulset.customLivenessProbe`                         | Custom Liveness probe                                           | `{}`                                             |
+| `statefulset.customReadinessProbe`                        | Custom Rediness probe                                           | `{}`                                             |
 | `service.ports.grpc.external.port`                        | CockroachDB primary serving port in Services                    | `26257`                                          |
 | `service.ports.grpc.external.name`                        | CockroachDB primary serving port name in Services               | `grpc`                                           |
 | `service.ports.grpc.internal.port`                        | CockroachDB inter-communication port in Services                | `26257`                                          |
