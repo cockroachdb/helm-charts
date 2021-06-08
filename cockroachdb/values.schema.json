@@ -7,7 +7,7 @@
         "certs": {
           "type": "object",
           "properties": {
-            "generator": {
+            "selfSigner": {
               "type": "object",
               "required": ["enabled", "caProvided"],
               "properties": {
@@ -59,7 +59,7 @@
             }
           }
         },
-        "generator": {
+        "selfSigner": {
           "type": "object",
           "properties": {
             "image": {

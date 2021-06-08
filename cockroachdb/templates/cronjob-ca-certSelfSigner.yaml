@@ -1,5 +1,5 @@
-{{- if and .Values.tls.certs.generator.enabled .Values.tls.certs.generator.rotateCerts }}
-  {{- if eq false .Values.tls.certs.generator.caProvided }}
+{{- if and .Values.tls.certs.selfSigner.enabled .Values.tls.certs.selfSigner.rotateCerts }}
+  {{- if eq false .Values.tls.certs.selfSigner.caProvided }}
 apiVersion: batch/v1beta1
 kind: CronJob
 metadata:
@@ -18,11 +18,11 @@ spec:
           restartPolicy: Never
           containers:
           - name: cert-rotate-job
-            image: "{{ .Values.tls.generator.image.repository }}:{{ .Values.tls.generator.image.tag }}"
-            imagePullPolicy: "{{ .Values.tls.generator.image.pullPolicy }}"
+            image: "{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
+            imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
             args:
-            - --ca-duration={{ .Values.tls.certs.generator.caCertDuration }}
-            - --ca-expiry={{ .Values.tls.certs.generator.caCertExpiryWindow }}
+            - --ca-duration={{ .Values.tls.certs.selfSigner.caCertDuration }}
+            - --ca-expiry={{ .Values.tls.certs.selfSigner.caCertExpiryWindow }}
             env:
             - name: STATEFULSET_NAME
               value: {{ template "cockroachdb.fullname" . }}

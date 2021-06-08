@@ -375,7 +375,7 @@ tls:
     # TLS secrets are created by cert-mananger, for example.
     tlsSecret: false
     # Enable if the you want cockroach db to create its own certificates
-    generator:
+    selfSigner:
       # If set, the cockroach db will generate its own certificates
       enabled: true
       # If set, the user should provide the CA certificate to sign other certificates.
@@ -396,7 +396,7 @@ tls:
       nodeCertDuration: 8760h
       # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
       nodeCertExpiryWindow: 168h
-      # If set, the cockroachdb cert generator will rotate the certificates before expiry.
+      # If set, the cockroachdb cert selfSigner will rotate the certificates before expiry.
       rotateCerts: true
 
     # Use cert-manager to issue certificates for mTLS.
@@ -409,7 +409,7 @@ tls:
       kind: Issuer
       name: cockroachdb
 
-  generator:
+  selfSigner:
     # Image to use for generating certificates
     image:
       repository: cockroachdb/cockroach-generate-cert

@@ -53,7 +53,7 @@ spec:
     {{- if .Values.tls.enabled }}
       serviceAccountName: {{ template "cockroachdb.tls.serviceAccount.name" . }}
       {{- if and (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager) }}
-      {{- if eq false .Values.tls.certs.generator.enabled }}
+      {{- if eq false .Values.tls.certs.selfSigner.enabled }}
       initContainers:
         # The init-certs container sends a CSR (certificate signing request) to
         # the Kubernetes cluster.
@@ -90,7 +90,7 @@ spec:
               mountPath: /cockroach-certs/
       {{- end }}
       {{- end }}
-      {{- if or .Values.tls.certs.provided (eq true .Values.tls.certs.generator.enabled) }}
+      {{- if or .Values.tls.certs.provided (eq true .Values.tls.certs.selfSigner.enabled) }}
       initContainers:
         - name: copy-certs
           image: "busybox"

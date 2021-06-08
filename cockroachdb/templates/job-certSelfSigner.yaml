@@ -1,4 +1,4 @@
-{{- if .Values.tls.certs.generator.enabled }}
+{{- if .Values.tls.certs.selfSigner.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -27,19 +27,19 @@ spec:
       restartPolicy: Never
       containers:
         - name: cert-generate-job
-          image: "{{ .Values.tls.generator.image.repository }}:{{ .Values.tls.generator.image.tag }}"
-          imagePullPolicy: "{{ .Values.tls.generator.image.pullPolicy }}"
+          image: "{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
+          imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
           args:
-            {{- if eq true .Values.tls.certs.generator.caProvided }}
-            - --ca-secret={{ .Values.tls.certs.generator.caSecret }}
+            {{- if eq true .Values.tls.certs.selfSigner.caProvided }}
+            - --ca-secret={{ .Values.tls.certs.selfSigner.caSecret }}
             {{- else }}
-            - --ca-duration={{ .Values.tls.certs.generator.caCertDuration }}
-            - --ca-expiry={{ .Values.tls.certs.generator.caCertExpiryWindow }}
+            - --ca-duration={{ .Values.tls.certs.selfSigner.caCertDuration }}
+            - --ca-expiry={{ .Values.tls.certs.selfSigner.caCertExpiryWindow }}
             {{- end }}
-            - --client-duration={{ .Values.tls.certs.generator.clientCertDuration }}
-            - --client-expiry={{ .Values.tls.certs.generator.clientCertExpiryWindow }}
-            - --node-duration={{ .Values.tls.certs.generator.nodeCertDuration }}
-            - --node-expiry={{ .Values.tls.certs.generator.nodeCertExpiryWindow }}
+            - --client-duration={{ .Values.tls.certs.selfSigner.clientCertDuration }}
+            - --client-expiry={{ .Values.tls.certs.selfSigner.clientCertExpiryWindow }}
+            - --node-duration={{ .Values.tls.certs.selfSigner.nodeCertDuration }}
+            - --node-expiry={{ .Values.tls.certs.selfSigner.nodeCertExpiryWindow }}
           env:
           - name: STATEFULSET_NAME
             value: {{ template "cockroachdb.fullname" . }}
