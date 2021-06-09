@@ -1,0 +1,33 @@
+{{- if and .Values.tls.certs.selfSigner.enabled (not .Values.tls.certs.selfSigner.caProvided) }}
+  {{- if .Values.tls.certs.selfSigner.rotateCerts }}
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: {{ template "selfcerts.fullname" . }}-ca-rotate
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+spec:
+  schedule: {{ template "selfcerts.caRotateSchedule" . }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: cert-rotate-job
+            image: "{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
+            imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
+            args:
+            - --ca-duration={{ .Values.tls.certs.selfSigner.caCertDuration }}
+            - --ca-expiry={{ .Values.tls.certs.selfSigner.caCertExpiryWindow }}
+            env:
+            - name: STATEFULSET_NAME
+              value: {{ template "cockroachdb.fullname" . }}
+            - name: NAMESPACE
+              value: {{ .Release.Namespace }}
+          serviceAccountName: {{ template "selfcerts.fullname" . }}
+  {{- end }}
+{{- end }}
