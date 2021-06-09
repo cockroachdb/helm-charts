@@ -83,11 +83,7 @@ Return CockroachDB store expression
 Define the default values for the certificate selfSigner inputs
 */}}
 {{- define "selfcerts.fullname" -}}
-    {{- if .Values.fullnameOverride -}}
-        {{- .Values.fullnameOverride | trunc 56 | trimSuffix "-" -}}
-    {{- else -}}
-        {{- printf "%s-%s" "selfcerts" .Release.Name | trunc 56 | trimSuffix "-" -}}
-    {{- end -}}
+  {{- printf "%s-%s" (include "cockroachdb.fullname" .) "self-signer" | trunc 56 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "selfcerts.minimumCertDuration" -}}
