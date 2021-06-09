@@ -55,30 +55,20 @@ func TestTLSSecretReady(t *testing.T) {
 	}{
 		{
 			name: "secret missing required fields",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      name,
-					Namespace: namespace,
-				},
-				Data: map[string][]byte{
-					"someKey": {},
-				},
-			},
+			secret: secretObj(
+				name,
+				namespace,
+				map[string][]byte{"someKey": {}},
+				nil),
 			expected: false,
 		},
 		{
 			name: "secret has all required fields",
-			secret: &corev1.Secret{
-				ObjectMeta: metav1.ObjectMeta{
-					Name:      name,
-					Namespace: namespace,
-				},
-				Data: map[string][]byte{
-					"ca.crt":  {},
-					"tls.crt": {},
-					"tls.key": {},
-				},
-			},
+			secret: secretObj(
+				name,
+				namespace,
+				map[string][]byte{"ca.crt": {}, "tls.crt": {}, "tls.key": {}},
+				nil),
 			expected: true,
 		},
 	}
@@ -93,5 +83,179 @@ func TestTLSSecretReady(t *testing.T) {
 			assert.Equal(t, tt.expected, actual.Ready())
 
 		})
+	}
+}
+
+func TestCASecretReady(t *testing.T) {
+	ctx := context.TODO()
+	scheme := testutils.InitScheme(t)
+	name := "test-secret"
+	namespace := "test-namespace"
+
+	tests := []struct {
+		name     string
+		secret   runtime.Object
+		expected bool
+	}{
+		{
+			name: "secret missing required fields",
+			secret: secretObj(
+				name,
+				namespace,
+				map[string][]byte{"someKey": {}},
+				nil),
+			expected: false,
+		},
+		{
+			name: "secret has all required fields",
+			secret: secretObj(
+				name,
+				namespace,
+				map[string][]byte{"ca.crt": {}, "ca.key": {}},
+				nil),
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeClient := testutils.NewFakeClient(scheme, tt.secret)
+			r := resource.NewKubeResource(ctx, fakeClient, namespace, kube.DefaultPersister)
+
+			actual, err := resource.LoadTLSSecret(name, r)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, actual.ReadyCA())
+
+		})
+	}
+}
+
+func TestValidateAnnotations(t *testing.T) {
+	ctx := context.TODO()
+	scheme := testutils.InitScheme(t)
+	name := "test-secret"
+	namespace := "test-namespace"
+
+	tests := []struct {
+		name     string
+		secret   runtime.Object
+		expected bool
+	}{
+		{
+			name: "secret missing required annotations",
+			secret: secretObj(
+				name,
+				namespace,
+				nil,
+				map[string]string{"someKey": "somevalue"}),
+			expected: false,
+		},
+		{
+			name: "secret missing one of the required annotations",
+			secret: secretObj(
+				name,
+				namespace,
+				nil,
+				map[string]string{
+					resource.CertValidUpto: "validUpto",
+					resource.CertValidFrom: "validFrom",
+					resource.CertDuration:  "duration",
+				}),
+			expected: false,
+		},
+		{
+			name: "secret having all the required annotations",
+			secret: secretObj(
+				name,
+				namespace,
+				nil,
+				map[string]string{
+					resource.CertValidUpto:  "validUpto",
+					resource.CertValidFrom:  "validFrom",
+					resource.CertDuration:   "duration",
+					resource.SecretDataHash: "123",
+				}),
+			expected: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeClient := testutils.NewFakeClient(scheme, tt.secret)
+			r := resource.NewKubeResource(ctx, fakeClient, namespace, kube.DefaultPersister)
+
+			actual, err := resource.LoadTLSSecret(name, r)
+			require.NoError(t, err)
+			assert.Equal(t, tt.expected, actual.ValidateAnnotations())
+
+		})
+	}
+}
+
+func TestUpdateCASecret(t *testing.T) {
+	ctx := context.TODO()
+	scheme := testutils.InitScheme(t)
+	name := "test-secret"
+	namespace := "test-namespace"
+
+	secret := secretObj(name, namespace, nil, nil)
+
+	fakeClient := testutils.NewFakeClient(scheme, secret)
+	r := resource.NewKubeResource(ctx, fakeClient, namespace, kube.DefaultPersister)
+	actual, err := resource.LoadTLSSecret(name, r)
+	require.NoError(t, err)
+
+	annotations := resource.GetSecretAnnotations("validFrom", "validUpto", "duration")
+	data := map[string][]byte{
+		"ca.crt": []byte("c2FtcGxlIGNlcnQ="), // sample cert
+		"ca.key": []byte("c2FtcGxlIGtleQ=="), // sample key
+	}
+
+	err = actual.UpdateCASecret(data["ca.key"], data["ca.crt"], annotations)
+	require.NoError(t, err)
+	actual, err = resource.LoadTLSSecret(name, r)
+	require.NoError(t, err)
+
+	assert.Equal(t, data, actual.Secret().Data)
+	assert.Equal(t, annotations, actual.Secret().GetAnnotations())
+}
+
+func TestUpdateTLSSecret(t *testing.T) {
+	ctx := context.TODO()
+	scheme := testutils.InitScheme(t)
+	name := "test-secret"
+	namespace := "test-namespace"
+
+	secret := secretObj(name, namespace, nil, nil)
+
+	fakeClient := testutils.NewFakeClient(scheme, secret)
+	r := resource.NewKubeResource(ctx, fakeClient, namespace, kube.DefaultPersister)
+	actual, err := resource.LoadTLSSecret(name, r)
+	require.NoError(t, err)
+
+	annotations := resource.GetSecretAnnotations("validFrom", "validUpto", "duration")
+	data := map[string][]byte{
+		"ca.crt":  []byte("c2FtcGxlIGNlcnQ="), // sample cert
+		"tls.key": []byte("c2FtcGxlIGtleQ=="), // sample key
+		"tls.crt": []byte("c2FtcGxlIGNlcnQ="), // sample key
+	}
+
+	err = actual.UpdateTLSSecret(data["tls.crt"], data["tls.key"], data["ca.crt"], annotations)
+	require.NoError(t, err)
+	actual, err = resource.LoadTLSSecret(name, r)
+	require.NoError(t, err)
+
+	assert.Equal(t, data, actual.Secret().Data)
+	assert.Equal(t, annotations, actual.Secret().GetAnnotations())
+}
+
+func secretObj(name, namespace string, data map[string][]byte, annotations map[string]string) *corev1.Secret {
+	return &corev1.Secret{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        name,
+			Namespace:   namespace,
+			Annotations: annotations,
+		},
+		Data: data,
 	}
 }

@@ -23,7 +23,7 @@ import (
 
 // CreateTempDir creates a temporary directory and returns
 // the directory name and also a function for removing the directory.
-// The funcation is often deferred for directory removal.
+// The function is often deferred for directory removal.
 func CreateTempDir(baseDirectory string) (string, func()) {
 	tmpDir, err := ioutil.TempDir("", baseDirectory)
 	if err != nil {

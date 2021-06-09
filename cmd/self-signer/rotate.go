@@ -14,10 +14,26 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package main
+package self_signer
 
-import cmd "github.com/cockroachdb/helm-charts/cmd/self-signer"
+import (
+	"fmt"
 
-func main() {
-	cmd.Execute()
+	"github.com/spf13/cobra"
+)
+
+// rotateCmd represents the rotate command
+var rotateCmd = &cobra.Command{
+	Use:   "rotate",
+	Short: "rotates a CA, Node or Client certificate",
+	Long:  `rotate sub-command rotates the CA cert, Node cert and Client certs`,
+	Run:   rotate,
+}
+
+func init() {
+	rootCmd.AddCommand(rotateCmd)
+}
+
+func rotate(cmd *cobra.Command, args []string) {
+	fmt.Println("rotate called")
 }

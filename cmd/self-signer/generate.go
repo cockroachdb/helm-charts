@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cert_generator
+package self_signer
 
 import (
 	"context"
@@ -100,8 +100,16 @@ func generate(cmd *cobra.Command, args []string) {
 		log.Panic("Required NAMESPACE env not found")
 	}
 
+	domain, exists := os.LookupEnv("CLUSTER_DOMAIN")
+	if !exists {
+		log.Panic("Required CLUSTER_DOMAIN env not found")
+	}
+
 	genCert.PublicServiceName = stsName
 	genCert.DiscoveryServiceName = stsName + "-public"
+	genCert.ClusterDomain = domain
 
-	genCert.Do(ctx, namespace)
+	if err := genCert.Do(ctx, namespace); err != nil {
+		log.Panic(err)
+	}
 }

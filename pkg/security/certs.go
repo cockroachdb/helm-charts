@@ -32,8 +32,8 @@ type SQLUsername struct {
 }
 
 const (
-	keyFileMode  = 0600
-	certFileMode = 0644
+	KeyFileMode  = 0600
+	CertFileMode = 0644
 )
 
 // PemUsage indicates the purpose of a given certificate.
@@ -92,8 +92,6 @@ func CreateCAPair(
 ) error {
 	return createCACertAndKey(certsDir, caKeyPath, CAPem, keySize, lifetime, allowKeyReuse, overwrite)
 }
-
-// This again is a copy of code used in the crdb hence why we are using the switch statement
 
 // createCACertAndKey creates a CA key and a CA certificate.
 // If the certs directory does not exist, it is created.
@@ -155,7 +153,7 @@ func CreateNodePair(certsDir, caKeyPath string, keySize int, lifetime time.Durat
 // If a client CA exists, this is used instead.
 // If wantPKCS8Key is true, the private key in PKCS#8 encoding is written as well.
 func CreateClientPair(certsDir, caKeyPath string, keySize int, lifetime time.Duration, overwrite bool,
-	user SQLUsername, wantPKCS8Key bool, ) error {
+	user SQLUsername, wantPKCS8Key bool) error {
 
 	if len(caKeyPath) == 0 {
 		return errors.New("the path to the CA key is required")
@@ -174,12 +172,6 @@ func CreateClientPair(certsDir, caKeyPath string, keySize int, lifetime time.Dur
 	execCmd("create-client", user.U, certsDirParam, caKeyParam, lifetimeParam)
 
 	return nil
-}
-
-func LookPathCrdb() error {
-	// we require the cockroach binary in the path
-	_, err := exec.LookPath("cockroach")
-	return err
 }
 
 // execCmd is a simple wrapper our exec that allows us to run a command

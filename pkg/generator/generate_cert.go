@@ -27,13 +27,12 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/cockroachdb/helm-charts/pkg/kube"
 	"github.com/cockroachdb/helm-charts/pkg/resource"
 	"github.com/cockroachdb/helm-charts/pkg/security"
-	"github.com/cockroachdb/helm-charts/pkg/utils"
+	util "github.com/cockroachdb/helm-charts/pkg/utils"
 )
 
 const defaultKeySize = 2048
@@ -44,24 +43,25 @@ var allowCAKeyReuse bool
 var overwriteFiles bool
 var generatePKCS8Key bool
 
-func initPreFlagsCertDefaults() {
+func init() {
 	keySize = defaultKeySize
 	allowCAKeyReuse = false
 	overwriteFiles = false
 	generatePKCS8Key = false
 }
 
-// generateCert is the structure containing all the certificate relate info
-type generateCert struct {
+// GenerateCert is the structure containing all the certificate related info
+type GenerateCert struct {
 	client               client.Client
 	CertsDir             string
 	CaSecret             string
 	CAKey                string
-	PublicServiceName    string
-	DiscoveryServiceName string
 	CaCertConfig         *certConfig
 	NodeCertConfig       *certConfig
 	ClientCertConfig     *certConfig
+	PublicServiceName    string
+	DiscoveryServiceName string
+	ClusterDomain        string
 }
 
 type certConfig struct {
@@ -69,6 +69,7 @@ type certConfig struct {
 	ExpiryWindow time.Duration
 }
 
+// SetConfig sets the certificate duration and expiryWindow
 func (c *certConfig) SetConfig(duration, expiryW string) error {
 
 	dur, err := time.ParseDuration(duration)
@@ -86,8 +87,8 @@ func (c *certConfig) SetConfig(duration, expiryW string) error {
 	return nil
 }
 
-func NewGenerateCert(cl client.Client) generateCert {
-	return generateCert{
+func NewGenerateCert(cl client.Client) GenerateCert {
+	return GenerateCert{
 		client:           cl,
 		CaCertConfig:     &certConfig{},
 		NodeCertConfig:   &certConfig{},
@@ -95,15 +96,8 @@ func NewGenerateCert(cl client.Client) generateCert {
 	}
 }
 
-const (
-	caCrtKey = "ca.crt"
-	caKey    = "ca.key"
-)
-
-// TODO: Handle situation when job is retried and when some secretes are already created in the first run
-
-// Do func generates the various certificates required and then stores the certificates in secrets.
-func (rc *generateCert) Do(ctx context.Context, namespace string) error {
+// Do func generates the various certificates required and then stores them in respective secrets.
+func (rc *GenerateCert) Do(ctx context.Context, namespace string) error {
 
 	// create the various temporary directories to store the certificates in
 	// the directors will delete when the code is completed.
@@ -116,23 +110,24 @@ func (rc *generateCert) Do(ctx context.Context, namespace string) error {
 	caDir, cleanupCADir := util.CreateTempDir("caDir")
 	defer cleanupCADir()
 	rc.CAKey = filepath.Join(caDir, "ca.key")
+
 	// generate the base CA cert and key
-	if err := rc.generateCA(ctx, rc.GetCASecretName(), namespace); err != nil {
-		msg := "error generating CA"
+	if err := rc.generateCA(ctx, rc.getCASecretName(), namespace); err != nil {
+		msg := " error Generating CA"
 		logrus.Error(err, msg)
 		return errors.Wrap(err, msg)
 	}
 
 	// generate the node certificate for the database to use
-	if _, err := rc.generateNodeCert(ctx, rc.GetNodeSecretName(), namespace); err != nil {
-		msg := "error generating Node Certificate"
+	if err := rc.generateNodeCert(ctx, rc.getNodeSecretName(), namespace); err != nil {
+		msg := " error Generating Node Certificate"
 		logrus.Error(err, msg)
 		return errors.Wrap(err, msg)
 	}
 
 	// generate the client certificates for the database to use
-	if err := rc.generateClientCert(ctx, rc.GetClientSecretName(), namespace); err != nil {
-		msg := "error generating Client Certificate"
+	if err := rc.generateClientCert(ctx, rc.getClientSecretName(), namespace); err != nil {
+		msg := " error Generating Client Certificate"
 		logrus.Error(err, msg)
 		return errors.Wrap(err, msg)
 	}
@@ -140,14 +135,14 @@ func (rc *generateCert) Do(ctx context.Context, namespace string) error {
 	return nil
 }
 
-func (rc *generateCert) generateCA(ctx context.Context, CASecretName string, namespace string) error {
+// generateCA generates the CA key and certificate if not given by the user and stores them in a secret.
+func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, namespace string) error {
 
 	// if CA secret is given by user then validate it and use that
 	if rc.CaSecret != "" {
 		logrus.Infof("skipping CA cert generation, using user provided CA secret [%s]", rc.CaSecret)
 
-		secret, err := resource.LoadTLSSecret(CASecretName,
-			resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+		secret, err := resource.LoadTLSSecret(CASecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
 		if err != nil {
 			return errors.Wrap(err, "failed to get CA key secret")
 		}
@@ -157,20 +152,40 @@ func (rc *generateCert) generateCA(ctx context.Context, CASecretName string, nam
 			return errors.Wrap(err, "CA secret doesn't contain the required CA cert/key")
 		}
 
-		if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, caCrtKey), secret.CA(), 0600); err != nil {
+		if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
 			return errors.Wrap(err, "failed to write CA cert")
 		}
 
-		if err := ioutil.WriteFile(rc.CAKey, secret.CAKey(), 0644); err != nil {
+		if err := ioutil.WriteFile(rc.CAKey, secret.CAKey(), security.KeyFileMode); err != nil {
 			return errors.Wrap(err, "failed to write CA key")
 		}
 
 		return nil
 	}
 
-	logrus.Info("generating CA")
+	secret, err := resource.LoadTLSSecret(CASecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+	if err != nil {
+		return errors.Wrap(err, "failed to get CA secret")
+	}
 
-	err := errors.Wrap(
+	// check if the existing is ready to be consumed. If found ready, skip cert generation
+	if secret.ReadyCA() && secret.ValidateAnnotations() {
+		logrus.Infof("CA secret [%s] is found in ready state, skipping CA generation", CASecretName)
+
+		if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), 0600); err != nil {
+			return errors.Wrap(err, "failed to write CA cert")
+		}
+
+		if err := ioutil.WriteFile(rc.CAKey, secret.CAKey(), 0644); err != nil {
+			return errors.Wrap(err, "failed to write CA key")
+		}
+		return nil
+	}
+
+	logrus.Info("Generating CA")
+
+	// create the CA Pair certificates
+	if err = errors.Wrap(
 		security.CreateCAPair(
 			rc.CertsDir,
 			rc.CAKey,
@@ -178,46 +193,54 @@ func (rc *generateCert) generateCA(ctx context.Context, CASecretName string, nam
 			rc.CaCertConfig.Duration,
 			allowCAKeyReuse,
 			overwriteFiles),
-		"failed to generate CA cert and key")
-	if err != nil {
+		"failed to generate CA cert and key"); err != nil {
 		return err
 	}
+
 	// Read the ca key into memory
 	cakey, err := ioutil.ReadFile(rc.CAKey)
 	if err != nil {
 		return errors.Wrap(err, "unable to read ca.key")
 	}
 
-	// create and save the TLS certificates into a secret
-	secret := resource.CreateTLSSecret(CASecretName, corev1.SecretTypeOpaque,
-		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+	// Read the ca cert into memory
+	caCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+	if err != nil {
+		return errors.Wrap(err, "unable to read ca.crt")
+	}
 
-	if err = secret.UpdateCAKey(cakey); err != nil {
+	validFrom, validUpto, err := rc.getCertLife(caCert)
+	if err != nil {
+		return err
+	}
+
+	// add certificate info in the secret annotations
+	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.CaCertConfig.Duration.String())
+
+	if err = secret.UpdateCASecret(cakey, caCert, annotations); err != nil {
 		return errors.Wrap(err, "failed to update ca key secret ")
 	}
 
-	logrus.Infof("generated and saved ca key in secret [%s]", CASecretName)
+	logrus.Infof("Generated and saved CA key and certificate in secret [%s]", CASecretName)
 	return nil
 }
 
-func (rc *generateCert) generateNodeCert(ctx context.Context, nodeSecretName string, namespace string) (string, error) {
-	logrus.Info("generating node certificate")
+// generateNodeCert generates the Node key and certificate and stores them in a secret.
+func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName string, namespace string) error {
 
-	// load the secret.  If it exists don't update the cert
-	secret, err := resource.LoadTLSSecret(nodeSecretName,
-		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-	if client.IgnoreNotFound(err) != nil {
-		return "", errors.Wrap(err, "failed to get node TLS secret")
+	secret, err := resource.LoadTLSSecret(nodeSecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+	if err != nil {
+		return errors.Wrap(err, "failed to get node TLS secret")
 	}
 
-	// if the secret is ready then don't update the secret
-	if secret.Ready() {
-		logrus.Info("not updating node certificate as it exists")
-		return rc.getCertificateExpirationDate(ctx, secret.Key())
+	// check if the existing is ready to be consumed. If found ready, skip cert generation
+	if secret.Ready() && secret.ValidateAnnotations() {
+		logrus.Infof("Node secret [%s] is found in ready state, skipping Node cert generation", nodeSecretName)
+		return nil
 	}
 
-	//  TODO: take domain as env
-	domain := "svc.cluster.local"
+	logrus.Info("Generating node certificate")
+
 	// hosts are the various DNS names and IP address that have to exist in the Node certificates
 	// for the database to function
 	hosts := []string{
@@ -225,14 +248,14 @@ func (rc *generateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 		"127.0.0.1",
 		rc.PublicServiceName,
 		fmt.Sprintf("%s.%s", rc.PublicServiceName, namespace),
-		fmt.Sprintf("%s.%s.%s", rc.PublicServiceName, namespace, domain),
+		fmt.Sprintf("%s.%s.svc.%s", rc.PublicServiceName, namespace, rc.ClusterDomain),
 		fmt.Sprintf("*.%s", rc.DiscoveryServiceName),
 		fmt.Sprintf("*.%s.%s", rc.DiscoveryServiceName, namespace),
-		fmt.Sprintf("*.%s.%s.%s", rc.DiscoveryServiceName, namespace, domain),
+		fmt.Sprintf("*.%s.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
 	}
 
 	// create the Node Pair certificates
-	err = errors.Wrap(
+	if err = errors.Wrap(
 		security.CreateNodePair(
 			rc.CertsDir,
 			rc.CAKey,
@@ -240,69 +263,60 @@ func (rc *generateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 			rc.NodeCertConfig.Duration,
 			overwriteFiles,
 			hosts),
-		"failed to generate node certificate and key")
-
-	if err != nil {
-		return "", err
+		"failed to generate node certificate and key"); err != nil {
+		return err
 	}
 
-	// Read the node certificates into memory
+	// Read the CA certificate into memory
 	ca, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "ca.crt"))
 	if err != nil {
-		return "", errors.Wrap(err, "unable to read ca.crt")
+		return errors.Wrap(err, "unable to read ca.crt")
 	}
 
+	// Read the node certificate into memory
 	pemCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "node.crt"))
 	if err != nil {
-		return "", errors.Wrap(err, "unable to read node.crt")
+		return errors.Wrap(err, "unable to read node.crt")
 	}
 
+	// Read the node key into memory
 	pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "node.key"))
 	if err != nil {
-		return "", errors.Wrap(err, "unable to ready node.key")
+		return errors.Wrap(err, "unable to ready node.key")
 	}
 
-	// create and save the TLS certificates into a secret
-	secret = resource.CreateTLSSecret(nodeSecretName, corev1.SecretTypeTLS,
-		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-
-	if err = secret.UpdateCertAndKeyAndCA(pemCert, pemKey, ca); err != nil {
-		return "", errors.Wrap(err, "failed to update node TLS secret certs")
+	validFrom, validUpto, err := rc.getCertLife(pemCert)
+	if err != nil {
+		return err
 	}
 
-	logrus.Infof("generated and saved node certificate and key in secret [%s]", nodeSecretName)
+	// add certificate info in the secret annotations
+	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.NodeCertConfig.Duration.String())
 
-	// TODO: ADD getCertificateExpirationDate here when required
-	return "", nil
+	if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
+		return errors.Wrap(err, "failed to update node TLS secret certs")
+	}
+
+	logrus.Infof("Generated and saved node key and certificate in secret [%s]", nodeSecretName)
+
+	return nil
 }
 
-func (rc *generateCert) GetCASecretName() string {
-	return rc.PublicServiceName + "-ca-secret"
-}
+// generateClientCert generates the Client key and certificate and stores them in a secret.
+func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName string, namespace string) error {
 
-func (rc *generateCert) GetNodeSecretName() string {
-	return rc.PublicServiceName + "-node-secret"
-}
-
-func (rc *generateCert) GetClientSecretName() string {
-	return rc.PublicServiceName + "-client-secret"
-}
-
-func (rc *generateCert) generateClientCert(ctx context.Context, clientSecretName string, namespace string) error {
-	logrus.Info("generating client certificate")
-
-	// load the secret.  If it exists don't update the cert
-	secret, err := resource.LoadTLSSecret(clientSecretName,
-		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-	if client.IgnoreNotFound(err) != nil {
+	secret, err := resource.LoadTLSSecret(clientSecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+	if err != nil {
 		return errors.Wrap(err, "failed to get client TLS secret")
 	}
 
-	// if the secret is ready then don't update the secret
-	if secret.Ready() {
-		logrus.Info("not updating client certificate")
+	// check if the existing is ready to be consumed. If found ready, skip cert generation
+	if secret.Ready() && secret.ValidateAnnotations() {
+		logrus.Infof("Client secret [%s] is found in ready state, skipping Client cert generation", clientSecretName)
 		return nil
 	}
+
+	logrus.Info("Generating client certificate")
 
 	// Create the user for the certificate
 	u := &security.SQLUsername{
@@ -310,7 +324,7 @@ func (rc *generateCert) generateClientCert(ctx context.Context, clientSecretName
 	}
 
 	// Create the client certificates
-	err = errors.Wrap(
+	if err = errors.Wrap(
 		security.CreateClientPair(
 			rc.CertsDir,
 			rc.CAKey,
@@ -319,49 +333,68 @@ func (rc *generateCert) generateClientCert(ctx context.Context, clientSecretName
 			overwriteFiles,
 			*u,
 			generatePKCS8Key),
-		"failed to generate client certificate and key")
-	if err != nil {
+		"failed to generate client certificate and key"); err != nil {
 		return err
 	}
 
-	// Load the certificates into memory
+	// Load the CA certificate into memory
 	ca, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "ca.crt"))
 	if err != nil {
 		return errors.Wrap(err, "unable to read ca.crt")
 	}
 
+	// Load the client root certificate into memory
 	pemCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "client.root.crt"))
 	if err != nil {
 		return errors.Wrap(err, "unable to read client.root.crt")
 	}
 
+	// Load the client root key into memory
 	pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "client.root.key"))
 	if err != nil {
 		return errors.Wrap(err, "unable to read client.root.key")
 	}
 
-	// create and save the TLS certificates into a secret
-	secret = resource.CreateTLSSecret(clientSecretName, corev1.SecretTypeTLS, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+	validFrom, validUpto, err := rc.getCertLife(pemCert)
+	if err != nil {
+		return err
 
-	if err = secret.UpdateCertAndKeyAndCA(pemCert, pemKey, ca); err != nil {
+	}
+
+	// add certificate info in the secret annotations
+	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.ClientCertConfig.Duration.String())
+
+	if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
 		return errors.Wrap(err, "failed to update client TLS secret certs")
 	}
 
-	logrus.Infof("generated and saved client certificate and key in secret [%s]", clientSecretName)
+	logrus.Infof("Generated and saved client key and certificate in secret [%s]", clientSecretName)
 	return nil
 }
 
-func (rc *generateCert) getCertificateExpirationDate(ctx context.Context, pemCert []byte) (string, error) {
-	logrus.Info("getExpirationDate from cert")
+func (rc *GenerateCert) getCASecretName() string {
+	return rc.PublicServiceName + "-ca-secret"
+}
+
+func (rc *GenerateCert) getNodeSecretName() string {
+	return rc.PublicServiceName + "-node-secret"
+}
+
+func (rc *GenerateCert) getClientSecretName() string {
+	return rc.PublicServiceName + "-client-secret"
+}
+
+// getCertLife return the certificate starting and expiration date
+func (rc *GenerateCert) getCertLife(pemCert []byte) (validFrom string, validUpto string, err error) {
 	block, _ := pem.Decode(pemCert)
 	if block == nil {
-		return "", errors.New("failed to decode certificate")
+		return validFrom, validUpto, errors.New("failed to decode certificate")
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return "", errors.Wrap(err, "failed to parse certificate")
+		return validFrom, validUpto, errors.Wrap(err, "failed to parse certificate")
 	}
 
-	logrus.Info("getExpirationDate from cert", "Not before:", cert.NotBefore.Format(time.RFC3339), "Not after:", cert.NotAfter.Format(time.RFC3339))
-	return cert.NotAfter.Format(time.RFC3339), nil
+	logrus.Debug("getExpirationDate from cert", "Not before:", cert.NotBefore.Format(time.RFC3339), "Not after:", cert.NotAfter.Format(time.RFC3339))
+	return cert.NotBefore.Format(time.RFC3339), cert.NotAfter.Format(time.RFC3339), nil
 }

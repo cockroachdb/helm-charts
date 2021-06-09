@@ -107,6 +107,7 @@ type KubePersister struct {
 	client.Client
 }
 
+// Persist saves the resource in the cluster
 func (p KubePersister) Persist(obj client.Object, mutateFn func() error) (upserted bool, err error) {
 	if err := addNamespace(obj, p.namespace); err != nil {
 		return false, err
@@ -115,6 +116,7 @@ func (p KubePersister) Persist(obj client.Object, mutateFn func() error) (upsert
 	return p.persistFn(p.ctx, p.Client, obj, mutateFn)
 }
 
+// addNamespace adds namespace to the runtime object
 func addNamespace(o runtime.Object, ns string) error {
 	accessor, err := meta.Accessor(o)
 	if err != nil {

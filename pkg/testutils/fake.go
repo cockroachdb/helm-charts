@@ -29,6 +29,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/fake"
 )
 
+// NewFakeClient returns a new fake client
 func NewFakeClient(scheme *runtime.Scheme, objs ...runtime.Object) *FakeClient {
 	return &FakeClient{
 		client: fake.NewFakeClientWithScheme(scheme, objs...),

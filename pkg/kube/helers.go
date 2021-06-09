@@ -62,6 +62,9 @@ func IsPodReady(pod *corev1.Pod) bool {
 	return IsPodReadyConditionTrue(pod.Status)
 }
 
+// Note: All below functions might be required in rolling restart.
+// TODO: Remove below funcs if not required for rolling restart
+
 // IsPodReadyConditionTrue returns true if a pod is ready; false otherwise.
 func IsPodReadyConditionTrue(status corev1.PodStatus) bool {
 	condition := GetPodReadyCondition(status)
@@ -127,6 +130,7 @@ func WaitUntilAllStsPodsAreReady(ctx context.Context, clientset *kubernetes.Clie
 	return backoff.Retry(f, b)
 }
 
+// HandleStsError handles the error
 func HandleStsError(err error, l logr.Logger, stsName string, ns string) error {
 	if k8sErrors.IsNotFound(err) {
 		l.Error(err, "sts is not found", "stsName", stsName, "namespace", ns)

@@ -14,26 +14,27 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package cert_generator
+package self_signer
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 )
 
-// rotateCmd represents the rotate command
-var rotateCmd = &cobra.Command{
-	Use:   "rotate",
-	Short: "rotates a CA, Node or Client certificate",
-	Long: `rotate sub-command rotates the CA cert, Node cert and Client certs`,
-	Run: rotate,
+// rootCmd represents the base command when called without any subcommands
+var rootCmd = &cobra.Command{
+	Use:   "self-signer",
+	Short: "self-signer generates/rotates certs for secure CockroachDB mode",
+	Long:  `self-signer is a tool used to generate or rotate CA cert, Node cert and Client cert`,
 }
 
-func init() {
-	rootCmd.AddCommand(rotateCmd)
-}
-
-func rotate(cmd *cobra.Command, args []string) {
-	fmt.Println("rotate called")
+// Execute adds all child commands to the root command and sets flags appropriately.
+// This is called by main.main(). It only needs to happen once to the rootCmd.
+func Execute() {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Println(err)
+		os.Exit(1)
+	}
 }

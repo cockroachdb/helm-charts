@@ -17,18 +17,23 @@ limitations under the License.
 package resource
 
 import (
-	"github.com/go-logr/logr"
+	"fmt"
+
+	"github.com/mitchellh/hashstructure/v2"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
-	caCrtKey = "ca.crt"
-	caKey    = "ca.key"
+	CaCert         = "ca.crt"
+	CaKey          = "ca.key"
+	CertValidFrom  = "certificate-valid-from"
+	CertValidUpto  = "certificate-valid-upto"
+	CertDuration   = "certificate-duration"
+	SecretDataHash = "secret-data-hash"
 )
 
-// CreateTLSSecret returns a TLSSecreat struct that is
-// used to store the certs via secrets.
+// CreateTLSSecret returns a TLSSecret struct that is used to store the certs via secrets.
 func CreateTLSSecret(name string, secretType corev1.SecretType, r Resource) *TLSSecret {
 
 	s := &TLSSecret{
@@ -48,6 +53,7 @@ func CreateTLSSecret(name string, secretType corev1.SecretType, r Resource) *TLS
 	return s
 }
 
+// LoadTLSSecret fetches secret from the API server
 func LoadTLSSecret(name string, r Resource) (*TLSSecret, error) {
 	s := &TLSSecret{
 		Resource: r,
@@ -75,23 +81,52 @@ type TLSSecret struct {
 	secret *corev1.Secret
 }
 
+// ReadyCA checks if the CA secret contains required data
 func (s *TLSSecret) ReadyCA() bool {
 	data := s.secret.Data
 
-	if _, ok := data[caKey]; !ok {
+	if _, ok := data[CaKey]; !ok {
 		return false
 	}
 
-	if _, ok := data[caCrtKey]; !ok {
+	if _, ok := data[CaCert]; !ok {
 		return false
 	}
 
 	return true
 }
 
+// ValidateAnnotations validates if all the required annotations are present
+func (s *TLSSecret) ValidateAnnotations() bool {
+	annotations := s.secret.Annotations
+
+	if annotations == nil {
+		return false
+	}
+
+	if _, ok := annotations[CertValidFrom]; !ok {
+		return false
+	}
+
+	if _, ok := annotations[CertValidUpto]; !ok {
+		return false
+	}
+
+	if _, ok := annotations[CertDuration]; !ok {
+		return false
+	}
+
+	if _, ok := annotations[SecretDataHash]; !ok {
+		return false
+	}
+
+	return true
+}
+
+// Ready checks if secret contains required data
 func (s *TLSSecret) Ready() bool {
 	data := s.secret.Data
-	if _, ok := data[caCrtKey]; !ok {
+	if _, ok := data[CaCert]; !ok {
 		return false
 	}
 
@@ -106,40 +141,24 @@ func (s *TLSSecret) Ready() bool {
 	return true
 }
 
-func (s *TLSSecret) UpdateKey(key []byte) error {
-	newKey := append([]byte{}, key...)
-
-	_, err := s.Persist(s.secret, func() error {
-		s.secret.Data[corev1.TLSPrivateKeyKey] = newKey
-		return nil
-	})
-
-	return err
-}
-
-func (s *TLSSecret) UpdateCertAndCA(cert, ca []byte, log logr.Logger) error {
-	newCert, newCA := append([]byte{}, cert...), append([]byte{}, ca...)
-
-	_, err := s.Persist(s.secret, func() error {
-		s.secret.Data[corev1.TLSCertKey] = newCert
-		s.secret.Data[caCrtKey] = newCA
-
-		return nil
-	})
-
-	return err
-}
-
-// UpdateCertAndKeyAndCA updates three different certificates at the same time.
+// UpdateTLSSecret updates three different certificates at the same time.
 // It save the TLSCertKey, the CA, and the TLSPrivateKey in a secret.
-func (s *TLSSecret) UpdateCertAndKeyAndCA(cert, key, ca []byte) error {
+func (s *TLSSecret) UpdateTLSSecret(cert, key, ca []byte, annotations map[string]string) error {
 	newCert, newCA := append([]byte{}, cert...), append([]byte{}, ca...)
 	newKey := append([]byte{}, key...)
+	data := map[string][]byte{corev1.TLSCertKey: newCert, CaCert: newCA, corev1.TLSPrivateKeyKey: newKey}
 
-	_, err := s.Persist(s.secret, func() error {
-		s.secret.Data[corev1.TLSCertKey] = newCert
-		s.secret.Data[caCrtKey] = newCA
-		s.secret.Data[corev1.TLSPrivateKeyKey] = newKey
+	// create hash of the new data
+	hash, err := hashstructure.Hash(data, hashstructure.FormatV2, nil)
+	if err != nil {
+		return err
+	}
+
+	annotations[SecretDataHash] = fmt.Sprintf("%d", hash)
+
+	_, err = s.Persist(s.secret, func() error {
+		s.secret.Data = data
+		s.secret.Annotations = annotations
 
 		return nil
 	})
@@ -147,23 +166,40 @@ func (s *TLSSecret) UpdateCertAndKeyAndCA(cert, key, ca []byte) error {
 	return err
 }
 
-// UpdateCAKey updates CA key
-func (s *TLSSecret) UpdateCAKey(cakey []byte) error {
+// UpdateCASecret updates CA key and CA Cert
+func (s *TLSSecret) UpdateCASecret(cakey []byte, caCert []byte, annotations map[string]string) error {
 	newCAKey := append([]byte{}, cakey...)
+	newCACert := append([]byte{}, caCert...)
+	data := map[string][]byte{CaKey: newCAKey, CaCert: newCACert}
 
-	_, err := s.Persist(s.secret, func() error {
-		s.secret.Data[caKey] = newCAKey
+	// create hash of the new data
+	hash, err := hashstructure.Hash(data, hashstructure.FormatV2, nil)
+	if err != nil {
+		return err
+	}
+
+	annotations[SecretDataHash] = fmt.Sprintf("%d", hash)
+
+	_, err = s.Persist(s.secret, func() error {
+		s.secret.Data = data
+		s.secret.Annotations = annotations
+
 		return nil
 	})
 
 	return err
+}
+
+// Secret returns the Secret object
+func (s *TLSSecret) Secret() *corev1.Secret {
+	return s.secret
 }
 
 func (s *TLSSecret) CA() []byte {
-	return s.secret.Data[caCrtKey]
+	return s.secret.Data[CaCert]
 }
 func (s *TLSSecret) CAKey() []byte {
-	return s.secret.Data[caKey]
+	return s.secret.Data[CaKey]
 }
 
 func (s *TLSSecret) Key() []byte {
@@ -172,4 +208,12 @@ func (s *TLSSecret) Key() []byte {
 
 func (s *TLSSecret) PrivateKey() []byte {
 	return s.secret.Data[corev1.TLSPrivateKeyKey]
+}
+
+func GetSecretAnnotations(validFrom, validUpto, duration string) map[string]string {
+	return map[string]string{
+		CertValidUpto: validUpto,
+		CertValidFrom: validFrom,
+		CertDuration:  duration,
+	}
 }
