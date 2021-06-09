@@ -1,0 +1,39 @@
+{{- if and .Values.tls.certs.selfSigner.enabled .Values.tls.certs.selfSigner.rotateCerts }}
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+  name: {{ template "selfcerts.fullname" . }}-client-rotate
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+spec:
+  schedule: {{ template "selfcerts.clientRotateSchedule" . }}
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          restartPolicy: Never
+          containers:
+          - name: cert-rotate-job
+            image: "{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
+            imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
+            args:
+            {{- if .Values.tls.certs.selfSigner.caProvided }}
+            - --ca-secret={{ .Values.tls.certs.selfSigner.caSecret }}
+            {{- else }}
+            - --ca-duration={{ .Values.tls.certs.selfSigner.caCertDuration }}
+            - --ca-expiry={{ .Values.tls.certs.selfSigner.caCertExpiryWindow }}
+            {{- end }}
+            - --client-duration={{ .Values.tls.certs.selfSigner.clientCertDuration }}
+            - --client-expiry={{ .Values.tls.certs.selfSigner.clientCertExpiryWindow }}
+            - --node-duration={{ .Values.tls.certs.selfSigner.nodeCertDuration }}
+            - --node-expiry={{ .Values.tls.certs.selfSigner.nodeCertExpiryWindow }}
+            env:
+            - name: STATEFULSET_NAME
+              value: {{ template "cockroachdb.fullname" . }}
+            - name: NAMESPACE
+              value: {{ .Release.Namespace }}
+          serviceAccountName: {{ template "selfcerts.fullname" . }}
+  {{- end}}
