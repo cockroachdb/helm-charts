@@ -115,7 +115,7 @@ Define the appropriate validations for the certificate selfSigner inputs
 Validate that if caProvided is true, then the caSecret must not be empty and secret must be present in the namespace.
 */}}
 {{- define "cockroachdb.tls.certs.selfSigner.caProvidedValidation" -}}
-{{- if eq true .Values.tls.certs.selfSigner.caProvided -}}
+{{- if .Values.tls.certs.selfSigner.caProvided -}}
 {{- if eq "" .Values.tls.certs.selfSigner.caSecret -}}
     {{ fail "CA secret can't be empty if caProvided is set to true" }}
 {{- else -}}
@@ -131,7 +131,7 @@ Validate that if caCertDuration or caCertExpiryWindow must not be empty and caCe
 minimumCertDuration.
 */}}
 {{- define "cockroachdb.tls.certs.selfSigner.caCertValidation" -}}
-{{- if eq false .Values.tls.certs.selfSigner.caProvided -}}
+{{- if not .Values.tls.certs.selfSigner.caProvided -}}
 {{- if or (not .Values.tls.certs.selfSigner.caCertDuration) (not .Values.tls.certs.selfSigner.caCertExpiryWindow) }}
   {{ fail "CA cert duration or CA cert expiry window can not be empty" }}
 {{- else }}

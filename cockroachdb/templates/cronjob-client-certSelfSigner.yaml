@@ -20,7 +20,7 @@ spec:
             image: "{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
             imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
             args:
-            {{- if eq true .Values.tls.certs.selfSigner.caProvided }}
+            {{- if .Values.tls.certs.selfSigner.caProvided }}
             - --ca-secret={{ .Values.tls.certs.selfSigner.caSecret }}
             {{- else }}
             - --ca-duration={{ .Values.tls.certs.selfSigner.caCertDuration }}
