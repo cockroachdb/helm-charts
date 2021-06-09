@@ -43,6 +43,7 @@ spec:
       {{- end }}
     {{- end }}
     {{- if and .Values.tls.enabled (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager) }}
+    {{- if not .Values.tls.certs.selfSigner.enabled }}
       serviceAccountName: {{ template "cockroachdb.tls.serviceAccount.name" . }}
       initContainers:
         # The init-certs container sends a CSR (certificate signing request) to
@@ -76,7 +77,8 @@ spec:
             - name: client-certs
               mountPath: /cockroach-certs/
     {{- end }}
-    {{- if and .Values.tls.enabled (.Values.tls.certs.provided)}}
+    {{- end }}
+    {{- if or .Values.tls.certs.selfSigner.enabled (and .Values.tls.enabled (.Values.tls.certs.provided))}}
       serviceAccountName: {{ template "cockroachdb.tls.serviceAccount.name" . }}
       initContainers:
         - name: copy-certs
