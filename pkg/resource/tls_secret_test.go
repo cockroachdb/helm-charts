@@ -198,12 +198,9 @@ func TestUpdateCASecret(t *testing.T) {
 	name := "test-secret"
 	namespace := "test-namespace"
 
-	secret := secretObj(name, namespace, nil, nil)
-
-	fakeClient := testutils.NewFakeClient(scheme, secret)
+	fakeClient := testutils.NewFakeClient(scheme)
 	r := resource.NewKubeResource(ctx, fakeClient, namespace, kube.DefaultPersister)
-	actual, err := resource.LoadTLSSecret(name, r)
-	require.NoError(t, err)
+	secret := resource.CreateTLSSecret(name, corev1.SecretTypeOpaque, r)
 
 	annotations := resource.GetSecretAnnotations("validFrom", "validUpto", "duration")
 	data := map[string][]byte{
@@ -211,13 +208,14 @@ func TestUpdateCASecret(t *testing.T) {
 		"ca.key": []byte("c2FtcGxlIGtleQ=="), // sample key
 	}
 
-	err = actual.UpdateCASecret(data["ca.key"], data["ca.crt"], annotations)
-	require.NoError(t, err)
-	actual, err = resource.LoadTLSSecret(name, r)
+	err := secret.UpdateCASecret(data["ca.key"], data["ca.crt"], annotations)
 	require.NoError(t, err)
 
-	assert.Equal(t, data, actual.Secret().Data)
-	assert.Equal(t, annotations, actual.Secret().GetAnnotations())
+	secret, err = resource.LoadTLSSecret(name, r)
+	require.NoError(t, err)
+
+	assert.Equal(t, data, secret.Secret().Data)
+	assert.Equal(t, annotations, secret.Secret().GetAnnotations())
 }
 
 func TestUpdateTLSSecret(t *testing.T) {
@@ -226,12 +224,9 @@ func TestUpdateTLSSecret(t *testing.T) {
 	name := "test-secret"
 	namespace := "test-namespace"
 
-	secret := secretObj(name, namespace, nil, nil)
-
-	fakeClient := testutils.NewFakeClient(scheme, secret)
+	fakeClient := testutils.NewFakeClient(scheme)
 	r := resource.NewKubeResource(ctx, fakeClient, namespace, kube.DefaultPersister)
-	actual, err := resource.LoadTLSSecret(name, r)
-	require.NoError(t, err)
+	secret := resource.CreateTLSSecret(name,corev1.SecretTypeOpaque,  r)
 
 	annotations := resource.GetSecretAnnotations("validFrom", "validUpto", "duration")
 	data := map[string][]byte{
@@ -240,13 +235,14 @@ func TestUpdateTLSSecret(t *testing.T) {
 		"tls.crt": []byte("c2FtcGxlIGNlcnQ="), // sample key
 	}
 
-	err = actual.UpdateTLSSecret(data["tls.crt"], data["tls.key"], data["ca.crt"], annotations)
-	require.NoError(t, err)
-	actual, err = resource.LoadTLSSecret(name, r)
+	err := secret.UpdateTLSSecret(data["tls.crt"], data["tls.key"], data["ca.crt"], annotations)
 	require.NoError(t, err)
 
-	assert.Equal(t, data, actual.Secret().Data)
-	assert.Equal(t, annotations, actual.Secret().GetAnnotations())
+	secret, err = resource.LoadTLSSecret(name, r)
+	require.NoError(t, err)
+
+	assert.Equal(t, data, secret.Secret().Data)
+	assert.Equal(t, annotations, secret.Secret().GetAnnotations())
 }
 
 func secretObj(name, namespace string, data map[string][]byte, annotations map[string]string) *corev1.Secret {

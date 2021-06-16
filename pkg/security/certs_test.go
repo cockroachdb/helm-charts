@@ -23,6 +23,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
+
 	"github.com/cockroachdb/helm-charts/pkg/security"
 )
 
@@ -70,6 +72,8 @@ func TestCreateNodePair(t *testing.T) {
 	defer cleanup()
 	ca := filepath.Join(certsDir, "ca.key")
 
+	// NOTE: "127.0.0.1" is not added for testing here because cockroach CLI skips that for SANS consideration
+	dnsName := []string{"*.foo.com", "bar.foo.com", "localhost"}
 	err := security.CreateCAPair(certsDir, ca, defaultKeySize, defaultCALifetime, true, true)
 	if err != nil {
 		t.Error(err)
@@ -83,7 +87,7 @@ func TestCreateNodePair(t *testing.T) {
 		t.Fail()
 	}
 
-	err = security.CreateNodePair(certsDir, ca, defaultKeySize, defaultCertLifetime, true, []string{"*.foo.com", "bar.foo.com", "127.0.0.1"})
+	err = security.CreateNodePair(certsDir, ca, defaultKeySize, defaultCertLifetime, true, dnsName)
 	if err != nil {
 		t.Error(err)
 	}
@@ -91,6 +95,19 @@ func TestCreateNodePair(t *testing.T) {
 	if !fileExists(filepath.Join(certsDir, "node.crt")) {
 		t.Fail()
 	}
+
+	pemCert, err := ioutil.ReadFile(filepath.Join(certsDir, "node.crt"))
+	if err != nil {
+		t.Error(err)
+	}
+
+	cert, err := security.GetCertObj(pemCert)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Equal(t, dnsName, cert.DNSNames)
+	assert.Equal(t, "node", cert.Subject.CommonName)
 
 	if !fileExists(filepath.Join(certsDir, "node.key")) {
 		t.Fail()
@@ -127,6 +144,18 @@ func TestCreateClientPair(t *testing.T) {
 	if !fileExists(filepath.Join(certsDir, "client.root.crt")) {
 		t.Fail()
 	}
+
+	pemCert, err := ioutil.ReadFile(filepath.Join(certsDir, "client.root.crt"))
+	if err != nil {
+		t.Error(err)
+	}
+
+	cert, err := security.GetCertObj(pemCert)
+	if err != nil {
+		t.Error(err)
+	}
+
+	assert.Equal(t, "root", cert.Subject.CommonName)
 
 	if !fileExists(filepath.Join(certsDir, "client.root.key")) {
 		t.Fail()

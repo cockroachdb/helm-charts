@@ -28,12 +28,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Builder populates a given Kubernetes resource or creates its default instance (placeholder)
-type Builder interface {
-	Build(client.Object) error
-	Placeholder() client.Object
-}
-
 // Fetcher updates the object with its state from Kubernetes
 type Fetcher interface {
 	Fetch(obj client.Object) error
@@ -120,7 +114,7 @@ func (p KubePersister) Persist(obj client.Object, mutateFn func() error) (upsert
 func addNamespace(o runtime.Object, ns string) error {
 	accessor, err := meta.Accessor(o)
 	if err != nil {
-		return errors.Wrapf(err, "failed to access object's meta information")
+		return errors.Wrapf(err, "failed to access meta information for object %+v", o)
 	}
 
 	accessor.SetNamespace(ns)

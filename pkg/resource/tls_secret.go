@@ -46,10 +46,6 @@ func CreateTLSSecret(name string, secretType corev1.SecretType, r Resource) *TLS
 		},
 	}
 
-	if s.secret.Data == nil {
-		s.secret.Data = map[string][]byte{}
-	}
-
 	return s
 }
 

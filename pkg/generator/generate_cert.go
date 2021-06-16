@@ -18,8 +18,6 @@ package generator
 
 import (
 	"context"
-	"crypto/x509"
-	"encoding/pem"
 	"fmt"
 	"io/ioutil"
 	"path/filepath"
@@ -27,6 +25,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/cockroachdb/helm-charts/pkg/kube"
@@ -70,7 +69,7 @@ type certConfig struct {
 }
 
 // SetConfig sets the certificate duration and expiryWindow
-func (c *certConfig) SetConfig(duration, expiryW string) error {
+func (c *certConfig) SetConfig(duration, expiryWindow string) error {
 
 	dur, err := time.ParseDuration(duration)
 	if err != nil {
@@ -78,7 +77,7 @@ func (c *certConfig) SetConfig(duration, expiryW string) error {
 	}
 	c.Duration = dur
 
-	expW, err := time.ParseDuration(expiryW)
+	expW, err := time.ParseDuration(expiryWindow)
 	if err != nil {
 		return fmt.Errorf("failed to expiryWindow %s", err.Error())
 	}
@@ -164,7 +163,7 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 	}
 
 	secret, err := resource.LoadTLSSecret(CASecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-	if err != nil {
+	if client.IgnoreNotFound(err) != nil {
 		return errors.Wrap(err, "failed to get CA secret")
 	}
 
@@ -214,6 +213,10 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 		return err
 	}
 
+	// create and save the TLS certificates into a secret
+	secret = resource.CreateTLSSecret(CASecretName, corev1.SecretTypeOpaque,
+		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+
 	// add certificate info in the secret annotations
 	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.CaCertConfig.Duration.String())
 
@@ -229,11 +232,11 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName string, namespace string) error {
 
 	secret, err := resource.LoadTLSSecret(nodeSecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-	if err != nil {
+	if client.IgnoreNotFound(err) != nil {
 		return errors.Wrap(err, "failed to get node TLS secret")
 	}
 
-	// check if the existing is ready to be consumed. If found ready, skip cert generation
+	// check if the existing secret is ready to be consumed. If found ready, skip cert generation
 	if secret.Ready() && secret.ValidateAnnotations() {
 		logrus.Infof("Node secret [%s] is found in ready state, skipping Node cert generation", nodeSecretName)
 		return nil
@@ -279,19 +282,23 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 		return errors.Wrap(err, "unable to read node.crt")
 	}
 
+	validFrom, validUpto, err := rc.getCertLife(pemCert)
+	if err != nil {
+		return err
+	}
+
 	// Read the node key into memory
 	pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "node.key"))
 	if err != nil {
 		return errors.Wrap(err, "unable to ready node.key")
 	}
 
-	validFrom, validUpto, err := rc.getCertLife(pemCert)
-	if err != nil {
-		return err
-	}
-
 	// add certificate info in the secret annotations
 	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.NodeCertConfig.Duration.String())
+
+	// create and save the TLS certificates into a secret
+	secret = resource.CreateTLSSecret(nodeSecretName, corev1.SecretTypeTLS,
+		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
 
 	if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
 		return errors.Wrap(err, "failed to update node TLS secret certs")
@@ -306,8 +313,8 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName string, namespace string) error {
 
 	secret, err := resource.LoadTLSSecret(clientSecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-	if err != nil {
-		return errors.Wrap(err, "failed to get client TLS secret")
+	if client.IgnoreNotFound(err) != nil {
+		return errors.Wrap(err, "failed to get client secret")
 	}
 
 	// check if the existing is ready to be consumed. If found ready, skip cert generation
@@ -349,20 +356,24 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 		return errors.Wrap(err, "unable to read client.root.crt")
 	}
 
-	// Load the client root key into memory
-	pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "client.root.key"))
-	if err != nil {
-		return errors.Wrap(err, "unable to read client.root.key")
-	}
-
 	validFrom, validUpto, err := rc.getCertLife(pemCert)
 	if err != nil {
 		return err
 
 	}
 
+	// Load the client root key into memory
+	pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "client.root.key"))
+	if err != nil {
+		return errors.Wrap(err, "unable to read client.root.key")
+	}
+
 	// add certificate info in the secret annotations
 	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.ClientCertConfig.Duration.String())
+
+	// create and save the TLS certificates into a secret
+	secret = resource.CreateTLSSecret(clientSecretName, corev1.SecretTypeTLS,
+		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
 
 	if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
 		return errors.Wrap(err, "failed to update client TLS secret certs")
@@ -386,13 +397,9 @@ func (rc *GenerateCert) getClientSecretName() string {
 
 // getCertLife return the certificate starting and expiration date
 func (rc *GenerateCert) getCertLife(pemCert []byte) (validFrom string, validUpto string, err error) {
-	block, _ := pem.Decode(pemCert)
-	if block == nil {
-		return validFrom, validUpto, errors.New("failed to decode certificate")
-	}
-	cert, err := x509.ParseCertificate(block.Bytes)
+	cert, err := security.GetCertObj(pemCert)
 	if err != nil {
-		return validFrom, validUpto, errors.Wrap(err, "failed to parse certificate")
+		return validFrom, validUpto, err
 	}
 
 	logrus.Debug("getExpirationDate from cert", "Not before:", cert.NotBefore.Format(time.RFC3339), "Not after:", cert.NotAfter.Format(time.RFC3339))

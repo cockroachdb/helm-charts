@@ -17,6 +17,8 @@ limitations under the License.
 package security
 
 import (
+	"crypto/x509"
+	"encoding/pem"
 	"errors"
 	"fmt"
 	"os"
@@ -169,7 +171,7 @@ func CreateClientPair(certsDir, caKeyPath string, keySize int, lifetime time.Dur
 
 	// TODO pks options do we need them?
 	// run the crdb binary to generate the node certificates
-	execCmd("create-client", user.U, certsDirParam, caKeyParam, lifetimeParam)
+	execCmd(CREATE_CLIENT, user.U, certsDirParam, caKeyParam, lifetimeParam)
 
 	return nil
 }
@@ -183,4 +185,18 @@ func execCmd(args ...string) {
 		// a panic will restart the pod
 		panic(fmt.Sprintf("error: %s: %s\nout: %s\n", args, err, out))
 	}
+}
+
+func GetCertObj(pemCert []byte) (*x509.Certificate, error) {
+	block, _ := pem.Decode(pemCert)
+	if block == nil {
+		return nil, errors.New("failed to decode certificate")
+	}
+
+	cert, err := x509.ParseCertificate(block.Bytes)
+	if err != nil {
+		return nil, err
+	}
+
+	return cert, nil
 }

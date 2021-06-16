@@ -30,6 +30,7 @@ spec:
           image: "{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
           imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
           args:
+            - generate
             {{- if .Values.tls.certs.selfSigner.caProvided }}
             - --ca-secret={{ .Values.tls.certs.selfSigner.caSecret }}
             {{- else }}
@@ -45,5 +46,7 @@ spec:
             value: {{ template "cockroachdb.fullname" . }}
           - name: NAMESPACE
             value: {{ .Release.Namespace | quote }}
+          - name: CLUSTER_DOMAIN
+            value: {{ .Values.clusterDomain}}
       serviceAccountName: {{ template "selfcerts.fullname" . }}
 {{- end}}

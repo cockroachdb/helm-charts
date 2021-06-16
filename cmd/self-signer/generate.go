@@ -40,25 +40,25 @@ var generateCmd = &cobra.Command{
 }
 
 var (
-	caDurationFlag, nodeDurationFlag, clientDurationFlag string
-	caExpiryFlag, nodeExpiryFlag, clientExpiryFlag       string
-	caSecretFlag                                         string
+	caDuration, nodeDuration, clientDuration string
+	caExpiry, nodeExpiry, clientExpiry       string
+	caSecret                                 string
 )
 
 func init() {
 
 	rootCmd.AddCommand(generateCmd)
 
-	generateCmd.Flags().StringVar(&caDurationFlag, "ca-duration", "43800h", "duration of CA cert. Defaults to 43800h (5 years)")
-	generateCmd.Flags().StringVar(&caExpiryFlag, "ca-expiry", "648h", "expiry window for CA cert. Defaults to 27 days")
+	generateCmd.Flags().StringVar(&caDuration, "ca-duration", "43800h", "duration of CA cert. Defaults to 43800h (5 years)")
+	generateCmd.Flags().StringVar(&caExpiry, "ca-expiry", "648h", "expiry window for CA cert. Defaults to 27 days")
 
-	generateCmd.Flags().StringVar(&nodeDurationFlag, "node-duration", "8760h", "duration of Node cert. Defaults to 365h (1 year)")
-	generateCmd.Flags().StringVar(&nodeExpiryFlag, "node-expiry", "168h", "expiry window for Node cert. Defaults to 7 days")
+	generateCmd.Flags().StringVar(&nodeDuration, "node-duration", "8760h", "duration of Node cert. Defaults to 365h (1 year)")
+	generateCmd.Flags().StringVar(&nodeExpiry, "node-expiry", "168h", "expiry window for Node cert. Defaults to 7 days")
 
-	generateCmd.Flags().StringVar(&clientDurationFlag, "client-duration", "672h", "duration of Client cert. Defaults to 28 days")
-	generateCmd.Flags().StringVar(&clientExpiryFlag, "client-expiry", "48h", "expiry window for Client(root) cert. Defaults to 2 days")
+	generateCmd.Flags().StringVar(&clientDuration, "client-duration", "672h", "duration of Client cert. Defaults to 28 days")
+	generateCmd.Flags().StringVar(&clientExpiry, "client-expiry", "48h", "expiry window for Client(root) cert. Defaults to 2 days")
 
-	generateCmd.Flags().StringVar(&caSecretFlag, "ca-secret", "", "name of user provided CA secret")
+	generateCmd.Flags().StringVar(&caSecret, "ca-secret", "", "name of user provided CA secret")
 }
 
 func generate(cmd *cobra.Command, args []string) {
@@ -76,19 +76,19 @@ func generate(cmd *cobra.Command, args []string) {
 
 	genCert := generator.NewGenerateCert(cl)
 
-	if err := genCert.CaCertConfig.SetConfig(caDurationFlag, caExpiryFlag); err != nil {
+	if err := genCert.CaCertConfig.SetConfig(caDuration, caExpiry); err != nil {
 		log.Panic(err)
 	}
 
-	if err := genCert.NodeCertConfig.SetConfig(nodeDurationFlag, nodeExpiryFlag); err != nil {
+	if err := genCert.NodeCertConfig.SetConfig(nodeDuration, nodeExpiry); err != nil {
 		log.Panic(err)
 	}
 
-	if err := genCert.ClientCertConfig.SetConfig(clientDurationFlag, clientExpiryFlag); err != nil {
+	if err := genCert.ClientCertConfig.SetConfig(clientDuration, clientExpiry); err != nil {
 		log.Panic(err)
 	}
 
-	genCert.CaSecret = caSecretFlag
+	genCert.CaSecret = caSecret
 
 	stsName, exists := os.LookupEnv("STATEFULSET_NAME")
 	if !exists {
