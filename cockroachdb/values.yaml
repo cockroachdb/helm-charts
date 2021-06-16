@@ -412,7 +412,7 @@ tls:
   selfSigner:
     # Image Placeholder for the selfSigner utility. This will be changed once the CI workflows for the image is in place.
     image:
-      repository: cockroachdb/cockroach-self-signer-cert-placeholder
+      repository: cockroachdb/cockroach-self-signer-cert
       tag: "0.1"
       pullPolicy: IfNotPresent
       credentials: {}
