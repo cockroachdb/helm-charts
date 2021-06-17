@@ -6,7 +6,7 @@ on:
       - 'cert-manager-feature-branch'
     tags:
       - 'v*.*.*'
-  pull_request:
+  pull_request_target:
     branches:
       - 'master'
       - 'cert-manager-feature-branch'
