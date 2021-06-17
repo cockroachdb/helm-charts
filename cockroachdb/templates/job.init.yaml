@@ -1,6 +1,6 @@
 {{ $isClusterInitEnabled := and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`)) }}
-{{ $isClusterProvisioningEnabled := .Values.init.provisioning.enabled }}
-{{- if or $isClusterInitEnabled $isClusterProvisioningEnabled }}
+{{ $isDatabaseProvisioningEnabled := .Values.init.provisioning.enabled }}
+{{- if or $isClusterInitEnabled $isDatabaseProvisioningEnabled }}
 kind: Job
 apiVersion: batch/v1
 metadata:
@@ -157,7 +157,7 @@ spec:
               initCluster;
             {{- end }}
 
-            {{- if $isClusterProvisioningEnabled }}
+            {{- if $isDatabaseProvisioningEnabled }}
               provisionCluster() {
                 while true; do
                   /cockroach/cockroach sql \
