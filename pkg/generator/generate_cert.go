@@ -384,15 +384,15 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 }
 
 func (rc *GenerateCert) getCASecretName() string {
-	return rc.PublicServiceName + "-ca-secret"
+	return rc.DiscoveryServiceName + "-ca-secret"
 }
 
 func (rc *GenerateCert) getNodeSecretName() string {
-	return rc.PublicServiceName + "-node-secret"
+	return rc.DiscoveryServiceName + "-node-secret"
 }
 
 func (rc *GenerateCert) getClientSecretName() string {
-	return rc.PublicServiceName + "-client-secret"
+	return rc.DiscoveryServiceName + "-client-secret"
 }
 
 // getCertLife return the certificate starting and expiration date

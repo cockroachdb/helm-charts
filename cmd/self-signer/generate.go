@@ -105,8 +105,8 @@ func generate(cmd *cobra.Command, args []string) {
 		log.Panic("Required CLUSTER_DOMAIN env not found")
 	}
 
-	genCert.PublicServiceName = stsName
-	genCert.DiscoveryServiceName = stsName + "-public"
+	genCert.PublicServiceName = stsName + "-public"
+	genCert.DiscoveryServiceName = stsName
 	genCert.ClusterDomain = domain
 
 	if err := genCert.Do(ctx, namespace); err != nil {
