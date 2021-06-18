@@ -27,7 +27,8 @@ jobs:
         uses: golangci/golangci-lint-action@v2
         with:
           version: v1.30
-          working-directory: ./cmd/
+          working-directory: .
+          args: --timeout=5m
 
   # pre job to run helm lint
   helm:
@@ -63,11 +64,11 @@ jobs:
         with:
           go-version: 1.15
 
-      - name: Unit
-        run: go test -v ./cmd/...
-
       - name: HelmTemplate
         run: go test -v ./tests/template/...
+
+      - name: Unit
+        run: go test -v ./cmd/...
 
   # pre job to build and push the self signer utility
   pre-build:
@@ -95,7 +96,7 @@ jobs:
         uses: docker/build-push-action@v2
         with:
           push: true
-          tags: gcr.io/cockroachdb/cockroach-self-signer-cert:latest
+          tags: gcr.io/cockroachdb/cockroach-self-signer-cert:${{ github.sha }}
           file: build/docker-image/Dockerfile
 
   # pre job to run helm integration tests
