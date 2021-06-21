@@ -330,13 +330,17 @@ spec:
       {{- if .Values.tls.enabled }}
         - name: certs
           emptyDir: {}
-          {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager }}
+          {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager  .Values.tls.certs.selfSigner.enabled }}
         - name: certs-secret
-          {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager }}
+          {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
           projected:
             sources:
             - secret:
+                {{- if  .Values.tls.certs.selfSigner.enabled }}
+                name: {{ template "cockroachdb.fullname" . }}-node-secret
+                {{ else }}
                 name: {{ .Values.tls.certs.nodeSecret }}
+                {{ end -}}
                 items:
                 - key: ca.crt
                   path: ca.crt

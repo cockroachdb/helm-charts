@@ -21,9 +21,9 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ template "cockroachdb.fullname" . }}
+  name: {{ template "selfcerts.fullname" . }}
 subjects:
   - kind: ServiceAccount
-    name: {{ template "cockroachdb.tls.serviceAccount.name" . }}
+    name: {{ template "selfcerts.fullname" . }}
     namespace: {{ .Release.Namespace | quote }}
 {{- end }}
