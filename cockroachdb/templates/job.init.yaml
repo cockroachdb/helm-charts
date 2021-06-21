@@ -156,13 +156,17 @@ spec:
       volumes:
         - name: client-certs
           emptyDir: {}
-          {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager }}
+          {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
         - name: certs-secret
-          {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager }}
+          {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
           projected:
             sources:
             - secret:
+                {{- if  .Values.tls.certs.selfSigner.enabled }}
+                name: {{ template "cockroachdb.fullname" . }}-client-secret
+                {{ else }}
                 name: {{ .Values.tls.certs.clientRootSecret }}
+                {{ end -}}
                 items:
                 - key: ca.crt
                   path: ca.crt
