@@ -220,8 +220,10 @@ spec:
             {{- end }}
             {{- end }}
               --advertise-host=$(hostname).${STATEFULSET_FQDN}
-            {{- with .Values.conf.logtostderr }}
-              --logtostderr={{ . }}
+            {{- if .Values.conf.log }}
+              --log={{ .Values.conf.log }}
+            {{- else }}
+              --logtostderr={{ .Values.conf.logtostderr }}
             {{- end }}
             {{- if .Values.tls.enabled }}
               --certs-dir=/cockroach/cockroach-certs/
