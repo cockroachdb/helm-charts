@@ -3,6 +3,7 @@ apiVersion: batch/v1beta1
 kind: CronJob
 metadata:
   name: {{ template "selfcerts.fullname" . }}-client-rotate
+  namespace: {{ .Release.Namespace | quote }}
   labels:
     helm.sh/chart: {{ template "cockroachdb.chart" . }}
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}

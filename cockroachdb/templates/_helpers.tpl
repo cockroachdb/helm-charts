@@ -159,13 +159,13 @@ Validate that if clientCertDuration must not be empty and it must be greater tha
 {{- end -}}
 
 {{/*
-Validate that if nodeCertDuration must not be empty and it must be greater than minimumCertDuration.
+Validate that nodeCertDuration must not be empty and nodeCertDuration minus nodeCertExpiryWindow must be greater than minimumCertDuration.
 */}}
 {{- define "cockroachdb.tls.certs.selfSigner.nodeCertValidation" -}}
 {{- if or (not .Values.tls.certs.selfSigner.nodeCertDuration) (not .Values.tls.certs.selfSigner.nodeCertExpiryWindow) }}
   {{ fail "Node cert duration can not be empty" }}
 {{- else }}
-{{- if gt (int64 .Values.tls.certs.selfSigner.minimumCertDuration) (sub (.Values.tls.certs.selfSigner.nodeCertDuration | trimSuffix "h") (.Values.tls.certs.selfSigner.nodeCertExpiryWindow | trimSuffix "h"))}}
+{{- if lt (sub (.Values.tls.certs.selfSigner.nodeCertDuration | trimSuffix "h") (.Values.tls.certs.selfSigner.nodeCertExpiryWindow | trimSuffix "h")) (int64 (include "selfcerts.minimumCertDuration" .))}}
    {{ fail "Node cert duration minus node cert expiry window should not be less than minimum Cert duration" }}
 {{- end }}
 {{- end }}
