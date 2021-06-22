@@ -21,7 +21,6 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"time"
 )
@@ -61,14 +60,6 @@ const (
 	ClientPem
 	// TenantClientPem describes a SQL tenant client certificate.
 	TenantClientPem
-
-	// Maximum allowable permissions.
-	maxKeyPermissions os.FileMode = 0700
-	// Filename extenstions.
-	certExtension = `.crt`
-	keyExtension  = `.key`
-	// Certificate directory permissions.
-	defaultCertsDirPerm = 0700
 )
 
 // The following constants are used to run the crdb binary
