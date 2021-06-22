@@ -30,9 +30,9 @@ import (
 )
 
 // NewFakeClient returns a new fake client
-func NewFakeClient(scheme *runtime.Scheme, objs ...runtime.Object) *FakeClient {
+func NewFakeClient(scheme *runtime.Scheme, objs ...client.Object) *FakeClient {
 	return &FakeClient{
-		client: fake.NewFakeClientWithScheme(scheme, objs...),
+		client: fake.NewClientBuilder().WithScheme(scheme).WithObjects(objs...).Build(),
 		scheme: scheme,
 	}
 }
@@ -91,14 +91,14 @@ type GetAction struct {
 	verb string
 	key  client.ObjectKey
 	gvr  schema.GroupVersionResource
-	obj  runtime.Object
+	obj  client.Object
 }
 
 type CreateAction struct {
 	verb string
 	key  client.ObjectKey
 	gvr  schema.GroupVersionResource
-	obj  runtime.Object
+	obj  client.Object
 }
 
 var _ Reactor = &simpleReactor{}
@@ -116,11 +116,8 @@ func (r simpleReactor) Handles(action Action) bool {
 	}
 
 	resourceCovers := r.Resource == "*" || r.Resource == action.GVR().Resource
-	if !resourceCovers {
-		return false
-	}
 
-	return true
+	return resourceCovers
 }
 
 func (r simpleReactor) React(action Action) (handled bool, err error) {
@@ -130,6 +127,11 @@ func (r simpleReactor) React(action Action) (handled bool, err error) {
 func (a GetAction) Verb() string {
 	return a.verb
 }
+
+func (a GetAction) Object() client.Object {
+	return a.obj
+}
+
 
 func (a GetAction) Key() client.ObjectKey {
 	return a.key
@@ -149,6 +151,10 @@ func (a CreateAction) Key() client.ObjectKey {
 
 func (a CreateAction) GVR() schema.GroupVersionResource {
 	return a.gvr
+}
+
+func (a CreateAction) Object() client.Object {
+	return a.obj
 }
 
 func (c *FakeClient) AddReactor(verb string, resource string, reaction ReactionFunc) {
