@@ -26,15 +26,26 @@
                 }
               },
               "then": {
+                "if": {
+                  "properties": {
+                    "caProvided": {
+                      "const": false
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "caCertDuration" : {
+                      "type": "string",
+                      "pattern": "^[0-9]*h$"
+                    },
+                    "caCertExpiryWindow": {
+                      "type": "string",
+                      "pattern": "^[0-9]*h$"
+                    }
+                  }
+                },
                 "properties": {
-                  "caCertDuration" : {
-                    "type": "string",
-                    "pattern": "^[0-9]*h$"
-                  },
-                  "caCertExpiryWindow": {
-                    "type": "string",
-                    "pattern": "^[0-9]*h$"
-                  },
                   "clientCertDuration": {
                     "type": "string",
                     "pattern": "^[0-9]*h$"
