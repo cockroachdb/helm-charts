@@ -25,7 +25,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/cockroachdb/helm-charts/pkg/kube"
 	"github.com/cockroachdb/helm-charts/pkg/resource"
@@ -50,7 +50,7 @@ func TestTLSSecretReady(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		secret   runtime.Object
+		secret   client.Object
 		expected bool
 	}{
 		{
@@ -94,7 +94,7 @@ func TestCASecretReady(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		secret   runtime.Object
+		secret   client.Object
 		expected bool
 	}{
 		{
@@ -138,7 +138,7 @@ func TestValidateAnnotations(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		secret   runtime.Object
+		secret   client.Object
 		expected bool
 	}{
 		{
@@ -226,7 +226,7 @@ func TestUpdateTLSSecret(t *testing.T) {
 
 	fakeClient := testutils.NewFakeClient(scheme)
 	r := resource.NewKubeResource(ctx, fakeClient, namespace, kube.DefaultPersister)
-	secret := resource.CreateTLSSecret(name,corev1.SecretTypeOpaque,  r)
+	secret := resource.CreateTLSSecret(name, corev1.SecretTypeOpaque, r)
 
 	annotations := resource.GetSecretAnnotations("validFrom", "validUpto", "duration")
 	data := map[string][]byte{
