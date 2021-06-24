@@ -14,6 +14,7 @@ spec:
   schedule: {{ template "selfcerts.caRotateSchedule" . }}
   jobTemplate:
     spec:
+      backoffLimit: 1
       template:
         spec:
           restartPolicy: Never
@@ -22,13 +23,19 @@ spec:
             image: "{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
             imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
             args:
+            - rotate
+            - --ca
             - --ca-duration={{ .Values.tls.certs.selfSigner.caCertDuration }}
             - --ca-expiry={{ .Values.tls.certs.selfSigner.caCertExpiryWindow }}
+            - --ca-cron={{ template "selfcerts.caRotateSchedule" . }}
+            - --readiness-wait={{ .Values.tls.certs.selfSigner.readinessWait }}
             env:
             - name: STATEFULSET_NAME
               value: {{ template "cockroachdb.fullname" . }}
             - name: NAMESPACE
               value: {{ .Release.Namespace }}
+            - name: CLUSTER_DOMAIN
+              value: {{ .Values.clusterDomain}}
           serviceAccountName: {{ template "selfcerts.fullname" . }}
   {{- end }}
 {{- end }}

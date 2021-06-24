@@ -17,9 +17,10 @@ limitations under the License.
 package self_signer
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
+	"log"
+	"os"
+	"time"
 )
 
 // rotateCmd represents the rotate command
@@ -30,10 +31,62 @@ var rotateCmd = &cobra.Command{
 	Run:   rotate,
 }
 
+var (
+	clientFlag, caFlag, nodeFlag bool
+	caCron, nodeAndClientCron    string
+	readinessWait                string
+)
+
 func init() {
 	rootCmd.AddCommand(rotateCmd)
+
+	rotateCmd.Flags().BoolVar(&clientFlag, "client", false, "if set rotates client certificate")
+	rotateCmd.Flags().BoolVar(&nodeFlag, "node", false, "if set rotates node certificate")
+	rotateCmd.Flags().BoolVar(&caFlag, "ca", false, "if set rotates ca certificate")
+
+	rotateCmd.Flags().StringVar(&caCron, "ca-cron", "", "cron of the CA certificate rotation cron")
+	rotateCmd.Flags().StringVar(&nodeAndClientCron, "node-client-cron", "", "cron of the node and client certificate rotation cron")
+
+	rotateCmd.Flags().StringVar(&readinessWait, "readiness-wait", "30s", "readiness wait for each replica of crdb cluster")
+
 }
 
 func rotate(cmd *cobra.Command, args []string) {
-	fmt.Println("rotate called")
+	if clientFlag && nodeFlag && caFlag {
+		log.Panic("CA, Node and client can't be rotated at the same time. Only CA or (Node and Client) can be " +
+			"rotated at a time")
+	}
+
+	if !clientFlag && !nodeFlag && !caFlag {
+		log.Panic("None of the CA, Node and client is provided for cert rotation")
+	}
+
+	genCert, err := getInitialConfig(caDuration, caExpiry, nodeDuration, nodeExpiry, clientDuration, clientExpiry)
+	if err != nil {
+		panic(err)
+	}
+
+	namespace, exists := os.LookupEnv("NAMESPACE")
+	if !exists {
+		log.Panic("Required NAMESPACE env not found")
+	}
+
+	timeout, err := time.ParseDuration(readinessWait)
+	if err != nil {
+		log.Panicf("failed to parse readiness-wait duration %s", err.Error())
+	}
+	genCert.ReadinessWait = timeout
+
+	genCert.CaSecret = caSecret
+	genCert.RotateCACert = caFlag
+	genCert.CACronSchedule = caCron
+
+	genCert.RotateClientCert = clientFlag
+	genCert.RotateNodeCert = nodeFlag
+	genCert.NodeAndClientCronSchedule = nodeAndClientCron
+
+	if err := genCert.Do(ctx, namespace); err != nil {
+		log.Panic(err)
+	}
+
 }

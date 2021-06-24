@@ -184,7 +184,7 @@ func TestHelmSelfCertSignerCronJob(t *testing.T) {
 	require.Equal(t, namespaceName, cronjob.Namespace)
 
 	// Rendering the template of self signer cert rotation job
-	output = helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-certSelfSigner.yaml"})
+	output = helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-node-certSelfSigner.yaml"})
 	helm.UnmarshalK8SYaml(t, output, &cronjob)
 	require.Equal(t, namespaceName, cronjob.Namespace)
 
@@ -219,9 +219,9 @@ func TestHelmSelfCertSignerCronJob(t *testing.T) {
 			require.Error(t, err)
 			require.Contains(t, err.Error(), "Error: could not find template templates/cronjob-ca-certSelfSigner.yaml in chart")
 
-			_, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-certSelfSigner.yaml"})
+			_, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-node-certSelfSigner.yaml"})
 			require.Error(t, err)
-			require.Contains(t, err.Error(), "Error: could not find template templates/cronjob-client-certSelfSigner.yaml in chart")
+			require.Contains(t, err.Error(), "Error: could not find template templates/cronjob-client-node-certSelfSigner.yaml in chart")
 		})
 	}
 }
@@ -247,7 +247,7 @@ func TestHelmSelfCertSignerCronJobSchedule(t *testing.T) {
 	require.Equal(t, namespaceName, cronjob.Namespace)
 
 	// Rendering the template of self signer cert rotation job
-	output = helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-certSelfSigner.yaml"})
+	output = helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-node-certSelfSigner.yaml"})
 	helm.UnmarshalK8SYaml(t, output, &cronjob)
 	require.Equal(t, namespaceName, cronjob.Namespace)
 
@@ -296,7 +296,7 @@ func TestHelmSelfCertSignerCronJobSchedule(t *testing.T) {
 
 			require.Equal(subT, cronjob.Spec.Schedule, testCase.caExpectedCron)
 
-			output = helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-certSelfSigner.yaml"})
+			output = helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-node-certSelfSigner.yaml"})
 			helm.UnmarshalK8SYaml(t, output, &cronjob)
 
 			require.Equal(subT, cronjob.Spec.Schedule, testCase.clientExpectedCron)

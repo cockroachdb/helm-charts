@@ -18,8 +18,10 @@ package resource
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/mitchellh/hashstructure/v2"
+	"github.com/robfig/cron"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
@@ -119,6 +121,51 @@ func (s *TLSSecret) ValidateAnnotations() bool {
 	return true
 }
 
+// IsRotationRequired validates if all the required annotations are present
+func (s *TLSSecret) IsRotationRequired(duration time.Duration, cronStr string) (bool, string) {
+	annotations := s.secret.Annotations
+
+	// validate secret data hash
+	hash, err := hashstructure.Hash(s.secret.Data, hashstructure.FormatV2, nil)
+	if err != nil {
+		return true, "Failed to verify secret data hash, creating new certificate"
+	}
+
+	currentHash := fmt.Sprintf("%d", hash)
+	existingHash := annotations[SecretDataHash]
+
+	if currentHash != existingHash {
+		return true, "Secret data altered, rotating certificate"
+	}
+
+	// validate duration
+	existingDuration := annotations[CertDuration]
+	if duration.String() != existingDuration {
+		return true, "Certificate duration mismatch, rotating certificate"
+	}
+
+	// validate expiry. If expiry is before the next cron, then rotate the certificate
+	validUpto := annotations[CertValidUpto]
+	expiryTime, err := time.Parse(time.RFC3339, validUpto)
+	if err != nil {
+		return true, "Failed to verify expiry date, rotating certificate"
+	}
+
+	cronSchedule, err := cron.ParseStandard(cronStr)
+	if err != nil {
+		return true, "Failed to verify expiry date due to invalid cron, rotating certificate"
+	}
+
+	nextRun := cronSchedule.Next(time.Now())
+
+	if expiryTime.Before(nextRun) {
+		return true, "Certificate about to expire, rotating certificate"
+	}
+
+	return false, ""
+
+}
+
 // Ready checks if secret contains required data
 func (s *TLSSecret) Ready() bool {
 	data := s.secret.Data
@@ -138,7 +185,7 @@ func (s *TLSSecret) Ready() bool {
 }
 
 // UpdateTLSSecret updates three different certificates at the same time.
-// It save the TLSCertKey, the CA, and the TLSPrivateKey in a secret.
+// It save the TLSCert, the CA, and the TLSPrivateKey in a secret.
 func (s *TLSSecret) UpdateTLSSecret(cert, key, ca []byte, annotations map[string]string) error {
 	newCert, newCA := append([]byte{}, cert...), append([]byte{}, ca...)
 	newKey := append([]byte{}, key...)
@@ -198,11 +245,11 @@ func (s *TLSSecret) CAKey() []byte {
 	return s.secret.Data[CaKey]
 }
 
-func (s *TLSSecret) Key() []byte {
+func (s *TLSSecret) TLSCert() []byte {
 	return s.secret.Data[corev1.TLSCertKey]
 }
 
-func (s *TLSSecret) PrivateKey() []byte {
+func (s *TLSSecret) TLSPrivateKey() []byte {
 	return s.secret.Data[corev1.TLSPrivateKeyKey]
 }
 
