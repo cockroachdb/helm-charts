@@ -1,4 +1,4 @@
-REPOSITORY ?= cockroachdb/cockroach-self-signer-cert
+REPOSITORY ?= gcr.io/cockroachdb/cockroach-self-signer-cert
 TAG ?= $(shell git rev-parse HEAD)
 
 .DEFAULT_GOAL := all
@@ -25,3 +25,9 @@ build-self-signer:
 
 push-self-signer:
 	docker push ${REPOSITORY}:${TAG}
+
+install-cockroach:
+	sudo apt-get install wget -y
+	wget https://binaries.cockroachdb.com/cockroach-v20.2.5.linux-amd64.tgz
+	tar zxf cockroach-v20.2.5.linux-amd64.tgz
+	sudo cp cockroach-v20.2.5.linux-amd64/cockroach /usr/local/bin/
