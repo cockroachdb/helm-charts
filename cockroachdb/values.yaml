@@ -59,7 +59,11 @@ conf:
   # new Pods.
   join: []
 
-  # Logs at or above this threshold to STDERR.
+  # New logging configuration.
+  # https://www.cockroachlabs.com/docs/v21.1/configure-logs
+  log:
+
+  # Logs at or above this threshold to STDERR. Ignored when log is configured
   logtostderr: INFO
 
   # Maximum storage capacity available to store temporary disk-based data for
