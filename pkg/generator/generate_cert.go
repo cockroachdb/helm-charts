@@ -123,10 +123,10 @@ func (rc *GenerateCert) Do(ctx context.Context, namespace string) error {
 		return errors.Wrap(err, msg)
 	}
 
-	// In the case of rotate CA, update new CA in node and client secret and skip node and client certificate rotation
+	// In the case of rotate CA, skip node and client certificate rotation
 	if rc.RotateCACert {
 
-		return rc.UpdateNewCA(ctx, namespace)
+		return nil
 	}
 
 	// generate the node certificate for the database to use
@@ -241,7 +241,12 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 					return errors.Wrap(err, "failed to write CA cert")
 				}
 
-				return generate()
+				if err := generate(); err != nil {
+					return err
+				}
+
+				return rc.UpdateNewCA(ctx, namespace)
+
 			}
 		}
 
@@ -257,6 +262,7 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 		return nil
 	}
 
+	// generate new certificate
 	return generate()
 }
 
