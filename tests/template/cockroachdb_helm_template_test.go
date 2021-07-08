@@ -226,6 +226,84 @@ func TestHelmSelfCertSignerCronJob(t *testing.T) {
 	}
 }
 
+// TestHelmSelfCertSignerCronJobSchedule contains the tests around the cronjob schedule of self signer utility
+func TestHelmSelfCertSignerCronJobSchedule(t *testing.T) {
+	t.Parallel()
+
+	// Path to the helm chart we will test
+	helmChartPath, err := filepath.Abs("../../cockroachdb")
+	require.NoError(t, err)
+
+	// Setup the args. For this test, we will set the following input values:
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+	}
+
+	// Rendering the template of self signer service account
+	output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-ca-certSelfSigner.yaml"})
+
+	var cronjob v1beta1.CronJob
+	helm.UnmarshalK8SYaml(t, output, &cronjob)
+	require.Equal(t, namespaceName, cronjob.Namespace)
+
+	// Rendering the template of self signer cert rotation job
+	output = helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-certSelfSigner.yaml"})
+	helm.UnmarshalK8SYaml(t, output, &cronjob)
+	require.Equal(t, namespaceName, cronjob.Namespace)
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		caExpectedCron string
+		clientExpectedCron string
+	}{
+		{
+			"Validate cron schedule of Self Signer cert rotate jobs",
+			map[string]string{},
+			"0 0 0 */10 */4",
+			"0 0 */26 * *",
+		},
+		{
+			"Validate cron schedule of Self Signer cert rotate jobs with a different schedule than default schedule",
+			map[string]string{
+				"tls.certs.selfSigner.minimumCertDuration": "24h",
+				"tls.certs.selfSigner.caCertDuration": "720h",
+				"tls.certs.selfSigner.caCertExpiryWindow": "48h",
+				"tls.certs.selfSigner.clientCertDuration": "240h",
+				"tls.certs.selfSigner.clientCertExpiryWindow": "24h",
+				"tls.certs.selfSigner.nodeCertDuration": "440h",
+				"tls.certs.selfSigner.nodeCertExpiryWindow": "36h",
+			},
+			"0 0 */28 * *",
+			"0 0 */1 * *",
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-ca-certSelfSigner.yaml"})
+
+			var cronjob v1beta1.CronJob
+			helm.UnmarshalK8SYaml(t, output, &cronjob)
+
+			require.Equal(subT, cronjob.Spec.Schedule, testCase.caExpectedCron)
+
+			output = helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-certSelfSigner.yaml"})
+			helm.UnmarshalK8SYaml(t, output, &cronjob)
+
+			require.Equal(subT, cronjob.Spec.Schedule, testCase.clientExpectedCron)
+		})
+	}
+}
+
 // TestHelmSelfCertSignerStatefulSet contains the tests around the statefulset of self signer utility
 func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 	t.Parallel()
