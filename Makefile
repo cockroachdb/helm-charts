@@ -1,4 +1,4 @@
-REPOSITORY ?= gcr.io/cockroachdb/cockroach-self-signer-cert
+REPOSITORY ?= gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert
 TAG ?= $(shell git rev-parse HEAD)
 
 .DEFAULT_GOAL := all
