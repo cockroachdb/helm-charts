@@ -17,10 +17,11 @@ limitations under the License.
 package self_signer
 
 import (
-	"github.com/spf13/cobra"
 	"log"
 	"os"
 	"time"
+
+	"github.com/spf13/cobra"
 )
 
 // rotateCmd represents the rotate command
@@ -52,12 +53,12 @@ func init() {
 }
 
 func rotate(cmd *cobra.Command, args []string) {
-	if clientFlag && nodeFlag && caFlag {
-		log.Panic("CA, Node and client can't be rotated at the same time. Only CA or (Node and Client) can be " +
+	if (clientFlag || nodeFlag) && caFlag {
+		log.Panic("CA and (Node or client) can't be rotated at the same time. Only CA or (Node and Client) can be " +
 			"rotated at a time")
 	}
 
-	if !clientFlag && !nodeFlag && !caFlag {
+	if !(clientFlag || nodeFlag || caFlag) {
 		log.Panic("None of the CA, Node and client is provided for cert rotation")
 	}
 

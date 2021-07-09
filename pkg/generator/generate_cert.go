@@ -125,7 +125,6 @@ func (rc *GenerateCert) Do(ctx context.Context, namespace string) error {
 
 	// In the case of rotate CA, skip node and client certificate rotation
 	if rc.RotateCACert {
-
 		return nil
 	}
 
@@ -179,8 +178,8 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 		return errors.Wrap(err, "failed to get CA secret")
 	}
 
-	// closure func used to generate CA cert and key
-	generate := func() error {
+	// inline func used to generate CA cert and key
+	generate := func(rc *GenerateCert, CASecretName, namespace string) error {
 		logrus.Info("Generating CA")
 
 		// create the CA Pair certificates
@@ -241,7 +240,7 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 					return errors.Wrap(err, "failed to write CA cert")
 				}
 
-				if err := generate(); err != nil {
+				if err := generate(rc, CASecretName, namespace); err != nil {
 					return err
 				}
 
@@ -263,7 +262,7 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 	}
 
 	// generate new certificate
-	return generate()
+	return generate(rc, CASecretName, namespace)
 }
 
 // generateNodeCert generates the Node key and certificate and stores them in a secret.
@@ -274,8 +273,8 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 		return errors.Wrap(err, "failed to get node TLS secret")
 	}
 
-	// closure func used to generate node cert and key
-	generate := func() error {
+	// inline func used to generate node cert and key
+	generate := func(rc *GenerateCert, nodeSecretName, namespace string) error {
 		logrus.Info("Generating node certificate")
 
 		// hosts are the various DNS names and IP address that have to exist in the Node certificates
@@ -350,7 +349,7 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 			if isRequired {
 				logrus.Infof("Node Certificate: %s", reason)
 
-				if err = generate(); err != nil {
+				if err = generate(rc, nodeSecretName, namespace); err != nil {
 					return err
 				}
 
@@ -365,7 +364,7 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 		return nil
 	}
 
-	return generate()
+	return generate(rc, nodeSecretName, namespace)
 
 }
 
@@ -377,8 +376,8 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 		return errors.Wrap(err, "failed to get client secret")
 	}
 
-	// closure func used to generate client cert and key
-	generate := func() error {
+	// inline func used to generate client cert and key
+	generate := func(rc *GenerateCert, clientSecretName, namespace string) error {
 		logrus.Info("Generating client certificate")
 
 		// Create the user for the certificate
@@ -446,7 +445,7 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 			isRequired, reason := secret.IsRotationRequired(rc.ClientCertConfig.Duration, rc.NodeAndClientCronSchedule)
 			if isRequired {
 				logrus.Infof("Client Certificate: %s", reason)
-				return generate()
+				return generate(rc, clientSecretName, namespace)
 			}
 		}
 
@@ -454,7 +453,7 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 		return nil
 	}
 
-	return generate()
+	return generate(rc, clientSecretName, namespace)
 }
 
 func (rc *GenerateCert) getCASecretName() string {
