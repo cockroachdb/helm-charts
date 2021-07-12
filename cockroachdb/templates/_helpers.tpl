@@ -128,7 +128,7 @@ We assume that each month has 31 days, hence the cron job may run few days earli
 {{- if and (ne (toString $years) "*") (ne (toString $years) "0") -}}
 {{- $years = printf "*/%s" (toString $years) -}}
 {{- end -}}
-{{- printf "0 %s %s %s %s" (toString $hours) (toString $days) (toString $months) (toString $years) | quote -}}
+{{- printf "0 %s %s %s %s" (toString $hours) (toString $days) (toString $months) (toString $years) -}}
 {{- end -}}
 
 {{- define "selfcerts.clientRotateSchedule" -}}
@@ -160,7 +160,7 @@ We assume that each month has 31 days, hence the cron job may run few days earli
 {{- if and (ne (toString $years) "*") (ne (toString $years) "0") -}}
 {{- $years = printf "*/%s" (toString $years) -}}
 {{- end -}}
-{{- printf "0 %s %s %s %s" (toString $hours) (toString $days) (toString $months) (toString $years) | quote -}}
+{{- printf "0 %s %s %s %s" (toString $hours) (toString $days) (toString $months) (toString $years) -}}
 {{- end -}}
 
 {{/*

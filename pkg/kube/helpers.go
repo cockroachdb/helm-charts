@@ -19,27 +19,20 @@ package kube
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"time"
 
-	k8sErrors "k8s.io/apimachinery/pkg/api/errors"
-
 	"github.com/cenkalti/backoff"
-	"github.com/go-logr/logr"
-	"github.com/pkg/errors"
-	"go.uber.org/zap/zapcore"
+	"github.com/google/martian/log"
+	"github.com/sirupsen/logrus"
+	v1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/client-go/kubernetes"
+	"k8s.io/apimachinery/pkg/types"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
 )
-
-func Get(ctx context.Context, cl client.Client, obj client.Object) error {
-	key := client.ObjectKeyFromObject(obj)
-
-	return cl.Get(ctx, key, obj)
-}
 
 type PersistFn func(context.Context, client.Client, client.Object, MutateFn) (upserted bool, err error)
 
@@ -54,16 +47,10 @@ var DefaultPersister PersistFn = func(ctx context.Context, cl client.Client, obj
 // MutateFn is a function which mutates the existing object into it's desired state.
 type MutateFn func() error
 
-// TODO this code is from https://github.com/kubernetes/kubernetes/blob/master/pkg/api/v1/pod/util.go
-// We need to determine if this functionality is available via the client-go
-
 // IsPodReady returns true if a pod is ready; false otherwise.
 func IsPodReady(pod *corev1.Pod) bool {
 	return IsPodReadyConditionTrue(pod.Status)
 }
-
-// Note: All below functions might be required in rolling restart.
-// TODO: Remove below funcs if not required for rolling restart
 
 // IsPodReadyConditionTrue returns true if a pod is ready; false otherwise.
 func IsPodReadyConditionTrue(status corev1.PodStatus) bool {
@@ -103,24 +90,22 @@ func GetPodConditionFromList(conditions []corev1.PodCondition, conditionType cor
 
 // WaitUntilAllStsPodsAreReady waits until all pods in the statefulset are in the
 // ready state. The ready state implies all nodes are passing node liveness.
-func WaitUntilAllStsPodsAreReady(ctx context.Context, clientset *kubernetes.Clientset, l logr.Logger, stsname, stsnamespace string,
-	podUpdateTimeout, podMaxPollingInterval time.Duration) error {
-	l.V(int(zapcore.DebugLevel)).Info("waiting until all pods are in the ready state")
+func WaitUntilAllStsPodsAreReady(ctx context.Context, cl client.Client, stsName, namespace string, podUpdateTimeout, podMaxPollingInterval time.Duration) error {
+	logrus.Info("Waiting until all pods are in the ready state")
 	f := func() error {
-		sts, err := clientset.AppsV1().StatefulSets(stsnamespace).Get(ctx, stsname, metav1.GetOptions{})
-		if err != nil {
-			return HandleStsError(err, l, stsname, stsnamespace)
-		}
-		got := int(sts.Status.ReadyReplicas)
-		// TODO need to test this
-		// we could also use the number of pods defined by the operator
-		numCRDBPods := int(sts.Status.Replicas)
-		if got != numCRDBPods {
-			l.Error(err, fmt.Sprintf("number of ready replicas is %v, not equal to num CRDB pods %v", got, numCRDBPods))
+		var sts v1.StatefulSet
+		if err := cl.Get(ctx, types.NamespacedName{Namespace: namespace, Name: stsName}, &sts); err != nil {
 			return err
 		}
 
-		l.V(int(zapcore.DebugLevel)).Info("all replicas are ready makeWaitUntilAllPodsReadyFunc update_cockroach_version.go")
+		got := int(sts.Status.ReadyReplicas)
+		numCRDBPods := int(sts.Status.Replicas)
+		if got != numCRDBPods {
+			logrus.Errorf("Number of ready replicas found [%v], expected number of ready replicas [%v]", got, numCRDBPods)
+			return fmt.Errorf("Replicas are not equal")
+		}
+
+		logrus.Info("All replicas are ready")
 		return nil
 	}
 
@@ -130,15 +115,62 @@ func WaitUntilAllStsPodsAreReady(ctx context.Context, clientset *kubernetes.Clie
 	return backoff.Retry(f, b)
 }
 
-// HandleStsError handles the error
-func HandleStsError(err error, l logr.Logger, stsName string, ns string) error {
-	if k8sErrors.IsNotFound(err) {
-		l.Error(err, "sts is not found", "stsName", stsName, "namespace", ns)
-		return errors.Wrapf(err, "sts is not found: %s ns: %s", stsName, ns)
-	} else if statusError, isStatus := err.(*k8sErrors.StatusError); isStatus {
-		l.Error(statusError, fmt.Sprintf("Error getting statefulset %v", statusError.ErrStatus.Message), "stsName", stsName, "namespace", ns)
-		return statusError
+func RollingUpdate(ctx context.Context, cl client.Client, stsName, namespace string, readinessWait time.Duration) error {
+	var sts v1.StatefulSet
+	if err := cl.Get(ctx, types.NamespacedName{Namespace: namespace, Name: stsName}, &sts); err != nil {
+		return err
 	}
-	l.Error(err, "error getting statefulset", "stsName", stsName, "namspace", ns)
-	return err
+
+	logrus.Info("Performing rolling update after certificate rotation")
+	for i := int32(0); i < sts.Status.Replicas; i++ {
+		replicaName := stsName + "-" + strconv.Itoa(int(i))
+		replica := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      replicaName,
+				Namespace: namespace,
+			},
+		}
+
+		if err := cl.Delete(ctx, replica); err != nil {
+			log.Errorf("Failed to delete the statefulset replica [%s]", replicaName)
+			return err
+		}
+
+		time.Sleep(5 * time.Second)
+		if err := WaitForPodReady(ctx, cl, replicaName, namespace, 2*time.Minute, 5*time.Second); err != nil {
+			return err
+		}
+
+		// sleep for readinessWait period for the pod to become stable and ready
+		logrus.Infof("waiting for %s duration for pod readiness", readinessWait.String())
+		time.Sleep(readinessWait)
+	}
+
+	// extra safe side check for all replicas to come in available state
+	if err := WaitUntilAllStsPodsAreReady(ctx, cl, stsName, namespace, 2*time.Minute, 5*time.Second); err != nil {
+		return err
+	}
+	return nil
+}
+
+func WaitForPodReady(ctx context.Context, cl client.Client, name, namespace string, podUpdateTimeout,
+	podMaxPollingInterval time.Duration) error {
+	f := func() error {
+		var pod corev1.Pod
+		if err := cl.Get(ctx, types.NamespacedName{Namespace: namespace, Name: name}, &pod); err != nil {
+			return err
+		}
+
+		if pod.Status.Phase == corev1.PodPending || !IsPodReady(&pod) {
+			return fmt.Errorf("Pod %s not in ready state", name)
+		}
+
+		logrus.Infof("Pod %s in ready state now", name)
+		return nil
+	}
+
+	b := backoff.NewExponentialBackOff()
+	b.MaxElapsedTime = podUpdateTimeout
+	b.MaxInterval = podMaxPollingInterval
+	return backoff.Retry(f, b)
 }
