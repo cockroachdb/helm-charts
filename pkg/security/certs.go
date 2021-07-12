@@ -70,9 +70,10 @@ const (
 	CREATE_NODE   string = "create-node"
 	CREATE_CLIENT string = "create-client"
 
-	CERTS_DIR string = "--certs-dir=%s"
-	CA_KEY    string = "--ca-key=%s"
-	Life_Time string = "--lifetime=%s"
+	CERTS_DIR  string = "--certs-dir=%s"
+	CA_KEY     string = "--ca-key=%s"
+	Life_Time  string = "--lifetime=%s"
+	OVER_WRITE string = "--overwrite"
 )
 
 // CreateCAPair creates a general CA certificate and associated key.
@@ -111,8 +112,14 @@ func createCACertAndKey(certsDir, caKeyPath string, caType PemUsage, keySize int
 	caKeyParam := fmt.Sprintf(CA_KEY, caKeyPath)
 	lifetimeParam := fmt.Sprintf(Life_Time, lifetime.String())
 
+	args := []string{CREATE_CA, certsDirParam, caKeyParam, lifetimeParam}
+
+	if overwrite {
+		args = append(args, OVER_WRITE)
+	}
+
 	// run the crdb binary to generate the CA
-	execCmd(CREATE_CA, certsDirParam, caKeyParam, lifetimeParam)
+	execCmd(args...)
 
 	return nil
 }

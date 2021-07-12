@@ -22,4 +22,12 @@ rules:
   - apiGroups: [""]
     resources: ["secrets"]
     verbs: ["create", "get", "update"]
+  - apiGroups: ["apps"]
+    resources: ["statefulsets"]
+    verbs: ["get"]
+    resourceNames:
+      - {{ template "cockroachdb.fullname" . }}
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["delete", "get"]
 {{- end }}
