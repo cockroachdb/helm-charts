@@ -20,7 +20,7 @@ spec:
           restartPolicy: Never
           containers:
           - name: cert-rotate-job
-            image: "{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
+            image: "{{ .Values.tls.selfSigner.image.registry }}/{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
             imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
             args:
             - rotate
