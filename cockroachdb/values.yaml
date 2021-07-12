@@ -398,6 +398,8 @@ tls:
       nodeCertExpiryWindow: 168h
       # If set, the cockroachdb cert selfSigner will rotate the certificates before expiry.
       rotateCerts: true
+      # Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true
+      readinessWait: 30s
 
     # Use cert-manager to issue certificates for mTLS.
     certManager: false

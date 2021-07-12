@@ -45,22 +45,28 @@ var generatePKCS8Key bool
 func init() {
 	keySize = defaultKeySize
 	allowCAKeyReuse = false
-	overwriteFiles = false
+	overwriteFiles = true
 	generatePKCS8Key = false
 }
 
 // GenerateCert is the structure containing all the certificate related info
 type GenerateCert struct {
-	client               client.Client
-	CertsDir             string
-	CaSecret             string
-	CAKey                string
-	CaCertConfig         *certConfig
-	NodeCertConfig       *certConfig
-	ClientCertConfig     *certConfig
-	PublicServiceName    string
-	DiscoveryServiceName string
-	ClusterDomain        string
+	client                    client.Client
+	CertsDir                  string
+	CaSecret                  string
+	CAKey                     string
+	CaCertConfig              *certConfig
+	RotateCACert              bool
+	CACronSchedule            string
+	NodeCertConfig            *certConfig
+	RotateNodeCert            bool
+	ClientCertConfig          *certConfig
+	RotateClientCert          bool
+	NodeAndClientCronSchedule string
+	PublicServiceName         string
+	DiscoveryServiceName      string
+	ClusterDomain             string
+	ReadinessWait             time.Duration
 }
 
 type certConfig struct {
@@ -98,8 +104,8 @@ func NewGenerateCert(cl client.Client) GenerateCert {
 // Do func generates the various certificates required and then stores them in respective secrets.
 func (rc *GenerateCert) Do(ctx context.Context, namespace string) error {
 
-	// create the various temporary directories to store the certificates in
-	// the directors will delete when the code is completed.
+	// create the various temporary directories to store the certificates in.
+	// These directories will be deleted when the code flow is completed.
 	logrus.SetLevel(logrus.InfoLevel)
 
 	certsDir, cleanup := util.CreateTempDir("certsDir")
@@ -115,6 +121,11 @@ func (rc *GenerateCert) Do(ctx context.Context, namespace string) error {
 		msg := " error Generating CA"
 		logrus.Error(err, msg)
 		return errors.Wrap(err, msg)
+	}
+
+	// In the case of rotate CA, skip node and client certificate rotation
+	if rc.RotateCACert {
+		return nil
 	}
 
 	// generate the node certificate for the database to use
@@ -141,7 +152,7 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 	if rc.CaSecret != "" {
 		logrus.Infof("skipping CA cert generation, using user provided CA secret [%s]", rc.CaSecret)
 
-		secret, err := resource.LoadTLSSecret(CASecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+		secret, err := resource.LoadTLSSecret(rc.CaSecret, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
 		if err != nil {
 			return errors.Wrap(err, "failed to get CA key secret")
 		}
@@ -167,146 +178,194 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 		return errors.Wrap(err, "failed to get CA secret")
 	}
 
-	// check if the existing is ready to be consumed. If found ready, skip cert generation
+	// inline func used to generate CA cert and key
+	generate := func(rc *GenerateCert, CASecretName, namespace string) error {
+		logrus.Info("Generating CA")
+
+		// create the CA Pair certificates
+		if err = errors.Wrap(
+			security.CreateCAPair(
+				rc.CertsDir,
+				rc.CAKey,
+				keySize,
+				rc.CaCertConfig.Duration,
+				allowCAKeyReuse,
+				overwriteFiles),
+			"failed to generate CA cert and key"); err != nil {
+			return err
+		}
+
+		// Read the ca key into memory
+		cakey, err := ioutil.ReadFile(rc.CAKey)
+		if err != nil {
+			return errors.Wrap(err, "unable to read ca.key")
+		}
+
+		// Read the ca cert into memory
+		caCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+		if err != nil {
+			return errors.Wrap(err, "unable to read ca.crt")
+		}
+
+		validFrom, validUpto, err := rc.getCertLife(caCert)
+		if err != nil {
+			return err
+		}
+
+		// create and save the TLS certificates into a secret
+		secret = resource.CreateTLSSecret(CASecretName, corev1.SecretTypeOpaque,
+			resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+
+		// add certificate info in the secret annotations
+		annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.CaCertConfig.Duration.String())
+
+		if err = secret.UpdateCASecret(cakey, caCert, annotations); err != nil {
+			return errors.Wrap(err, "failed to update ca key secret ")
+		}
+
+		logrus.Infof("Generated and saved CA key and certificate in secret [%s]", CASecretName)
+		return nil
+	}
+
+	// check if the existing secret is ready to be consumed. If found ready, skip cert generation
 	if secret.ReadyCA() && secret.ValidateAnnotations() {
+
+		if rc.RotateCACert {
+			isRequired, reason := secret.IsRotationRequired(rc.CaCertConfig.Duration, rc.CACronSchedule)
+			if isRequired {
+				logrus.Infof("CA Certificate: %s", reason)
+
+				// writing old cert file so that the new CA is a bundle of both old and new CA cert
+				if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
+					return errors.Wrap(err, "failed to write CA cert")
+				}
+
+				if err := generate(rc, CASecretName, namespace); err != nil {
+					return err
+				}
+
+				return rc.UpdateNewCA(ctx, namespace)
+
+			}
+		}
+
 		logrus.Infof("CA secret [%s] is found in ready state, skipping CA generation", CASecretName)
 
-		if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), 0600); err != nil {
+		if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
 			return errors.Wrap(err, "failed to write CA cert")
 		}
 
-		if err := ioutil.WriteFile(rc.CAKey, secret.CAKey(), 0644); err != nil {
+		if err := ioutil.WriteFile(rc.CAKey, secret.CAKey(), security.KeyFileMode); err != nil {
 			return errors.Wrap(err, "failed to write CA key")
 		}
 		return nil
 	}
 
-	logrus.Info("Generating CA")
-
-	// create the CA Pair certificates
-	if err = errors.Wrap(
-		security.CreateCAPair(
-			rc.CertsDir,
-			rc.CAKey,
-			keySize,
-			rc.CaCertConfig.Duration,
-			allowCAKeyReuse,
-			overwriteFiles),
-		"failed to generate CA cert and key"); err != nil {
-		return err
-	}
-
-	// Read the ca key into memory
-	cakey, err := ioutil.ReadFile(rc.CAKey)
-	if err != nil {
-		return errors.Wrap(err, "unable to read ca.key")
-	}
-
-	// Read the ca cert into memory
-	caCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
-	if err != nil {
-		return errors.Wrap(err, "unable to read ca.crt")
-	}
-
-	validFrom, validUpto, err := rc.getCertLife(caCert)
-	if err != nil {
-		return err
-	}
-
-	// create and save the TLS certificates into a secret
-	secret = resource.CreateTLSSecret(CASecretName, corev1.SecretTypeOpaque,
-		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-
-	// add certificate info in the secret annotations
-	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.CaCertConfig.Duration.String())
-
-	if err = secret.UpdateCASecret(cakey, caCert, annotations); err != nil {
-		return errors.Wrap(err, "failed to update ca key secret ")
-	}
-
-	logrus.Infof("Generated and saved CA key and certificate in secret [%s]", CASecretName)
-	return nil
+	// generate new certificate
+	return generate(rc, CASecretName, namespace)
 }
 
 // generateNodeCert generates the Node key and certificate and stores them in a secret.
-func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName string, namespace string) error {
+func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName string, namespace string) (err error) {
 
 	secret, err := resource.LoadTLSSecret(nodeSecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
 	if client.IgnoreNotFound(err) != nil {
 		return errors.Wrap(err, "failed to get node TLS secret")
 	}
 
+	// inline func used to generate node cert and key
+	generate := func(rc *GenerateCert, nodeSecretName, namespace string) error {
+		logrus.Info("Generating node certificate")
+
+		// hosts are the various DNS names and IP address that have to exist in the Node certificates
+		// for the database to function
+		hosts := []string{
+			"localhost",
+			"127.0.0.1",
+			rc.PublicServiceName,
+			fmt.Sprintf("%s.%s", rc.PublicServiceName, namespace),
+			fmt.Sprintf("%s.%s.svc.%s", rc.PublicServiceName, namespace, rc.ClusterDomain),
+			fmt.Sprintf("*.%s", rc.DiscoveryServiceName),
+			fmt.Sprintf("*.%s.%s", rc.DiscoveryServiceName, namespace),
+			fmt.Sprintf("*.%s.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
+		}
+
+		// create the Node Pair certificates
+		if err = errors.Wrap(
+			security.CreateNodePair(
+				rc.CertsDir,
+				rc.CAKey,
+				keySize,
+				rc.NodeCertConfig.Duration,
+				overwriteFiles,
+				hosts),
+			"failed to generate node certificate and key"); err != nil {
+			return err
+		}
+
+		// Read the CA certificate into memory
+		ca, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+		if err != nil {
+			return errors.Wrap(err, "unable to read ca.crt")
+		}
+
+		// Read the node certificate into memory
+		pemCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "node.crt"))
+		if err != nil {
+			return errors.Wrap(err, "unable to read node.crt")
+		}
+
+		validFrom, validUpto, err := rc.getCertLife(pemCert)
+		if err != nil {
+			return err
+		}
+
+		// Read the node key into memory
+		pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "node.key"))
+		if err != nil {
+			return errors.Wrap(err, "unable to ready node.key")
+		}
+
+		// add certificate info in the secret annotations
+		annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.NodeCertConfig.Duration.String())
+
+		// create and save the TLS certificates into a secret
+		secret = resource.CreateTLSSecret(nodeSecretName, corev1.SecretTypeTLS,
+			resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+
+		if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
+			return errors.Wrap(err, "failed to update node TLS secret certs")
+		}
+
+		logrus.Infof("Generated and saved node key and certificate in secret [%s]", nodeSecretName)
+
+		return nil
+	}
 	// check if the existing secret is ready to be consumed. If found ready, skip cert generation
 	if secret.Ready() && secret.ValidateAnnotations() {
+
+		if rc.RotateNodeCert {
+			isRequired, reason := secret.IsRotationRequired(rc.NodeCertConfig.Duration, rc.NodeAndClientCronSchedule)
+			if isRequired {
+				logrus.Infof("Node Certificate: %s", reason)
+
+				if err = generate(rc, nodeSecretName, namespace); err != nil {
+					return err
+				}
+
+				if err = kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait); err != nil {
+					return
+				}
+				return nil
+			}
+		}
+
 		logrus.Infof("Node secret [%s] is found in ready state, skipping Node cert generation", nodeSecretName)
 		return nil
 	}
 
-	logrus.Info("Generating node certificate")
+	return generate(rc, nodeSecretName, namespace)
 
-	// hosts are the various DNS names and IP address that have to exist in the Node certificates
-	// for the database to function
-	hosts := []string{
-		"localhost",
-		"127.0.0.1",
-		rc.PublicServiceName,
-		fmt.Sprintf("%s.%s", rc.PublicServiceName, namespace),
-		fmt.Sprintf("%s.%s.svc.%s", rc.PublicServiceName, namespace, rc.ClusterDomain),
-		fmt.Sprintf("*.%s", rc.DiscoveryServiceName),
-		fmt.Sprintf("*.%s.%s", rc.DiscoveryServiceName, namespace),
-		fmt.Sprintf("*.%s.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
-	}
-
-	// create the Node Pair certificates
-	if err = errors.Wrap(
-		security.CreateNodePair(
-			rc.CertsDir,
-			rc.CAKey,
-			keySize,
-			rc.NodeCertConfig.Duration,
-			overwriteFiles,
-			hosts),
-		"failed to generate node certificate and key"); err != nil {
-		return err
-	}
-
-	// Read the CA certificate into memory
-	ca, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "ca.crt"))
-	if err != nil {
-		return errors.Wrap(err, "unable to read ca.crt")
-	}
-
-	// Read the node certificate into memory
-	pemCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "node.crt"))
-	if err != nil {
-		return errors.Wrap(err, "unable to read node.crt")
-	}
-
-	validFrom, validUpto, err := rc.getCertLife(pemCert)
-	if err != nil {
-		return err
-	}
-
-	// Read the node key into memory
-	pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "node.key"))
-	if err != nil {
-		return errors.Wrap(err, "unable to ready node.key")
-	}
-
-	// add certificate info in the secret annotations
-	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.NodeCertConfig.Duration.String())
-
-	// create and save the TLS certificates into a secret
-	secret = resource.CreateTLSSecret(nodeSecretName, corev1.SecretTypeTLS,
-		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-
-	if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
-		return errors.Wrap(err, "failed to update node TLS secret certs")
-	}
-
-	logrus.Infof("Generated and saved node key and certificate in secret [%s]", nodeSecretName)
-
-	return nil
 }
 
 // generateClientCert generates the Client key and certificate and stores them in a secret.
@@ -317,70 +376,84 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 		return errors.Wrap(err, "failed to get client secret")
 	}
 
+	// inline func used to generate client cert and key
+	generate := func(rc *GenerateCert, clientSecretName, namespace string) error {
+		logrus.Info("Generating client certificate")
+
+		// Create the user for the certificate
+		u := &security.SQLUsername{
+			U: "root",
+		}
+
+		// Create the client certificates
+		if err = errors.Wrap(
+			security.CreateClientPair(
+				rc.CertsDir,
+				rc.CAKey,
+				keySize,
+				rc.ClientCertConfig.Duration,
+				overwriteFiles,
+				*u,
+				generatePKCS8Key),
+			"failed to generate client certificate and key"); err != nil {
+			return err
+		}
+
+		// Load the CA certificate into memory
+		ca, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+		if err != nil {
+			return errors.Wrap(err, "unable to read ca.crt")
+		}
+
+		// Load the client root certificate into memory
+		pemCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "client.root.crt"))
+		if err != nil {
+			return errors.Wrap(err, "unable to read client.root.crt")
+		}
+
+		validFrom, validUpto, err := rc.getCertLife(pemCert)
+		if err != nil {
+			return err
+
+		}
+
+		// Load the client root key into memory
+		pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "client.root.key"))
+		if err != nil {
+			return errors.Wrap(err, "unable to read client.root.key")
+		}
+
+		// add certificate info in the secret annotations
+		annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.ClientCertConfig.Duration.String())
+
+		// create and save the TLS certificates into a secret
+		secret = resource.CreateTLSSecret(clientSecretName, corev1.SecretTypeTLS,
+			resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+
+		if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
+			return errors.Wrap(err, "failed to update client TLS secret certs")
+		}
+
+		logrus.Infof("Generated and saved client key and certificate in secret [%s]", clientSecretName)
+		return nil
+	}
+
 	// check if the existing is ready to be consumed. If found ready, skip cert generation
 	if secret.Ready() && secret.ValidateAnnotations() {
+
+		if rc.RotateClientCert {
+			isRequired, reason := secret.IsRotationRequired(rc.ClientCertConfig.Duration, rc.NodeAndClientCronSchedule)
+			if isRequired {
+				logrus.Infof("Client Certificate: %s", reason)
+				return generate(rc, clientSecretName, namespace)
+			}
+		}
+
 		logrus.Infof("Client secret [%s] is found in ready state, skipping Client cert generation", clientSecretName)
 		return nil
 	}
 
-	logrus.Info("Generating client certificate")
-
-	// Create the user for the certificate
-	u := &security.SQLUsername{
-		U: "root",
-	}
-
-	// Create the client certificates
-	if err = errors.Wrap(
-		security.CreateClientPair(
-			rc.CertsDir,
-			rc.CAKey,
-			keySize,
-			rc.ClientCertConfig.Duration,
-			overwriteFiles,
-			*u,
-			generatePKCS8Key),
-		"failed to generate client certificate and key"); err != nil {
-		return err
-	}
-
-	// Load the CA certificate into memory
-	ca, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "ca.crt"))
-	if err != nil {
-		return errors.Wrap(err, "unable to read ca.crt")
-	}
-
-	// Load the client root certificate into memory
-	pemCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "client.root.crt"))
-	if err != nil {
-		return errors.Wrap(err, "unable to read client.root.crt")
-	}
-
-	validFrom, validUpto, err := rc.getCertLife(pemCert)
-	if err != nil {
-		return err
-
-	}
-
-	// Load the client root key into memory
-	pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "client.root.key"))
-	if err != nil {
-		return errors.Wrap(err, "unable to read client.root.key")
-	}
-
-	// add certificate info in the secret annotations
-	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.ClientCertConfig.Duration.String())
-
-	// create and save the TLS certificates into a secret
-	secret = resource.CreateTLSSecret(clientSecretName, corev1.SecretTypeTLS,
-		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-
-	if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
-		return errors.Wrap(err, "failed to update client TLS secret certs")
-	}
-
-	logrus.Infof("Generated and saved client key and certificate in secret [%s]", clientSecretName)
-	return nil
+	return generate(rc, clientSecretName, namespace)
 }
 
 func (rc *GenerateCert) getCASecretName() string {
@@ -404,4 +477,43 @@ func (rc *GenerateCert) getCertLife(pemCert []byte) (validFrom string, validUpto
 
 	logrus.Debug("getExpirationDate from cert", "Not before:", cert.NotBefore.Format(time.RFC3339), "Not after:", cert.NotAfter.Format(time.RFC3339))
 	return cert.NotBefore.Format(time.RFC3339), cert.NotAfter.Format(time.RFC3339), nil
+}
+
+func (rc *GenerateCert) UpdateNewCA(ctx context.Context, namespace string) error {
+	ca, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+	if err != nil {
+		return errors.Wrap(err, "unable to read ca.crt")
+	}
+
+	logrus.Info("Updating new CA in node secret")
+	nodeSecret, err := resource.LoadTLSSecret(rc.getNodeSecretName(), resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+	if err != nil {
+		return errors.Wrap(err, "failed to get node TLS secret")
+	}
+
+	if err = nodeSecret.UpdateTLSSecret(nodeSecret.TLSCert(), nodeSecret.TLSPrivateKey(), ca,
+		nodeSecret.Secret().Annotations); err != nil {
+		return errors.Wrap(err, "failed to update node TLS secret certs")
+	}
+
+	logrus.Info("Updated new CA in node secret")
+
+	logrus.Info("Updating new CA in client secret")
+
+	clientSecret, err := resource.LoadTLSSecret(rc.getClientSecretName(), resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+	if err != nil {
+		return errors.Wrap(err, "failed to get client secret")
+	}
+
+	if err = clientSecret.UpdateTLSSecret(clientSecret.TLSCert(), clientSecret.TLSPrivateKey(), ca,
+		clientSecret.Secret().Annotations); err != nil {
+		return errors.Wrap(err, "failed to update client TLS secret certs")
+	}
+
+	logrus.Info("Updating new CA in client secret")
+
+	if err := kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait); err != nil {
+		return err
+	}
+	return nil
 }

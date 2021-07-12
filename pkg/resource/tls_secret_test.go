@@ -19,6 +19,7 @@ package resource_test
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -243,6 +244,139 @@ func TestUpdateTLSSecret(t *testing.T) {
 
 	assert.Equal(t, data, secret.Secret().Data)
 	assert.Equal(t, annotations, secret.Secret().GetAnnotations())
+}
+
+func TestIsRotationRequired(t *testing.T) {
+	ctx := context.TODO()
+	scheme := testutils.InitScheme(t)
+	name := "test-secret"
+	namespace := "test-namespace"
+
+	tests := []struct {
+		name     string
+		secret   client.Object
+		duration time.Duration
+		cronStr  string
+		rotate   bool
+		Reason   string
+	}{
+		{
+			name: "secret having some modified fields (data-hash is different)",
+			secret: secretObj(
+				name,
+				namespace,
+				map[string][]byte{"ca.crt": {}, "tls.crt": {}, "tls.key": {}},
+				map[string]string{
+					resource.CertValidUpto:  "2021-08-06T04:15:35Z",
+					resource.CertValidFrom:  "2021-07-06T04:15:35Z",
+					resource.CertDuration:   "720h0m0s",
+					resource.SecretDataHash: "123",
+				}),
+			rotate: true,
+			Reason: "Secret data altered, rotating certificate",
+		},
+		{
+			name: "secret having different certificate duration then current duration (duration mismatch)",
+			secret: secretObj(
+				name,
+				namespace,
+				map[string][]byte{"ca.crt": {}, "tls.crt": {}, "tls.key": {}},
+				map[string]string{
+					resource.CertValidUpto:  "2021-08-06T04:15:35Z",
+					resource.CertValidFrom:  "2021-07-06T04:15:35Z",
+					resource.CertDuration:   "720h0m0s",
+					resource.SecretDataHash: "6889078329698146222",
+				}),
+			duration: 750 * time.Hour,
+			rotate:   true,
+			Reason:   "Certificate duration mismatch, rotating certificate",
+		},
+
+		{
+			name: "secret having invalid expiry date in annotations",
+			secret: secretObj(
+				name,
+				namespace,
+				map[string][]byte{"ca.crt": {}, "tls.crt": {}, "tls.key": {}},
+				map[string]string{
+					resource.CertValidUpto:  "invalid-date",
+					resource.CertValidFrom:  "2021-07-06T04:15:35Z",
+					resource.CertDuration:   "720h0m0s",
+					resource.SecretDataHash: "6889078329698146222",
+				}),
+			duration: 720 * time.Hour,
+			rotate:   true,
+			Reason:   "Failed to verify expiry date, rotating certificate",
+		},
+
+		{
+			name: "secret having expiry not before the next cron",
+			secret: secretObj(
+				name,
+				namespace,
+				map[string][]byte{"ca.crt": {}, "tls.crt": {}, "tls.key": {}},
+				map[string]string{
+					resource.CertValidUpto:  "2021-08-06T04:15:35Z",
+					resource.CertValidFrom:  "2021-07-06T04:15:35Z",
+					resource.CertDuration:   "720h0m0s",
+					resource.SecretDataHash: "6889078329698146222",
+				}),
+			duration: 720 * time.Hour,
+			cronStr: "@weekly",
+			rotate:   false,
+		},
+
+		{
+			name: "When invalid cron string is passed",
+			secret: secretObj(
+				name,
+				namespace,
+				map[string][]byte{"ca.crt": {}, "tls.crt": {}, "tls.key": {}},
+				map[string]string{
+					resource.CertValidUpto:  "2021-08-06T04:15:35Z",
+					resource.CertValidFrom:  "2021-07-06T04:15:35Z",
+					resource.CertDuration:   "720h0m0s",
+					resource.SecretDataHash: "6889078329698146222",
+				}),
+			duration: 720 * time.Hour,
+			cronStr: "@invalid",
+			rotate:   true,
+			Reason: "Failed to verify expiry date due to invalid cron, rotating certificate",
+		},
+
+		{
+			name: "secret having expiry before the next cron",
+			secret: secretObj(
+				name,
+				namespace,
+				map[string][]byte{"ca.crt": {}, "tls.crt": {}, "tls.key": {}},
+				map[string]string{
+					resource.CertValidUpto:  "2021-08-06T04:15:35Z",
+					resource.CertValidFrom:  "2021-07-06T04:15:35Z",
+					resource.CertDuration:   "720h0m0s",
+					resource.SecretDataHash: "6889078329698146222",
+				}),
+			duration: 720 * time.Hour,
+			cronStr: "@yearly",
+			rotate:   true,
+			Reason: "Certificate about to expire, rotating certificate",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fakeClient := testutils.NewFakeClient(scheme, tt.secret)
+			r := resource.NewKubeResource(ctx, fakeClient, namespace, kube.DefaultPersister)
+
+			actual, err := resource.LoadTLSSecret(name, r)
+			require.NoError(t, err)
+			isRequired, reason := actual.IsRotationRequired(tt.duration, tt.cronStr)
+
+			assert.Equal(t, tt.rotate, isRequired)
+			assert.Equal(t, tt.Reason, reason)
+
+		})
+	}
 }
 
 func secretObj(name, namespace string, data map[string][]byte, annotations map[string]string) *corev1.Secret {
