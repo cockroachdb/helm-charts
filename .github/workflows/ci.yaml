@@ -97,9 +97,9 @@ jobs:
       - name: Push Self-signer
         run: make push-self-signer
 
-  # pre job to run helm integration tests
-  helm-integration:
-    name: Helm-Integration-Test
+  # pre job to run helm e2e tests
+  helm-install-e2e:
+    name: Helm-E2E-Test
     runs-on: ubuntu-latest
     needs:
       - pre-build
@@ -121,7 +121,7 @@ jobs:
         with:
           go-version: 1.15
 
-      - name: Integration Test
-        run: go test -v ./tests/integration/...
+      - name: Install E2E Test
+        run: go test -v ./tests/e2e/install/...
         env:
           TAG: ${{github.event.pull_request.head.ref}}
