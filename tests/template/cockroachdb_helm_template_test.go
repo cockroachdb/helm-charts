@@ -260,7 +260,7 @@ func TestHelmSelfCertSignerCronJobSchedule(t *testing.T) {
 		{
 			"Validate cron schedule of Self Signer cert rotate jobs",
 			map[string]string{},
-			"0 0 0 */10 */4",
+			"0 0 1 */11 *",
 			"0 0 */26 * *",
 		},
 		{
