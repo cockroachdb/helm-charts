@@ -19,7 +19,7 @@ import (
 
 var (
 	releaseName   = "helm-basic"
-	namespaceName = "medieval-" + strings.ToLower(random.UniqueId())
+	namespaceName = "crdb-" + strings.ToLower(random.UniqueId())
 )
 
 // TestHelmSelfCertSignerServiceAccount contains the tests around the service account of self signer utility
@@ -252,27 +252,27 @@ func TestHelmSelfCertSignerCronJobSchedule(t *testing.T) {
 	require.Equal(t, namespaceName, cronjob.Namespace)
 
 	testCases := []struct {
-		name   string
-		values map[string]string
-		caExpectedCron string
+		name               string
+		values             map[string]string
+		caExpectedCron     string
 		clientExpectedCron string
 	}{
 		{
 			"Validate cron schedule of Self Signer cert rotate jobs",
 			map[string]string{},
-			"0 0 0 */10 */4",
+			"0 0 1 */11 *",
 			"0 0 */26 * *",
 		},
 		{
 			"Validate cron schedule of Self Signer cert rotate jobs with a different schedule than default schedule",
 			map[string]string{
-				"tls.certs.selfSigner.minimumCertDuration": "24h",
-				"tls.certs.selfSigner.caCertDuration": "720h",
-				"tls.certs.selfSigner.caCertExpiryWindow": "48h",
-				"tls.certs.selfSigner.clientCertDuration": "240h",
+				"tls.certs.selfSigner.minimumCertDuration":    "24h",
+				"tls.certs.selfSigner.caCertDuration":         "720h",
+				"tls.certs.selfSigner.caCertExpiryWindow":     "48h",
+				"tls.certs.selfSigner.clientCertDuration":     "240h",
 				"tls.certs.selfSigner.clientCertExpiryWindow": "24h",
-				"tls.certs.selfSigner.nodeCertDuration": "440h",
-				"tls.certs.selfSigner.nodeCertExpiryWindow": "36h",
+				"tls.certs.selfSigner.nodeCertDuration":       "440h",
+				"tls.certs.selfSigner.nodeCertExpiryWindow":   "36h",
 			},
 			"0 0 */28 * *",
 			"0 0 */1 * *",

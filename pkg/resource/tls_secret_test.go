@@ -322,7 +322,7 @@ func TestIsRotationRequired(t *testing.T) {
 					resource.SecretDataHash: "6889078329698146222",
 				}),
 			duration: 720 * time.Hour,
-			cronStr: "@weekly",
+			cronStr:  "@weekly",
 			rotate:   false,
 		},
 
@@ -339,9 +339,9 @@ func TestIsRotationRequired(t *testing.T) {
 					resource.SecretDataHash: "6889078329698146222",
 				}),
 			duration: 720 * time.Hour,
-			cronStr: "@invalid",
+			cronStr:  "@invalid",
 			rotate:   true,
-			Reason: "Failed to verify expiry date due to invalid cron, rotating certificate",
+			Reason:   "Failed to verify expiry date due to invalid cron, rotating certificate",
 		},
 
 		{
@@ -357,9 +357,9 @@ func TestIsRotationRequired(t *testing.T) {
 					resource.SecretDataHash: "6889078329698146222",
 				}),
 			duration: 720 * time.Hour,
-			cronStr: "@yearly",
+			cronStr:  "@yearly",
 			rotate:   true,
-			Reason: "Certificate about to expire, rotating certificate",
+			Reason:   "Certificate about to expire, rotating certificate",
 		},
 	}
 

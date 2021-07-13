@@ -97,70 +97,70 @@ Define the default values for the certificate selfSigner inputs
 
 {{/*
 Define the cron schedules for certificate rotate jobs and converting from hours to valid cron string.
-We assume that each month has 31 days, hence the cron job may run few days earlier in a year.
+We assume that each month has 31 days, hence the cron job may run few days earlier in a year. In a cron schedule,
+we can not set a cron of more than a year, hence we try to run the cron in such a way that the cron run comes to
+as close possible to the expiry window. However, it is possible that cron may run earlier than the expiry window.
 */}}
 {{- define "selfcerts.caRotateSchedule" -}}
 {{- $tempHours := sub (.Values.tls.certs.selfSigner.caCertDuration | trimSuffix "h") (.Values.tls.certs.selfSigner.caCertExpiryWindow | trimSuffix "h") -}}
 {{- $days := "*" -}}
 {{- $months := "*" -}}
-{{- $years := "*" -}}
 {{- $hours := mod $tempHours 24 -}}
 {{- if not (eq $hours $tempHours) -}}
 {{- $tempDays := div $tempHours 24 -}}
 {{- $days = mod $tempDays 31 -}}
 {{- if not (eq $days $tempDays) -}}
+{{- $days = add $days 1 -}}
 {{- $tempMonths := div $tempDays 31 -}}
 {{- $months = mod $tempMonths 12 -}}
 {{- if not (eq $months $tempMonths) -}}
-{{- $years = div $tempMonths 12 -}}
+{{- $months = add $months 1 -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- if ne (toString $months) "*" -}}
+{{- $months = printf "*/%s" (toString $months) -}}
+{{- else -}}
+{{- if ne (toString $days) "*" -}}
+{{- $days = printf "*/%s" (toString $days) -}}
+{{- else -}}
 {{- if ne $hours 0 -}}
 {{- $hours = printf "*/%s" (toString $hours) -}}
 {{- end -}}
-{{- if and (ne (toString $days) "*") (ne (toString $days) "0") -}}
-{{- $days = printf "*/%s" (toString $days) -}}
 {{- end -}}
-{{- if and (ne (toString $months) "*") (ne (toString $months) "0") -}}
-{{- $months = printf "*/%s" (toString $months) -}}
 {{- end -}}
-{{- if and (ne (toString $years) "*") (ne (toString $years) "0") -}}
-{{- $years = printf "*/%s" (toString $years) -}}
-{{- end -}}
-{{- printf "0 %s %s %s %s" (toString $hours) (toString $days) (toString $months) (toString $years) -}}
+{{- printf "0 %s %s %s *" (toString $hours) (toString $days) (toString $months) | quote -}}
 {{- end -}}
 
 {{- define "selfcerts.clientRotateSchedule" -}}
 {{- $tempHours := int64 (include "selfcerts.minimumCertDuration" .) -}}
 {{- $days := "*" -}}
 {{- $months := "*" -}}
-{{- $years := "*" -}}
 {{- $hours := mod $tempHours 24 -}}
 {{- if not (eq $hours $tempHours) -}}
 {{- $tempDays := div $tempHours 24 -}}
 {{- $days = mod $tempDays 31 -}}
 {{- if not (eq $days $tempDays) -}}
+{{- $days = add $days 1 -}}
 {{- $tempMonths := div $tempDays 31 -}}
 {{- $months = mod $tempMonths 12 -}}
 {{- if not (eq $months $tempMonths) -}}
-{{- $years = div $tempMonths 12 -}}
+{{- $months = add $months 1 -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}
+{{- if ne (toString $months) "*" -}}
+{{- $months = printf "*/%s" (toString $months) -}}
+{{- else -}}
+{{- if ne (toString $days) "*" -}}
+{{- $days = printf "*/%s" (toString $days) -}}
+{{- else -}}
 {{- if ne $hours 0 -}}
 {{- $hours = printf "*/%s" (toString $hours) -}}
 {{- end -}}
-{{- if and (ne (toString $days) "*") (ne (toString $days) "0") -}}
-{{- $days = printf "*/%s" (toString $days) -}}
 {{- end -}}
-{{- if and (ne (toString $months) "*") (ne (toString $months) "0") -}}
-{{- $months = printf "*/%s" (toString $months) -}}
 {{- end -}}
-{{- if and (ne (toString $years) "*") (ne (toString $years) "0") -}}
-{{- $years = printf "*/%s" (toString $years) -}}
-{{- end -}}
-{{- printf "0 %s %s %s %s" (toString $hours) (toString $days) (toString $months) (toString $years) -}}
+{{- printf "0 %s %s %s *" (toString $hours) (toString $days) (toString $months) | quote -}}
 {{- end -}}
 
 {{/*

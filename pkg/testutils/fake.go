@@ -132,7 +132,6 @@ func (a GetAction) Object() client.Object {
 	return a.obj
 }
 
-
 func (a GetAction) Key() client.ObjectKey {
 	return a.key
 }
