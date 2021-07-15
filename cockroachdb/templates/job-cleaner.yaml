@@ -1,0 +1,40 @@
+{{- if .Values.tls.certs.selfSigner.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "selfcerts.fullname" . }}-cleaner
+  namespace: {{ .Release.Namespace | quote }}
+  annotations:
+    # This is what defines this resource as a hook. Without this line, the
+    # job is considered part of the release.
+    "helm.sh/hook": post-delete
+    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+spec:
+  backoffLimit: 1
+  template:
+    metadata:
+      name: {{ template "selfcerts.fullname" . }}-cleaner
+      labels:
+        helm.sh/chart: {{ template "cockroachdb.chart" . }}
+        app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: cleaner
+          image: "{{ .Values.tls.selfSigner.image.registry }}/{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
+          imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
+          args:
+            - cleanup
+            - --namespace={{ .Release.Namespace }}
+          env:
+          - name: STATEFULSET_NAME
+            value: {{ template "cockroachdb.fullname" . }}
+      serviceAccountName: {{ template "selfcerts.fullname" . }}
+{{- end}}

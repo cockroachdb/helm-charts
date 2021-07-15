@@ -195,8 +195,8 @@ func (c *FakeClient) Create(ctx context.Context, obj client.Object, opts ...clie
 	return c.client.Create(ctx, obj, opts...)
 }
 
-func (c *FakeClient) Delete(_ context.Context, obj client.Object, opts ...client.DeleteOption) error {
-	panic("implement me")
+func (c *FakeClient) Delete(ctx context.Context, obj client.Object, opts ...client.DeleteOption) error {
+	return c.client.Delete(ctx, obj, opts...)
 }
 
 func (c *FakeClient) Update(ctx context.Context, obj client.Object, opts ...client.UpdateOption) error {
