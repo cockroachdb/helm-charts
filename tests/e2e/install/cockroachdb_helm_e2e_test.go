@@ -79,7 +79,7 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
 }
 
 func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
@@ -158,5 +158,5 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
 }
