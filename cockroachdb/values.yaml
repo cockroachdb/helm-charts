@@ -122,6 +122,15 @@ conf:
   #   locality: planet=earth,province=manitoba,colo=secondary,power=3
   locality: ""
 
+  # Queries the kubernetes API to get the region, zone, and host of the
+  # instance a given pod is running on and adds that to the front of the
+  # locality key set
+  useHostLocality:
+    enabled: false
+    image:
+      repository: scottcrossen/kube-node-labels
+      tag: 1.1.0
+
   # Run CockroachDB instances in standalone mode with replication disabled
   # (replication factor = 1).
   # Enabling this option makes the following values to be ignored:
@@ -260,6 +269,13 @@ statefulset:
     #   scheme: HTTPS
     # initialDelaySeconds: 30
     # periodSeconds: 5
+
+  serviceAccount:
+    # Specifies whether this ServiceAccount should be created.
+    create: true
+    # The name of this ServiceAccount to use.
+    # If not set and `create` is `true`, then a name is auto-generated.
+    name: ""
 
 service:
   ports:
@@ -423,12 +439,6 @@ init:
 # Whether to run securely using TLS certificates.
 tls:
   enabled: true
-  serviceAccount:
-    # Specifies whether this ServiceAccount should be created.
-    create: true
-    # The name of this ServiceAccount to use.
-    # If not set and `create` is `true`, then a name is auto-generated.
-    name: ""
   certs:
     # Bring your own certs scenario. If provided, tls.init section will be ignored.
     provided: false

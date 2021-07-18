@@ -1,4 +1,4 @@
-{{- if and .Values.tls.enabled (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager) }}
+{{- if or (and .Values.tls.enabled (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager)) .Values.conf.useHostLocality.enabled }}
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -18,6 +18,6 @@ roleRef:
   name: {{ template "cockroachdb.fullname" . }}
 subjects:
   - kind: ServiceAccount
-    name: {{ template "cockroachdb.tls.serviceAccount.name" . }}
+    name: {{ template "cockroachdb.statefulset.serviceAccount.name" . }}
     namespace: {{ .Release.Namespace | quote }}
 {{- end }}
