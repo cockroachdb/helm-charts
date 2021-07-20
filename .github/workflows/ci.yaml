@@ -126,3 +126,32 @@ jobs:
 
       - name: Run E2E Test
         run: go test -v ./tests/e2e/install/...
+
+  helm-rotate-cert-e2e:
+    name: Helm-rotate-cert-Test
+    runs-on: ubuntu-latest
+    needs:
+      - pre-build
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Install Kind
+        uses: helm/kind-action@v1.2.0
+
+      - name: Install cockroach binary
+        run: make install-cockroach
+
+      - name: Load docker images to kind
+        run: make load-docker-image-to-kind
+
+      - name: Setup Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.15
+
+      - name: Run E2E Test
+        run: go test -v ./tests/e2e/rotate/...
