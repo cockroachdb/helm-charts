@@ -277,52 +277,68 @@ func PrintDebugLogs(t *testing.T, options *k8s.KubectlOptions) {
 	t.Log(out)
 }
 
-func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values map[string]string) {
+func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values map[string]string, caRotate bool) {
+	var args []string
+	var jobName string
 	backoffLimit := int32(1)
+	if caRotate {
+		jobName = "ca-certificate-rotate"
+		args = []string{
+			"rotate",
+			"--ca",
+			fmt.Sprintf("--ca-duration=%s", values["tls.certs.selfSigner.caCertDuration"]),
+			fmt.Sprintf("--ca-expiry=%s", values["tls.certs.selfSigner.caCertExpiryWindow"]),
+			"--ca-cron=\"0 0 */29 * *\"",
+			"--readiness-wait=30s",
+		}
+	} else {
+		jobName = "client-node-certificate-rotate"
+		args = []string{
+			"rotate",
+			fmt.Sprintf("--ca-duration=%s", values["tls.certs.selfSigner.caCertDuration"]),
+			fmt.Sprintf("--ca-expiry=%s", values["tls.certs.selfSigner.caCertExpiryWindow"]),
+			"--client",
+			fmt.Sprintf("--client-duration=%s", values["tls.certs.selfSigner.clientCertDuration"]),
+			fmt.Sprintf("--client-expiry=%s", values["tls.certs.selfSigner.clientCertExpiryWindow"]),
+			"--node",
+			fmt.Sprintf("--node-duration=%s", values["tls.certs.selfSigner.nodeCertDuration"]),
+			fmt.Sprintf("--node-expiry=%s", values["tls.certs.selfSigner.nodeCertExpiryWindow"]),
+			"--node-client-cron=\"0 0 */26 * *\"",
+			"--readiness-wait=30s",
+		}
+	}
 	imageName := fmt.Sprintf("gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert:%s", values["tls.selfSigner.image.tag"])
 	job := &batchv1.Job{
-		TypeMeta:   metav1.TypeMeta{},
+		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:                       "rotate-cert-job",
-			Namespace:                  crdbCluster.Namespace,
+			Name:      jobName,
+			Namespace: crdbCluster.Namespace,
 		},
-		Spec:       batchv1.JobSpec{
-			BackoffLimit:            &backoffLimit,
-			Template:                corev1.PodTemplateSpec{
+		Spec: batchv1.JobSpec{
+			BackoffLimit: &backoffLimit,
+			Template: corev1.PodTemplateSpec{
 				ObjectMeta: metav1.ObjectMeta{},
-				Spec:       corev1.PodSpec{
-					RestartPolicy: "Never",
+				Spec: corev1.PodSpec{
+					RestartPolicy:      "Never",
 					ServiceAccountName: fmt.Sprintf("%s-self-signer", crdbCluster.StatefulSetName),
-					Containers:                    []corev1.Container{{
-						Name:                     "cert-rotate-job",
-						Image:                    imageName,
-						Args:                     []string{
-							"rotate",
-							fmt.Sprintf("--ca-duration=%s", values["tls.certs.selfSigner.caCertDuration"]),
-							fmt.Sprintf("--ca-expiry=%s", values["tls.certs.selfSigner.caCertExpiryWindow"]),
-							"--client",
-							fmt.Sprintf("--client-duration=%s", values["tls.certs.selfSigner.clientCertDuration"]),
-							fmt.Sprintf("--client-expiry=%s", values["tls.certs.selfSigner.clientCertExpiryWindow"]),
-							"--node",
-							fmt.Sprintf("--node-duration=%s", values["tls.certs.selfSigner.nodeCertDuration"]),
-							fmt.Sprintf("--node-expiry=%s", values["tls.certs.selfSigner.nodeCertExpiryWindow"]),
-							"--node-client-cron=\"0 0 */26 * *\"",
-							"--readiness-wait=30s",
-						},
-						WorkingDir:               "",
-						Ports:                    nil,
-						EnvFrom:                  nil,
-						Env:                      []corev1.EnvVar{
+					Containers: []corev1.Container{{
+						Name:       "cert-rotate-job",
+						Image:      imageName,
+						Args:       args,
+						WorkingDir: "",
+						Ports:      nil,
+						EnvFrom:    nil,
+						Env: []corev1.EnvVar{
 							{
-								Name:      "STATEFULSET_NAME",
-								Value:     crdbCluster.StatefulSetName,
+								Name:  "STATEFULSET_NAME",
+								Value: crdbCluster.StatefulSetName,
 							},
 							{
-								Name:      "NAMESPACE",
-								Value:     crdbCluster.Namespace,
+								Name:  "NAMESPACE",
+								Value: crdbCluster.Namespace,
 							},
 							{
-								Name: "CLUSTER_DOMAIN",
+								Name:  "CLUSTER_DOMAIN",
 								Value: "cluster.local",
 							},
 						},
@@ -371,7 +387,7 @@ func fetchJob(k8sClient client.Client, name, namespace string) (*batchv1.Job, er
 		},
 	}
 
-	if err := k8sClient.Get(context.TODO(), types.NamespacedName{Namespace: namespace,Name: name}, &job); err != nil {
+	if err := k8sClient.Get(context.TODO(), types.NamespacedName{Namespace: namespace, Name: name}, &job); err != nil {
 		if apierrors.IsNotFound(err) {
 			return nil, nil
 		}
