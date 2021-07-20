@@ -24,7 +24,7 @@ var (
 	k8sClient, _   = client.New(cfg, client.Options{})
 	releaseName    = "crdb-test"
 	customCASecret = "custom-ca-secret"
-	imageTag       = os.Getenv("TAG")
+	imageTag       = os.Getenv("GITHUB_SHA")
 )
 
 func TestCockroachDbHelmInstall(t *testing.T) {
@@ -55,11 +55,17 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
-			"tls.selfSigner.image.tag": imageTag,
+			"tls.selfSigner.image.tag":      imageTag,
+			"storage.persistentVolume.size": "1Gi",
 		},
 	}
 
 	defer helm.Delete(t, options, releaseName, true)
+	defer func() {
+		if t.Failed() {
+			testutil.PrintDebugLogs(t, kubectlOptions)
+		}
+	}()
 
 	// Deploy the chart using `helm install`. Note that we use the version without `E`, since we want to assert the
 	// install succeeds without any errors.
@@ -130,10 +136,16 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 			"tls.selfSigner.image.tag":        imageTag,
 			"tls.certs.selfSigner.caProvided": "true",
 			"tls.certs.selfSigner.caSecret":   customCASecret,
+			"storage.persistentVolume.size":   "1Gi",
 		},
 	}
 
 	defer helm.Delete(t, options, releaseName, true)
+	defer func() {
+		if t.Failed() {
+			testutil.PrintDebugLogs(t, kubectlOptions)
+		}
+	}()
 
 	// Deploy the chart using `helm install`. Note that we use the version without `E`, since we want to assert the
 	// install succeeds without any errors.

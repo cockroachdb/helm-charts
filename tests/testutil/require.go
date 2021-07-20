@@ -251,3 +251,17 @@ func verifyCertificate(t *testing.T, caCert []byte, cert *x509.Certificate) {
 		t.Fatal(err)
 	}
 }
+
+func PrintDebugLogs(t *testing.T, options *k8s.KubectlOptions) {
+	out, err := k8s.RunKubectlAndGetOutputE(t, options, []string{"get", "nodes"}...)
+	require.NoError(t, err)
+	t.Log(out)
+
+	out, err = k8s.RunKubectlAndGetOutputE(t, options, []string{"get", "pods"}...)
+	require.NoError(t, err)
+	t.Log(out)
+
+	out, err = k8s.RunKubectlAndGetOutputE(t, options, []string{"describe", "pods"}...)
+	require.NoError(t, err)
+	t.Log(out)
+}
