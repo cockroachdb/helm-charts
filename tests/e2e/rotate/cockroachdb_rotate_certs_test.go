@@ -2,29 +2,30 @@ package rotate
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
-	"os"
-	"path/filepath"
+	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strings"
-	"testing"
-	"time"
 )
 
 var (
-	cfg            = ctrl.GetConfigOrDie()
-	k8sClient, _   = client.New(cfg, client.Options{})
-	releaseName    = "crdb-test"
-	customCASecret = "custom-ca-secret"
-	imageTag       = os.Getenv("TAG")
+	cfg          = ctrl.GetConfigOrDie()
+	k8sClient, _ = client.New(cfg, client.Options{})
+	releaseName  = "crdb-test"
+	imageTag     = os.Getenv("GITHUB_SHA")
 )
 
-func TestCockroachDbNodeAndClientCert(t *testing.T) {
+func TestCockroachDbRotateCertificates(t *testing.T) {
 	// Path to the helm chart we will test
 	helmChartPath, err := filepath.Abs("../../../cockroachdb")
 	require.NoError(t, err)
@@ -50,7 +51,8 @@ func TestCockroachDbNodeAndClientCert(t *testing.T) {
 
 	// Setup the args. For this test, we will set the following input values:
 	helmValues := map[string]string{
-		"tls.selfSigner.image.tag": imageTag,
+		"tls.selfSigner.image.tag":                    imageTag,
+		"storage.persistentVolume.size":               "1Gi",
 		"tls.certs.selfSigner.minimumCertDuration":    "24h",
 		"tls.certs.selfSigner.caCertDuration":         "720h",
 		"tls.certs.selfSigner.caCertExpiryWindow":     "48h",
@@ -61,10 +63,15 @@ func TestCockroachDbNodeAndClientCert(t *testing.T) {
 	}
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-		SetValues: helmValues,
+		SetValues:      helmValues,
 	}
 
-	//defer helm.Delete(t, options, releaseName, true)
+	defer helm.Delete(t, options, releaseName, true)
+	defer func() {
+		if t.Failed() {
+			testutil.PrintDebugLogs(t, kubectlOptions)
+		}
+	}()
 
 	// Deploy the chart using `helm install`. Note that we use the version without `E`, since we want to assert the
 	// install succeeds without any errors.
@@ -80,17 +87,30 @@ func TestCockroachDbNodeAndClientCert(t *testing.T) {
 	time.Sleep(20 * time.Second)
 	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
 
+	t.Log("Rotate the Client and Node certificate for the CRDB")
 	clientCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
 	nodeCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.NodeSecret)
-	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues)
-	testutil.RequireCertRotateJobToBeCompleted(t, "rotate-cert-job", crdbCluster, 500*time.Second)
-	time.Sleep(20 * time.Second)
+	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues, false)
+	testutil.RequireCertRotateJobToBeCompleted(t, "client-node-certificate-rotate", crdbCluster, 500*time.Second)
 	testutil.RequireDatabaseToFunction(t, crdbCluster, true)
 
 	newClientCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
 	newNodeCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.NodeSecret)
 
-	t.Log("Verify that certificate duration is changed")
+	t.Log("Verify that client and node certificate duration is changed")
 	require.NotEqual(t, clientCert.Annotations["certificate-valid-upto"], newClientCert.Annotations["certificate-valid-upto"])
 	require.NotEqual(t, nodeCert.Annotations["certificate-valid-upto"], newNodeCert.Annotations["certificate-valid-upto"])
+	t.Log("Client and Node Certificates rotated successfully")
+
+	t.Log("Rotate the CA certificate for the CRDB")
+	caCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.CaSecret)
+	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues, true)
+	testutil.RequireCertRotateJobToBeCompleted(t, "ca-certificate-rotate", crdbCluster, 500*time.Second)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, true)
+
+	newCaCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
+
+	t.Log("Verify that CA certificate duration is changed")
+	require.NotEqual(t, caCert.Annotations["certificate-valid-upto"], newCaCert.Annotations["certificate-valid-upto"])
+	t.Log("CA Certificates rotated successfully")
 }
