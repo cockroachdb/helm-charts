@@ -126,5 +126,3 @@ jobs:
 
       - name: Run E2E Test
         run: go test -v ./tests/e2e/install/...
-        env:
-          TAG: ${{github.event.pull_request.head.ref}}
