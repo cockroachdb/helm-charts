@@ -2,18 +2,19 @@ package integration
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+	"time"
+
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/shell"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
-	"os"
-	"path/filepath"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-	"strings"
-	"testing"
-	"time"
 
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
@@ -60,26 +61,27 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 		},
 	}
 
+	// Deploy the cockroachdb helm chart and checks installation should succeed.
+	err = helm.InstallE(t, options, helmChartPath, releaseName)
+	require.NoError(t, err)
+
+	//... and make sure to delete the helm release at the end of the test.
 	defer helm.Delete(t, options, releaseName, true)
+	// Print the debug logs in case of test failure.
 	defer func() {
 		if t.Failed() {
 			testutil.PrintDebugLogs(t, kubectlOptions)
 		}
 	}()
 
-	// Deploy the chart using `helm install`. Note that we use the version without `E`, since we want to assert the
-	// install succeeds without any errors.
-	helm.Install(t, options, helmChartPath, releaseName)
-
 	// Next we wait for the service endpoint
 	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
-
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
 
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
 }
 
 func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
@@ -140,23 +142,25 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 		},
 	}
 
+	// Deploy the cockroachdb helm chart and checks installation should succeed.
+	err = helm.InstallE(t, options, helmChartPath, releaseName)
+	require.NoError(t, err)
+
+	//... and make sure to delete the helm release at the end of the test.
 	defer helm.Delete(t, options, releaseName, true)
+	// Print the debug logs in case of test failure.
 	defer func() {
 		if t.Failed() {
 			testutil.PrintDebugLogs(t, kubectlOptions)
 		}
 	}()
 
-	// Deploy the chart using `helm install`. Note that we use the version without `E`, since we want to assert the
-	// install succeeds without any errors.
-	helm.Install(t, options, helmChartPath, releaseName)
-
 	// Next we wait for the service endpoint
 	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
-
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
+
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
 }
