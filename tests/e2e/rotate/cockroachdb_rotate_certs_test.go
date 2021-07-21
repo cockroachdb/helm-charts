@@ -31,7 +31,6 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	require.NoError(t, err)
 
 	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
-
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
 
 	crdbCluster := testutil.CockroachCluster{
@@ -47,7 +46,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	//defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	// Setup the args. For this test, we will set the following input values:
 	helmValues := map[string]string{
@@ -66,51 +65,73 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 		SetValues:      helmValues,
 	}
 
+	// Deploy the cockroachdb helm chart and checks installation should succeed.
+	err = helm.InstallE(t, options, helmChartPath, releaseName)
+	require.NoError(t, err)
+
+	// ... and make sure to delete the helm release at the end of the test.
 	defer helm.Delete(t, options, releaseName, true)
+	// Print the debug logs in case of test failure.
 	defer func() {
 		if t.Failed() {
 			testutil.PrintDebugLogs(t, kubectlOptions)
 		}
 	}()
 
-	// Deploy the chart using `helm install`. Note that we use the version without `E`, since we want to assert the
-	// install succeeds without any errors.
-	helm.Install(t, options, helmChartPath, releaseName)
 
 	// Next we wait for the service endpoint
 	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
-
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
 
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
+	// This will create a database, a table and insert two rows into that table.
 	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
 
-	t.Log("Rotate the Client and Node certificate for the CRDB")
+	t.Log("Rotating the Client and Node certificate for the CRDB")
+
 	clientCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
 	nodeCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.NodeSecret)
-	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues, false)
+
+	// RequireToRunRotateJob will initiate the client and node certificate rotation using a cron schedule to trigger the
+	// actual rotation. The cron schedule provide should be greater than the life of the certificate, then only rotation
+	// will be triggered. Here the client and node certificates are valid for 10 days and the next cron is scheduled in
+	// 26 days, hence it will trigger the client and node certificate rotation.
+	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues,"0 0 */26 * *", false)
+
+	// This will wait for the certificate rotation to complete, which will do a rolling restart of the CRDB cluster.
 	testutil.RequireCertRotateJobToBeCompleted(t, "client-node-certificate-rotate", crdbCluster, 500*time.Second)
+
+	time.Sleep(20*time.Second)
+	// This will check after rotation the database is working properly.
 	testutil.RequireDatabaseToFunction(t, crdbCluster, true)
 
+	t.Log("Verify that client and node certificate duration is changed")
 	newClientCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
 	newNodeCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.NodeSecret)
-
-	t.Log("Verify that client and node certificate duration is changed")
 	require.NotEqual(t, clientCert.Annotations["certificate-valid-upto"], newClientCert.Annotations["certificate-valid-upto"])
 	require.NotEqual(t, nodeCert.Annotations["certificate-valid-upto"], newNodeCert.Annotations["certificate-valid-upto"])
 	t.Log("Client and Node Certificates rotated successfully")
 
-	t.Log("Rotate the CA certificate for the CRDB")
+	t.Log("Rotating the CA certificate for the CRDB")
 	caCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.CaSecret)
-	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues, true)
+
+	// RequireToRunRotateJob will initiate the CA certificate rotation using a cron schedule to trigger the actual
+	// rotation. The cron schedule provide should be greater than the life of the certificate, then only rotation will
+	// be triggered. Here the CA certificates are valid for 28 days and the next cron is scheduled in 29 days, hence it
+	// will trigger the CA certificate rotation.
+	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues, "0 0 */29 * *", true)
+
+	// This will wait for the certificate rotation to complete, which will do a rolling restart of the CRDB cluster.
 	testutil.RequireCertRotateJobToBeCompleted(t, "ca-certificate-rotate", crdbCluster, 500*time.Second)
+
+	time.Sleep(20*time.Second)
+	// This will check after rotation the database is working properly.
 	testutil.RequireDatabaseToFunction(t, crdbCluster, true)
 
-	newCaCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
-
 	t.Log("Verify that CA certificate duration is changed")
+	newCaCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
 	require.NotEqual(t, caCert.Annotations["certificate-valid-upto"], newCaCert.Annotations["certificate-valid-upto"])
 	t.Log("CA Certificates rotated successfully")
 }
