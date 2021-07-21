@@ -34,6 +34,7 @@ type CockroachCluster struct {
 	IsCaUserProvided           bool
 }
 
+// RequireClusterToBeReadyEventuallyTimeout waits for all the CRDB pods to come into running state.
 func RequireClusterToBeReadyEventuallyTimeout(t *testing.T, crdbCluster CockroachCluster, timeout time.Duration) {
 
 	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
@@ -112,6 +113,8 @@ func statefulSetIsReady(ss *appsv1.StatefulSet) bool {
 	return ss.Status.ReadyReplicas == ss.Status.Replicas
 }
 
+// RequireDatabaseToFunction creates a database, a table and insert two rows if it is a fresh install of the cluster.
+// If certificate is rotated and cluster rolling restart has happened, this will check that existing two rows are present.
 func RequireDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bool) {
 	sqlPort := int32(26257)
 	conn := &database.DBConnection{
@@ -202,6 +205,8 @@ func getCount(t *testing.T, rows *sql.Rows) (count int) {
 	return count
 }
 
+// RequireCertificatesToBeValid will check the CA certificate and client certificate validity from their respective secrets.
+// Also, it verifies that node certificates are signed by the CA certificates used in the cluster.
 func RequireCertificatesToBeValid(t *testing.T, crdbCluster CockroachCluster) {
 	t.Log("Verifying the Certificates")
 	kubectlOptions := k8s.NewKubectlOptions("", "", crdbCluster.Namespace)
@@ -263,6 +268,7 @@ func verifyCertificate(t *testing.T, caCert []byte, cert *x509.Certificate) {
 	}
 }
 
+// PrintDebugLogs adds the verbose logging of the cluster at the runtime.
 func PrintDebugLogs(t *testing.T, options *k8s.KubectlOptions) {
 	out, err := k8s.RunKubectlAndGetOutputE(t, options, []string{"get", "nodes"}...)
 	require.NoError(t, err)
@@ -277,9 +283,12 @@ func PrintDebugLogs(t *testing.T, options *k8s.KubectlOptions) {
 	t.Log(out)
 }
 
-func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values map[string]string, caRotate bool) {
+// RequireToRunRotateJob triggers the client/node or CA certificate rotation job based on next cron schedule.
+func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values map[string]string,
+	scheduleToTriggerRotation string, caRotate bool) {
 	var args []string
 	var jobName string
+	imageName := fmt.Sprintf("gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert:%s", values["tls.selfSigner.image.tag"])
 	backoffLimit := int32(1)
 	if caRotate {
 		jobName = "ca-certificate-rotate"
@@ -288,7 +297,7 @@ func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values ma
 			"--ca",
 			fmt.Sprintf("--ca-duration=%s", values["tls.certs.selfSigner.caCertDuration"]),
 			fmt.Sprintf("--ca-expiry=%s", values["tls.certs.selfSigner.caCertExpiryWindow"]),
-			"--ca-cron=\"0 0 */29 * *\"",
+			fmt.Sprintf("--ca-cron=\"%s\"",scheduleToTriggerRotation),
 			"--readiness-wait=30s",
 		}
 	} else {
@@ -303,11 +312,10 @@ func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values ma
 			"--node",
 			fmt.Sprintf("--node-duration=%s", values["tls.certs.selfSigner.nodeCertDuration"]),
 			fmt.Sprintf("--node-expiry=%s", values["tls.certs.selfSigner.nodeCertExpiryWindow"]),
-			"--node-client-cron=\"0 0 */26 * *\"",
+			fmt.Sprintf("--node-client-cron=\"%s\"", scheduleToTriggerRotation),
 			"--readiness-wait=30s",
 		}
 	}
-	imageName := fmt.Sprintf("gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert:%s", values["tls.selfSigner.image.tag"])
 	job := &batchv1.Job{
 		TypeMeta: metav1.TypeMeta{},
 		ObjectMeta: metav1.ObjectMeta{
@@ -354,6 +362,7 @@ func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values ma
 	}
 }
 
+// RequireCertRotateJobToBeCompleted waits for the certificate rotation job to complete.
 func RequireCertRotateJobToBeCompleted(t *testing.T, jobName string, crdbCluster CockroachCluster, timeout time.Duration) {
 	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
 		job, err := fetchJob(crdbCluster.K8sClient, jobName, crdbCluster.Namespace)
