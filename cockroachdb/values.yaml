@@ -156,6 +156,11 @@ statefulset:
   budget:
     maxUnavailable: 1
 
+  # Set the pod security context for the StatefulSet
+  securityContext: {}
+    # runAsUser: 1000
+    # runAsGroup: 2000
+
   # List of additional command-line arguments you want to pass to the
   # `cockroach start` command.
   args: []
@@ -374,6 +379,10 @@ init:
     #   cpu: "10m"
     #   memory: "128Mi"
 
+  # Set the pod security context for the init pods
+  securityContext: {}
+    # runAsUser: 1000
+    # runAsGroup: 2000
 
 # Whether to run securely using TLS certificates.
 tls:
@@ -444,3 +453,6 @@ iap:
   # Create Google Cloud OAuth credentials and set client id and secret
   # clientId:
   # clientSecret:
+
+securityContext:
+  # fsGroup: 3000
