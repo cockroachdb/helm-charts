@@ -40,6 +40,11 @@ spec:
     {{- if $serviceMonitor.interval }}
     interval: {{ $serviceMonitor.interval }}
     {{- end }}
+    {{- if $.Values.tls.enabled }}
+    scheme: https
+    tlsConfig:
+      {{- toYaml $serviceMonitor.tlsConfig | nindent 6 }}
+    {{- end }}
     {{- if $serviceMonitor.scrapeTimeout }}
     scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
     {{- end }}
