@@ -359,6 +359,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `serviceMonitor.annotations`                              | Additional annotations of ServiceMonitor                        | `{}`                                             |
 | `serviceMonitor.interval`                                 | ServiceMonitor scrape metrics interval                          | `10s`                                            |
 | `serviceMonitor.scrapeTimeout`                            | ServiceMonitor scrape timeout                                   | `nil`                                            |
+| `serviceMonitor.tlsConfig`                                | Configuration for [ServiceMonitor TLS](https://docs.openshift.com/container-platform/4.4/rest_api/monitoring_apis/servicemonitor-monitoring-coreos-com-v1.html)   | `{}`                                             |
 | `storage.hostPath`                                        | Absolute path on host to store data                             | `""`                                             |
 | `storage.persistentVolume.enabled`                        | Whether to use PersistentVolume to store data                   | `yes`                                            |
 | `storage.persistentVolume.size`                           | PersistentVolume size                                           | `100Gi`                                          |
