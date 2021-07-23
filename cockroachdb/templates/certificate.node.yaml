@@ -24,8 +24,14 @@ spec:
     - key encipherment
     - server auth
     - client auth
+{{- if .Values.tls.certs.useCertManagerV1CRDs }}
+  privateKey:
+    algorithm: rsa
+    size: 2048
+{{- else }}
   keySize: 2048
   keyAlgorithm: rsa
+{{- end }}
   commonName: node
   organization:
     - Cockroach
