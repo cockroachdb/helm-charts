@@ -26,11 +26,11 @@ spec:
     - client auth
 {{- if .Values.tls.certs.useCertManagerV1CRDs }}
   privateKey:
-    algorithm: rsa
+    algorithm: RSA
     size: 2048
 {{- else }}
   keySize: 2048
-  keyAlgorithm: rsa
+  keyAlgorithm: RSA
 {{- end }}
   commonName: node
   organization:
