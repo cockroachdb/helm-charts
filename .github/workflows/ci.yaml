@@ -126,6 +126,8 @@ jobs:
 
       - name: Run E2E Test
         run: go test -v ./tests/e2e/install/...
+        env:
+          TAG: ${{github.event.pull_request.head.sha}}
 
   helm-rotate-cert-e2e:
     name: Helm-rotate-cert-Test
@@ -155,3 +157,5 @@ jobs:
 
       - name: Run E2E Test
         run: go test -v ./tests/e2e/rotate/...
+        env:
+          TAG: ${{github.event.pull_request.head.sha}}
