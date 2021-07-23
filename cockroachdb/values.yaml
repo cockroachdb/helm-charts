@@ -403,6 +403,9 @@ tls:
       group: cert-manager.io
       kind: Issuer
       name: cockroachdb
+    # Enable if you run cert-manager >=1.0 on K8s <=1.15 with legacy CRDs
+    # Legacy CRDs only support cert-manager.io/v1 API Versions
+    useCertManagerV1CRDs: false
 
   init:
     # Image to use for requesting TLS certificates.

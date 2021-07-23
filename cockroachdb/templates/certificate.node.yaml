@@ -1,5 +1,9 @@
 {{- if and .Values.tls.enabled .Values.tls.certs.certManager }}
+{{- if .Values.tls.certs.useCertManagerV1CRDs }}
+apiVersion: cert-manager.io/v1
+{{- else }}
 apiVersion: cert-manager.io/v1alpha2
+{{- end }}
 kind: Certificate
 metadata:
   name: {{ template "cockroachdb.fullname" . }}-node
