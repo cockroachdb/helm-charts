@@ -29,7 +29,7 @@ spec:
     size: 2048
 {{- else }}
   keySize: 2048
-  keyAlgorithm: RSA
+  keyAlgorithm: rsa
 {{- end }}
   commonName: root
   organization:
