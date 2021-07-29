@@ -18,11 +18,11 @@ package self_signer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
 
-	"github.com/pkg/errors"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -99,18 +99,20 @@ func getInitialConfig(caDuration, caExpiry, nodeDuration, nodeExpiry, clientDura
 		return genCert, err
 	}
 
-	stsName, exists := os.LookupEnv("STATEFULSET_NAME")
-	if !exists {
-		return genCert, errors.New("Required STATEFULSET_NAME env not found")
-	}
+	if !clientOnly {
+		stsName, exists := os.LookupEnv("STATEFULSET_NAME")
+		if !exists {
+			return genCert, errors.New("Required STATEFULSET_NAME env not found")
+		}
+		genCert.PublicServiceName = stsName + "-public"
+		genCert.DiscoveryServiceName = stsName
 
-	domain, exists := os.LookupEnv("CLUSTER_DOMAIN")
-	if !exists {
-		return genCert, errors.New("Required CLUSTER_DOMAIN env not found")
+		domain, exists := os.LookupEnv("CLUSTER_DOMAIN")
+		if !exists {
+			return genCert, errors.New("Required CLUSTER_DOMAIN env not found")
+		}
+		genCert.ClusterDomain = domain
 	}
-	genCert.PublicServiceName = stsName + "-public"
-	genCert.DiscoveryServiceName = stsName
-	genCert.ClusterDomain = domain
 
 	return genCert, nil
 }

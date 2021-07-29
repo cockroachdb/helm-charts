@@ -36,9 +36,11 @@ var (
 	caDuration, nodeDuration, clientDuration string
 	caExpiry, nodeExpiry, clientExpiry       string
 	caSecret                                 string
+	clientOnly                               bool
 )
 
 func init() {
+	generateCmd.Flags().BoolVar(&clientOnly, "client-only", false, "generate certificates for custom user")
 	rootCmd.AddCommand(generateCmd)
 }
 
@@ -56,7 +58,13 @@ func generate(cmd *cobra.Command, args []string) {
 		log.Panic("Required NAMESPACE env not found")
 	}
 
-	if err := genCert.Do(ctx, namespace); err != nil {
-		log.Panic(err)
+	if clientOnly {
+		if err := genCert.ClientCertGenerate(ctx, namespace); err != nil {
+			log.Panic(err)
+		}
+	} else {
+		if err := genCert.Do(ctx, namespace); err != nil {
+			log.Panic(err)
+		}
 	}
 }

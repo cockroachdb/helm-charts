@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 	"io/ioutil"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -145,6 +146,39 @@ func (rc *GenerateCert) Do(ctx context.Context, namespace string) error {
 	return nil
 }
 
+func (rc *GenerateCert) ClientCertGenerate(ctx context.Context, namespace string) error {
+	logrus.SetLevel(logrus.InfoLevel)
+
+	certsDir, cleanup := util.CreateTempDir("certsDir")
+	defer cleanup()
+	rc.CertsDir = certsDir
+
+	caDir, cleanupCADir := util.CreateTempDir("caDir")
+	defer cleanupCADir()
+	rc.CAKey = filepath.Join(caDir, "ca.key")
+
+	caSecret, caSecretExist := os.LookupEnv("CA_SECRET")
+	if rc.CaSecret == "" && caSecret == "" {
+		return errors.New("provide CA secret name to generate custom user client certificates")
+	} else if caSecretExist {
+		rc.CaSecret = caSecret
+	}
+
+	// Load the CA secrets into certificate files in caDir and certDir
+	if err := rc.LoadCASecret(ctx, namespace); err != nil {
+		return err
+	}
+
+	// generate the client certificates for the database to use
+	if err := rc.generateClientCert(ctx, rc.getClientSecretName(), namespace); err != nil {
+		msg := " error Generating Client Certificate"
+		logrus.Error(err, msg)
+		return errors.Wrap(err, msg)
+	}
+
+	return nil
+}
+
 // generateCA generates the CA key and certificate if not given by the user and stores them in a secret.
 func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, namespace string) error {
 
@@ -152,25 +186,7 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 	if rc.CaSecret != "" {
 		logrus.Infof("skipping CA cert generation, using user provided CA secret [%s]", rc.CaSecret)
 
-		secret, err := resource.LoadTLSSecret(rc.CaSecret, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-		if err != nil {
-			return errors.Wrap(err, "failed to get CA key secret")
-		}
-
-		// check if the secret contains required info
-		if !secret.ReadyCA() {
-			return errors.Wrap(err, "CA secret doesn't contain the required CA cert/key")
-		}
-
-		if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
-			return errors.Wrap(err, "failed to write CA cert")
-		}
-
-		if err := ioutil.WriteFile(rc.CAKey, secret.CAKey(), security.KeyFileMode); err != nil {
-			return errors.Wrap(err, "failed to write CA key")
-		}
-
-		return nil
+		return rc.LoadCASecret(ctx, namespace)
 	}
 
 	secret, err := resource.LoadTLSSecret(CASecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
@@ -371,6 +387,13 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 // generateClientCert generates the Client key and certificate and stores them in a secret.
 func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName string, namespace string) error {
 
+	user, userExist := os.LookupEnv("USER_NAME")
+	if !userExist {
+		user = "root"
+	} else {
+		clientSecretName = fmt.Sprintf("%s-client-secret", user)
+	}
+
 	secret, err := resource.LoadTLSSecret(clientSecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
 	if client.IgnoreNotFound(err) != nil {
 		return errors.Wrap(err, "failed to get client secret")
@@ -382,7 +405,7 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 
 		// Create the user for the certificate
 		u := &security.SQLUsername{
-			U: "root",
+			U: user,
 		}
 
 		// Create the client certificates
@@ -405,10 +428,11 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 			return errors.Wrap(err, "unable to read ca.crt")
 		}
 
-		// Load the client root certificate into memory
-		pemCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "client.root.crt"))
+		// Load the client user certificate into memory
+		userCertFile := fmt.Sprintf("client.%s.crt", user)
+		pemCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, userCertFile))
 		if err != nil {
-			return errors.Wrap(err, "unable to read client.root.crt")
+			return errors.Wrap(err, fmt.Sprintf("unable to read %s", userCertFile))
 		}
 
 		validFrom, validUpto, err := rc.getCertLife(pemCert)
@@ -418,9 +442,10 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 		}
 
 		// Load the client root key into memory
-		pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "client.root.key"))
+		userKeyFile := fmt.Sprintf("client.%s.key", user)
+		pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, userKeyFile))
 		if err != nil {
-			return errors.Wrap(err, "unable to read client.root.key")
+			return errors.Wrap(err, fmt.Sprintf("unable to read %s", userKeyFile))
 		}
 
 		// add certificate info in the secret annotations
@@ -515,5 +540,27 @@ func (rc *GenerateCert) UpdateNewCA(ctx context.Context, namespace string) error
 	if err := kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait); err != nil {
 		return err
 	}
+	return nil
+}
+
+func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) error {
+	secret, err := resource.LoadTLSSecret(rc.CaSecret, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+	if err != nil {
+		return errors.Wrap(err, "failed to get CA key secret")
+	}
+
+	// check if the secret contains required info
+	if !secret.ReadyCA() {
+		return errors.Wrap(err, "CA secret doesn't contain the required CA cert/key")
+	}
+
+	if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
+		return errors.Wrap(err, "failed to write CA cert")
+	}
+
+	if err := ioutil.WriteFile(rc.CAKey, secret.CAKey(), security.KeyFileMode); err != nil {
+		return errors.Wrap(err, "failed to write CA key")
+	}
+
 	return nil
 }

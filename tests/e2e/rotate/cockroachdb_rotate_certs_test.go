@@ -78,7 +78,6 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 		}
 	}()
 
-
 	// Next we wait for the service endpoint
 	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
@@ -98,12 +97,12 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	// actual rotation. The cron schedule provide should be greater than the life of the certificate, then only rotation
 	// will be triggered. Here the client and node certificates are valid for 10 days and the next cron is scheduled in
 	// 26 days, hence it will trigger the client and node certificate rotation.
-	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues,"0 0 */26 * *", false)
+	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues, "0 0 */26 * *", false)
 
 	// This will wait for the certificate rotation to complete, which will do a rolling restart of the CRDB cluster.
 	testutil.RequireCertRotateJobToBeCompleted(t, "client-node-certificate-rotate", crdbCluster, 500*time.Second)
 
-	time.Sleep(20*time.Second)
+	time.Sleep(20 * time.Second)
 	// This will check after rotation the database is working properly.
 	testutil.RequireDatabaseToFunction(t, crdbCluster, true)
 
@@ -126,7 +125,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	// This will wait for the certificate rotation to complete, which will do a rolling restart of the CRDB cluster.
 	testutil.RequireCertRotateJobToBeCompleted(t, "ca-certificate-rotate", crdbCluster, 500*time.Second)
 
-	time.Sleep(20*time.Second)
+	time.Sleep(20 * time.Second)
 	// This will check after rotation the database is working properly.
 	testutil.RequireDatabaseToFunction(t, crdbCluster, true)
 
