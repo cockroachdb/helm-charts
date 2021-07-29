@@ -1,12 +1,6 @@
 name: Helm Chart Package CI
 on:
-  push:
-    branches:
-      - 'master'
-      - 'cert-manager-feature-branch'
-    tags:
-      - 'v*.*.*'
-  pull_request_target:
+  pull_request:
     branches:
       - 'master'
       - 'cert-manager-feature-branch'
@@ -73,36 +67,10 @@ jobs:
       - name: Unit
         run: go test -v ./pkg/...
 
-  # pre job to build and push the self signer utility
-  pre-build:
-    name: build-self-signer-cert-utility
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout sources
-        uses: actions/checkout@v2
-        with:
-          ref: ${{github.event.pull_request.head.ref}}
-          repository: ${{github.event.pull_request.head.repo.full_name}}
-
-      - name: Login to GCR
-        uses: docker/login-action@v1
-        with:
-          registry: gcr.io
-          username: _json_key
-          password: ${{ secrets.GCR_HELM_CHART_SA_JSON }}
-
-      - name: Build Self-signer
-        run: make build-self-signer
-
-      - name: Push Self-signer
-        run: make push-self-signer
-
   # pre job to run helm e2e tests
   helm-install-e2e:
     name: Helm-E2E-Test
     runs-on: ubuntu-latest
-    needs:
-      - pre-build
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -115,6 +83,9 @@ jobs:
 
       - name: Install cockroach binary
         run: make install-cockroach
+
+      - name: Build Self-signer
+        run: make build-self-signer
 
       - name: Load docker images to kind
         run: make load-docker-image-to-kind
@@ -132,8 +103,6 @@ jobs:
   helm-rotate-cert-e2e:
     name: Helm-rotate-cert-Test
     runs-on: ubuntu-latest
-    needs:
-      - pre-build
     steps:
       - name: Checkout sources
         uses: actions/checkout@v2
@@ -146,6 +115,9 @@ jobs:
 
       - name: Install cockroach binary
         run: make install-cockroach
+
+      - name: Build Self-signer
+        run: make build-self-signer
 
       - name: Load docker images to kind
         run: make load-docker-image-to-kind
