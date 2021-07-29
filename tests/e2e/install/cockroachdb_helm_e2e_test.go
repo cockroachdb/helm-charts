@@ -25,7 +25,7 @@ var (
 	k8sClient, _   = client.New(cfg, client.Options{})
 	releaseName    = "crdb-test"
 	customCASecret = "custom-ca-secret"
-	imageTag       = os.Getenv("GITHUB_SHA")
+	imageTag       = os.Getenv("TAG")
 )
 
 func TestCockroachDbHelmInstall(t *testing.T) {

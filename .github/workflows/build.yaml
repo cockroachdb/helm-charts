@@ -1,0 +1,34 @@
+name: Helm Chart Build
+on:
+  push:
+    branches:
+      - 'master'
+      - 'cert-manager-feature-branch'
+    tags:
+      - 'v*.*.*'
+
+jobs:
+
+  # Post job to build and push the self signer utility whenever any PR gets merged
+  post-build:
+    name: build-self-signer-cert-utility
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Login to GCR
+        uses: docker/login-action@v1
+        with:
+          registry: gcr.io
+          username: _json_key
+          password: ${{ secrets.GCR_HELM_CHART_SA_JSON }}
+
+      - name: Build Self-signer
+        run: make build-self-signer
+
+      - name: Push Self-signer
+        run: make push-self-signer
