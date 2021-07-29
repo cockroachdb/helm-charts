@@ -22,7 +22,7 @@ var (
 	cfg          = ctrl.GetConfigOrDie()
 	k8sClient, _ = client.New(cfg, client.Options{})
 	releaseName  = "crdb-test"
-	imageTag     = os.Getenv("GITHUB_SHA")
+	imageTag     = os.Getenv("TAG")
 )
 
 func TestCockroachDbRotateCertificates(t *testing.T) {
