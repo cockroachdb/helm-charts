@@ -18,17 +18,66 @@ import (
 )
 
 var (
+	err error
+	helmChartPath string
 	releaseName   = "helm-basic"
 	namespaceName = "crdb-" + strings.ToLower(random.UniqueId())
 )
 
+func init()  {
+	helmChartPath, err = filepath.Abs("../../cockroachdb")
+	if err != nil {
+		panic(err)
+	}
+}
+
+// TestTLSEnable tests the enabling the TLS, you have to enable only one method of TLS certs
+func TestTLSEnable(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect string
+	}{
+		{
+			"Self Signer and cert manager set to false",
+			map[string]string{
+				"tls.certs.selfSigner.enabled": "false",
+				"tls.certs.certManager": "false",
+			},
+			"You have to enable either self signed certificates or certificate manager, if you have enabled tls",
+		},
+		{
+			"Self Signer and cert manager set to true",
+			map[string]string{
+				"tls.certs.selfSigner.enabled":     "true",
+				"tls.certs.certManager": "true",
+			},
+			"Can not enable the self signed certificates and certificate manager at the same time",
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			_, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/cronjob-ca-certSelfSigner.yaml"})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), testCase.expect)
+		})
+	}
+}
+
 // TestHelmSelfCertSignerServiceAccount contains the tests around the service account of self signer utility
 func TestHelmSelfCertSignerServiceAccount(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
@@ -51,6 +100,7 @@ func TestHelmSelfCertSignerServiceAccount(t *testing.T) {
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
 			"tls.certs.selfSigner.enabled": "false",
+			"tls.certs.certManager": "true",
 		},
 	}
 
@@ -64,10 +114,6 @@ func TestHelmSelfCertSignerServiceAccount(t *testing.T) {
 // TestHelmSelfCertSignerRole contains the tests around the Role of self signer utility
 func TestHelmSelfCertSignerRole(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
@@ -86,6 +132,7 @@ func TestHelmSelfCertSignerRole(t *testing.T) {
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
 			"tls.certs.selfSigner.enabled": "false",
+			"tls.certs.certManager": "true",
 		},
 	}
 
@@ -98,10 +145,6 @@ func TestHelmSelfCertSignerRole(t *testing.T) {
 // TestHelmSelfCertSignerRoleBinding contains the tests around the rolebinding of self signer utility
 func TestHelmSelfCertSignerRoleBinding(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
@@ -120,6 +163,7 @@ func TestHelmSelfCertSignerRoleBinding(t *testing.T) {
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
 			"tls.certs.selfSigner.enabled": "false",
+			"tls.certs.certManager": "true",
 		},
 	}
 
@@ -132,10 +176,6 @@ func TestHelmSelfCertSignerRoleBinding(t *testing.T) {
 // TestHelmSelfCertSignerJob contains the tests around the job of self signer utility
 func TestHelmSelfCertSignerJob(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
@@ -154,6 +194,7 @@ func TestHelmSelfCertSignerJob(t *testing.T) {
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
 			"tls.certs.selfSigner.enabled": "false",
+			"tls.certs.certManager": "true",
 		},
 	}
 
@@ -166,10 +207,6 @@ func TestHelmSelfCertSignerJob(t *testing.T) {
 // TestHelmSelfCertSignerCronJob contains the tests around the cronjob of self signer utility
 func TestHelmSelfCertSignerCronJob(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
@@ -194,7 +231,10 @@ func TestHelmSelfCertSignerCronJob(t *testing.T) {
 	}{
 		{
 			"Self Signer disable",
-			map[string]string{"tls.certs.selfSigner.enabled": "false"},
+			map[string]string{
+				"tls.certs.selfSigner.enabled": "false",
+				"tls.certs.certManager": "true",
+			},
 		},
 		{
 			"Cert rotate disable",
@@ -326,8 +366,11 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 		},
 		{
 			"Self Signer disable",
-			map[string]string{"tls.certs.selfSigner.enabled": "false"},
-			"init-certs",
+			map[string]string{
+				"tls.certs.selfSigner.enabled": "false",
+				"tls.certs.certManager": "true",
+			},
+			"copy-certs",
 		},
 	}
 
