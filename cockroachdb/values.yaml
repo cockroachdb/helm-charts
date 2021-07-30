@@ -422,18 +422,6 @@ tls:
       # username: john_doe
       # password: changeme
 
-  init:
-    # Image to use for requesting TLS certificates.
-    image:
-      repository: cockroachdb/cockroach-k8s-request-cert
-      tag: "0.4"
-      pullPolicy: IfNotPresent
-      credentials: {}
-        # registry: docker.io
-        # username: john_doe
-        # password: changeme
-
-
 networkPolicy:
   enabled: false
 
