@@ -146,6 +146,7 @@ func (rc *GenerateCert) Do(ctx context.Context, namespace string) error {
 	return nil
 }
 
+// ClientCertGenerate generates the custom user client only certificates and creates the secret.
 func (rc *GenerateCert) ClientCertGenerate(ctx context.Context, namespace string) error {
 	logrus.SetLevel(logrus.InfoLevel)
 
@@ -543,6 +544,7 @@ func (rc *GenerateCert) UpdateNewCA(ctx context.Context, namespace string) error
 	return nil
 }
 
+// LoadCASecret loads the CA secret and write the CA certificate and key to the CA cert directory.
 func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) error {
 	secret, err := resource.LoadTLSSecret(rc.CaSecret, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
 	if err != nil {
