@@ -297,7 +297,7 @@ func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values ma
 			"--ca",
 			fmt.Sprintf("--ca-duration=%s", values["tls.certs.selfSigner.caCertDuration"]),
 			fmt.Sprintf("--ca-expiry=%s", values["tls.certs.selfSigner.caCertExpiryWindow"]),
-			fmt.Sprintf("--ca-cron=\"%s\"",scheduleToTriggerRotation),
+			fmt.Sprintf("--ca-cron=\"%s\"", scheduleToTriggerRotation),
 			"--readiness-wait=30s",
 		}
 	} else {
