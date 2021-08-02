@@ -27,13 +27,14 @@ spec:
     - Cockroach
   dnsNames:
     - "localhost"
-    - "127.0.0.1"
     - {{ printf "%s-public" (include "cockroachdb.fullname" .) | quote }}
     - {{ printf "%s-public.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
     - {{ printf "%s-public.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
     - {{ printf "*.%s" (include "cockroachdb.fullname" .) | quote }}
     - {{ printf "*.%s.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
     - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
+  ipAddresses:
+    - "127.0.0.1"
   secretName: {{ .Values.tls.certs.nodeSecret }}
   issuerRef: {{- toYaml .Values.tls.certs.certManagerIssuer | nindent 4 }}
 {{- end }}
