@@ -227,6 +227,23 @@ Validate that nodeCertDuration must not be empty and nodeCertDuration minus node
 {{- end }}
 {{- end -}}
 
+{{/*
+Validate that if user enabled tls, then either self-signed certificates or certificate manager is enabled
+*/}}
+{{- define "cockroachdb.tlsValidation" -}}
+{{- if .Values.tls.enabled -}}
+{{- if and .Values.tls.certs.selfSigner.enabled .Values.tls.certs.certManager -}}
+    {{ fail "Can not enable the self signed certificates and certificate manager at the same time" }}
+{{- end -}}
+{{- if and (not .Values.tls.certs.selfSigner.enabled) (not .Values.tls.certs.certManager) -}}
+    {{- if not .Values.tls.certs.provided -}}
+        {{ fail "You have to enable either self signed certificates or certificate manager, if you have enabled tls" }}
+    {{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
+
 {{- define "cockroachdb.tls.certs.selfSigner.validation" -}}
 {{ include "cockroachdb.tls.certs.selfSigner.caProvidedValidation" . }}
 {{ include "cockroachdb.tls.certs.selfSigner.caCertValidation" . }}
