@@ -83,19 +83,30 @@ pvc-649d920d-f3f0-11e8-ab5b-42010a8e0035   100Gi      RWO            Delete     
 
 ### Running in secure mode
 
-In order to setup a secure cockroachdb cluster set `tls.enabled` to `yes`/`true`
+In order to set up a secure cockroachdb cluster set `tls.enabled` to `yes`/`true`
 
 There are 3 ways to configure a secure cluster, with this chart. This all relates to how the certificates are issued:
 
-* Built-in CSR's in kubernetes (default)
+* Self-signer (default)
 * Cert-manager
 * Manual
 
-#### Built-in
+#### Self-signer
 
-This is the default behaviour, and requires no configuration beyond enabling tls.
+This is the default behaviour, and requires no configuration beyond setting certificate durations if user wants to set custom duration.
 
-If you are running in this mode, you will have to manually approve the cluster's security certificates as the pods are created. You can see the pending CSRs (certificate signing requests) by running `kubectl get csr`, and approve them by running `kubectl certificate approve <csr-name>`. You'll have to approve one certificate for each CockroachDB node (e.g., `default.node.my-release-cockroachdb-0` and one client certificate for the job that initializes the cluster (e.g., `default.node.root`).
+If you are running in this mode, self-signed certificates are created by self-signed utility for the nodes and root client and are stored in a secret.
+You can look for the certificates created:
+```shell
+kubectl get secrets
+```
+
+```shell
+crdb-cockroachdb-ca-secret                 Opaque                                2      23s
+crdb-cockroachdb-client-secret             kubernetes.io/tls                     3      22s
+crdb-cockroachdb-node-secret               kubernetes.io/tls                     3      23s
+```
+
 
 #### Manual
 
@@ -186,6 +197,14 @@ Exit the shell and delete the temporary pod:
 
 ```sql
 > \q
+```
+
+If `tls.certs.selfSigner.enabled` was enabled for installing the cockroachdb then few resources need to be deleted first before upgrading.
+
+```shell
+kubectl delete sa <release-name>-self-signer
+kubectl delete role <release-name>-self-signer
+kubectl delete rolebinding <release-name>-self-signer
 ```
 
 Kick off the upgrade process by changing the new Docker image, where `$new_version` is the CockroachDB version to which you are upgrading:
@@ -376,6 +395,18 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.clientRootSecret`                              | If certs are provided, secret name for client root cert         | `cockroachdb-root`                                    |
 | `tls.certs.nodeSecret`                                    | If certs are provided, secret name for node cert                | `cockroachdb-node`                                    |
 | `tls.certs.tlsSecret`                                     | Own certs are stored in TLS secret                              | `no`                                                  |
+| `tls.certs.selfSigner.enabled`                            | Whether cockroachdb should generate its own self-signed certs   | `true`                                           |
+| `tls.certs.selfSigner.caProvided`                         | Bring your own CA scenario. This CA will be used to generate node and client cert                                  | `false`                                              |
+| `tls.certs.selfSigner.caSecret`                           | If CA is provided, secret name for CA cert                      | `""`                                             |
+| `tls.certs.selfSigner.minimumCertDuration`                | Minimum cert duration for all the certs, all certs duration will be validated against this duration                | `624h`                                               |
+| `tls.certs.selfSigner.caCertDuration`                     | Duration of CA cert in hour                                     | `43824h`                                         |
+| `tls.certs.selfSigner.caCertExpiryWindow`                 | Expiry window of CA cert means a window before actual expiry in which CA cert should be rotated                    | `648h`                                               |
+| `tls.certs.selfSigner.clientCertDuration`                 | Duration of client cert in hour                                 | `672h                                            |
+| `tls.certs.selfSigner.clientCertExpiryWindow`             | Expiry window of client cert means a window before actual expiry in which client cert should be rotated            | `48h`                                                |
+| `tls.certs.selfSigner.nodeCertDuration`                   | Duration of node cert in hour                                   | `8760h`                                          |
+| `tls.certs.selfSigner.nodeCertExpiryWindow`               | Expiry window of node cert means a window before actual expiry in which node certs should be rotated               | `168h`                                               |
+| `tls.certs.selfSigner.rotateCerts`                        | Whether to rotate the certs generate by cockroachdb             | `true`                                           |
+| `tls.certs.selfSigner.readinessWait`                      | Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true                                    | `30s`                                             |
 | `tls.certs.certManager`                                   | Provision certificates with cert-manager                        | `false`                                               |
 | `tls.certs.certManagerIssuer.group`                       | IssuerRef group to use when generating certificates             | `cert-manager.io`                                     |
 | `tls.certs.certManagerIssuer.kind`                        | IssuerRef kind to use when generating certificates              | `Issuer`                                              |
