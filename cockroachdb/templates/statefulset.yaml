@@ -52,7 +52,7 @@ spec:
     {{- end }}
     {{- if .Values.tls.enabled }}
       serviceAccountName: {{ template "cockroachdb.tls.serviceAccount.name" . }}
-      {{- if or .Values.tls.certs.provided .Values.tls.certs.selfSigner.enabled }}
+      {{- if .Values.tls.enabled }}
       initContainers:
         - name: copy-certs
           image: "busybox"
