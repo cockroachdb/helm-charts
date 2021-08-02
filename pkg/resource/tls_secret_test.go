@@ -316,8 +316,8 @@ func TestIsRotationRequired(t *testing.T) {
 				namespace,
 				map[string][]byte{"ca.crt": {}, "tls.crt": {}, "tls.key": {}},
 				map[string]string{
-					resource.CertValidUpto:  "2021-08-06T04:15:35Z",
-					resource.CertValidFrom:  "2021-07-06T04:15:35Z",
+					resource.CertValidUpto:  time.Now().Add(time.Hour * 720).Format(time.RFC3339),
+					resource.CertValidFrom:  time.Now().Format(time.RFC3339),
 					resource.CertDuration:   "720h0m0s",
 					resource.SecretDataHash: "6889078329698146222",
 				}),
