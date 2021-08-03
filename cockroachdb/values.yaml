@@ -1,6 +1,6 @@
 image:
   repository: cockroachdb/cockroach
-  tag: v21.1.1
+  tag: v21.1.6
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
@@ -227,6 +227,26 @@ statefulset:
     # requests:
     #   cpu: 100m
     #   memory: 512Mi
+
+  # Custom Liveness probe
+  # https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#define-a-liveness-http-request
+  customLivenessProbe: {}
+    # httpGet:
+    #   path: /health
+    #   port: http
+    #   scheme: HTTPS
+    # initialDelaySeconds: 30
+    # periodSeconds: 5
+
+  # Custom Rediness probe
+  # https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#define-readiness-probes
+  customReadinessProbe: {}
+    # httpGet:
+    #   path: /health
+    #   port: http
+    #   scheme: HTTPS
+    # initialDelaySeconds: 30
+    # periodSeconds: 5
 
 service:
   ports:
