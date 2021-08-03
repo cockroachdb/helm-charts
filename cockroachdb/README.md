@@ -327,7 +327,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.store.size`                                         | CockroachDB storage size                                        | `""`                                                  |
 | `conf.store.attrs`                                        | CockroachDB storage attributes                                  | `""`                                                  |
 | `image.repository`                                        | Container image name                                            | `cockroachdb/cockroach`                               |
-| `image.tag`                                               | Container image tag                                             | `v21.1.1`                                             |
+| `image.tag`                                               | Container image tag                                             | `v21.1.6`                                             |
 | `image.pullPolicy`                                        | Container pull policy                                           | `IfNotPresent`                                        |
 | `image.credentials`                                       | `registry`, `user` and `pass` credentials to pull private image | `{}`                                                  |
 | `statefulset.replicas`                                    | StatefulSet replicas number                                     | `3`                                                   |
@@ -353,6 +353,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `statefulset.topologySpreadConstraints.topologyKey`       | The key of node labels                                          | `topology.kubernetes.io/zone`                         |
 | `statefulset.topologySpreadConstraints.whenUnsatisfiable` | `ScheduleAnyway`/`DoNotSchedule` for unsatisfiable constraints  | `ScheduleAnyway`                                      |
 | `statefulset.resources`                                   | Resource requests and limits for StatefulSet Pods               | `{}`                                                  |
+| `statefulset.customLivenessProbe`                         | Custom Liveness probe                                           | `{}`                                             |
+| `statefulset.customReadinessProbe`                        | Custom Rediness probe                                           | `{}`                                             |
 | `service.ports.grpc.external.port`                        | CockroachDB primary serving port in Services                    | `26257`                                               |
 | `service.ports.grpc.external.name`                        | CockroachDB primary serving port name in Services               | `grpc`                                                |
 | `service.ports.grpc.internal.port`                        | CockroachDB inter-communication port in Services                | `26257`                                               |
