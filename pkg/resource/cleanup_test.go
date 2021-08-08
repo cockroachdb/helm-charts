@@ -44,7 +44,7 @@ func TestClean(t *testing.T) {
 	otherSecret := secretObj(other, namespace, nil, nil)
 	fakeClient := testutils.NewFakeClient(scheme, caSecret, nodeSecret, clientSecret, otherSecret)
 
-	resource.Clean(ctx, fakeClient, namespace, stsName)
+	require.NoError(t, resource.Clean(ctx, fakeClient, namespace, stsName))
 
 	r := resource.NewKubeResource(ctx, fakeClient, namespace, kube.DefaultPersister)
 

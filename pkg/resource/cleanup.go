@@ -18,6 +18,7 @@ package resource
 
 import (
 	"context"
+	e "errors"
 
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
@@ -25,10 +26,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func Clean(ctx context.Context, cl client.Client, namespace string, stsName string) {
+func Clean(ctx context.Context, cl client.Client, namespace string, stsName string) error {
 
 	secrets := []string{stsName + "-ca-secret", stsName + "-node-secret", stsName + "-client-secret"}
-
+	var failed bool
 	secret := &corev1.Secret{}
 
 	for i := range secrets {
@@ -36,8 +37,15 @@ func Clean(ctx context.Context, cl client.Client, namespace string, stsName stri
 		secret.SetNamespace(namespace)
 		if err := cl.Delete(ctx, secret); err != nil && !errors.IsNotFound(err) {
 			logrus.Errorf("Failed to delete secret %s: error %s", secret.GetName(), err.Error())
+			failed = true
 			// if error occurs, continue and try to clean as much as possible
 			continue
 		}
 	}
+
+	if failed {
+		return e.New("Not able to clean up some resources")
+	}
+
+	return nil
 }

@@ -32,7 +32,7 @@ var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
 	Short: "cleanup cleans up the secrets generated using self-signer utility",
 	Long:  `cleanup sub-command cleans up the secrets i.e. node, client and CA secrets generated using self-signer utility`,
-	Run:   cleanup,
+	RunE:  cleanup,
 }
 
 var namespace string
@@ -45,13 +45,19 @@ func init() {
 	rootCmd.AddCommand(cleanupCmd)
 }
 
-func cleanup(cmd *cobra.Command, args []string) {
+func cleanup(cmd *cobra.Command, args []string) error {
 
 	stsName, exists := os.LookupEnv("STATEFULSET_NAME")
 	if !exists {
 		log.Fatal("Required STATEFULSET_NAME env not found")
 	}
 
-	resource.Clean(ctx, cl, namespace, stsName)
+	if err := resource.Clean(ctx, cl, namespace, stsName); err != nil {
+		logrus.Warning(err.Error())
+		// return nil to not fail cleaner job
+		return nil
+	}
+
 	logrus.Info("Successfully cleaned up dangling resources")
+	return nil
 }
