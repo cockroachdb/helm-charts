@@ -5,19 +5,22 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/shell"
+	"github.com/stretchr/testify/require"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/gruntwork-io/terratest/modules/random"
-	"github.com/stretchr/testify/require"
+	"github.com/cockroachdb/helm-charts/pkg/security"
+	util "github.com/cockroachdb/helm-charts/pkg/utils"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 var (
@@ -158,6 +161,166 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	// Next we wait for the service endpoint
 	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
+
+	testutil.RequireCertificatesToBeValid(t, crdbCluster)
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
+	time.Sleep(20 * time.Second)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
+}
+
+// Test to check migration from Bring your own certificate method to self-sginer cert utility
+func TestCockroachDbHelmMigration(t *testing.T) {
+	// Path to the helm chart we will test
+	helmChartPath, err := filepath.Abs("../../../cockroachdb")
+	require.NoError(t, err)
+
+	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
+	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
+
+	crdbCluster := testutil.CockroachCluster{
+		Cfg:              cfg,
+		K8sClient:        k8sClient,
+		StatefulSetName:  fmt.Sprintf("%s-cockroachdb", releaseName),
+		Namespace:        namespaceName,
+		ClientSecret:     fmt.Sprintf("%s-cockroachdb-root", releaseName),
+		NodeSecret:       fmt.Sprintf("%s-cockroachdb-node", releaseName),
+		CaSecret:         customCASecret,
+		IsCaUserProvided: false,
+	}
+
+	certsDir, cleanup := util.CreateTempDir("certsDir")
+	defer cleanup()
+
+	cmdCa := shell.Command{
+		Command: "cockroach",
+		Args: []string{"cert", "create-ca", fmt.Sprintf("--certs-dir=%s", certsDir),
+			fmt.Sprintf("--ca-key=%s/ca.key", certsDir)},
+		WorkingDir: ".",
+		Env:        nil,
+		Logger:     nil,
+	}
+
+	publicService := crdbCluster.StatefulSetName + "-public"
+
+	hosts := []string{
+		"localhost",
+		"127.0.0.1",
+		publicService,
+		fmt.Sprintf("%s.%s", publicService, namespaceName),
+		fmt.Sprintf("%s.%s.svc.%s", publicService, namespaceName, "cluster.local"),
+		fmt.Sprintf("*.%s", crdbCluster.StatefulSetName),
+		fmt.Sprintf("*.%s.%s", crdbCluster.StatefulSetName, namespaceName),
+		fmt.Sprintf("*.%s.%s.svc.%s", crdbCluster.StatefulSetName, namespaceName, "cluster.local"),
+	}
+
+	cmdNode := shell.Command{
+		Command: "cockroach",
+		Args: append(append([]string{"cert", "create-node"}, hosts...), fmt.Sprintf("--certs-dir=%s", certsDir),
+			fmt.Sprintf("--ca-key=%s/ca.key", certsDir)),
+		WorkingDir: ".",
+		Env:        nil,
+		Logger:     nil,
+	}
+
+	cmdClient := shell.Command{
+		Command: "cockroach",
+		Args: []string{"cert", "create-client", security.RootUser, fmt.Sprintf("--certs-dir=%s", certsDir),
+			fmt.Sprintf("--ca-key=%s/ca.key", certsDir)},
+		WorkingDir: ".",
+		Env:        nil,
+		Logger:     nil,
+	}
+
+	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
+	// Make sure to delete the namespace at the end of the test
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+
+	cmds := []shell.Command{cmdCa, cmdNode, cmdClient}
+	for i := range cmds {
+		certOutput, err := shell.RunCommandAndGetOutputE(t, cmds[i])
+		t.Log(certOutput)
+		require.NoError(t, err)
+	}
+
+	err = k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", crdbCluster.NodeSecret,
+		fmt.Sprintf("--from-file=%s/node.crt", certsDir), fmt.Sprintf("--from-file=%s/node.key", certsDir),
+		fmt.Sprintf("--from-file=%s/ca.crt", certsDir))
+	require.NoError(t, err)
+
+	err = k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", crdbCluster.ClientSecret,
+		fmt.Sprintf("--from-file=%s/client.root.crt", certsDir), fmt.Sprintf("--from-file=%s/client.root.key", certsDir),
+		fmt.Sprintf("--from-file=%s/ca.crt", certsDir))
+	require.NoError(t, err)
+
+	// Setup the args
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"tls.selfSigner.image.tag":     imageTag,
+			"tls.certs.provided":           "true",
+			"tls.certs.selfSigner.enabled": "false",
+			"tls.certs.clientRootSecret":   crdbCluster.ClientSecret,
+			"tls.certs.nodeSecret":         crdbCluster.NodeSecret,
+			"storage.persistentVolume.size":      "1Gi",
+		},
+	}
+
+	// Deploy the cockroachdb helm chart and checks installation should succeed.
+	err = helm.InstallE(t, options, helmChartPath, releaseName)
+	require.NoError(t, err)
+
+	//... and make sure to delete the helm release at the end of the test.
+	defer helm.Delete(t, options, releaseName, true)
+	// Print the debug logs in case of test failure.
+	defer func() {
+		if t.Failed() {
+			testutil.PrintDebugLogs(t, kubectlOptions)
+		}
+	}()
+
+	// Wait for the service endpoint
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, publicService, 30, 2*time.Second)
+
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
+	time.Sleep(20 * time.Second)
+
+	// Setup the args for upgrade
+	crdbCluster.NodeSecret = fmt.Sprintf("%s-cockroachdb-node-secret", releaseName)
+	crdbCluster.ClientSecret = fmt.Sprintf("%s-cockroachdb-client-secret", releaseName)
+	crdbCluster.CaSecret = fmt.Sprintf("%s-cockroachdb-ca-secret", releaseName)
+
+	// Default method is self-signer so no need to set explicitly
+	options = &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"tls.selfSigner.image.tag":        imageTag,
+			"storage.persistentVolume.size":   "1Gi",
+			"statefulset.updateStrategy.type": "OnDelete",
+		},
+	}
+
+	// Upgrade the cockroachdb helm chart and checks installation should succeed.
+	// Upgrade is done in goRoutine to unblock the code flow
+	// While upgrading statefulset pods need to be deleted manually to consume the new certificate chain
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+
+	go func() {
+		defer wg.Done()
+		err = helm.UpgradeE(t, options, helmChartPath, releaseName)
+		require.NoError(t, err)
+	}()
+
+	time.Sleep(30 * time.Second)
+
+	// Delete the pods manually
+	err = k8s.RunKubectlE(t, kubectlOptions, "delete", "pods", "-l", "app.kubernetes.io/component=cockroachdb")
+	require.NoError(t, err)
+
+	wg.Wait()
+
+	// Wait for the service endpoint
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, publicService, 30, 2*time.Second)
 
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)

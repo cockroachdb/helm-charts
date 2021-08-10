@@ -390,7 +390,7 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 
 	user, userExist := os.LookupEnv("USER_NAME")
 	if !userExist {
-		user = "root"
+		user = security.RootUser
 	} else {
 		clientSecretName = fmt.Sprintf("%s-client-secret", user)
 	}
