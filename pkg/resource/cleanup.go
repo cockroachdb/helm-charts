@@ -18,15 +18,13 @@ package resource
 
 import (
 	"context"
-	e "errors"
-
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/errors"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-func Clean(ctx context.Context, cl client.Client, namespace string, stsName string) error {
+func Clean(ctx context.Context, cl client.Client, namespace string, stsName string) {
 
 	secrets := []string{stsName + "-ca-secret", stsName + "-node-secret", stsName + "-client-secret"}
 	var failed bool
@@ -44,8 +42,9 @@ func Clean(ctx context.Context, cl client.Client, namespace string, stsName stri
 	}
 
 	if failed {
-		return e.New("Not able to clean up some resources")
+		logrus.Warning("Not able to clean up some resources")
+		return
 	}
 
-	return nil
+	logrus.Info("Successfully cleaned up dangling resources")
 }

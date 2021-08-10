@@ -20,7 +20,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/sirupsen/logrus"
 	"github.com/spf13/cobra"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 
@@ -32,7 +31,7 @@ var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
 	Short: "cleanup cleans up the secrets generated using self-signer utility",
 	Long:  `cleanup sub-command cleans up the secrets i.e. node, client and CA secrets generated using self-signer utility`,
-	RunE:  cleanup,
+	Run:   cleanup,
 }
 
 var namespace string
@@ -45,19 +44,12 @@ func init() {
 	rootCmd.AddCommand(cleanupCmd)
 }
 
-func cleanup(cmd *cobra.Command, args []string) error {
+func cleanup(cmd *cobra.Command, args []string) {
 
 	stsName, exists := os.LookupEnv("STATEFULSET_NAME")
 	if !exists {
 		log.Fatal("Required STATEFULSET_NAME env not found")
 	}
 
-	if err := resource.Clean(ctx, cl, namespace, stsName); err != nil {
-		logrus.Warning(err.Error())
-		// return nil to not fail cleaner job
-		return nil
-	}
-
-	logrus.Info("Successfully cleaned up dangling resources")
-	return nil
+	resource.Clean(ctx, cl, namespace, stsName)
 }
