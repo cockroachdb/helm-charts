@@ -35,6 +35,7 @@ type SQLUsername struct {
 const (
 	KeyFileMode  = 0600
 	CertFileMode = 0644
+	RootUser     = "root"
 )
 
 // PemUsage indicates the purpose of a given certificate.
