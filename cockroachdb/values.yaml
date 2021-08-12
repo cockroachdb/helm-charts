@@ -1,6 +1,6 @@
 image:
   repository: cockroachdb/cockroach
-  tag: v21.1.6
+  tag: v21.1.7
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
@@ -407,6 +407,9 @@ tls:
       group: cert-manager.io
       kind: Issuer
       name: cockroachdb
+    # Enable if you run cert-manager >=1.0 on K8s <=1.15 with legacy CRDs
+    # Legacy CRDs only support cert-manager.io/v1 API Versions
+    useCertManagerV1CRDs: false
 
   init:
     # Image to use for requesting TLS certificates.
