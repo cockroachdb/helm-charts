@@ -78,7 +78,7 @@ spec:
             - name: client-certs
               mountPath: /cockroach-certs/
     {{- end }}
-    {{- if and .Values.tls.enabled (.Values.tls.certs.provided)}}
+    {{- if or .Values.tls.certs.certManager (and .Values.tls.enabled (.Values.tls.certs.provided))}}
       serviceAccountName: {{ template "cockroachdb.tls.serviceAccount.name" . }}
       initContainers:
         - name: copy-certs
