@@ -86,6 +86,10 @@ Define the default values for the certificate selfSigner inputs
   {{- printf "%s-%s" (include "cockroachdb.fullname" .) "self-signer" | trunc 56 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "rotatecerts.fullname" -}}
+  {{- printf "%s-%s" (include "cockroachdb.fullname" .) "rotate-self-signer" | trunc 56 | trimSuffix "-" -}}
+{{- end -}}
+
 {{- define "selfcerts.minimumCertDuration" -}}
   {{- if .Values.tls.certs.selfSigner.minimumCertDuration -}}
     {{- print (.Values.tls.certs.selfSigner.minimumCertDuration | trimSuffix "h") -}}
