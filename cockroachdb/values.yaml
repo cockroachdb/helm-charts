@@ -60,10 +60,12 @@ conf:
   join: []
 
   # New logging configuration.
-  # https://www.cockroachlabs.com/docs/v21.1/configure-logs
   log:
+    enabled: false
+    # https://www.cockroachlabs.com/docs/v21.1/configure-logs
+    config: {}
 
-  # Logs at or above this threshold to STDERR. Ignored when log is configured
+  # Logs at or above this threshold to STDERR. Ignored when "log" is enabled
   logtostderr: INFO
 
   # Maximum storage capacity available to store temporary disk-based data for
