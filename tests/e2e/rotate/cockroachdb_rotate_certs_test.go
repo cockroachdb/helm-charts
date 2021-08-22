@@ -2,7 +2,8 @@ package rotate
 
 import (
 	"fmt"
-	"os"
+	"github.com/gruntwork-io/terratest/modules/shell"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -22,7 +23,6 @@ var (
 	cfg          = ctrl.GetConfigOrDie()
 	k8sClient, _ = client.New(cfg, client.Options{})
 	releaseName  = "crdb-test"
-	imageTag     = os.Getenv("TAG")
 )
 
 func TestCockroachDbRotateCertificates(t *testing.T) {
@@ -44,13 +44,22 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 		IsCaUserProvided: false,
 	}
 
+	cmd := shell.Command{
+		Command: "yq",
+		Args: []string{"r", path.Join(helmChartPath, "values.yaml"), "tls.selfSigner.image.tag"},
+		WorkingDir: ".",
+	}
+
+	tagOutput := shell.RunCommandAndGetOutput(t, cmd)
+	t.Log(tagOutput)
+
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
 	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	// Setup the args. For this test, we will set the following input values:
 	helmValues := map[string]string{
-		"tls.selfSigner.image.tag":                    imageTag,
+		"tls.selfSigner.image.tag":                    tagOutput,
 		"storage.persistentVolume.size":               "1Gi",
 		"tls.certs.selfSigner.minimumCertDuration":    "24h",
 		"tls.certs.selfSigner.caCertDuration":         "720h",

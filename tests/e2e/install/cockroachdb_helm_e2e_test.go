@@ -2,7 +2,6 @@ package integration
 
 import (
 	"fmt"
-	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -28,7 +27,6 @@ var (
 	k8sClient, _   = client.New(cfg, client.Options{})
 	releaseName    = "crdb-test"
 	customCASecret = "custom-ca-secret"
-	imageTag       = os.Getenv("TAG")
 )
 
 func TestCockroachDbHelmInstall(t *testing.T) {
@@ -59,7 +57,6 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
-			"tls.selfSigner.image.tag":      imageTag,
 			"storage.persistentVolume.size": "1Gi",
 		},
 	}
@@ -138,7 +135,6 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
-			"tls.selfSigner.image.tag":        imageTag,
 			"tls.certs.selfSigner.caProvided": "true",
 			"tls.certs.selfSigner.caSecret":   customCASecret,
 			"storage.persistentVolume.size":   "1Gi",
@@ -256,12 +252,11 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
-			"tls.selfSigner.image.tag":     imageTag,
-			"tls.certs.provided":           "true",
-			"tls.certs.selfSigner.enabled": "false",
-			"tls.certs.clientRootSecret":   crdbCluster.ClientSecret,
-			"tls.certs.nodeSecret":         crdbCluster.NodeSecret,
-			"storage.persistentVolume.size":      "1Gi",
+			"tls.certs.provided":            "true",
+			"tls.certs.selfSigner.enabled":  "false",
+			"tls.certs.clientRootSecret":    crdbCluster.ClientSecret,
+			"tls.certs.nodeSecret":          crdbCluster.NodeSecret,
+			"storage.persistentVolume.size": "1Gi",
 		},
 	}
 
@@ -293,7 +288,6 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	options = &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
-			"tls.selfSigner.image.tag":        imageTag,
 			"storage.persistentVolume.size":   "1Gi",
 			"statefulset.updateStrategy.type": "OnDelete",
 		},
