@@ -18,13 +18,13 @@ import (
 )
 
 var (
-	err error
+	err           error
 	helmChartPath string
 	releaseName   = "helm-basic"
 	namespaceName = "crdb-" + strings.ToLower(random.UniqueId())
 )
 
-func init()  {
+func init() {
 	helmChartPath, err = filepath.Abs("../../cockroachdb")
 	if err != nil {
 		panic(err)
@@ -44,15 +44,15 @@ func TestTLSEnable(t *testing.T) {
 			"Self Signer and cert manager set to false",
 			map[string]string{
 				"tls.certs.selfSigner.enabled": "false",
-				"tls.certs.certManager": "false",
+				"tls.certs.certManager":        "false",
 			},
 			"You have to enable either self signed certificates or certificate manager, if you have enabled tls",
 		},
 		{
 			"Self Signer and cert manager set to true",
 			map[string]string{
-				"tls.certs.selfSigner.enabled":     "true",
-				"tls.certs.certManager": "true",
+				"tls.certs.selfSigner.enabled": "true",
+				"tls.certs.certManager":        "true",
 			},
 			"Can not enable the self signed certificates and certificate manager at the same time",
 		},
@@ -100,7 +100,7 @@ func TestHelmSelfCertSignerServiceAccount(t *testing.T) {
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
 			"tls.certs.selfSigner.enabled": "false",
-			"tls.certs.certManager": "true",
+			"tls.certs.certManager":        "true",
 		},
 	}
 
@@ -132,7 +132,7 @@ func TestHelmSelfCertSignerRole(t *testing.T) {
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
 			"tls.certs.selfSigner.enabled": "false",
-			"tls.certs.certManager": "true",
+			"tls.certs.certManager":        "true",
 		},
 	}
 
@@ -163,7 +163,7 @@ func TestHelmSelfCertSignerRoleBinding(t *testing.T) {
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
 			"tls.certs.selfSigner.enabled": "false",
-			"tls.certs.certManager": "true",
+			"tls.certs.certManager":        "true",
 		},
 	}
 
@@ -194,7 +194,7 @@ func TestHelmSelfCertSignerJob(t *testing.T) {
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
 			"tls.certs.selfSigner.enabled": "false",
-			"tls.certs.certManager": "true",
+			"tls.certs.certManager":        "true",
 		},
 	}
 
@@ -233,7 +233,7 @@ func TestHelmSelfCertSignerCronJob(t *testing.T) {
 			"Self Signer disable",
 			map[string]string{
 				"tls.certs.selfSigner.enabled": "false",
-				"tls.certs.certManager": "true",
+				"tls.certs.certManager":        "true",
 			},
 		},
 		{
@@ -368,7 +368,7 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 			"Self Signer disable",
 			map[string]string{
 				"tls.certs.selfSigner.enabled": "false",
-				"tls.certs.certManager": "true",
+				"tls.certs.certManager":        "true",
 			},
 			"copy-certs",
 		},
