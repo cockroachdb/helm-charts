@@ -32,8 +32,9 @@ spec:
   keyAlgorithm: rsa
 {{- end }}
   commonName: root
-  organization:
-    - Cockroach
+  subject:
+    organizations:
+      - Cockroach
   secretName: {{ .Values.tls.certs.clientRootSecret }}
   issuerRef: {{- toYaml .Values.tls.certs.certManagerIssuer | nindent 4 }}
 {{- end }}

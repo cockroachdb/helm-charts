@@ -33,8 +33,9 @@ spec:
   keyAlgorithm: rsa
 {{- end }}
   commonName: node
-  organization:
-    - Cockroach
+  subject:
+    organizations:
+      - Cockroach
   dnsNames:
     - "localhost"
     - "127.0.0.1"
