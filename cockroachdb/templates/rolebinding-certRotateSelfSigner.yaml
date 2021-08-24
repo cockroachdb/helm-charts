@@ -2,14 +2,8 @@
 kind: RoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ template "selfcerts.fullname" . }}
+  name: {{ template "rotatecerts.fullname" . }}
   namespace: {{ .Release.Namespace | quote }}
-  annotations:
-    # This is what defines this resource as a hook. Without this line, the
-    # job is considered part of the release.
-    "helm.sh/hook": pre-install,pre-upgrade
-    "helm.sh/hook-weight": "3"
-    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
   labels:
     helm.sh/chart: {{ template "cockroachdb.chart" . }}
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
@@ -21,9 +15,9 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: Role
-  name: {{ template "selfcerts.fullname" . }}
+  name: {{ template "rotatecerts.fullname" . }}
 subjects:
   - kind: ServiceAccount
-    name: {{ template "selfcerts.fullname" . }}
+    name: {{ template "rotatecerts.fullname" . }}
     namespace: {{ .Release.Namespace | quote }}
 {{- end }}

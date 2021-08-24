@@ -3,7 +3,7 @@
 apiVersion: batch/v1beta1
 kind: CronJob
 metadata:
-  name: {{ template "selfcerts.fullname" . }}-ca-rotate
+  name: {{ template "rotatecerts.fullname" . }}
   namespace: {{ .Release.Namespace | quote }}
   labels:
     helm.sh/chart: {{ template "cockroachdb.chart" . }}
@@ -36,6 +36,6 @@ spec:
               value: {{ .Release.Namespace }}
             - name: CLUSTER_DOMAIN
               value: {{ .Values.clusterDomain}}
-          serviceAccountName: {{ template "selfcerts.fullname" . }}
+          serviceAccountName: {{ template "rotatecerts.fullname" . }}
   {{- end }}
 {{- end }}
