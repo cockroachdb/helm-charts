@@ -199,19 +199,7 @@ Exit the shell and delete the temporary pod:
 > \q
 ```
 
-If `tls.certs.selfSigner.enabled` was enabled for installing the cockroachdb then few resources need to be deleted first before upgrading.
-
-```shell
-kubectl delete sa <release-name>-self-signer
-kubectl delete role <release-name>-self-signer
-kubectl delete rolebinding <release-name>-self-signer
-```
-
 Kick off the upgrade process by changing the new Docker image, where `$new_version` is the CockroachDB version to which you are upgrading:
-
-```shell
-kubectl delete job my-release-cockroachdb-init
-```
 
 ```shell
 helm upgrade my-release cockroachdb/cockroachdb \

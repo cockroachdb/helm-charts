@@ -328,7 +328,7 @@ func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values ma
 				ObjectMeta: metav1.ObjectMeta{},
 				Spec: corev1.PodSpec{
 					RestartPolicy:      "Never",
-					ServiceAccountName: fmt.Sprintf("%s-self-signer", crdbCluster.StatefulSetName),
+					ServiceAccountName: fmt.Sprintf("%s-rotate-self-signer", crdbCluster.StatefulSetName),
 					Containers: []corev1.Container{{
 						Name:       "cert-rotate-job",
 						Image:      imageName,
