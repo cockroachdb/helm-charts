@@ -28,7 +28,7 @@ jobs:
           filters: |
               certUtility: &certUtility
               - 'pkg/**'
-              - 'tests/**'
+              - 'cmd/**'
 
   # pre job run golangci-lint
   go-lint:
@@ -105,6 +105,9 @@ jobs:
           fetch-depth: 2
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Install yq
+        run: make install-yq
 
       - name: Verify tag change
         run: |
