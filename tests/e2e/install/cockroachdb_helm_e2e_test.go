@@ -17,6 +17,7 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/cockroachdb/cockroach-operator/pkg/kube"
 	"github.com/cockroachdb/helm-charts/pkg/security"
 	util "github.com/cockroachdb/helm-charts/pkg/utils"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
@@ -66,7 +67,18 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	require.NoError(t, err)
 
 	//... and make sure to delete the helm release at the end of the test.
-	defer helm.Delete(t, options, releaseName, true)
+	defer func() {
+		helm.Delete(t, options, releaseName, true)
+
+		danglingSecrets := []string{crdbCluster.CaSecret, crdbCluster.ClientSecret, crdbCluster.NodeSecret}
+
+		for i := range danglingSecrets {
+			_, err = k8s.GetSecretE(t, kubectlOptions, danglingSecrets[i])
+			require.Equal(t, true, kube.IsNotFound(err))
+			t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
+		}
+	}()
+
 	// Print the debug logs in case of test failure.
 	defer func() {
 		if t.Failed() {
@@ -146,7 +158,22 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	require.NoError(t, err)
 
 	//... and make sure to delete the helm release at the end of the test.
-	defer helm.Delete(t, options, releaseName, true)
+	defer func() {
+		helm.Delete(t, options, releaseName, true)
+
+		danglingSecrets := []string{crdbCluster.ClientSecret, crdbCluster.NodeSecret}
+
+		for i := range danglingSecrets {
+			_, err = k8s.GetSecretE(t, kubectlOptions, danglingSecrets[i])
+			require.Equal(t, true, kube.IsNotFound(err))
+			t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
+		}
+
+		// custom user CA certificate secret should not be deleted by pre-delete job
+		_, err = k8s.GetSecretE(t, kubectlOptions, crdbCluster.CaSecret)
+		require.NoError(t, err)
+	}()
+
 	// Print the debug logs in case of test failure.
 	defer func() {
 		if t.Failed() {
