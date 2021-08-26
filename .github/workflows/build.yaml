@@ -20,6 +20,9 @@ jobs:
         with:
           fetch-depth: 2
 
+      - name: Install yq
+        run: make install-yq
+
       - name: Check Tag Change
         id: changetag
         shell: bash
