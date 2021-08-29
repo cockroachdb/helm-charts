@@ -199,7 +199,7 @@ spec:
                       {{- end }}
 
                       {{- if $database.backup }}
-                        CREATE SCHEDULE {{ $database.name }}_scheduled_backup
+                        CREATE SCHEDULE IF NOT EXISTS {{ $database.name }}_scheduled_backup
                           FOR BACKUP DATABASE {{ $database.name }} INTO '{{ $database.backup.into }}'
 
                         {{- if $database.backup.options }}
