@@ -1,0 +1,57 @@
+name: Helm Chart Build
+on:
+  push:
+    branches:
+      - 'master'
+      - 'cert-manager-feature-branch'
+    tags:
+      - 'v*.*.*'
+
+jobs:
+
+  needs-build:
+    name: is-building-self-signer-utility-required
+    runs-on: ubuntu-latest
+    outputs:
+      tagChange: ${{ steps.changetag.outputs.tagChange }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 2
+
+      - name: Install yq
+        run: make install-yq
+
+      - name: Check Tag Change
+        id: changetag
+        shell: bash
+        run: |
+          ./build/self-signer-utility.sh
+          if [[ $? -eq 0 ]]; then
+            echo ::set-output name=tagChange::true
+          fi
+
+
+  # Post job to build and push the self signer utility whenever any PR gets merged
+  post-build:
+    name: build-self-signer-cert-utility
+    runs-on: ubuntu-latest
+    needs: needs-build
+    if: (needs.needs-build.outputs.tagChange == 'true')
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+
+      - name: Login to GCR
+        uses: docker/login-action@v1
+        with:
+          registry: gcr.io
+          username: _json_key
+          password: ${{ secrets.GCR_HELM_CHART_SA_JSON }}
+
+      - name: Build Self-signer
+        run: make build-self-signer
+
+      - name: Push Self-signer
+        run: make push-self-signer

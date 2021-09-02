@@ -377,7 +377,7 @@ init:
 
 # Whether to run securely using TLS certificates.
 tls:
-  enabled: false
+  enabled: true
   serviceAccount:
     # Specifies whether this ServiceAccount should be created.
     create: true
@@ -394,6 +394,33 @@ tls:
     # Enable if the secret is a dedicated TLS.
     # TLS secrets are created by cert-mananger, for example.
     tlsSecret: false
+    # Enable if the you want cockroach db to create its own certificates
+    selfSigner:
+      # If set, the cockroach db will generate its own certificates
+      enabled: true
+      # If set, the user should provide the CA certificate to sign other certificates.
+      caProvided: false
+      # It holds the name of the secret with caCerts. If caProvided is set, this can not be empty.
+      caSecret: ""
+      # Minimum Certificate duration for all the certificates, all certs duration will be validated against this.
+      minimumCertDuration: 624h
+      # Duration of CA certificates in hour
+      caCertDuration: 43800h
+      # Expiry window of CA certificates means a window before actual expiry in which CA certs should be rotated.
+      caCertExpiryWindow: 648h
+      # Duration of Client certificates in hour
+      clientCertDuration: 672h
+      # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.
+      clientCertExpiryWindow: 48h
+      # Duration of node certificates in hour
+      nodeCertDuration: 8760h
+      # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
+      nodeCertExpiryWindow: 168h
+      # If set, the cockroachdb cert selfSigner will rotate the certificates before expiry.
+      rotateCerts: true
+      # Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true
+      readinessWait: 30s
+
     # Use cert-manager to issue certificates for mTLS.
     certManager: false
     # Specify an Issuer or a ClusterIssuer to use, when issuing
@@ -407,17 +434,16 @@ tls:
     # Legacy CRDs only support cert-manager.io/v1 API Versions
     useCertManagerV1CRDs: false
 
-  init:
-    # Image to use for requesting TLS certificates.
+  selfSigner:
+    # Image Placeholder for the selfSigner utility. This will be changed once the CI workflows for the image is in place.
     image:
-      repository: cockroachdb/cockroach-k8s-request-cert
-      tag: "0.4"
+      repository: cockroachlabs-helm-charts/cockroach-self-signer-cert
+      tag: "1.0"
       pullPolicy: IfNotPresent
       credentials: {}
-        # registry: docker.io
-        # username: john_doe
-        # password: changeme
-
+      registry: gcr.io
+      # username: john_doe
+      # password: changeme
 
 networkPolicy:
   enabled: false
