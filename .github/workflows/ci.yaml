@@ -1,0 +1,178 @@
+name: Helm Chart Package CI
+on:
+  pull_request:
+    branches:
+      - 'master'
+      - 'cert-manager-feature-branch'
+
+jobs:
+
+
+  detect-self-signer-change:
+    name: is-self-signer-changed
+    runs-on: ubuntu-latest
+    outputs:
+      certUtility: ${{ steps.filter.outputs.certUtility }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 2
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Verify Changed files
+        uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+              certUtility: &certUtility
+              - 'pkg/**'
+              - 'cmd/**'
+
+  # pre job run golangci-lint
+  go-lint:
+    name: 'Golint'
+    runs-on: ubuntu-latest
+    needs: detect-self-signer-change
+    if: (needs.detect-self-signer-change.outputs.certUtility == 'true')
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Run golangci-lint
+        uses: golangci/golangci-lint-action@v2
+        with:
+          version: v1.30
+          working-directory: .
+          args: --timeout=5m
+
+  # pre job to run helm lint
+  helm:
+    name: HelmLint
+    runs-on: ubuntu-20.04
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Get repositories
+        uses: hiberbee/github-action-helm@latest
+
+      - name: Lint chart
+        run: helm lint cockroachdb
+        working-directory: .
+
+  # pre job to run the unit tests
+  unitTest:
+    name: UnitTest
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Setup Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.15
+
+      - name: Install cockroach binary
+        run: make install-cockroach
+ 
+      - name: HelmTemplate
+        run: go test -v ./tests/template/...
+
+      - name: Unit
+        run: go test -v ./pkg/...
+
+  self-signer-tag-change:
+    name: Tag Change
+    runs-on: ubuntu-latest
+    needs: detect-self-signer-change
+    if: (needs.detect-self-signer-change.outputs.certUtility == 'true')
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 2
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Install yq
+        run: make install-yq
+
+      - name: Verify tag change
+        run: |
+          ./build/self-signer-utility.sh
+          if [[ $? -ne 0 ]]; then
+            exit 1
+          fi
+
+  # pre job to run helm e2e tests
+  helm-install-e2e:
+    name: Helm-E2E-Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Install Kind
+        uses: helm/kind-action@v1.2.0
+
+      - name: Install cockroach binary
+        run: make install-cockroach
+
+      - name: Build Self-signer
+        run: make build-self-signer
+
+      - name: Load docker images to kind
+        run: make load-docker-image-to-kind
+
+      - name: Setup Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.15
+
+      - name: Run E2E Test
+        run: go test -v ./tests/e2e/install/...
+
+  helm-rotate-cert-e2e:
+    name: Helm-rotate-cert-Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Install Kind
+        uses: helm/kind-action@v1.2.0
+
+      - name: Install cockroach binary
+        run: make install-cockroach
+
+      - name: Build Self-signer
+        run: make build-self-signer
+
+      - name: Load docker images to kind
+        run: make load-docker-image-to-kind
+
+      - name: Setup Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.15
+
+      - name: Run E2E Test
+        run: go test -v ./tests/e2e/rotate/...
