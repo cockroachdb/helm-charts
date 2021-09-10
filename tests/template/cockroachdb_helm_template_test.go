@@ -500,3 +500,109 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestHelmLogConfigFileStatefulSet contains the tests around the new logging configuration
+func TestHelmDatabaseProvisioning(t *testing.T) {
+	//t.Parallel()
+
+	var initJob batchv1.Job
+	var secret corev1.Secret
+	// Path to the helm chart we will test
+	helmChartPath, err := filepath.Abs("../../cockroachdb")
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect struct {
+			initJobExists bool
+			hookDeletePolicy string
+			initCluster bool
+			provisionCluster bool
+			sql string
+			users map[string]string
+			clusterSettings map[string]string
+		}
+	}{
+		{
+			"TODO",
+			map[string]string{"conf.log.enabled": "true"},
+			struct {
+				initJobExists bool
+				hookDeletePolicy string
+				initCluster bool
+				provisionCluster bool
+				sql string
+				users map[string]string
+				clusterSettings map[string]string
+			} {
+				true,
+				"before-hook-creation",
+				true,
+				true,
+				"",
+				nil,
+				nil,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			//subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/job.init.yaml"})
+
+			require.Equal(subT, testCase.expect.initJobExists, err == nil)
+
+			if testCase.expect.initJobExists {
+				helm.UnmarshalK8SYaml(t, output, &initJob)
+
+				require.Equal(subT, initJob.Annotations["helm.sh/hook-delete-policy"], testCase.expect.hookDeletePolicy)
+
+				initJobCommand := initJob.Spec.Template.Spec.Containers[0].Command[2]
+
+				if testCase.expect.initCluster {
+					require.Contains(subT, initJobCommand, "initCluster()")
+					require.Contains(subT, initJobCommand, "initCluster;")
+				}
+
+				if testCase.expect.provisionCluster {
+					require.Contains(subT, initJobCommand, "provisionCluster()")
+					require.Contains(subT, initJobCommand, "provisionCluster;")
+
+					// Stripping all whitespaces and new lines
+					preparedSql := strings.ReplaceAll(strings.ReplaceAll(initJobCommand, " ", ""), "\n", "")
+					expectedSql := strings.ReplaceAll(strings.ReplaceAll(testCase.expect.sql, " ", ""), "\n", "")
+
+					require.Contains(subT, preparedSql, expectedSql)
+				}
+			}
+
+			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secrets.init.yaml"})
+
+			require.Equal(subT, testCase.expect.provisionCluster, err == nil)
+
+			if testCase.expect.provisionCluster {
+				helm.UnmarshalK8SYaml(t, output, &secret)
+
+				for username, password := range testCase.expect.users {
+					require.Equal(subT, secret.StringData[username + "-password"], password)
+				}
+
+				for name, value := range testCase.expect.clusterSettings {
+					require.Equal(subT, secret.StringData[name + "-cluster-setting"], value)
+				}
+			}
+		})
+	}
+}
