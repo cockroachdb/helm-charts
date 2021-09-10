@@ -527,7 +527,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				statefulsetArgument string
 				logConfig           string
 				secretExists        bool
-			} {
+			}{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
 				"{}",
 				true,
@@ -537,13 +537,13 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 			"New logging configuration overridden",
 			map[string]string{
 				"conf.log.enabled": "true",
-				"conf.log.config": "file-defaults:\ndir: /custom/dir/path/",
+				"conf.log.config":  "file-defaults:\ndir: /custom/dir/path/",
 			},
 			struct {
 				statefulsetArgument string
 				logConfig           string
 				secretExists        bool
-			} {
+			}{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
 				"file-defaults:\n  dir: /custom/dir/path/",
 				true,
@@ -559,7 +559,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				statefulsetArgument string
 				logConfig           string
 				secretExists        bool
-			} {
+			}{
 				"--logtostderr=INFO",
 				"",
 				false,
@@ -597,9 +597,9 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 	}
 }
 
-// TestHelmLogConfigFileStatefulSet contains the tests around the new logging configuration
+// TestHelmDatabaseProvisioning contains the tests around the cluster init and provisioning
 func TestHelmDatabaseProvisioning(t *testing.T) {
-	//t.Parallel()
+	t.Parallel()
 
 	var initJob batchv1.Job
 	var secret corev1.Secret
@@ -611,34 +611,345 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 		name   string
 		values map[string]string
 		expect struct {
-			initJobExists bool
-			hookDeletePolicy string
-			initCluster bool
-			provisionCluster bool
-			sql string
-			users map[string]string
-			clusterSettings map[string]string
+			initJob struct {
+				exists           bool
+				hookDeletePolicy string
+				initCluster      bool
+				provisionCluster bool
+				sql              string
+			}
+			initSecret struct {
+				exists          bool
+				users           map[string]string
+				clusterSettings map[string]string
+			}
 		}
 	}{
 		{
-			"TODO",
-			map[string]string{"conf.log.enabled": "true"},
+			"Disabled provisioning",
+			map[string]string{"init.provisioning.enabled": "false"},
 			struct {
-				initJobExists bool
-				hookDeletePolicy string
-				initCluster bool
-				provisionCluster bool
-				sql string
-				users map[string]string
-				clusterSettings map[string]string
-			} {
-				true,
-				"before-hook-creation",
-				true,
-				true,
-				"",
-				nil,
-				nil,
+				initJob struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				initSecret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					false,
+					"",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					false,
+					nil,
+					nil,
+				},
+			},
+		},
+		{
+			"Enabled empty provisioning",
+			map[string]string{"init.provisioning.enabled": "true"},
+			struct {
+				initJob struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				initSecret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{true,
+					"before-hook-creation",
+					true,
+					true,
+					"",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{true,
+					nil,
+					nil,
+				},
+			},
+		},
+		{
+			"Users provisioning",
+			map[string]string{
+				"init.provisioning.enabled":             "true",
+				"init.provisioning.users[0].name":       "testUser",
+				"init.provisioning.users[0].password":   "testPassword",
+				"init.provisioning.users[0].options[0]": "CREATEROLE",
+			},
+			struct {
+				initJob struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				initSecret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE USER IF NOT EXISTS testUser WITH PASSWORD '$testUser_PASSWORD' CREATEROLE;",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{true,
+					map[string]string{
+						"testUser": "testPassword",
+					},
+					nil,
+				},
+			},
+		},
+		{
+			"Database provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                 "true",
+				"init.provisioning.databases[0].name":       "testDatabase",
+				"init.provisioning.databases[0].options[0]": "encoding='utf-8'",
+			},
+			struct {
+				initJob struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				initSecret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE DATABASE IF NOT EXISTS testDatabase encoding='utf-8';",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					nil,
+				},
+			},
+		},
+		{
+			"Users with database granted provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                "true",
+				"init.provisioning.users[0].name":          "testUser",
+				"init.provisioning.users[0].password":      "testPassword",
+				"init.provisioning.databases[0].name":      "testDatabase",
+				"init.provisioning.databases[0].owners[0]": "testUser",
+			},
+			struct {
+				initJob struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				initSecret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE USER IF NOT EXISTS testUser WITH PASSWORD '$testUser_PASSWORD';" +
+						"CREATE DATABASE IF NOT EXISTS testDatabase;" +
+						"GRANT ALL ON DATABASE testDatabase TO testUser;",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					map[string]string{
+						"testUser": "testPassword",
+					},
+					nil,
+				},
+			},
+		},
+		{
+			"Cluster settings provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                                "true",
+				"init.provisioning.clusterSettings.cluster\\.organization": "testOrganization",
+				"init.provisioning.clusterSettings.enterprise\\.license":   "testLicense",
+			},
+			struct {
+				initJob struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				initSecret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"SET CLUSTER SETTING cluster.organization = '$cluster_organization_CLUSTER_SETTING';" +
+						"SET CLUSTER SETTING enterprise.license = '$enterprise_license_CLUSTER_SETTING';",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					map[string]string{
+						"cluster-organization": "testOrganization",
+						"enterprise-license":   "testLicense",
+					},
+				},
+			},
+		},
+		{
+			"Database backup provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                                 "true",
+				"init.provisioning.databases[0].name":                       "testDatabase",
+				"init.provisioning.databases[0].backup.into":                "s3://backups/testDatabase?AWS_ACCESS_KEY_ID=minioadmin&AWS_ENDPOINT=http://minio.minio:80&AWS_REGION=us-east-1&AWS_SECRET_ACCESS_KEY=minioadmin",
+				"init.provisioning.databases[0].backup.options[0]":          "revision_history",
+				"init.provisioning.databases[0].backup.recurring":           "@always",
+				"init.provisioning.databases[0].backup.fullBackup":          "@daily",
+				"init.provisioning.databases[0].backup.schedule.options[0]": "first_run = 'now'",
+			},
+			struct {
+				initJob struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				initSecret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE DATABASE IF NOT EXISTS testDatabase;" +
+						"CREATE SCHEDULE IF NOT EXISTS testDatabase_scheduled_backup" +
+						"FOR BACKUP DATABASE testDatabase INTO 's3://backups/testDatabase?AWS_ACCESS_KEY_ID=minioadmin&AWS_ENDPOINT=http://minio.minio:80&AWS_REGION=us-east-1&AWS_SECRET_ACCESS_KEY=minioadmin'" +
+						"WITH revision_history" +
+						"RECURRING '@always'" +
+						"FULL BACKUP '@daily'" +
+						"WITH SCHEDULE OPTIONS first_run = 'now';",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					nil,
+				},
 			},
 		},
 	}
@@ -649,7 +960,7 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 		// and will be the next testCase!
 		testCase := testCase
 		t.Run(testCase.name, func(subT *testing.T) {
-			//subT.Parallel()
+			subT.Parallel()
 
 			// Now we try rendering the template, but verify we get an error
 			options := &helm.Options{
@@ -658,45 +969,51 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 			}
 			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/job.init.yaml"})
 
-			require.Equal(subT, testCase.expect.initJobExists, err == nil)
+			require.Equal(subT, testCase.expect.initJob.exists, err == nil)
 
-			if testCase.expect.initJobExists {
+			if testCase.expect.initJob.exists {
 				helm.UnmarshalK8SYaml(t, output, &initJob)
 
-				require.Equal(subT, initJob.Annotations["helm.sh/hook-delete-policy"], testCase.expect.hookDeletePolicy)
+				require.Equal(subT, initJob.Annotations["helm.sh/hook-delete-policy"], testCase.expect.initJob.hookDeletePolicy)
 
 				initJobCommand := initJob.Spec.Template.Spec.Containers[0].Command[2]
 
-				if testCase.expect.initCluster {
+				if testCase.expect.initJob.initCluster {
 					require.Contains(subT, initJobCommand, "initCluster()")
 					require.Contains(subT, initJobCommand, "initCluster;")
+				} else {
+					require.NotContains(subT, initJobCommand, "initCluster()")
+					require.NotContains(subT, initJobCommand, "initCluster;")
 				}
 
-				if testCase.expect.provisionCluster {
+				if testCase.expect.initJob.provisionCluster {
 					require.Contains(subT, initJobCommand, "provisionCluster()")
 					require.Contains(subT, initJobCommand, "provisionCluster;")
 
 					// Stripping all whitespaces and new lines
 					preparedSql := strings.ReplaceAll(strings.ReplaceAll(initJobCommand, " ", ""), "\n", "")
-					expectedSql := strings.ReplaceAll(strings.ReplaceAll(testCase.expect.sql, " ", ""), "\n", "")
+					expectedSql := strings.ReplaceAll(strings.ReplaceAll(testCase.expect.initJob.sql, " ", ""), "\n", "")
 
 					require.Contains(subT, preparedSql, expectedSql)
+				} else {
+					require.NotContains(subT, initJobCommand, "provisionCluster()")
+					require.NotContains(subT, initJobCommand, "provisionCluster;")
 				}
 			}
 
 			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secrets.init.yaml"})
 
-			require.Equal(subT, testCase.expect.provisionCluster, err == nil)
+			require.Equal(subT, testCase.expect.initSecret.exists, err == nil)
 
-			if testCase.expect.provisionCluster {
+			if testCase.expect.initSecret.exists {
 				helm.UnmarshalK8SYaml(t, output, &secret)
 
-				for username, password := range testCase.expect.users {
-					require.Equal(subT, secret.StringData[username + "-password"], password)
+				for username, password := range testCase.expect.initSecret.users {
+					require.Equal(subT, secret.StringData[username+"-password"], password)
 				}
 
-				for name, value := range testCase.expect.clusterSettings {
-					require.Equal(subT, secret.StringData[name + "-cluster-setting"], value)
+				for name, value := range testCase.expect.initSecret.clusterSettings {
+					require.Equal(subT, secret.StringData[name+"-cluster-setting"], value)
 				}
 			}
 		})
