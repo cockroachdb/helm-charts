@@ -503,7 +503,7 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 
 // TestHelmLogConfigFileStatefulSet contains the tests around the new logging configuration
 func TestHelmLogConfigFileStatefulSet(t *testing.T) {
-	//t.Parallel()
+	t.Parallel()
 
 	var statefulset appsv1.StatefulSet
 	var secret corev1.Secret
@@ -573,7 +573,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 		// and will be the next testCase!
 		testCase := testCase
 		t.Run(testCase.name, func(subT *testing.T) {
-			//subT.Parallel()
+			subT.Parallel()
 
 			// Now we try rendering the template, but verify we get an error
 			options := &helm.Options{
