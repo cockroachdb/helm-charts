@@ -601,7 +601,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 func TestHelmDatabaseProvisioning(t *testing.T) {
 	t.Parallel()
 
-	var initJob batchv1.Job
+	var job batchv1.Job
 	var secret corev1.Secret
 	// Path to the helm chart we will test
 	helmChartPath, err := filepath.Abs("../../cockroachdb")
@@ -611,14 +611,14 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 		name   string
 		values map[string]string
 		expect struct {
-			initJob struct {
+			job struct {
 				exists           bool
 				hookDeletePolicy string
 				initCluster      bool
 				provisionCluster bool
 				sql              string
 			}
-			initSecret struct {
+			secret struct {
 				exists          bool
 				users           map[string]string
 				clusterSettings map[string]string
@@ -629,14 +629,14 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 			"Disabled provisioning",
 			map[string]string{"init.provisioning.enabled": "false"},
 			struct {
-				initJob struct {
+				job struct {
 					exists           bool
 					hookDeletePolicy string
 					initCluster      bool
 					provisionCluster bool
 					sql              string
 				}
-				initSecret struct {
+				secret struct {
 					exists          bool
 					users           map[string]string
 					clusterSettings map[string]string
@@ -670,14 +670,14 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 			"Enabled empty provisioning",
 			map[string]string{"init.provisioning.enabled": "true"},
 			struct {
-				initJob struct {
+				job struct {
 					exists           bool
 					hookDeletePolicy string
 					initCluster      bool
 					provisionCluster bool
 					sql              string
 				}
-				initSecret struct {
+				secret struct {
 					exists          bool
 					users           map[string]string
 					clusterSettings map[string]string
@@ -689,7 +689,8 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 					initCluster      bool
 					provisionCluster bool
 					sql              string
-				}{true,
+				}{
+					true,
 					"before-hook-creation",
 					true,
 					true,
@@ -699,7 +700,8 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 					exists          bool
 					users           map[string]string
 					clusterSettings map[string]string
-				}{true,
+				}{
+					true,
 					nil,
 					nil,
 				},
@@ -714,14 +716,14 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				"init.provisioning.users[0].options[0]": "CREATEROLE",
 			},
 			struct {
-				initJob struct {
+				job struct {
 					exists           bool
 					hookDeletePolicy string
 					initCluster      bool
 					provisionCluster bool
 					sql              string
 				}
-				initSecret struct {
+				secret struct {
 					exists          bool
 					users           map[string]string
 					clusterSettings map[string]string
@@ -760,14 +762,14 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				"init.provisioning.databases[0].options[0]": "encoding='utf-8'",
 			},
 			struct {
-				initJob struct {
+				job struct {
 					exists           bool
 					hookDeletePolicy string
 					initCluster      bool
 					provisionCluster bool
 					sql              string
 				}
-				initSecret struct {
+				secret struct {
 					exists          bool
 					users           map[string]string
 					clusterSettings map[string]string
@@ -807,14 +809,14 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				"init.provisioning.databases[0].owners[0]": "testUser",
 			},
 			struct {
-				initJob struct {
+				job struct {
 					exists           bool
 					hookDeletePolicy string
 					initCluster      bool
 					provisionCluster bool
 					sql              string
 				}
-				initSecret struct {
+				secret struct {
 					exists          bool
 					users           map[string]string
 					clusterSettings map[string]string
@@ -856,14 +858,14 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				"init.provisioning.clusterSettings.enterprise\\.license":   "testLicense",
 			},
 			struct {
-				initJob struct {
+				job struct {
 					exists           bool
 					hookDeletePolicy string
 					initCluster      bool
 					provisionCluster bool
 					sql              string
 				}
-				initSecret struct {
+				secret struct {
 					exists          bool
 					users           map[string]string
 					clusterSettings map[string]string
@@ -909,14 +911,14 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				"init.provisioning.databases[0].backup.schedule.options[0]": "first_run = 'now'",
 			},
 			struct {
-				initJob struct {
+				job struct {
 					exists           bool
 					hookDeletePolicy string
 					initCluster      bool
 					provisionCluster bool
 					sql              string
 				}
-				initSecret struct {
+				secret struct {
 					exists          bool
 					users           map[string]string
 					clusterSettings map[string]string
@@ -969,16 +971,16 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 			}
 			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/job.init.yaml"})
 
-			require.Equal(subT, testCase.expect.initJob.exists, err == nil)
+			require.Equal(subT, testCase.expect.job.exists, err == nil)
 
-			if testCase.expect.initJob.exists {
-				helm.UnmarshalK8SYaml(t, output, &initJob)
+			if testCase.expect.job.exists {
+				helm.UnmarshalK8SYaml(t, output, &job)
 
-				require.Equal(subT, initJob.Annotations["helm.sh/hook-delete-policy"], testCase.expect.initJob.hookDeletePolicy)
+				require.Equal(subT, job.Annotations["helm.sh/hook-delete-policy"], testCase.expect.job.hookDeletePolicy)
 
-				initJobCommand := initJob.Spec.Template.Spec.Containers[0].Command[2]
+				initJobCommand := job.Spec.Template.Spec.Containers[0].Command[2]
 
-				if testCase.expect.initJob.initCluster {
+				if testCase.expect.job.initCluster {
 					require.Contains(subT, initJobCommand, "initCluster()")
 					require.Contains(subT, initJobCommand, "initCluster;")
 				} else {
@@ -986,13 +988,13 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 					require.NotContains(subT, initJobCommand, "initCluster;")
 				}
 
-				if testCase.expect.initJob.provisionCluster {
+				if testCase.expect.job.provisionCluster {
 					require.Contains(subT, initJobCommand, "provisionCluster()")
 					require.Contains(subT, initJobCommand, "provisionCluster;")
 
 					// Stripping all whitespaces and new lines
 					preparedSql := strings.ReplaceAll(strings.ReplaceAll(initJobCommand, " ", ""), "\n", "")
-					expectedSql := strings.ReplaceAll(strings.ReplaceAll(testCase.expect.initJob.sql, " ", ""), "\n", "")
+					expectedSql := strings.ReplaceAll(strings.ReplaceAll(testCase.expect.job.sql, " ", ""), "\n", "")
 
 					require.Contains(subT, preparedSql, expectedSql)
 				} else {
@@ -1003,16 +1005,16 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 
 			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secrets.init.yaml"})
 
-			require.Equal(subT, testCase.expect.initSecret.exists, err == nil)
+			require.Equal(subT, testCase.expect.secret.exists, err == nil)
 
-			if testCase.expect.initSecret.exists {
+			if testCase.expect.secret.exists {
 				helm.UnmarshalK8SYaml(t, output, &secret)
 
-				for username, password := range testCase.expect.initSecret.users {
+				for username, password := range testCase.expect.secret.users {
 					require.Equal(subT, secret.StringData[username+"-password"], password)
 				}
 
-				for name, value := range testCase.expect.initSecret.clusterSettings {
+				for name, value := range testCase.expect.secret.clusterSettings {
 					require.Equal(subT, secret.StringData[name+"-cluster-setting"], value)
 				}
 			}
