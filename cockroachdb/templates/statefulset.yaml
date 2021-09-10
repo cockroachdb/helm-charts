@@ -184,7 +184,6 @@ spec:
             {{- end }}
             {{- end }}
               --advertise-host=$(hostname).${STATEFULSET_FQDN}
-              --logtostderr={{ .Values.conf.logtostderr }}
             {{- if .Values.tls.enabled }}
               --certs-dir=/cockroach/cockroach-certs/
             {{- else }}
@@ -211,6 +210,11 @@ spec:
             {{- end }}
             {{- if .Values.conf.store.enabled }}
               --store={{ template "cockroachdb.conf.store" . }}
+            {{- end }}
+            {{- if .Values.conf.log.enabled }}
+              --log-config-file=/cockroach/log-config/log-config.yaml
+            {{- else }}
+              --logtostderr={{ .Values.conf.logtostderr }}
             {{- end }}
             {{- range .Values.statefulset.args }}
               {{ . }}
@@ -246,6 +250,11 @@ spec:
           {{- range .Values.statefulset.secretMounts }}
             - name: {{ printf "secret-%s" . | quote }}
               mountPath: {{ printf "/etc/cockroach/secrets/%s" . | quote }}
+              readOnly: true
+          {{- end }}
+          {{- if .Values.conf.log.enabled }}
+            - name: log-config
+              mountPath: /cockroach/log-config
               readOnly: true
           {{- end }}
           livenessProbe:
@@ -324,6 +333,11 @@ spec:
         - name: {{ printf "secret-%s" . | quote }}
           secret:
             secretName: {{ . | quote }}
+      {{- end }}
+      {{- if .Values.conf.log.enabled }}
+        - name: log-config
+          secret:
+            secretName: {{ template "cockroachdb.fullname" . }}-log-config
       {{- end }}
 {{- if .Values.storage.persistentVolume.enabled }}
   volumeClaimTemplates:
