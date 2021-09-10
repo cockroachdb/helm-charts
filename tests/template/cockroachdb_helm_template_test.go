@@ -500,3 +500,99 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 		})
 	}
 }
+
+// TestHelmLogConfigFileStatefulSet contains the tests around the new logging configuration
+func TestHelmLogConfigFileStatefulSet(t *testing.T) {
+	t.Parallel()
+
+	var statefulset appsv1.StatefulSet
+	var secret corev1.Secret
+	// Path to the helm chart we will test
+	helmChartPath, err := filepath.Abs("../../cockroachdb")
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect struct {
+			statefulsetArgument string
+			logConfig           string
+			secretExists        bool
+		}
+	}{
+		{
+			"New logging configuration enabled",
+			map[string]string{"conf.log.enabled": "true"},
+			struct {
+				statefulsetArgument string
+				logConfig           string
+				secretExists        bool
+			} {
+				"--log-config-file=/cockroach/log-config/log-config.yaml",
+				"{}",
+				true,
+			},
+		},
+		{
+			"New logging configuration overridden",
+			map[string]string{
+				"conf.log.enabled": "true",
+				"conf.log.config": "file-defaults:\ndir: /custom/dir/path/",
+			},
+			struct {
+				statefulsetArgument string
+				logConfig           string
+				secretExists        bool
+			} {
+				"--log-config-file=/cockroach/log-config/log-config.yaml",
+				"file-defaults:\n  dir: /custom/dir/path/",
+				true,
+			},
+		},
+		{
+			"New logging configuration disabled",
+			map[string]string{
+				"conf.log.enabled": "false",
+				"conf.logtostderr": "INFO",
+			},
+			struct {
+				statefulsetArgument string
+				logConfig           string
+				secretExists        bool
+			} {
+				"--logtostderr=INFO",
+				"",
+				false,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
+
+			helm.UnmarshalK8SYaml(t, output, &statefulset)
+			require.Contains(t, statefulset.Spec.Template.Spec.Containers[0].Args[2], testCase.expect.statefulsetArgument)
+
+			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.logconfig.yaml"})
+
+			require.Equal(subT, testCase.expect.secretExists, err == nil)
+
+			if testCase.expect.secretExists {
+				helm.UnmarshalK8SYaml(t, output, &secret)
+				require.Contains(subT, secret.StringData["log-config.yaml"], testCase.expect.logConfig)
+			}
+		})
+	}
+}

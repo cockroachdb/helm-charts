@@ -59,7 +59,20 @@ conf:
   # new Pods.
   join: []
 
-  # Logs at or above this threshold to STDERR.
+  # New logging configuration.
+  log:
+    enabled: false
+    # https://www.cockroachlabs.com/docs/v21.1/configure-logs
+    config: {}
+      # file-defaults:
+      #   dir: /custom/dir/path/
+      # fluent-defaults:
+      #   format: json-fluent
+      # sinks:
+      #   stderr:
+      #     channels: [DEV]
+
+  # Logs at or above this threshold to STDERR. Ignored when "log" is enabled
   logtostderr: INFO
 
   # Maximum storage capacity available to store temporary disk-based data for
