@@ -505,8 +505,6 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 	t.Parallel()
 
-	var statefulset appsv1.StatefulSet
-	var secret corev1.Secret
 	// Path to the helm chart we will test
 	helmChartPath, err := filepath.Abs("../../cockroachdb")
 	require.NoError(t, err)
@@ -568,10 +566,14 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
+		var statefulset appsv1.StatefulSet
+		var secret corev1.Secret
+
 		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
 		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
 		// and will be the next testCase!
 		testCase := testCase
+
 		t.Run(testCase.name, func(subT *testing.T) {
 			subT.Parallel()
 
@@ -583,6 +585,8 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
 
 			helm.UnmarshalK8SYaml(t, output, &statefulset)
+
+			require.Equal(subT, namespaceName, statefulset.Namespace)
 			require.Contains(t, statefulset.Spec.Template.Spec.Containers[0].Args[2], testCase.expect.statefulsetArgument)
 
 			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.logconfig.yaml"})
@@ -591,6 +595,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 
 			if testCase.expect.secretExists {
 				helm.UnmarshalK8SYaml(t, output, &secret)
+				require.Equal(subT, namespaceName, secret.Namespace)
 				require.Contains(subT, secret.StringData["log-config.yaml"], testCase.expect.logConfig)
 			}
 		})
@@ -601,8 +606,6 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 func TestHelmDatabaseProvisioning(t *testing.T) {
 	t.Parallel()
 
-	var job batchv1.Job
-	var secret corev1.Secret
 	// Path to the helm chart we will test
 	helmChartPath, err := filepath.Abs("../../cockroachdb")
 	require.NoError(t, err)
@@ -957,10 +960,14 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
+		var job batchv1.Job
+		var secret corev1.Secret
+
 		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
 		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
 		// and will be the next testCase!
 		testCase := testCase
+
 		t.Run(testCase.name, func(subT *testing.T) {
 			subT.Parallel()
 
@@ -975,6 +982,7 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 
 			if testCase.expect.job.exists {
 				helm.UnmarshalK8SYaml(t, output, &job)
+				require.Equal(subT, job.Namespace, namespaceName)
 
 				require.Equal(subT, job.Annotations["helm.sh/hook-delete-policy"], testCase.expect.job.hookDeletePolicy)
 
@@ -1009,6 +1017,8 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 
 			if testCase.expect.secret.exists {
 				helm.UnmarshalK8SYaml(t, output, &secret)
+
+				require.Equal(subT, secret.Namespace, namespaceName)
 
 				for username, password := range testCase.expect.secret.users {
 					require.Equal(subT, secret.StringData[username+"-password"], password)
