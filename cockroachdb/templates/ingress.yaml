@@ -41,7 +41,11 @@ spec:
   {{- range $path := $paths }}
           - path: {{ $path }}
             {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
+            {{- if .Values.iap.enabled }}
+            pathType: ImplementationSpecific
+            {{- else }}
             pathType: Prefix
+            {{- end }}
             {{- end }}
             backend:
               {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
@@ -61,7 +65,11 @@ spec:
   {{- range $path := $paths }}
           - path: {{ $path }}
             {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
+            {{- if .Values.iap.enabled }}
+            pathType: ImplementationSpecific
+            {{- else }}
             pathType: Prefix
+            {{- end }}
             {{- end }}
             backend:
               {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
