@@ -17,6 +17,15 @@ spec:
       backoffLimit: 1
       template:
         spec:
+        {{- if or .Values.image.credentials (and .Values.tls.enabled .Values.tls.selfSigner.image.credentials (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager)) }}
+          imagePullSecrets:
+          {{- if .Values.image.credentials }}
+            - name: {{ template "cockroachdb.fullname" . }}.db.registry
+          {{- end }}
+          {{- if and .Values.tls.enabled .Values.tls.selfSigner.image.credentials (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager) }}
+            - name: {{ template "cockroachdb.fullname" . }}.self-signed-certs.registry
+          {{- end }}
+        {{- end }}
           restartPolicy: Never
           containers:
           - name: cert-rotate-job
