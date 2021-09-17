@@ -8,6 +8,4 @@ lastCommit=$(git rev-parse @~)
 git diff "${lastCommit}" "${currentCommit}" cockroachdb/values.yaml | grep -w "$tag" | grep +
 if [[ $? -ne 0 ]]; then
   echo "You have not changed the tag of selfSigner utility"
-  exit 1
 fi
-exit 0
