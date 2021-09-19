@@ -27,7 +27,11 @@ jobs:
         id: changetag
         shell: bash
         run: |
-          echo ::set-output name=tagChange::true
+          output=$(./build/self-signer-utility.sh)
+          echo $output | grep "You have not changed the tag of selfSigner utility"
+          if [[ $? -ne 0 ]]; then
+            echo ::set-output name=tagChange::true
+          fi
 
 
   # Post job to build and push the self signer utility whenever any PR gets merged
