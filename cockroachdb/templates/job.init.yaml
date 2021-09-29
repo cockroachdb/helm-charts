@@ -1,4 +1,6 @@
-{{- if and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`)) }}
+{{ $isClusterInitEnabled := and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`)) }}
+{{ $isDatabaseProvisioningEnabled := .Values.init.provisioning.enabled }}
+{{- if or $isClusterInitEnabled $isDatabaseProvisioningEnabled }}
   {{ template "cockroachdb.tlsValidation" . }}
 kind: Job
 apiVersion: batch/v1
@@ -18,7 +20,7 @@ metadata:
   {{- end }}
   annotations:
     helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+    helm.sh/hook-delete-policy: before-hook-creation
 spec:
   template:
     metadata:
@@ -86,29 +88,140 @@ spec:
           # Command completes either when cluster initialization succeeds,
           # or when cluster has been initialized already.
           command:
-            - /bin/bash
-            - -c
-            - >-
-              while true; do
-              initOUT=$(set -x;
-              /cockroach/cockroach init
-              {{- if .Values.tls.enabled }}
-              --certs-dir=/cockroach-certs/
-              {{- else }}
-              --insecure
-              {{- end }}
-              {{- with index .Values.conf "cluster-name" }}
-              --cluster-name={{.}}
-              {{- end }}
-              --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
-                     :{{ .Values.service.ports.grpc.internal.port | int64 }}
-              2>&1);
-              initRC="$?";
-              echo $initOUT;
-              [[ "$initRC" == "0" ]] && exit 0;
-              [[ "$initOUT" == *"cluster has already been initialized"* ]] && exit 0;
-              sleep 5;
-              done
+          - /bin/bash
+          - -c
+          - >-
+            {{- if $isClusterInitEnabled }}
+              initCluster() {
+                while true; do
+                  local output=$(
+                    set -x;
+
+                    /cockroach/cockroach init \
+                      {{- if .Values.tls.enabled }}
+                      --certs-dir=/cockroach-certs/ \
+                      {{- else }}
+                      --insecure \
+                      {{- end }}
+                      {{- with index .Values.conf "cluster-name" }}
+                      --cluster-name={{.}} \
+                      {{- end }}
+                      --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
+                              :{{ .Values.service.ports.grpc.internal.port | int64 }}
+                  2>&1);
+
+                  local exitCode="$?";
+                  echo $output;
+
+                  if [[ "$exitCode" == "0" || "$output" == *"cluster has already been initialized"* ]]
+                    then break;
+                  fi
+
+                  sleep 5;
+                done
+              }
+
+              initCluster;
+            {{- end }}
+
+            {{- if $isDatabaseProvisioningEnabled }}
+              provisionCluster() {
+                while true; do
+                  /cockroach/cockroach sql \
+                    {{- if .Values.tls.enabled }}
+                    --certs-dir=/cockroach-certs/ \
+                    {{- else }}
+                    --insecure \
+                    {{- end }}
+                    {{- with index .Values.conf "cluster-name" }}
+                    --cluster-name={{.}} \
+                    {{- end }}
+                    --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
+                            :{{ .Values.service.ports.grpc.internal.port | int64 }} \
+                    --execute="
+                      {{- range $clusterSetting, $clusterSettingValue := .Values.init.provisioning.clusterSettings }}
+                        SET CLUSTER SETTING {{ $clusterSetting }} = '${{ $clusterSetting | replace "." "_" }}_CLUSTER_SETTING';
+                      {{- end }}
+
+                      {{- range $user := .Values.init.provisioning.users }}
+                        CREATE USER IF NOT EXISTS {{ $user.name }} WITH
+                        {{- if $user.password }}
+                          PASSWORD '${{ $user.name }}_PASSWORD'
+                        {{- else }}
+                          PASSWORD null
+                        {{- end }}
+                          {{ join " " $user.options }}
+                        ;
+                      {{- end }}
+
+                      {{- range $database := .Values.init.provisioning.databases }}
+                        CREATE DATABASE IF NOT EXISTS {{ $database.name }}
+                          {{- if $database.options }}
+                            {{ join " " $database.options }}
+                          {{- end }}
+                        ;
+
+                      {{- range $owner := $database.owners }}
+                        GRANT ALL ON DATABASE {{ $database.name }} TO {{ $owner }};
+                      {{- end }}
+
+                      {{- if $database.backup }}
+                        CREATE SCHEDULE IF NOT EXISTS {{ $database.name }}_scheduled_backup
+                          FOR BACKUP DATABASE {{ $database.name }} INTO '{{ $database.backup.into }}'
+
+                        {{- if $database.backup.options }}
+                          WITH {{ join "," $database.backup.options }}
+                        {{- end }}
+                          RECURRING '{{ $database.backup.recurring }}'
+                        {{- if $database.backup.fullBackup }}
+                          FULL BACKUP '{{ $database.backup.fullBackup }}'
+                        {{- else }}
+                          FULL BACKUP ALWAYS
+                        {{- end }}
+
+                        {{- if and $database.backup.schedule $database.backup.schedule.options }}
+                          WITH SCHEDULE OPTIONS {{ join "," $database.backup.schedule.options }}
+                        {{- end }}
+                        ;
+                      {{- end }}
+                      {{- end }}
+                    "
+                  &>/dev/null;
+
+                  local exitCode="$?";
+
+                  if [[ "$exitCode" == "0" ]]
+                    then break;
+                  fi
+
+                  sleep 5;
+                done
+
+                echo "Provisioning completed successfully";
+              }
+
+              provisionCluster;
+            {{- end }}
+          env:
+        {{- $secretName := printf "%s-init" (include "cockroachdb.fullname" .) }}
+        {{- range $user := .Values.init.provisioning.users }}
+        {{- if $user.password }}
+          - name: {{ $user.name }}_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ $secretName }}
+                key: {{ $user.name }}-password
+        {{- end }}
+        {{- end }}
+        {{- range $clusterSetting, $clusterSettingValue := .Values.init.provisioning.clusterSettings }}
+        {{- if $clusterSettingValue }}
+          - name: {{ $clusterSetting | replace "." "_" }}_CLUSTER_SETTING
+            valueFrom:
+              secretKeyRef:
+                name: {{ $secretName }}
+                key: {{ $clusterSetting | replace "." "-" }}-cluster-setting
+        {{- end }}
+        {{- end }}
         {{- if .Values.tls.enabled }}
           volumeMounts:
             - name: client-certs

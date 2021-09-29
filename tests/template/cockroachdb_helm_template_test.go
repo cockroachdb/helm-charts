@@ -505,8 +505,6 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 	t.Parallel()
 
-	var statefulset appsv1.StatefulSet
-	var secret corev1.Secret
 	// Path to the helm chart we will test
 	helmChartPath, err := filepath.Abs("../../cockroachdb")
 	require.NoError(t, err)
@@ -527,7 +525,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				statefulsetArgument string
 				logConfig           string
 				secretExists        bool
-			} {
+			}{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
 				"{}",
 				true,
@@ -537,13 +535,13 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 			"New logging configuration overridden",
 			map[string]string{
 				"conf.log.enabled": "true",
-				"conf.log.config": "file-defaults:\ndir: /custom/dir/path/",
+				"conf.log.config":  "file-defaults:\ndir: /custom/dir/path/",
 			},
 			struct {
 				statefulsetArgument string
 				logConfig           string
 				secretExists        bool
-			} {
+			}{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
 				"file-defaults:\n  dir: /custom/dir/path/",
 				true,
@@ -559,7 +557,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				statefulsetArgument string
 				logConfig           string
 				secretExists        bool
-			} {
+			}{
 				"--logtostderr=INFO",
 				"",
 				false,
@@ -568,10 +566,14 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 	}
 
 	for _, testCase := range testCases {
+		var statefulset appsv1.StatefulSet
+		var secret corev1.Secret
+
 		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
 		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
 		// and will be the next testCase!
 		testCase := testCase
+
 		t.Run(testCase.name, func(subT *testing.T) {
 			subT.Parallel()
 
@@ -583,6 +585,8 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
 
 			helm.UnmarshalK8SYaml(t, output, &statefulset)
+
+			require.Equal(subT, namespaceName, statefulset.Namespace)
 			require.Contains(t, statefulset.Spec.Template.Spec.Containers[0].Args[2], testCase.expect.statefulsetArgument)
 
 			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.logconfig.yaml"})
@@ -591,7 +595,438 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 
 			if testCase.expect.secretExists {
 				helm.UnmarshalK8SYaml(t, output, &secret)
+				require.Equal(subT, namespaceName, secret.Namespace)
 				require.Contains(subT, secret.StringData["log-config.yaml"], testCase.expect.logConfig)
+			}
+		})
+	}
+}
+
+// TestHelmDatabaseProvisioning contains the tests around the cluster init and provisioning
+func TestHelmDatabaseProvisioning(t *testing.T) {
+	t.Parallel()
+
+	// Path to the helm chart we will test
+	helmChartPath, err := filepath.Abs("../../cockroachdb")
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect struct {
+			job struct {
+				exists           bool
+				hookDeletePolicy string
+				initCluster      bool
+				provisionCluster bool
+				sql              string
+			}
+			secret struct {
+				exists          bool
+				users           map[string]string
+				clusterSettings map[string]string
+			}
+		}
+	}{
+		{
+			"Disabled provisioning",
+			map[string]string{"init.provisioning.enabled": "false"},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					false,
+					"",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					false,
+					nil,
+					nil,
+				},
+			},
+		},
+		{
+			"Enabled empty provisioning",
+			map[string]string{"init.provisioning.enabled": "true"},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					nil,
+				},
+			},
+		},
+		{
+			"Users provisioning",
+			map[string]string{
+				"init.provisioning.enabled":             "true",
+				"init.provisioning.users[0].name":       "testUser",
+				"init.provisioning.users[0].password":   "testPassword",
+				"init.provisioning.users[0].options[0]": "CREATEROLE",
+			},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE USER IF NOT EXISTS testUser WITH PASSWORD '$testUser_PASSWORD' CREATEROLE;",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{true,
+					map[string]string{
+						"testUser": "testPassword",
+					},
+					nil,
+				},
+			},
+		},
+		{
+			"Database provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                 "true",
+				"init.provisioning.databases[0].name":       "testDatabase",
+				"init.provisioning.databases[0].options[0]": "encoding='utf-8'",
+			},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE DATABASE IF NOT EXISTS testDatabase encoding='utf-8';",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					nil,
+				},
+			},
+		},
+		{
+			"Users with database granted provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                "true",
+				"init.provisioning.users[0].name":          "testUser",
+				"init.provisioning.users[0].password":      "testPassword",
+				"init.provisioning.databases[0].name":      "testDatabase",
+				"init.provisioning.databases[0].owners[0]": "testUser",
+			},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE USER IF NOT EXISTS testUser WITH PASSWORD '$testUser_PASSWORD';" +
+						"CREATE DATABASE IF NOT EXISTS testDatabase;" +
+						"GRANT ALL ON DATABASE testDatabase TO testUser;",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					map[string]string{
+						"testUser": "testPassword",
+					},
+					nil,
+				},
+			},
+		},
+		{
+			"Cluster settings provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                                "true",
+				"init.provisioning.clusterSettings.cluster\\.organization": "testOrganization",
+				"init.provisioning.clusterSettings.enterprise\\.license":   "testLicense",
+			},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"SET CLUSTER SETTING cluster.organization = '$cluster_organization_CLUSTER_SETTING';" +
+						"SET CLUSTER SETTING enterprise.license = '$enterprise_license_CLUSTER_SETTING';",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					map[string]string{
+						"cluster-organization": "testOrganization",
+						"enterprise-license":   "testLicense",
+					},
+				},
+			},
+		},
+		{
+			"Database backup provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                                 "true",
+				"init.provisioning.databases[0].name":                       "testDatabase",
+				"init.provisioning.databases[0].backup.into":                "s3://backups/testDatabase?AWS_ACCESS_KEY_ID=minioadmin&AWS_ENDPOINT=http://minio.minio:80&AWS_REGION=us-east-1&AWS_SECRET_ACCESS_KEY=minioadmin",
+				"init.provisioning.databases[0].backup.options[0]":          "revision_history",
+				"init.provisioning.databases[0].backup.recurring":           "@always",
+				"init.provisioning.databases[0].backup.fullBackup":          "@daily",
+				"init.provisioning.databases[0].backup.schedule.options[0]": "first_run = 'now'",
+			},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE DATABASE IF NOT EXISTS testDatabase;" +
+						"CREATE SCHEDULE IF NOT EXISTS testDatabase_scheduled_backup" +
+						"FOR BACKUP DATABASE testDatabase INTO 's3://backups/testDatabase?AWS_ACCESS_KEY_ID=minioadmin&AWS_ENDPOINT=http://minio.minio:80&AWS_REGION=us-east-1&AWS_SECRET_ACCESS_KEY=minioadmin'" +
+						"WITH revision_history" +
+						"RECURRING '@always'" +
+						"FULL BACKUP '@daily'" +
+						"WITH SCHEDULE OPTIONS first_run = 'now';",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					nil,
+				},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		var job batchv1.Job
+		var secret corev1.Secret
+
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/job.init.yaml"})
+
+			require.Equal(subT, testCase.expect.job.exists, err == nil)
+
+			if testCase.expect.job.exists {
+				helm.UnmarshalK8SYaml(t, output, &job)
+				require.Equal(subT, job.Namespace, namespaceName)
+
+				require.Equal(subT, job.Annotations["helm.sh/hook-delete-policy"], testCase.expect.job.hookDeletePolicy)
+
+				initJobCommand := job.Spec.Template.Spec.Containers[0].Command[2]
+
+				if testCase.expect.job.initCluster {
+					require.Contains(subT, initJobCommand, "initCluster()")
+					require.Contains(subT, initJobCommand, "initCluster;")
+				} else {
+					require.NotContains(subT, initJobCommand, "initCluster()")
+					require.NotContains(subT, initJobCommand, "initCluster;")
+				}
+
+				if testCase.expect.job.provisionCluster {
+					require.Contains(subT, initJobCommand, "provisionCluster()")
+					require.Contains(subT, initJobCommand, "provisionCluster;")
+
+					// Stripping all whitespaces and new lines
+					preparedSql := strings.ReplaceAll(strings.ReplaceAll(initJobCommand, " ", ""), "\n", "")
+					expectedSql := strings.ReplaceAll(strings.ReplaceAll(testCase.expect.job.sql, " ", ""), "\n", "")
+
+					require.Contains(subT, preparedSql, expectedSql)
+				} else {
+					require.NotContains(subT, initJobCommand, "provisionCluster()")
+					require.NotContains(subT, initJobCommand, "provisionCluster;")
+				}
+			}
+
+			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secrets.init.yaml"})
+
+			require.Equal(subT, testCase.expect.secret.exists, err == nil)
+
+			if testCase.expect.secret.exists {
+				helm.UnmarshalK8SYaml(t, output, &secret)
+
+				require.Equal(subT, secret.Namespace, namespaceName)
+
+				for username, password := range testCase.expect.secret.users {
+					require.Equal(subT, secret.StringData[username+"-password"], password)
+				}
+
+				for name, value := range testCase.expect.secret.clusterSettings {
+					require.Equal(subT, secret.StringData[name+"-cluster-setting"], value)
+				}
 			}
 		})
 	}
