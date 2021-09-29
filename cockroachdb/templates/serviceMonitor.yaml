@@ -43,4 +43,8 @@ spec:
     {{- if $serviceMonitor.scrapeTimeout }}
     scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
     {{- end }}
+    {{- if $serviceMonitor.tlsConfig }}
+    tlsConfig:
+      $serviceMonitor.tlsConfig
+    {{- end }}
 {{- end }}

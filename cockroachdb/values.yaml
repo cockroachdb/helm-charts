@@ -320,6 +320,7 @@ serviceMonitor:
   labels: {}
   annotations: {}
   interval: 10s
+  tlsConfig: {}
   # scrapeTimeout: 10s
 
 # CockroachDB's data persistence.
