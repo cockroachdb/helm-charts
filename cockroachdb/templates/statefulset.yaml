@@ -257,6 +257,9 @@ spec:
               mountPath: /cockroach/log-config
               readOnly: true
           {{- end }}
+          {{- with .Values.statefulset.extraVolumes.volumeMounts }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           livenessProbe:
           {{- if .Values.statefulset.customLivenessProbe }}
             {{ toYaml .Values.statefulset.customLivenessProbe | nindent 12 }}
@@ -367,4 +370,7 @@ spec:
         resources:
           requests:
             storage: {{ .Values.storage.persistentVolume.size | quote }}
+      {{- with .Values.statefulset.extraVolumes.volumeClaimTemplates }}
+        {{- toYaml . | nindent 4 }}
+      {{- end }}
 {{- end }}

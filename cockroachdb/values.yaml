@@ -168,6 +168,22 @@ statefulset:
   podManagementPolicy: Parallel
   budget:
     maxUnavailable: 1
+  extraVolumes: {}
+    # NOTE: if you want to add extra volumes to the statefulset
+    #       uncomment the following lines
+    # volumeMounts:
+    #   - name: backup
+    #     mountPath: /backups
+    # volumeClaimTemplates:
+    #   - metadata:
+    #       name: backup
+    #     spec:
+    #       resources:
+    #         requests:
+    #           storage: 100Gi
+    #       volumeMode: Filesystem
+    #       accessModes:
+    #         - ReadWriteOnce
 
   # List of additional command-line arguments you want to pass to the
   # `cockroach start` command.
