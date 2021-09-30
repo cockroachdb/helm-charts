@@ -45,6 +45,6 @@ spec:
     {{- end }}
     {{- if $serviceMonitor.tlsConfig }}
     tlsConfig:
-      $serviceMonitor.tlsConfig
+      {{ $serviceMonitor.tlsConfig | toYaml }}
     {{- end }}
 {{- end }}
