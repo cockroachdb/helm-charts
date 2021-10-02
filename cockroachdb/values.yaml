@@ -321,6 +321,8 @@ serviceMonitor:
   annotations: {}
   interval: 10s
   # scrapeTimeout: 10s
+  # Limits the ServiceMonitor to the current namespace if set to `true`.
+  namespaced: false
 
 # CockroachDB's data persistence.
 # If neither `persistentVolume` nor `hostPath` is used, then data will be
