@@ -45,8 +45,8 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	}
 
 	cmd := shell.Command{
-		Command: "yq",
-		Args: []string{"r", path.Join(helmChartPath, "values.yaml"), "tls.selfSigner.image.tag"},
+		Command:    "yq",
+		Args:       []string{"r", path.Join(helmChartPath, "values.yaml"), "tls.selfSigner.image.tag"},
 		WorkingDir: ".",
 	}
 
@@ -95,7 +95,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
 	// This will create a database, a table and insert two rows into that table.
-	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, false, true)
 
 	t.Log("Rotating the Client and Node certificate for the CRDB")
 
@@ -113,7 +113,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 
 	time.Sleep(20 * time.Second)
 	// This will check after rotation the database is working properly.
-	testutil.RequireDatabaseToFunction(t, crdbCluster, true)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, true, true)
 
 	t.Log("Verify that client and node certificate duration is changed")
 	newClientCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
@@ -136,7 +136,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 
 	time.Sleep(20 * time.Second)
 	// This will check after rotation the database is working properly.
-	testutil.RequireDatabaseToFunction(t, crdbCluster, true)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, true, true)
 
 	t.Log("Verify that CA certificate duration is changed")
 	newCaCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
