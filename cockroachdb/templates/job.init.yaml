@@ -240,7 +240,7 @@ spec:
           projected:
             sources:
             - secret:
-                {{- if  .Values.tls.certs.selfSigner.enabled }}
+                {{- if .Values.tls.certs.selfSigner.enabled }}
                 name: {{ template "cockroachdb.fullname" . }}-client-secret
                 {{ else }}
                 name: {{ .Values.tls.certs.clientRootSecret }}

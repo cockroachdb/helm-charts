@@ -115,13 +115,13 @@ func statefulSetIsReady(ss *appsv1.StatefulSet) bool {
 
 // RequireDatabaseToFunction creates a database, a table and insert two rows if it is a fresh install of the cluster.
 // If certificate is rotated and cluster rolling restart has happened, this will check that existing two rows are present.
-func RequireDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bool) {
+func RequireDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bool, isSecure bool) {
 	sqlPort := int32(26257)
 	conn := &database.DBConnection{
 		Ctx:    context.TODO(),
 		Client: crdbCluster.K8sClient,
 		Port:   &sqlPort,
-		UseSSL: true,
+		UseSSL: isSecure,
 
 		RestConfig:   crdbCluster.Cfg,
 		ServiceName:  fmt.Sprintf("%s-0.%s", crdbCluster.StatefulSetName, crdbCluster.StatefulSetName),
