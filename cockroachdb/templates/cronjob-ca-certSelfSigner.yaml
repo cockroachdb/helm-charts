@@ -1,6 +1,6 @@
 {{- if and .Values.tls.enabled (and .Values.tls.certs.selfSigner.enabled (not .Values.tls.certs.selfSigner.caProvided)) }}
   {{- if .Values.tls.certs.selfSigner.rotateCerts }}
-apiVersion: batch/v1beta1
+apiVersion: batch/v1
 kind: CronJob
 metadata:
   name: {{ template "rotatecerts.fullname" . }}
