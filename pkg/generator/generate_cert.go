@@ -130,16 +130,16 @@ func (rc *GenerateCert) Do(ctx context.Context, namespace string) error {
 		return nil
 	}
 
-	// generate the node certificate for the database to use
-	if err := rc.generateNodeCert(ctx, rc.getNodeSecretName(), namespace); err != nil {
-		msg := " error Generating Node Certificate"
+	// generate the client certificates for the database to use
+	if err := rc.generateClientCert(ctx, rc.getClientSecretName(), namespace); err != nil {
+		msg := " error Generating Client Certificate"
 		logrus.Error(err, msg)
 		return errors.Wrap(err, msg)
 	}
 
-	// generate the client certificates for the database to use
-	if err := rc.generateClientCert(ctx, rc.getClientSecretName(), namespace); err != nil {
-		msg := " error Generating Client Certificate"
+	// generate the node certificate for the database to use
+	if err := rc.generateNodeCert(ctx, rc.getNodeSecretName(), namespace); err != nil {
+		msg := " error Generating Node Certificate"
 		logrus.Error(err, msg)
 		return errors.Wrap(err, msg)
 	}
