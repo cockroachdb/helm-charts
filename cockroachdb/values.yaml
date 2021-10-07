@@ -463,6 +463,8 @@ tls:
       rotateCerts: true
       # Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true
       readinessWait: 30s
+      # Wait time for each cockroachdb replica to get to running state. Only considered when rotateCerts is set to true
+      podUpdateTimeout: 2m
 
     # Use cert-manager to issue certificates for mTLS.
     certManager: false

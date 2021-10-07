@@ -36,6 +36,7 @@ var (
 	clientFlag, caFlag, nodeFlag bool
 	caCron, nodeAndClientCron    string
 	readinessWait                string
+	podUpdateTimeout             string
 )
 
 func init() {
@@ -49,7 +50,7 @@ func init() {
 	rotateCmd.Flags().StringVar(&nodeAndClientCron, "node-client-cron", "", "cron of the node and client certificate rotation cron")
 
 	rotateCmd.Flags().StringVar(&readinessWait, "readiness-wait", "30s", "readiness wait for each replica of crdb cluster")
-
+	rotateCmd.Flags().StringVar(&podUpdateTimeout, "pod-update-timeout", "2m", "time to wait for statefulset pod to restart and get to running state")
 }
 
 func rotate(cmd *cobra.Command, args []string) {
@@ -76,7 +77,13 @@ func rotate(cmd *cobra.Command, args []string) {
 	if err != nil {
 		log.Panicf("failed to parse readiness-wait duration %s", err.Error())
 	}
+	podTimeout, err := time.ParseDuration(podUpdateTimeout)
+	if err != nil {
+		log.Panicf("failed to parse pod-update-timeout duration %s", err.Error())
+	}
+
 	genCert.ReadinessWait = timeout
+	genCert.PodUpdateTimeout = podTimeout
 
 	genCert.CaSecret = caSecret
 	genCert.RotateCACert = caFlag

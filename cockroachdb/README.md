@@ -397,6 +397,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.selfSigner.nodeCertExpiryWindow`               | Expiry window of node cert means a window before actual expiry in which node certs should be rotated               | `168h`                                               |
 | `tls.certs.selfSigner.rotateCerts`                        | Whether to rotate the certs generate by cockroachdb             | `true`                                           |
 | `tls.certs.selfSigner.readinessWait`                      | Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true                                    | `30s`                                             |
+| `tls.certs.selfSigner.podUpdateTimeout`                   | Wait time for each cockroachdb replica to get to running state. Only considered when rotateCerts is set to true                                    | `2m`                                             |
 | `tls.certs.certManager`                                   | Provision certificates with cert-manager                        | `false`                                               |
 | `tls.certs.certManagerIssuer.group`                       | IssuerRef group to use when generating certificates             | `cert-manager.io`                                     |
 | `tls.certs.certManagerIssuer.kind`                        | IssuerRef kind to use when generating certificates              | `Issuer`                                              |

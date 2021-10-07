@@ -68,6 +68,7 @@ type GenerateCert struct {
 	DiscoveryServiceName      string
 	ClusterDomain             string
 	ReadinessWait             time.Duration
+	PodUpdateTimeout          time.Duration
 }
 
 type certConfig struct {
@@ -370,7 +371,7 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 					return err
 				}
 
-				if err = kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait); err != nil {
+				if err = kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait, rc.PodUpdateTimeout); err != nil {
 					return
 				}
 				return nil
@@ -538,7 +539,7 @@ func (rc *GenerateCert) UpdateNewCA(ctx context.Context, namespace string) error
 
 	logrus.Info("Updating new CA in client secret")
 
-	if err := kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait); err != nil {
+	if err := kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait, rc.PodUpdateTimeout); err != nil {
 		return err
 	}
 	return nil
