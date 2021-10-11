@@ -133,7 +133,7 @@ as close possible to the expiry window. However, it is possible that cron may ru
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- printf "0 %s %s %s *" (toString $hours) (toString $days) (toString $months) | quote -}}
+{{- printf "0 %s %s %s *" (toString $hours) (toString $days) (toString $months) -}}
 {{- end -}}
 
 {{- define "selfcerts.clientRotateSchedule" -}}
@@ -164,7 +164,7 @@ as close possible to the expiry window. However, it is possible that cron may ru
 {{- end -}}
 {{- end -}}
 {{- end -}}
-{{- printf "0 %s %s %s *" (toString $hours) (toString $days) (toString $months) | quote -}}
+{{- printf "0 %s %s %s *" (toString $hours) (toString $days) (toString $months) -}}
 {{- end -}}
 
 {{/*
@@ -254,3 +254,4 @@ Validate that if user enabled tls, then either self-signed certificates or certi
 {{ include "cockroachdb.tls.certs.selfSigner.clientCertValidation" . }}
 {{ include "cockroachdb.tls.certs.selfSigner.nodeCertValidation" . }}
 {{- end -}}
+
