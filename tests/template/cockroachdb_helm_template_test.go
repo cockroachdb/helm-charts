@@ -14,6 +14,7 @@ import (
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
+	monitoring "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -1008,6 +1009,59 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				for name, value := range testCase.expect.secret.clusterSettings {
 					require.Equal(subT, secret.StringData[name+"-cluster-setting"], value)
 				}
+			}
+		})
+	}
+}
+
+func TestHelmServiceMonitor(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name       string
+		values     map[string]string
+		namespaced bool
+	}{
+		{
+			"All namespaces are selected",
+			map[string]string{
+				"serviceMonitor.enabled":    "true",
+				"serviceMonitor.namespaced": "false",
+			},
+			false,
+		},
+		{
+			"Current namespace is selected",
+			map[string]string{
+				"serviceMonitor.enabled":    "true",
+				"serviceMonitor.namespaced": "true",
+			},
+			true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/serviceMonitor.yaml"})
+
+			var monitor monitoring.ServiceMonitor
+			helm.UnmarshalK8SYaml(t, output, &monitor)
+
+			require.Equal(t, monitor.Spec.NamespaceSelector.Any, !testCase.namespaced)
+			if testCase.namespaced {
+				require.Len(t, monitor.Spec.NamespaceSelector.MatchNames, 1)
+				require.Contains(t, monitor.Spec.NamespaceSelector.MatchNames, namespaceName)
+			} else {
+				require.Empty(t, monitor.Spec.NamespaceSelector.MatchNames)
 			}
 		})
 	}
