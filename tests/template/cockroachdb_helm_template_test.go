@@ -270,10 +270,6 @@ func TestHelmSelfCertSignerCronJob(t *testing.T) {
 func TestHelmSelfCertSignerCronJobSchedule(t *testing.T) {
 	t.Parallel()
 
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
-
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
@@ -350,9 +346,6 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 
 	var statefulset appsv1.StatefulSet
 	var job batchv1.Job
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
@@ -407,10 +400,6 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 // TestSelfSignerHelmValidation contains the validations around the self-signer utility inputs
 func TestSelfSignerHelmValidation(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
@@ -504,10 +493,6 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 // TestHelmLogConfigFileStatefulSet contains the tests around the new logging configuration
 func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
@@ -605,10 +590,6 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 // TestHelmDatabaseProvisioning contains the tests around the cluster init and provisioning
 func TestHelmDatabaseProvisioning(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
