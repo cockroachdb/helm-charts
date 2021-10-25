@@ -515,6 +515,7 @@ networkPolicy:
       #       project: my-project
 
 # To put the admin interface behind Identity Aware Proxy (IAP) on Google Cloud Platform
+# make sure to set ingress.paths: ['/*']
 iap:
   enabled: false
   # Create Google Cloud OAuth credentials and set client id and secret

@@ -1066,3 +1066,49 @@ func TestHelmServiceMonitor(t *testing.T) {
 		})
 	}
 }
+
+// TestIAPEnable tests the enabling the Identity Aware Proxy
+func TestIAPEnable(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect string
+	}{
+		{
+			"IAP enabled and clientId empty",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "",
+				"iap.clientSecret": "notempty",
+			},
+			"iap.clientID can't be empty if iap.enabled is set to true",
+		},
+		{
+			"IAP enabled and clientSecret empty",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "",
+			},
+			"iap.clientSecret can't be empty if iap.enabled is set to true",
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			_, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.backendconfig.yaml"})
+			require.Error(t, err)
+			require.Contains(t, err.Error(), testCase.expect)
+		})
+	}
+}
