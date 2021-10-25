@@ -366,6 +366,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `serviceMonitor.annotations`                              | Additional annotations of ServiceMonitor                        | `{}`                                                  |
 | `serviceMonitor.interval`                                 | ServiceMonitor scrape metrics interval                          | `10s`                                                 |
 | `serviceMonitor.scrapeTimeout`                            | ServiceMonitor scrape timeout                                   | `nil`                                                 |
+| `serviceMonitor.namespaced`                               | Limit ServiceMonitor to current namespace                       | `false`                                               |
 | `storage.hostPath`                                        | Absolute path on host to store data                             | `""`                                                  |
 | `storage.persistentVolume.enabled`                        | Whether to use PersistentVolume to store data                   | `yes`                                                 |
 | `storage.persistentVolume.size`                           | PersistentVolume size                                           | `100Gi`                                               |

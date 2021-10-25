@@ -33,7 +33,12 @@ spec:
       {{- toYaml . | nindent 6 }}
     {{- end }}
   namespaceSelector:
+  {{- if $serviceMonitor.namespaced }}
+    matchNames:
+      - {{ .Release.Namespace }}
+  {{- else }}
     any: true
+  {{- end }}
   endpoints:
   - port: {{ $ports.http.name | quote }}
     path: /_status/vars
