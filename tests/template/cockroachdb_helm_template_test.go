@@ -1095,6 +1095,15 @@ func TestHelmSecretBackendConfig(t *testing.T) {
 			},
 			"iap.clientSecret can't be empty if iap.enabled is set to true",
 		},
+		{
+			"IAP enabled and both clientId and clientSecret set",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "myclientid",
+				"iap.clientSecret": "myclientsecret",
+			},
+			"",
+		},
 	}
 
 	for _, testCase := range testCases {
@@ -1107,9 +1116,21 @@ func TestHelmSecretBackendConfig(t *testing.T) {
 
 			// Now we try rendering the template, but verify we get an error
 			options := &helm.Options{SetValues: testCase.values}
-			_, err := helm.RenderTemplateE(subT, options, helmChartPath, releaseName, []string{"templates/secret.backendconfig.yaml"})
-			require.Error(subT, err)
-			require.Contains(subT, err.Error(), testCase.expect)
+			output, err := helm.RenderTemplateE(subT, options, helmChartPath, releaseName, []string{"templates/secret.backendconfig.yaml"})
+
+			if testCase.expect != "" {
+				require.Error(subT, err)
+				require.Contains(subT, err.Error(), testCase.expect)
+			} else {
+
+				require.Nil(t, err)
+
+				var secret corev1.Secret
+				helm.UnmarshalK8SYaml(t, output, &secret)
+
+				require.Equal(t, string(secret.Data["client_id"]), "myclientid")
+				require.Equal(t, string(secret.Data["client_secret"]), "myclientsecret")
+			}
 		})
 	}
 }
@@ -1189,7 +1210,9 @@ func TestHelmIngress(t *testing.T) {
 
 			// Now we try rendering the template, but verify we get an error
 			options := &helm.Options{SetValues: testCase.values}
-			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/ingress.yaml"}, "--api-versions", "networking.k8s.io/v1/Ingress", "--debug")
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/ingress.yaml"}, "--api-versions", "networking.k8s.io/v1/Ingress")
+
+			require.Nil(t, err)
 
 			var ingress networkingv1.Ingress
 			helm.UnmarshalK8SYaml(t, output, &ingress)
