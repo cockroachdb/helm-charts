@@ -1128,8 +1128,8 @@ func TestHelmSecretBackendConfig(t *testing.T) {
 				var secret corev1.Secret
 				helm.UnmarshalK8SYaml(t, output, &secret)
 
-				require.Equal(t, string(secret.Data["client_id"]), "myclientid")
-				require.Equal(t, string(secret.Data["client_secret"]), "myclientsecret")
+				require.Equal(t, string(secret.Data["client_id"]), testCase.values["iap.clientId"])
+				require.Equal(t, string(secret.Data["client_secret"]), testCase.values["iap.clientSecret"])
 			}
 		})
 	}
