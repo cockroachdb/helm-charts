@@ -1114,6 +1114,40 @@ func TestHelmSecretBackendConfig(t *testing.T) {
 	}
 }
 
+// TestHelmBackendConfig tests the backendconfig template
+func TestHelmBackendConfig(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+	}{
+		{
+			"IAP enabled",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "notempty",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			_, err := helm.RenderTemplateE(subT, options, helmChartPath, releaseName, []string{"templates/backendconfig.yaml"})
+			require.Nil(subT, err)
+		})
+	}
+}
+
 // TestHelmIngress tests the ingress template
 func TestHelmIngress(t *testing.T) {
 	t.Parallel()
