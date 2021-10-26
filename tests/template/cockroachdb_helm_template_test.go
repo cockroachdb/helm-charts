@@ -9,6 +9,7 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 
 	"github.com/gruntwork-io/terratest/modules/helm"
@@ -1067,8 +1068,8 @@ func TestHelmServiceMonitor(t *testing.T) {
 	}
 }
 
-// TestIAPEnable tests the enabling the Identity Aware Proxy
-func TestIAPEnable(t *testing.T) {
+// TestHelmSecretBackendConfig tests the secret.backendconfig template
+func TestHelmSecretBackendConfig(t *testing.T) {
 	t.Parallel()
 
 	testCases := []struct {
@@ -1079,8 +1080,6 @@ func TestIAPEnable(t *testing.T) {
 		{
 			"IAP enabled and clientId empty",
 			map[string]string{
-				"ingress.enabled":  "true",
-				"ingress.paths":    "['/*']",
 				"iap.enabled":      "true",
 				"iap.clientId":     "",
 				"iap.clientSecret": "notempty",
@@ -1090,8 +1089,6 @@ func TestIAPEnable(t *testing.T) {
 		{
 			"IAP enabled and clientSecret empty",
 			map[string]string{
-				"ingress.enabled":  "true",
-				"ingress.paths":    "['/*']",
 				"iap.enabled":      "true",
 				"iap.clientId":     "notempty",
 				"iap.clientSecret": "",
@@ -1110,9 +1107,67 @@ func TestIAPEnable(t *testing.T) {
 
 			// Now we try rendering the template, but verify we get an error
 			options := &helm.Options{SetValues: testCase.values}
-			_, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.backendconfig.yaml", "templates/ingress.yaml"})
-			require.Error(t, err)
-			require.Contains(t, err.Error(), testCase.expect)
+			_, err := helm.RenderTemplateE(subT, options, helmChartPath, releaseName, []string{"templates/secret.backendconfig.yaml"})
+			require.Error(subT, err)
+			require.Contains(subT, err.Error(), testCase.expect)
+		})
+	}
+}
+
+// TestHelmIngress tests the ingress template
+func TestHelmIngress(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		values           map[string]string
+		expectedPathType networkingv1.PathType
+	}{
+		{
+			"Ingress enabled",
+			map[string]string{
+				"ingress.enabled":  "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "notempty",
+			},
+			networkingv1.PathTypePrefix,
+		},
+		{
+			"Ingress and IAP enabled",
+			map[string]string{
+				"ingress.enabled":  "true",
+				"ingress.paths":    "{/*}",
+				"iap.enabled":      "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "notempty",
+			},
+			networkingv1.PathTypeImplementationSpecific,
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/ingress.yaml"}, "--api-versions", "networking.k8s.io/v1/Ingress", "--debug")
+
+			var ingress networkingv1.Ingress
+			helm.UnmarshalK8SYaml(t, output, &ingress)
+
+			require.Equal(t, ingress.APIVersion, "networking.k8s.io/v1")
+
+			for _, rule := range ingress.Spec.Rules {
+				for _, path := range rule.HTTP.Paths {
+					require.NotNil(t, path.PathType)
+					require.Equal(t, *path.PathType, testCase.expectedPathType)
+				}
+			}
 		})
 	}
 }
