@@ -1079,6 +1079,8 @@ func TestIAPEnable(t *testing.T) {
 		{
 			"IAP enabled and clientId empty",
 			map[string]string{
+				"ingress.enabled":  "true",
+				"ingress.paths":    "['/*']",
 				"iap.enabled":      "true",
 				"iap.clientId":     "",
 				"iap.clientSecret": "notempty",
@@ -1088,6 +1090,8 @@ func TestIAPEnable(t *testing.T) {
 		{
 			"IAP enabled and clientSecret empty",
 			map[string]string{
+				"ingress.enabled":  "true",
+				"ingress.paths":    "['/*']",
 				"iap.enabled":      "true",
 				"iap.clientId":     "notempty",
 				"iap.clientSecret": "",
@@ -1106,7 +1110,7 @@ func TestIAPEnable(t *testing.T) {
 
 			// Now we try rendering the template, but verify we get an error
 			options := &helm.Options{SetValues: testCase.values}
-			_, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.backendconfig.yaml"})
+			_, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.backendconfig.yaml", "templates/ingress.yaml"})
 			require.Error(t, err)
 			require.Contains(t, err.Error(), testCase.expect)
 		})
