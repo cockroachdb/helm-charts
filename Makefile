@@ -23,16 +23,15 @@ get-tag: install-yq
 	yq r ./cockroachdb/values.yaml 'tls.selfSigner.image.tag'
 
 build-self-signer: install-yq
-	$(eval TAG=$(shell yq r ./cockroachdb/values.yaml 'tls.selfSigner.image.tag'))
+	$(eval TAG=$(shell yq e '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml))
 	docker build -f build/docker-image/Dockerfile -t ${REPOSITORY}:${TAG} .
 
 push-self-signer:
-	$(eval TAG=$(shell yq r ./cockroachdb/values.yaml 'tls.selfSigner.image.tag'))
+	$(eval TAG=$(shell yq e '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml))
 	docker push ${REPOSITORY}:${TAG}
 
 install-yq:
-	curl -Lo yq https://github.com/mikefarah/yq/releases/download/2.2.1/yq_linux_amd64 && \
-	chmod +x yq && sudo mv yq /usr/bin/
+	brew install yq
 
 install-cockroach:
 	sudo apt-get install wget -y
