@@ -110,11 +110,11 @@ jobs:
         run: make install-yq
 
       - name: Verify tag change
+        id: changetag
         run: |
-          ./build/self-signer-utility.sh
-          if [[ $? -ne 0 ]]; then
-            exit 1
-          fi
+          output=$(./build/self-signer-utility.sh)
+          echo $output | grep "You have changed the tag of selfSigner utility"
+          exit $?
 
   # pre job to run helm e2e tests
   helm-install-e2e:

@@ -25,11 +25,10 @@ jobs:
 
       - name: Check Tag Change
         id: changetag
-        shell: bash
         run: |
           output=$(./build/self-signer-utility.sh)
-          echo $output | grep "You have not changed the tag of selfSigner utility"
-          if [[ $? -ne 0 ]]; then
+          echo $output | grep "You have changed the tag of selfSigner utility"
+          if [[ $? -eq 0 ]]; then
             echo ::set-output name=tagChange::true
           fi
 
