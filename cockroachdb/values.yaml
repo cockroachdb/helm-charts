@@ -485,7 +485,7 @@ tls:
     # Image Placeholder for the selfSigner utility. This will be changed once the CI workflows for the image is in place.
     image:
       repository: cockroachlabs-helm-charts/cockroach-self-signer-cert
-      tag: "1.2"
+      tag: "1.3"
       pullPolicy: IfNotPresent
       credentials: {}
       registry: gcr.io
