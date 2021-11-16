@@ -36,10 +36,10 @@ spec:
   subject:
     organizations:
       - Cockroach
-{{ else }}
+{{- else }}
   organization:
     - Cockroach
-{{ end }}
+{{- end }}
   secretName: {{ .Values.tls.certs.clientRootSecret }}
   issuerRef: {{- toYaml .Values.tls.certs.certManagerIssuer | nindent 4 }}
 {{- end }}
