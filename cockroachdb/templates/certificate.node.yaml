@@ -37,10 +37,10 @@ spec:
   subject:
     organizations:
       - Cockroach
-{{ else }}
+{{- else }}
   organization:
     - Cockroach
-{{ end }}
+{{- end }}
   dnsNames:
     - "localhost"
     - "127.0.0.1"
