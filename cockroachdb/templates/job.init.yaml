@@ -18,9 +18,9 @@ metadata:
   {{- with .Values.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  annotations:
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-delete-policy: before-hook-creation
+  {{- with .Values.init.jobAnnotations }}
+  annotations: {{- toYaml . | nindent 4 }}
+  {{- end }}
 spec:
   template:
     metadata:

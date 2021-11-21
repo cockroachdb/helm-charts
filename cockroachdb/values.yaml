@@ -361,6 +361,11 @@ init:
   labels:
     app.kubernetes.io/component: init
 
+  # Annotations to add to the init job
+  jobAnnotations:
+    helm.sh/hook: post-install,post-upgrade
+    helm.sh/hook-delete-policy: hook-succeeded,before-hook-creation
+
   # Additional annotations to apply to the Pod of this Job.
   annotations: {}
 
