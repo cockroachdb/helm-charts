@@ -260,9 +260,9 @@ statefulset:
     #   scheme: HTTPS
     # initialDelaySeconds: 30
     # periodSeconds: 5
-  
+
   # Add extra fields to the statefulset pod spec
-  extraPodSpec: {} 
+  extraPodSpec: {}
   # shareProcessNamespace: true
 
 service:
@@ -422,10 +422,10 @@ init:
     #     schedule:
     #       # https://www.cockroachlabs.com/docs/stable/create-schedule-for-backup.html#schedule-options
     #       options: [first_run = 'now']
-    
-    
+
+
   # Add extra fields to the init job pod spec
-  extraPodSpec: {} 
+  extraPodSpec: {}
   # shareProcessNamespace: true
 
 
