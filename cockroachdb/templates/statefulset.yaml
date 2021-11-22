@@ -339,6 +339,9 @@ spec:
           secret:
             secretName: {{ template "cockroachdb.fullname" . }}-log-config
       {{- end }}
+      {{- with .Values.statefulset.extraPodSpec -}}
+        {{- . | toYaml | nindent 6 }}
+      {{- end }}
 {{- if .Values.storage.persistentVolume.enabled }}
   volumeClaimTemplates:
     - metadata:

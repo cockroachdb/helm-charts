@@ -262,4 +262,7 @@ spec:
           {{- end }}
           {{- end }}
     {{- end }}
+    {{- with .Values.init.extraPodSpec -}}
+      {{- . | toYaml | nindent 6 }}
+    {{- end }}
 {{- end }}
