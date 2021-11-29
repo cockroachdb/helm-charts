@@ -146,6 +146,12 @@ func (s *TLSSecret) IsRotationRequired(duration time.Duration, cronStr string) (
 
 	// validate expiry. If expiry is before the next cron, then rotate the certificate
 	validUpto := annotations[CertValidUpto]
+
+	return s.CertExpired(time.Now(), cronStr, validUpto)
+
+}
+
+func (s *TLSSecret) CertExpired(now time.Time, cronStr string, validUpto string) (bool, string) {
 	expiryTime, err := time.Parse(time.RFC3339, validUpto)
 	if err != nil {
 		return true, "Failed to verify expiry date, rotating certificate"
@@ -156,14 +162,20 @@ func (s *TLSSecret) IsRotationRequired(duration time.Duration, cronStr string) (
 		return true, "Failed to verify expiry date due to invalid cron, rotating certificate"
 	}
 
-	nextRun := cronSchedule.Next(time.Now())
+	nextRun := cronSchedule.Next(now)
+	nextToNextRun := cronSchedule.Next(nextRun)
 
-	if expiryTime.Before(nextRun) {
+	// if cert is expiring before next run or within (next run + 1 hour)
+	if expiryTime.Sub(nextRun) < 1*time.Hour {
+		return true, "Certificate about to expire, rotating certificate"
+	}
+
+	// if cert is expiring before next-to-next run or within (next-to-next run + 1 hour)
+	if expiryTime.Sub(nextToNextRun) < 1*time.Hour {
 		return true, "Certificate about to expire, rotating certificate"
 	}
 
 	return false, ""
-
 }
 
 // Ready checks if secret contains required data
