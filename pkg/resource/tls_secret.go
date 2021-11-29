@@ -148,7 +148,6 @@ func (s *TLSSecret) IsRotationRequired(duration time.Duration, cronStr string) (
 	validUpto := annotations[CertValidUpto]
 
 	return s.CertExpired(time.Now(), cronStr, validUpto)
-
 }
 
 func (s *TLSSecret) CertExpired(now time.Time, cronStr string, validUpto string) (bool, string) {
