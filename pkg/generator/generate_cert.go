@@ -68,6 +68,7 @@ type GenerateCert struct {
 	DiscoveryServiceName      string
 	ClusterDomain             string
 	ReadinessWait             time.Duration
+	PodUpdateTimeout          time.Duration
 }
 
 type certConfig struct {
@@ -129,16 +130,16 @@ func (rc *GenerateCert) Do(ctx context.Context, namespace string) error {
 		return nil
 	}
 
-	// generate the node certificate for the database to use
-	if err := rc.generateNodeCert(ctx, rc.getNodeSecretName(), namespace); err != nil {
-		msg := " error Generating Node Certificate"
+	// generate the client certificates for the database to use
+	if err := rc.generateClientCert(ctx, rc.getClientSecretName(), namespace); err != nil {
+		msg := " error Generating Client Certificate"
 		logrus.Error(err, msg)
 		return errors.Wrap(err, msg)
 	}
 
-	// generate the client certificates for the database to use
-	if err := rc.generateClientCert(ctx, rc.getClientSecretName(), namespace); err != nil {
-		msg := " error Generating Client Certificate"
+	// generate the node certificate for the database to use
+	if err := rc.generateNodeCert(ctx, rc.getNodeSecretName(), namespace); err != nil {
+		msg := " error Generating Node Certificate"
 		logrus.Error(err, msg)
 		return errors.Wrap(err, msg)
 	}
@@ -370,7 +371,7 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 					return err
 				}
 
-				if err = kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait); err != nil {
+				if err = kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait, rc.PodUpdateTimeout); err != nil {
 					return
 				}
 				return nil
@@ -538,7 +539,7 @@ func (rc *GenerateCert) UpdateNewCA(ctx context.Context, namespace string) error
 
 	logrus.Info("Updating new CA in client secret")
 
-	if err := kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait); err != nil {
+	if err := kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait, rc.PodUpdateTimeout); err != nil {
 		return err
 	}
 	return nil

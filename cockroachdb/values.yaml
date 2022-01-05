@@ -1,6 +1,6 @@
 image:
   repository: cockroachdb/cockroach
-  tag: v21.1.10
+  tag: v21.2.3
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
@@ -321,6 +321,8 @@ serviceMonitor:
   annotations: {}
   interval: 10s
   # scrapeTimeout: 10s
+  # Limits the ServiceMonitor to the current namespace if set to `true`.
+  namespaced: false
 
 # CockroachDB's data persistence.
 # If neither `persistentVolume` nor `hostPath` is used, then data will be
@@ -463,6 +465,8 @@ tls:
       rotateCerts: true
       # Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true
       readinessWait: 30s
+      # Wait time for each cockroachdb replica to get to running state. Only considered when rotateCerts is set to true
+      podUpdateTimeout: 2m
 
     # Use cert-manager to issue certificates for mTLS.
     certManager: false
@@ -481,7 +485,7 @@ tls:
     # Image Placeholder for the selfSigner utility. This will be changed once the CI workflows for the image is in place.
     image:
       repository: cockroachlabs-helm-charts/cockroach-self-signer-cert
-      tag: "1.1"
+      tag: "1.3"
       pullPolicy: IfNotPresent
       credentials: {}
       registry: gcr.io
@@ -511,6 +515,7 @@ networkPolicy:
       #       project: my-project
 
 # To put the admin interface behind Identity Aware Proxy (IAP) on Google Cloud Platform
+# make sure to set ingress.paths: ['/*']
 iap:
   enabled: false
   # Create Google Cloud OAuth credentials and set client id and secret

@@ -38,6 +38,7 @@ spec:
             - --ca-expiry={{ .Values.tls.certs.selfSigner.caCertExpiryWindow }}
             - --ca-cron={{ template "selfcerts.caRotateSchedule" . }}
             - --readiness-wait={{ .Values.tls.certs.selfSigner.readinessWait }}
+            - --pod-update-timeout={{ .Values.tls.certs.selfSigner.podUpdateTimeout }}
             env:
             - name: STATEFULSET_NAME
               value: {{ template "cockroachdb.fullname" . }}

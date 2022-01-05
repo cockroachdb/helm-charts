@@ -9,11 +9,13 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
+	monitoring "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -270,10 +272,6 @@ func TestHelmSelfCertSignerCronJob(t *testing.T) {
 func TestHelmSelfCertSignerCronJobSchedule(t *testing.T) {
 	t.Parallel()
 
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
-
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
@@ -350,9 +348,6 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 
 	var statefulset appsv1.StatefulSet
 	var job batchv1.Job
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
@@ -407,10 +402,6 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 // TestSelfSignerHelmValidation contains the validations around the self-signer utility inputs
 func TestSelfSignerHelmValidation(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
@@ -504,10 +495,6 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 // TestHelmLogConfigFileStatefulSet contains the tests around the new logging configuration
 func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
@@ -605,10 +592,6 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 // TestHelmDatabaseProvisioning contains the tests around the cluster init and provisioning
 func TestHelmDatabaseProvisioning(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
@@ -1026,6 +1009,220 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 
 				for name, value := range testCase.expect.secret.clusterSettings {
 					require.Equal(subT, secret.StringData[name+"-cluster-setting"], value)
+				}
+			}
+		})
+	}
+}
+
+func TestHelmServiceMonitor(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name       string
+		values     map[string]string
+		namespaced bool
+	}{
+		{
+			"All namespaces are selected",
+			map[string]string{
+				"serviceMonitor.enabled":    "true",
+				"serviceMonitor.namespaced": "false",
+			},
+			false,
+		},
+		{
+			"Current namespace is selected",
+			map[string]string{
+				"serviceMonitor.enabled":    "true",
+				"serviceMonitor.namespaced": "true",
+			},
+			true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/serviceMonitor.yaml"})
+
+			var monitor monitoring.ServiceMonitor
+			helm.UnmarshalK8SYaml(t, output, &monitor)
+
+			require.Equal(t, monitor.Spec.NamespaceSelector.Any, !testCase.namespaced)
+			if testCase.namespaced {
+				require.Len(t, monitor.Spec.NamespaceSelector.MatchNames, 1)
+				require.Contains(t, monitor.Spec.NamespaceSelector.MatchNames, namespaceName)
+			} else {
+				require.Empty(t, monitor.Spec.NamespaceSelector.MatchNames)
+			}
+		})
+	}
+}
+
+// TestHelmSecretBackendConfig tests the secret.backendconfig template
+func TestHelmSecretBackendConfig(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect string
+	}{
+		{
+			"IAP enabled and clientId empty",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "",
+				"iap.clientSecret": "notempty",
+			},
+			"iap.clientID can't be empty if iap.enabled is set to true",
+		},
+		{
+			"IAP enabled and clientSecret empty",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "",
+			},
+			"iap.clientSecret can't be empty if iap.enabled is set to true",
+		},
+		{
+			"IAP enabled and both clientId and clientSecret set",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "myclientid",
+				"iap.clientSecret": "myclientsecret",
+			},
+			"",
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			output, err := helm.RenderTemplateE(subT, options, helmChartPath, releaseName, []string{"templates/secret.backendconfig.yaml"})
+
+			if testCase.expect != "" {
+				require.Error(subT, err)
+				require.Contains(subT, err.Error(), testCase.expect)
+			} else {
+
+				require.Nil(t, err)
+
+				var secret corev1.Secret
+				helm.UnmarshalK8SYaml(t, output, &secret)
+
+				require.Equal(t, string(secret.Data["client_id"]), testCase.values["iap.clientId"])
+				require.Equal(t, string(secret.Data["client_secret"]), testCase.values["iap.clientSecret"])
+			}
+		})
+	}
+}
+
+// TestHelmBackendConfig tests the backendconfig template
+func TestHelmBackendConfig(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+	}{
+		{
+			"IAP enabled",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "notempty",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			_, err := helm.RenderTemplateE(subT, options, helmChartPath, releaseName, []string{"templates/backendconfig.yaml"})
+			require.Nil(subT, err)
+		})
+	}
+}
+
+// TestHelmIngress tests the ingress template
+func TestHelmIngress(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		values           map[string]string
+		expectedPathType networkingv1.PathType
+	}{
+		{
+			"Ingress enabled",
+			map[string]string{
+				"ingress.enabled":  "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "notempty",
+			},
+			networkingv1.PathTypePrefix,
+		},
+		{
+			"Ingress and IAP enabled",
+			map[string]string{
+				"ingress.enabled":  "true",
+				"ingress.paths":    "{/*}",
+				"iap.enabled":      "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "notempty",
+			},
+			networkingv1.PathTypeImplementationSpecific,
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/ingress.yaml"}, "--api-versions", "networking.k8s.io/v1/Ingress")
+
+			require.Nil(t, err)
+
+			var ingress networkingv1.Ingress
+			helm.UnmarshalK8SYaml(t, output, &ingress)
+
+			require.Equal(t, ingress.APIVersion, "networking.k8s.io/v1")
+
+			for _, rule := range ingress.Spec.Rules {
+				for _, path := range rule.HTTP.Paths {
+					require.NotNil(t, path.PathType)
+					require.Equal(t, *path.PathType, testCase.expectedPathType)
 				}
 			}
 		})

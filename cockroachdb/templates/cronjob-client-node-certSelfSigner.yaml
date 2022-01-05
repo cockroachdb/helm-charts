@@ -46,6 +46,7 @@ spec:
             - --node-expiry={{ .Values.tls.certs.selfSigner.nodeCertExpiryWindow }}
             - --node-client-cron={{ template "selfcerts.clientRotateSchedule" . }}
             - --readiness-wait={{ .Values.tls.certs.selfSigner.readinessWait }}
+            - --pod-update-timeout={{ .Values.tls.certs.selfSigner.podUpdateTimeout }}
             env:
             - name: STATEFULSET_NAME
               value: {{ template "cockroachdb.fullname" . }}
