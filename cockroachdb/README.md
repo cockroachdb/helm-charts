@@ -14,7 +14,7 @@ Note that the documentation requires Helm 3.0 or higher.
 * Kubernetes 1.8
 * PV support on the underlying infrastructure (only if using `storage.persistentVolume`). [Docker for windows hostpath provisioner is not supported](https://github.com/cockroachdb/docs/issues/3184).
 * If you want to secure your cluster to use TLS certificates for all network communication, [Helm must be installed with RBAC privileges](https://helm.sh/docs/topics/rbac/) or else you will get an "attempt to grant extra privileges" error.
-
+  
 ## StatefulSet Details
 
 * <http://kubernetes.io/docs/concepts/abstractions/controllers/statefulsets/>
@@ -403,6 +403,10 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.certManagerIssuer.group`                       | IssuerRef group to use when generating certificates             | `cert-manager.io`                                     |
 | `tls.certs.certManagerIssuer.kind`                        | IssuerRef kind to use when generating certificates              | `Issuer`                                              |
 | `tls.certs.certManagerIssuer.name`                        | IssuerRef name to use when generating certificates              | `cockroachdb`                                         |
+| `tls.certs.certManagerIssuer.clientCertDuration`          | Duration of client cert in hours                                | `672h`                                                |
+| `tls.certs.certManagerIssuer.clientCertExpiryWindow`      | Expiry window of client cert means a window before actual expiry in which client cert should be rotated                   | `48h`                                       |
+| `tls.certs.certManagerIssuer.nodeCertDuration`            | Duration of node cert in hours                                  | `8760h`                                               |
+| `tls.certs.certManagerIssuer.nodeCertExpiryWindow`        | Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.             | `168h`                                      |
 | `tls.selfSigner.image.repository`                         | Image to use for self signing TLS certificates                  | `cockroachlabs-helm-charts/cockroach-self-signer-cert`|
 | `tls.selfSigner.image.tag`                                | Image tag to use for self signing TLS certificates              | `0.1`                                                 |
 | `tls.selfSigner.image.pullPolicy`                         | Self signing TLS certificates container pull policy             | `IfNotPresent`                                        |

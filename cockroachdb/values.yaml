@@ -477,6 +477,14 @@ tls:
       group: cert-manager.io
       kind: Issuer
       name: cockroachdb
+      # Duration of Client certificates in hours
+      clientCertDuration: 672h
+      # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.
+      clientCertExpiryWindow: 48h
+      # Duration of node certificates in hours
+      nodeCertDuration: 8760h
+      # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
+      nodeCertExpiryWindow: 168h
     # Enable if you run cert-manager >=1.0 on K8s <=1.15 with legacy CRDs
     # Legacy CRDs only support cert-manager.io/v1 API Versions
     useCertManagerV1CRDs: false
