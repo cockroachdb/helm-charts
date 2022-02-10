@@ -20,7 +20,11 @@ metadata:
   {{- end }}
   annotations:
     helm.sh/hook: post-install,post-upgrade
+    {{- if .Values.init.deleteJobOnCompletion }}
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    {{- else }}
     helm.sh/hook-delete-policy: before-hook-creation
+    {{- end }}
 spec:
   template:
     metadata:
