@@ -364,6 +364,9 @@ init:
   # Additional annotations to apply to the Pod of this Job.
   annotations: {}
 
+  # If true init job is deleted when completed. If false the job stays in complete status.
+  deleteJobOnCompletion: true
+
   # Affinity rules for scheduling the Pod of this Job.
   # https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#node-affinity
   affinity: {}
