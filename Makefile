@@ -1,8 +1,18 @@
-COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v20.2.5.linux-amd64.tgz
-HELM_BIN ?= https://get.helm.sh/helm-v3.8.0-linux-amd64.tar.gz
-KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.11.1/kind-linux-amd64
-KUBECTL_BIN ?= https://dl.k8s.io/release/v1.23.3/bin/linux/amd64/kubectl
-YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/2.2.1/yq_linux_amd64
+UNAME_S := $(shell uname -s)
+ifeq ($(UNAME_S),Linux)
+  COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v20.2.5.linux-amd64.tgz
+  HELM_BIN ?= https://get.helm.sh/helm-v3.8.0-linux-amd64.tar.gz
+  KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.11.1/kind-linux-amd64
+  KUBECTL_BIN ?= https://dl.k8s.io/release/v1.23.3/bin/linux/amd64/kubectl
+  YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/2.2.1/yq_linux_amd64
+endif
+ifeq ($(UNAME_S),Darwin)
+  COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v20.2.5.darwin-10.9-amd64.tgz
+  HELM_BIN ?= https://get.helm.sh/helm-v3.8.0-darwin-amd64.tar.gz
+  KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.11.1/kind-darwin-amd64
+  KUBECTL_BIN ?= https://dl.k8s.io/release/v1.23.3/bin/darwin/amd64/kubectl
+  YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/2.2.1/yq_darwin_amd64
+endif
 
 KIND_CLUSTER ?= chart-testing
 REPOSITORY ?= gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert
@@ -52,7 +62,7 @@ test/cluster: bin/kind ## start a local kind cluster for testing
 	@bin/kind get clusters -q | grep $(KIND_CLUSTER) || bin/kind create cluster --name $(KIND_CLUSTER)
 
 test/e2e/%: PKG=$*
-test/e2e/%: bin/cockroach bin/kubectl build/self-signer test/publish-images-to-kind ## run e2e tests for package (e.g. install or rotate)
+test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/publish-images-to-kind ## run e2e tests for package (e.g. install or rotate)
 	@PATH="$(PWD)/bin:${PATH}" go test -v ./tests/e2e/$(PKG)/...
 
 test/lint: bin/helm ## lint the helm chart

@@ -50,10 +50,16 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	// ... and make sure to delete the namespace at the end of the test
 	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
+	const testDBName = "testdb"
+
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
+			"conf.cluster-name": "test",
+			"init.provisioning.enabled": "true",
+			"init.provisioning.databases[0].name": testDBName,
+			"init.provisioning.databases[0].owners[0]": "root",
 			"storage.persistentVolume.size": "1Gi",
 		},
 	}
@@ -89,7 +95,8 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster, false, true)
+	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, testDBName)
 }
 
 func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
@@ -180,7 +187,7 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster, false, true)
+	testutil.RequireCRDBToFunction(t, crdbCluster, false)
 }
 
 // Test to check migration from Bring your own certificate method to self-sginer cert utility
@@ -334,7 +341,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster, false, true)
+	testutil.RequireCRDBToFunction(t, crdbCluster, false)
 }
 
 func TestCockroachDbWithInsecureMode(t *testing.T) {
@@ -382,5 +389,5 @@ func TestCockroachDbWithInsecureMode(t *testing.T) {
 
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster, false, false)
+	testutil.RequireCRDBToFunction(t, crdbCluster, false)
 }
