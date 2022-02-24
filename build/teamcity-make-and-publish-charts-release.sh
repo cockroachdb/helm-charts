@@ -3,7 +3,7 @@
 set -euxo pipefail
 
 remove_artifacts() {
-  make clean
+  rm -rfv ./build/artifacts
 }
 trap remove_artifacts EXIT
 
