@@ -21,7 +21,7 @@ jobs:
           fetch-depth: 2
 
       - name: Install yq
-        run: make install-yq
+        run: make bin/yq
 
       - name: Check Tag Change
         id: changetag
@@ -51,7 +51,7 @@ jobs:
           password: ${{ secrets.GCR_HELM_CHART_SA_JSON }}
 
       - name: Build Self-signer
-        run: make build-self-signer
+        run: make build/self-signer
 
       - name: Push Self-signer
-        run: make push-self-signer
+        run: make push/self-signer

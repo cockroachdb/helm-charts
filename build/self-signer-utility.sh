@@ -1,6 +1,6 @@
 #!/bin/bash
 
-tag=$(yq r ./cockroachdb/values.yaml 'tls.selfSigner.image.tag')
+tag=$(bin/yq r ./cockroachdb/values.yaml 'tls.selfSigner.image.tag')
 echo "Your current tag is ${tag}"
 currentCommit=$(git rev-parse HEAD)
 lastCommit=$(git rev-parse @~)
