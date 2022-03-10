@@ -437,37 +437,26 @@ func TestCertExpired(t *testing.T) {
 			reason: "Certificate about to expire, rotating certificate",
 		},
 		{
-			name:   "expire-before-next-to-next-run",
+			name:   "not-expiring-before-next-run",
 			secret: &resource.TLSSecret{},
 			args: args{
 				now:       time.Date(2021, time.November, 10, 0, 0, 0, 0, time.UTC),
 				cronStr:   "0 0 */23 * *",
-				validUpto: time.Date(2021, time.November, 27, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
-			},
-			rotate: true,
-			reason: "Certificate about to expire, rotating certificate",
-		},
-		{
-			name:   "expire-equals-next-to-next-run",
-			secret: &resource.TLSSecret{},
-			args: args{
-				now:       time.Date(2021, time.November, 10, 0, 0, 0, 0, time.UTC),
-				cronStr:   "0 0 */23 * *",
-				validUpto: time.Date(2021, time.December, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
-			},
-			rotate: true,
-			reason: "Certificate about to expire, rotating certificate",
-		},
-		{
-			name:   "not-expiring-before-next-to-next-run",
-			secret: &resource.TLSSecret{},
-			args: args{
-				now:       time.Date(2021, time.November, 10, 0, 0, 0, 0, time.UTC),
-				cronStr:   "0 0 */23 * *",
-				validUpto: time.Date(2021, time.December, 2, 0, 0, 0, 0, time.UTC).Format(time.RFC3339),
+				validUpto: time.Date(2021, time.November, 24, 1, 0, 0, 0, time.UTC).Format(time.RFC3339),
 			},
 			rotate: false,
 			reason: "",
+		},
+		{
+			name:   "expire-after-next-run-within-1h",
+			secret: &resource.TLSSecret{},
+			args: args{
+				now:       time.Date(2021, time.November, 10, 0, 0, 0, 0, time.UTC),
+				cronStr:   "0 0 */23 * *",
+				validUpto: time.Date(2021, time.November, 24, 0, 59, 0, 0, time.UTC).Format(time.RFC3339),
+			},
+			rotate: true,
+			reason: "Certificate about to expire, rotating certificate",
 		},
 	}
 	for _, tt := range tests {

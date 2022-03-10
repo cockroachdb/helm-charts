@@ -162,15 +162,9 @@ func (s *TLSSecret) CertExpired(now time.Time, cronStr string, validUpto string)
 	}
 
 	nextRun := cronSchedule.Next(now)
-	nextToNextRun := cronSchedule.Next(nextRun)
 
 	// if cert is expiring before next run or within (next run + 1 hour)
 	if expiryTime.Sub(nextRun) < 1*time.Hour {
-		return true, "Certificate about to expire, rotating certificate"
-	}
-
-	// if cert is expiring before next-to-next run or within (next-to-next run + 1 hour)
-	if expiryTime.Sub(nextToNextRun) < 1*time.Hour {
 		return true, "Certificate about to expire, rotating certificate"
 	}
 
