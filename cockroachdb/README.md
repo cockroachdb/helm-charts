@@ -344,6 +344,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `statefulset.resources`                                   | Resource requests and limits for StatefulSet Pods               | `{}`                                                  |
 | `statefulset.customLivenessProbe`                         | Custom Liveness probe                                           | `{}`                                             |
 | `statefulset.customReadinessProbe`                        | Custom Rediness probe                                           | `{}`                                             |
+| `statefulset.securityContext`                             | Security context for containers                                 | `{}`                                             |
 | `service.ports.grpc.external.port`                        | CockroachDB primary serving port in Services                    | `26257`                                               |
 | `service.ports.grpc.external.name`                        | CockroachDB primary serving port name in Services               | `grpc`                                                |
 | `service.ports.grpc.internal.port`                        | CockroachDB inter-communication port in Services                | `26257`                                               |
@@ -380,6 +381,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `init.nodeSelector`                                       | Node labels for init Job Pod assignment                         | `{}`                                                  |
 | `init.tolerations`                                        | Node taints to tolerate by init Job Pod                         | `[]`                                                  |
 | `init.resources`                                          | Resource requests and limits for the Pod of init Job            | `{}`                                                  |
+| `init.securityContext`                                    | Security context for the init job containers                    | `{}`                                                  |
 | `tls.enabled`                                             | Whether to run securely using TLS certificates                  | `no`                                                  |
 | `tls.serviceAccount.create`                               | Whether to create a new RBAC service account                    | `yes`                                                 |
 | `tls.serviceAccount.name`                                 | Name of RBAC service account to use                             | `""`                                                  |
@@ -408,9 +410,11 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.selfSigner.image.tag`                                | Image tag to use for self signing TLS certificates              | `0.1`                                                 |
 | `tls.selfSigner.image.pullPolicy`                         | Self signing TLS certificates container pull policy             | `IfNotPresent`                                        |
 | `tls.selfSigner.image.credentials`                        | `registry`, `user` and `pass` credentials to pull private image | `{}`                                                  |
+| `tls.selfSigner.securityContext`                          | Security context applied to selfSigner containers               | `{}`                                                  |
 | `networkPolicy.enabled`                                   | Enable NetworkPolicy for CockroachDB's Pods                     | `no`                                                  |
 | `networkPolicy.ingress.grpc`                              | Whitelist resources to access gRPC port of CockroachDB's Pods   | `[]`                                                  |
 | `networkPolicy.ingress.http`                              | Whitelist resources to access gRPC port of CockroachDB's Pods   | `[]`                                                  |
+| `securityContext`                                         | Security context applied to Pods                                | `{}`                                                  |
 
 
 Override the default parameters using the `--set key=value[,key=value]` argument to `helm install`.

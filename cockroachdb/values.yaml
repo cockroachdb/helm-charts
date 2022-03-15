@@ -169,6 +169,7 @@ statefulset:
   podManagementPolicy: Parallel
   budget:
     maxUnavailable: 1
+  securityContext: {}
 
   # List of additional command-line arguments you want to pass to the
   # `cockroach start` command.
@@ -390,6 +391,8 @@ init:
     #   cpu: "10m"
     #   memory: "128Mi"
 
+  securityContext: {}
+
   provisioning:
     enabled: false
     # https://www.cockroachlabs.com/docs/stable/cluster-settings.html
@@ -492,6 +495,7 @@ tls:
       registry: gcr.io
       # username: john_doe
       # password: changeme
+    securityContext: {}
 
 networkPolicy:
   enabled: false
@@ -522,3 +526,5 @@ iap:
   # Create Google Cloud OAuth credentials and set client id and secret
   # clientId:
   # clientSecret:
+
+securityContext: {}

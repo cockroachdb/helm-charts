@@ -41,6 +41,10 @@ spec:
       annotations: {{- toYaml . | nindent 8 }}
     {{- end }}
     spec:
+    {{- if .Values.securityContext }}
+      securityContext:
+        {{- toYaml .Values.securityContext | nindent 8 }}
+    {{- end }}
     {{- if or .Values.image.credentials (and .Values.tls.enabled .Values.tls.selfSigner.image.credentials (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager)) }}
       imagePullSecrets:
       {{- if .Values.image.credentials }}
@@ -57,6 +61,10 @@ spec:
         - name: copy-certs
           image: "busybox"
           imagePullPolicy: {{ .Values.tls.selfSigner.image.pullPolicy | quote }}
+          {{- if .Values.statefulset.securityContext }}
+            securityContext:
+              {{- toYaml .Values.statefulset.securityContext | nindent 12 }}
+          {{- end }}
           command:
             - /bin/sh
             - -c
@@ -143,6 +151,10 @@ spec:
         - name: db
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          {{- if .Values.statefulset.securityContext }}
+            securityContext:
+              {{- toYaml .Values.statefulset.securityContext | nindent 12 }}
+          {{- end }}
           args:
             - shell
             - -ecx
