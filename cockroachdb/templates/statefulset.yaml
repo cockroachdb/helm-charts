@@ -138,7 +138,7 @@ spec:
     {{- end }}
       # No pre-stop hook is required, a SIGTERM plus some time is all that's
       # needed for graceful shutdown of a node.
-      terminationGracePeriodSeconds: 60
+      terminationGracePeriodSeconds: {{ .Values.statefulset.terminationGracePeriodSeconds }}
       containers:
         - name: db
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"

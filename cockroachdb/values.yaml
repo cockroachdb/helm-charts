@@ -213,6 +213,10 @@ statefulset:
     # Does not apply for other anti-affinity types.
     weight: 100
 
+  # Pod termination grace period
+  # https://www.cockroachlabs.com/docs/stable/node-shutdown.html#termination-grace-period
+  terminationGracePeriodSeconds: 60
+
   # Node selection constraints for scheduling Pods of this StatefulSet.
   # https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#nodeselector
   nodeSelector: {}
