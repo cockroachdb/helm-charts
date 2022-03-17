@@ -50,9 +50,10 @@ spec:
         - name: {{ template "cockroachdb.fullname" . }}.self-signed-certs.registry
       {{- end }}
     {{- end }}
+    {{- if or .Values.tls.enabled .Values.conf.useHostLocality.enabled }}
+      serviceAccountName: {{ template "cockroachdb.statefulset.serviceAccount.name" . }}
+    {{- end }}
     {{- if .Values.tls.enabled }}
-      serviceAccountName: {{ template "cockroachdb.tls.serviceAccount.name" . }}
-      {{- if .Values.tls.enabled }}
       initContainers:
         - name: copy-certs
           image: "busybox"
@@ -71,7 +72,21 @@ spec:
               mountPath: /cockroach-certs/
             - name: certs-secret
               mountPath: /certs/
-      {{- end }}
+    {{- end }}
+    {{- if .Values.conf.useHostLocality.enabled }}
+        - name: get-node-info
+          image: {{ .Values.conf.useHostLocality.image.repository }}:{{ .Values.conf.useHostLocality.image.tag }}
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: NODE
+              valueFrom:
+                fieldRef:
+                  fieldPath: spec.nodeName
+            - name: OUTPUT_DIR
+              value: /output
+          volumeMounts:
+            - name: node-data
+              mountPath: /output
     {{- end }}
     {{- if or .Values.statefulset.nodeAffinity .Values.statefulset.podAffinity .Values.statefulset.podAntiAffinity }}
       affinity:
@@ -202,8 +217,12 @@ spec:
               --max-offset={{ . }}
             {{- end }}
               --max-sql-memory={{ index .Values.conf `max-sql-memory` }}
-            {{- with .Values.conf.locality }}
+            {{- if .Values.conf.useHostLocality.enabled }}
+              --locality=$(/node-data/topology.sh){{ with .Values.conf.locality }},{{ . }}{{ end }}
+            {{- else }}
+              {{- with .Values.conf.locality }}
               --locality={{ . }}
+              {{- end }}
             {{- end }}
             {{- with index .Values.conf `sql-audit-dir` }}
               --sql-audit-dir={{ . }}
@@ -256,6 +275,10 @@ spec:
             - name: log-config
               mountPath: /cockroach/log-config
               readOnly: true
+          {{- end }}
+          {{- if .Values.conf.useHostLocality.enabled }}
+            - name: node-data
+              mountPath: /node-data
           {{- end }}
           livenessProbe:
           {{- if .Values.statefulset.customLivenessProbe }}
@@ -338,6 +361,10 @@ spec:
         - name: log-config
           secret:
             secretName: {{ template "cockroachdb.fullname" . }}-log-config
+      {{- end }}
+      {{- if .Values.conf.useHostLocality.enabled }}
+        - name: node-data
+          emptyDir: {}
       {{- end }}
 {{- if .Values.storage.persistentVolume.enabled }}
   volumeClaimTemplates:

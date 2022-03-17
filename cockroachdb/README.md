@@ -308,6 +308,9 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.locality`                                           | Locality attribute for this deployment                          | `""`                                                  |
 | `conf.single-node`                                        | Disable CockroachDB clustering (standalone mode)                | `no`                                                  |
 | `conf.sql-audit-dir`                                      | Directory for SQL audit log                                     | `""`                                                  |
+| `conf.useHostLocality.enabled`                            | Use host node labels to set region, zone, host locality keys    | `false`                                               |
+| `conf.useHostLocality.image.repository`                   | The init-container image name to query the kubernetes API       | `scottcrossen/kube-node-labels`                       |
+| `conf.useHostLocality.image`                              | The init-container image tag to query the kubernetes API        | `1.0.0`                                               |
 | `conf.port`                                               | CockroachDB primary serving port in Pods                        | `26257`                                               |
 | `conf.http-port`                                          | CockroachDB HTTP port in Pods                                   | `8080`                                                |
 | `conf.path`                                               | CockroachDB data directory mount path                           | `cockroach-data`                                      |
@@ -353,6 +356,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `service.public.type`                                     | Public Service type                                             | `ClusterIP`                                           |
 | `service.public.labels`                                   | Additional labels of public Service                             | `{"app.kubernetes.io/component": "cockroachdb"}`      |
 | `service.public.annotations`                              | Additional annotations of public Service                        | `{}`                                                  |
+| `statefulset.serviceAccount.create`                       | Whether to create a new RBAC service account                    | `yes`                                                 |
+| `statefulset.serviceAccount.name`                         | Name of RBAC service account to use                             | `""`                                                  |
 | `service.discovery.labels`                                | Additional labels of discovery Service                          | `{"app.kubernetes.io/component": "cockroachdb"}`      |
 | `service.discovery.annotations`                           | Additional annotations of discovery Service                     | `{}`                                                  |
 | `ingress.enabled`                                         | Enable ingress resource for CockroachDB                         | `false`                                               |
@@ -381,8 +386,6 @@ For details see the [`values.yaml`](values.yaml) file.
 | `init.tolerations`                                        | Node taints to tolerate by init Job Pod                         | `[]`                                                  |
 | `init.resources`                                          | Resource requests and limits for the Pod of init Job            | `{}`                                                  |
 | `tls.enabled`                                             | Whether to run securely using TLS certificates                  | `no`                                                  |
-| `tls.serviceAccount.create`                               | Whether to create a new RBAC service account                    | `yes`                                                 |
-| `tls.serviceAccount.name`                                 | Name of RBAC service account to use                             | `""`                                                  |
 | `tls.certs.provided`                                      | Bring your own certs scenario, i.e certificates are provided    | `no`                                                  |
 | `tls.certs.clientRootSecret`                              | If certs are provided, secret name for client root cert         | `cockroachdb-root`                                    |
 | `tls.certs.nodeSecret`                                    | If certs are provided, secret name for node cert                | `cockroachdb-node`                                    |
