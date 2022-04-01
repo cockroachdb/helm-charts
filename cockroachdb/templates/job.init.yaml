@@ -49,7 +49,7 @@ spec:
       serviceAccountName: {{ template "cockroachdb.tls.serviceAccount.name" . }}
       initContainers:
         - name: copy-certs
-          image: "busybox"
+          image: {{ .Values.tls.copyCerts.image | quote }}
           imagePullPolicy: {{ .Values.tls.selfSigner.image.pullPolicy | quote }}
           command:
             - /bin/sh
