@@ -41,5 +41,8 @@ spec:
     - Cockroach
 {{- end }}
   secretName: {{ .Values.tls.certs.clientRootSecret }}
-  issuerRef: {{- toYaml .Values.tls.certs.certManagerIssuer | nindent 4 }}
+  issuerRef:
+    name: {{ .Values.tls.certs.certManagerIssuer.name }}
+    kind: {{ .Values.tls.certs.certManagerIssuer.kind }}
+    group: {{ .Values.tls.certs.certManagerIssuer.group }}
 {{- end }}
