@@ -22,6 +22,10 @@ spec:
           - name: cert-rotate-job
             image: "{{ .Values.tls.selfSigner.image.registry }}/{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
             imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
+            {{- if .Values.tls.selfSigner.securityContext }}
+            securityContext:
+              {{- toYaml .Values.tls.selfSigner.securityContext | nindent 14 }}
+            {{- end }}
             args:
             - rotate
             - --ca
