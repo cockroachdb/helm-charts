@@ -382,6 +382,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.enabled`                                             | Whether to run securely using TLS certificates                  | `no`                                                  |
 | `tls.serviceAccount.create`                               | Whether to create a new RBAC service account                    | `yes`                                                 |
 | `tls.serviceAccount.name`                                 | Name of RBAC service account to use                             | `""`                                                  |
+| `tls.copyCerts.image`                                     | Image used in copy certs init container                         | `busybox`                                             |
 | `tls.certs.provided`                                      | Bring your own certs scenario, i.e certificates are provided    | `no`                                                  |
 | `tls.certs.clientRootSecret`                              | If certs are provided, secret name for client root cert         | `cockroachdb-root`                                    |
 | `tls.certs.nodeSecret`                                    | If certs are provided, secret name for node cert                | `cockroachdb-node`                                    |
@@ -403,6 +404,10 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.certManagerIssuer.group`                       | IssuerRef group to use when generating certificates             | `cert-manager.io`                                     |
 | `tls.certs.certManagerIssuer.kind`                        | IssuerRef kind to use when generating certificates              | `Issuer`                                              |
 | `tls.certs.certManagerIssuer.name`                        | IssuerRef name to use when generating certificates              | `cockroachdb`                                         |
+| `tls.certs.certManagerIssuer.clientCertDuration`          | Duration of client cert in hours                                | `672h`                                                |
+| `tls.certs.certManagerIssuer.clientCertExpiryWindow`      | Expiry window of client cert means a window before actual expiry in which client cert should be rotated                   | `48h`                                       |
+| `tls.certs.certManagerIssuer.nodeCertDuration`            | Duration of node cert in hours                                  | `8760h`                                               |
+| `tls.certs.certManagerIssuer.nodeCertExpiryWindow`        | Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.             | `168h`                                      |
 | `tls.selfSigner.image.repository`                         | Image to use for self signing TLS certificates                  | `cockroachlabs-helm-charts/cockroach-self-signer-cert`|
 | `tls.selfSigner.image.tag`                                | Image tag to use for self signing TLS certificates              | `0.1`                                                 |
 | `tls.selfSigner.image.pullPolicy`                         | Self signing TLS certificates container pull policy             | `IfNotPresent`                                        |
