@@ -21,6 +21,10 @@ metadata:
   annotations:
     helm.sh/hook: post-install,post-upgrade
     helm.sh/hook-delete-policy: before-hook-creation
+    argocd.argoproj.io/hook: Sync
+    {{- with .Values.init.jobAnnotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
 spec:
   template:
     metadata:
