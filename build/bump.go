@@ -37,9 +37,27 @@ const (
 	readmeFileTemplate = "build/templates/README.md"
 )
 
+type parsedVersion struct {
+	*semver.Version
+}
+type versions struct {
+	Version    parsedVersion `yaml:"version"`
+	AppVersion parsedVersion `yaml:"appVersion"`
+}
+
 type templateArgs struct {
 	Version    string
 	AppVersion string
+}
+
+// UnmarshalYAML implements the Unmarshaller interface for the version fields
+func (v *parsedVersion) UnmarshalYAML(value *yaml.Node) error {
+	version, err := semver.NewVersion(value.Value)
+	if err != nil {
+		return fmt.Errorf("cannot parse version %s: %w", value.Value, err)
+	}
+	v.Version = version
+	return err
 }
 
 func main() {
@@ -54,21 +72,24 @@ func main() {
 
 }
 
-func run(crdbVersion string) error {
+func run(version string) error {
 	// Trim the "v" prefix if exists. It will be added explicitly in the templates when needed.
-	crdbVersion = strings.TrimPrefix(crdbVersion, "v")
-	chartVersion, err := getChartVersion(chartsFile)
+	crdbVersion, err := semver.NewVersion(strings.TrimPrefix(version, "v"))
 	if err != nil {
-		return fmt.Errorf("cannot get chart version: %w", err)
+		return fmt.Errorf("cannot parse version %s: %w", version, err)
 	}
-	// Bump the charts version to be nice to helm.
-	newChartVersion, err := bumpVersion(chartVersion)
+	chart, err := getVersions(chartsFile)
+	if err != nil {
+		return fmt.Errorf("cannot get chart versions: %w", err)
+	}
+	// Bump the chart version to be nice to helm.
+	newChartVersion, err := bumpVersion(chart, crdbVersion)
 	if err != nil {
 		return fmt.Errorf("cannot bump chart version: %w", err)
 	}
 	args := templateArgs{
 		Version:    newChartVersion,
-		AppVersion: crdbVersion,
+		AppVersion: crdbVersion.Original(),
 	}
 	if err := processTemplate(
 		chartsFileTemplate,
@@ -121,27 +142,31 @@ func processTemplate(
 }
 
 // bumpVersion increases the patch release version (the last digit) of a given version
-func bumpVersion(version string) (string, error) {
-	semanticVersion, err := semver.NewVersion(version)
-	if err != nil {
-		return "", fmt.Errorf("cannot parse version: %w", err)
+func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error) {
+	// Bump chart major version in case appVersion changes its major or minor version
+	// For example, 22.1.0 or 22.2.0 should trigger this behaviour.
+	if chart.AppVersion.Major() != newCRDBVersion.Major() ||
+		chart.AppVersion.Minor() != newCRDBVersion.Minor() {
+		nextMajor := chart.Version.IncMajor()
+		nextVersion, err := semver.NewVersion(fmt.Sprintf("%d.0.0", nextMajor.Major()))
+		if err != nil {
+			return "", fmt.Errorf("cannot parse next version: %w", err)
+		}
+		return nextVersion.Original(), nil
 	}
-	nextVersion := semanticVersion.IncPatch()
+	nextVersion := chart.Version.IncPatch()
 	return nextVersion.Original(), nil
 }
 
-// getChartVersion reads chart version from Chart.yaml file
-func getChartVersion(chartPath string) (string, error) {
+// getVersions reads chart and app versions from Chart.yaml file
+func getVersions(chartPath string) (versions, error) {
 	chartContents, err := ioutil.ReadFile(chartPath)
 	if err != nil {
-		return "", fmt.Errorf("cannot open chart file %s: %w", chartPath, err)
+		return versions{}, fmt.Errorf("cannot open chart file %s: %w", chartPath, err)
 	}
-	// Minimal definition, only to extract the version
-	chart := struct {
-		Version string
-	}{}
+	var chart versions
 	if err := yaml.Unmarshal(chartContents, &chart); err != nil {
-		return "", fmt.Errorf("cannot unmarshal %s: %w", chartPath, err)
+		return versions{}, fmt.Errorf("cannot unmarshal %s: %w", chartPath, err)
 	}
-	return chart.Version, nil
+	return chart, nil
 }
