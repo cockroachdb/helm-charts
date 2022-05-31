@@ -3,6 +3,7 @@ module github.com/cockroachdb/helm-charts
 go 1.15
 
 require (
+	github.com/Masterminds/semver/v3 v3.1.0
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/cockroachdb/cockroach-operator v1.7.13
 	github.com/go-logr/logr v0.4.0 // indirect
@@ -15,6 +16,7 @@ require (
 	github.com/sirupsen/logrus v1.6.0
 	github.com/spf13/cobra v1.1.3
 	github.com/stretchr/testify v1.6.1
+	gopkg.in/yaml.v3 v3.0.0-20200615113413-eeeca48fe776
 	k8s.io/api v0.20.2
 	k8s.io/apimachinery v0.20.2
 	k8s.io/client-go v9.0.0+incompatible
