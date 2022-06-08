@@ -362,6 +362,9 @@ init:
   labels:
     app.kubernetes.io/component: init
 
+  # Additional annotations to apply to this Job.
+  jobAnnotations: {}
+
   # Additional annotations to apply to the Pod of this Job.
   annotations: {}
 
