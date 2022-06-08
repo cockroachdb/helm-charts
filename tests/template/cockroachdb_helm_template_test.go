@@ -1228,3 +1228,58 @@ func TestHelmIngress(t *testing.T) {
 		})
 	}
 }
+
+// TestHelmInitJobAnnotations contains the tests for the annotations of the Init Job
+func TestHelmInitJobAnnotations(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name        string
+		values      map[string]string
+		annotations map[string]string
+	}{
+		{
+			"No extra job annotations were supplied",
+			map[string]string{},
+			map[string]string{
+				"helm.sh/hook":               "post-install,post-upgrade",
+				"helm.sh/hook-delete-policy": "before-hook-creation",
+			},
+		},
+		{
+			"Extra job annotations were supplied",
+			map[string]string{
+				"init.jobAnnotations.test-key-1": "test-value-1",
+				"init.jobAnnotations.test-key-2": "test-value-2",
+			},
+			map[string]string{
+				"helm.sh/hook":               "post-install,post-upgrade",
+				"helm.sh/hook-delete-policy": "before-hook-creation",
+				"test-key-1":                 "test-value-1",
+				"test-key-2":                 "test-value-2",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/job.init.yaml"})
+
+			require.Equal(subT, err, nil)
+
+			var job batchv1.Job
+			helm.UnmarshalK8SYaml(t, output, &job)
+
+			require.Equal(t, testCase.annotations, job.Annotations)
+		})
+	}
+}

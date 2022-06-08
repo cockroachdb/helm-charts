@@ -374,7 +374,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `storage.persistentVolume.labels`                         | Additional labels of PersistentVolumeClaim                      | `{}`                                                  |
 | `storage.persistentVolume.annotations`                    | Additional annotations of PersistentVolumeClaim                 | `{}`                                                  |
 | `init.labels`                                             | Additional labels of init Job and its Pod                       | `{"app.kubernetes.io/component": "init"}`             |
-| `init.annotations`                                        | Additional labels of the Pod of init Job                        | `{}`                                                  |
+| `init.jobAnnotations`                                     | Additional annotations of the init Job itself                   | `{}`                                                  |
+| `init.annotations`                                        | Additional annotations of the Pod of init Job                   | `{}`                                                  |
 | `init.affinity`                                           | [Affinity rules][2] of init Job Pod                             | `{}`                                                  |
 | `init.nodeSelector`                                       | Node labels for init Job Pod assignment                         | `{}`                                                  |
 | `init.tolerations`                                        | Node taints to tolerate by init Job Pod                         | `[]`                                                  |
