@@ -242,7 +242,7 @@ spec:
           {{- if .Values.tls.enabled }}
             - name: certs
               mountPath: /cockroach/cockroach-certs/
-              {{- if .Values.tls.certs.provided }}
+              {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager }}
             - name: certs-secret
               mountPath: /cockroach/certs/
               {{- end }}
