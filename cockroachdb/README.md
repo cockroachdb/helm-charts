@@ -229,10 +229,10 @@ kubectl get pods \
 ```
 
 ```
-my-release-cockroachdb-0    cockroachdb/cockroach:v22.1.2
-my-release-cockroachdb-1    cockroachdb/cockroach:v22.1.2
-my-release-cockroachdb-2    cockroachdb/cockroach:v22.1.2
-my-release-cockroachdb-3    cockroachdb/cockroach:v22.1.2
+my-release-cockroachdb-0    cockroachdb/cockroach:v22.1.3
+my-release-cockroachdb-1    cockroachdb/cockroach:v22.1.3
+my-release-cockroachdb-2    cockroachdb/cockroach:v22.1.3
+my-release-cockroachdb-3    cockroachdb/cockroach:v22.1.3
 ```
 
 Resume normal operations. Once you are comfortable that the stability and performance of the cluster is what you'd expect post-upgrade, finalize the upgrade:
@@ -287,7 +287,7 @@ Verify that no pod is deleted and then upgrade as normal. A new StatefulSet will
 
 For more information about upgrading a cluster to the latest major release of CockroachDB, see [Upgrade to CockroachDB v21.1](https://www.cockroachlabs.com/docs/stable/upgrade-cockroach-version.html).
 
-Note that there are some backward-incompatible changes to SQL features between versions 20.2 and 21.1. For details, see the [CockroachDB v22.1.2 release notes](https://www.cockroachlabs.com/docs/releases/v22.1.2.html#backward-incompatible-changes).
+Note that there are some backward-incompatible changes to SQL features between versions 20.2 and 21.1. For details, see the [CockroachDB v22.1.3 release notes](https://www.cockroachlabs.com/docs/releases/v22.1.3.html#backward-incompatible-changes).
 
 ## Configuration
 
@@ -316,7 +316,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.store.size`                                         | CockroachDB storage size                                        | `""`                                                  |
 | `conf.store.attrs`                                        | CockroachDB storage attributes                                  | `""`                                                  |
 | `image.repository`                                        | Container image name                                            | `cockroachdb/cockroach`                               |
-| `image.tag`                                               | Container image tag                                             | `v22.1.2`                                             |
+| `image.tag`                                               | Container image tag                                             | `v22.1.3`                                             |
 | `image.pullPolicy`                                        | Container pull policy                                           | `IfNotPresent`                                        |
 | `image.credentials`                                       | `registry`, `user` and `pass` credentials to pull private image | `{}`                                                  |
 | `statefulset.replicas`                                    | StatefulSet replicas number                                     | `3`                                                   |
