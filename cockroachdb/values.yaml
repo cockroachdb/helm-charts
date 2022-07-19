@@ -324,6 +324,9 @@ serviceMonitor:
   # scrapeTimeout: 10s
   # Limits the ServiceMonitor to the current namespace if set to `true`.
   namespaced: false
+  tlsConfig: {}
+  # Set a different scheme than http
+  # scheme: https
 
 # CockroachDB's data persistence.
 # If neither `persistentVolume` nor `hostPath` is used, then data will be
