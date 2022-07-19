@@ -1,5 +1,6 @@
 {{ $isClusterInitEnabled := and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`)) }}
 {{ $isDatabaseProvisioningEnabled := .Values.init.provisioning.enabled }}
+{{ $isIstioEnabled := .Values.init.istio.enabled }}
 {{- if or $isClusterInitEnabled $isDatabaseProvisioningEnabled }}
   {{ template "cockroachdb.tlsValidation" . }}
 kind: Job
@@ -94,6 +95,15 @@ spec:
           - /bin/bash
           - -c
           - >-
+            {{- if $isIstioEnabled }}
+              istio() {
+                trap "curl --max-time 2 -s -f -XPOST http://127.0.0.1:15000/quitquitquit" EXIT
+                while ! curl -s -f http://127.0.0.1:15020/healthz/ready; do sleep 1; done;
+                sleep 2;
+              }
+              istio;
+            {{- end }}
+            
             {{- if $isClusterInitEnabled }}
               initCluster() {
                 while true; do
