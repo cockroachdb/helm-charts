@@ -48,4 +48,11 @@ spec:
     {{- if $serviceMonitor.scrapeTimeout }}
     scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
     {{- end }}
+    {{- if $serviceMonitor.scheme }}
+    scheme: {{ $serviceMonitor.scheme }}
+    {{- end }}
+    {{- if $serviceMonitor.tlsConfig }}
+    tlsConfig:
+      {{ $serviceMonitor.tlsConfig | toYaml }}
+    {{- end }}
 {{- end }}
