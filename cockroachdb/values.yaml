@@ -423,6 +423,10 @@ init:
     #       # https://www.cockroachlabs.com/docs/stable/create-schedule-for-backup.html#schedule-options
     #       options: [first_run = 'now']
 
+# enable istio to wait for the proxy to be ready and to quit when done.
+  istio:
+    enabled: false
+
 
 # Whether to run securely using TLS certificates.
 tls:
