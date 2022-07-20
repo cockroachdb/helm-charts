@@ -101,6 +101,7 @@ spec:
                 while ! curl -s -f http://127.0.0.1:15020/healthz/ready; do sleep 1; done;
                 sleep 2;
               }
+
               istio;
             {{- end }}
             
