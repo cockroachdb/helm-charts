@@ -1,0 +1,29 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
+
+go_library(
+    name = "lib",
+    srcs = ["bump.go"],
+    importpath = "",
+    visibility = ["//visibility:private"],
+    deps = [
+        "@com_github_masterminds_semver_v3//:semver",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+    ],
+)
+
+go_binary(
+    name = "build",
+    embed = [":build_lib"],
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "build_lib",
+    srcs = ["bump.go"],
+    importpath = "github.com/cockroachdb/helm-charts/build",
+    visibility = ["//visibility:private"],
+    deps = [
+        "@com_github_masterminds_semver_v3//:semver",
+        "@in_gopkg_yaml_v3//:yaml_v3",
+    ],
+)
