@@ -1,0 +1,4 @@
+load("@bazel_gazelle//:def.bzl", "gazelle")
+
+# to regenerate BUILD files, run `bazel run //:gazelle -- -go_prefix github.com/cockroachdb/helm-charts build`
+gazelle(name = "gazelle")
