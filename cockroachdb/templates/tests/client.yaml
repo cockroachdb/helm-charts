@@ -58,7 +58,7 @@ spec:
         - --insecure
         {{- end}}
         - --host
-        - {{ template "cockroachdb.fullname" . }}-public.{{ .Release.Namespace }}
+        - {{ template "cockroachdb.fullname" . }}-public
         - --port
         - {{ .Values.service.ports.grpc.external.port | quote }}
         - -e

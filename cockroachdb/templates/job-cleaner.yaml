@@ -32,9 +32,12 @@ spec:
           imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
           args:
             - cleanup
-            - --namespace={{ .Release.Namespace }}
           env:
           - name: STATEFULSET_NAME
             value: {{ template "cockroachdb.fullname" . }}
+          - name: NAMESPACE
+            valueFrom:
+              fieldRef:
+                fieldPath: metadata.namespace
       serviceAccountName: {{ template "rotatecerts.fullname" . }}
 {{- end}}
