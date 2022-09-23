@@ -83,11 +83,11 @@ Return CockroachDB store expression
 Define the default values for the certificate selfSigner inputs
 */}}
 {{- define "selfcerts.fullname" -}}
-  {{- printf "%s-%s" (include "cockroachdb.fullname" .) "self-signer" | trunc 56 | trimSuffix "-" -}}
+  {{- printf "%s-%s" (include "cockroachdb.fullname" .) "self-signer" | trunc 52 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "rotatecerts.fullname" -}}
-  {{- printf "%s-%s" (include "cockroachdb.fullname" .) "rotate-self-signer" | trunc 56 | trimSuffix "-" -}}
+  {{- printf "%s-%s" (include "cockroachdb.fullname" .) "rotate-self-signer" | trunc 44 | trimSuffix "-" -}}
 {{- end -}}
 
 {{- define "selfcerts.minimumCertDuration" -}}
