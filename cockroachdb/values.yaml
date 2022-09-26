@@ -315,6 +315,9 @@ ingress:
   # - hosts: [cockroachlabs.com]
   #   secretName: cockroachlabs-tls
 
+prometheus:
+  enabled: true
+
 # CockroachDB's Prometheus operator ServiceMonitor support
 serviceMonitor:
   enabled: false
