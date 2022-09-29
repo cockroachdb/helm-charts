@@ -284,6 +284,9 @@ spec:
             periodSeconds: 5
             failureThreshold: 2
           {{- end }}
+        {{- with .Values.statefulset.securityContext }}
+          securityContext: {{- toYaml . | nindent 12 }}
+        {{- end }}
         {{- with .Values.statefulset.resources }}
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
@@ -338,6 +341,9 @@ spec:
         - name: log-config
           secret:
             secretName: {{ template "cockroachdb.fullname" . }}-log-config
+      {{- end }}
+      {{- with .Values.securityContext }}
+      securityContext: {{- toYaml . | nindent 8 }}
       {{- end }}
 {{- if .Values.storage.persistentVolume.enabled }}
   volumeClaimTemplates:

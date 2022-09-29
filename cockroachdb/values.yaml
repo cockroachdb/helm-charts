@@ -262,6 +262,15 @@ statefulset:
     # initialDelaySeconds: 30
     # periodSeconds: 5
 
+  securityContext:
+    allowPrivilegeEscalation: false
+    capabilities:
+      drop:
+        - ALL
+    privileged: false
+    readOnlyRootFilesystem: true
+
+
 service:
   ports:
     # You can set a different external and internal gRPC ports and their name.
@@ -317,6 +326,12 @@ ingress:
 
 prometheus:
   enabled: true
+
+securityContext:
+  fsGroup: 1000
+  runAsGroup: 1000
+  runAsUser: 1000
+  runAsNonRoot: true
 
 # CockroachDB's Prometheus operator ServiceMonitor support
 serviceMonitor:
