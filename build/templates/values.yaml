@@ -1,3 +1,6 @@
+nameOverride:
+fullNameOverride:
+
 image:
   repository: cockroachdb/cockroach
   tag: v{{ .AppVersion }}
@@ -314,6 +317,9 @@ ingress:
   # - hosts: [cockroachlabs.com]
   #   secretName: cockroachlabs-tls
 
+prometheus:
+  enabled: true
+
 # CockroachDB's Prometheus operator ServiceMonitor support
 serviceMonitor:
   enabled: false
@@ -403,11 +409,17 @@ init:
     #   password:
     #   # https://www.cockroachlabs.com/docs/stable/create-user.html#parameters
     #   options: [LOGIN]
+    #   # existing secret name containing the password. Ignored in password is defined.
+    #   passwordSecretName:
+    #   # password secret key. Defaults to $name-password. Ignored in password is defined.
+    #   passwordSecretKey:
     databases: []
     # - name:
     #   # https://www.cockroachlabs.com/docs/stable/create-database.html#parameters
     #   options: [encoding='utf-8']
     #   owners: []
+    #   # Backup schedules are not idemponent for now and will fail on next run
+    #   # https://github.com/cockroachdb/cockroach/issues/57892
     #   backup:
     #     into: s3://
     #     # Enterprise-only option (revision_history)

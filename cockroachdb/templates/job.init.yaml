@@ -145,7 +145,7 @@ spec:
 
                       {{- range $user := .Values.init.provisioning.users }}
                         CREATE USER IF NOT EXISTS {{ $user.name }} WITH
-                        {{- if $user.password }}
+                        {{- if or $user.password $user.passwordSecretName }}
                           PASSWORD '${{ $user.name }}_PASSWORD'
                         {{- else }}
                           PASSWORD null
@@ -211,6 +211,12 @@ spec:
               secretKeyRef:
                 name: {{ $secretName }}
                 key: {{ $user.name }}-password
+        {{- else if $user.passwordSecretName }}
+          - name: {{ $user.name }}_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: {{ tpl $user.passwordSecretName $ }}
+                key: {{ $user.passwordSecretKey | default (printf "%s-password" $user.name) }}
         {{- end }}
         {{- end }}
         {{- range $clusterSetting, $clusterSettingValue := .Values.init.provisioning.clusterSettings }}
