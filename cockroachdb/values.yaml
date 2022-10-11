@@ -263,13 +263,7 @@ statefulset:
     # periodSeconds: 5
 
   securityContext:
-    allowPrivilegeEscalation: false
-    capabilities:
-      drop:
-        - ALL
-    privileged: false
-    readOnlyRootFilesystem: true
-
+    enabled: true
 
 service:
   ports:
@@ -328,10 +322,7 @@ prometheus:
   enabled: true
 
 securityContext:
-  fsGroup: 1000
-  runAsGroup: 1000
-  runAsUser: 1000
-  runAsNonRoot: true
+  enabled: true
 
 # CockroachDB's Prometheus operator ServiceMonitor support
 serviceMonitor:
