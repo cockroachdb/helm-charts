@@ -314,6 +314,9 @@ ingress:
   # - hosts: [cockroachlabs.com]
   #   secretName: cockroachlabs-tls
 
+prometheus:
+  enabled: true
+
 # CockroachDB's Prometheus operator ServiceMonitor support
 serviceMonitor:
   enabled: false
@@ -408,6 +411,8 @@ init:
     #   # https://www.cockroachlabs.com/docs/stable/create-database.html#parameters
     #   options: [encoding='utf-8']
     #   owners: []
+    #   # Backup schedules are not idemponent for now and will fail on next run
+    #   # https://github.com/cockroachdb/cockroach/issues/57892
     #   backup:
     #     into: s3://
     #     # Enterprise-only option (revision_history)
