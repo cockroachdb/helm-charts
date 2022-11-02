@@ -17,8 +17,8 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  duration: {{ .Values.tls.certs.certManagerIssuer.clientCertDuration }}
-  renewBefore: {{ .Values.tls.certs.certManagerIssuer.clientCertExpiryWindow }}
+  duration: {{ .Values.tls.certs.clientCertManagerIssuer.certDuration }}
+  renewBefore: {{ .Values.tls.certs.clientCertManagerIssuer.certExpiryWindow }}
   usages:
     - digital signature
     - key encipherment
@@ -42,7 +42,7 @@ spec:
 {{- end }}
   secretName: {{ .Values.tls.certs.clientRootSecret }}
   issuerRef:
-    name: {{ .Values.tls.certs.certManagerIssuer.name }}
-    kind: {{ .Values.tls.certs.certManagerIssuer.kind }}
-    group: {{ .Values.tls.certs.certManagerIssuer.group }}
+    name: {{ .Values.tls.certs.clientCertManagerIssuer.name }}
+    kind: {{ .Values.tls.certs.clientCertManagerIssuer.kind }}
+    group: {{ .Values.tls.certs.clientCertManagerIssuer.group }}
 {{- end }}

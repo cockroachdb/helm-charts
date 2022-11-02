@@ -147,7 +147,7 @@ By enabling `tls.certs.tlsSecret` the tls secrets are projected on to the correc
 If you wish to supply certificates with [cert-manager][3], set
 
 * `tls.certs.certManager` to `yes`/`true`
-* `tls.certs.certManagerIssuer` to an IssuerRef (as they appear in certificate resources) pointing to a clusterIssuer or issuer, you have set up in the cluster
+* `tls.certs.nodeCertManagerIssuer` or `tls.certs.clientCertManagerIssuer` to an IssuerRef (as they appear in certificate resources) pointing to a clusterIssuer or issuer, you have set up in the cluster
 
 Example issuer:
 
@@ -403,13 +403,16 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.selfSigner.readinessWait`                      | Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true                                    | `30s`                                             |
 | `tls.certs.selfSigner.podUpdateTimeout`                   | Wait time for each cockroachdb replica to get to running state. Only considered when rotateCerts is set to true                                    | `2m`                                             |
 | `tls.certs.certManager`                                   | Provision certificates with cert-manager                        | `false`                                               |
-| `tls.certs.certManagerIssuer.group`                       | IssuerRef group to use when generating certificates             | `cert-manager.io`                                     |
-| `tls.certs.certManagerIssuer.kind`                        | IssuerRef kind to use when generating certificates              | `Issuer`                                              |
-| `tls.certs.certManagerIssuer.name`                        | IssuerRef name to use when generating certificates              | `cockroachdb`                                         |
-| `tls.certs.certManagerIssuer.clientCertDuration`          | Duration of client cert in hours                                | `672h`                                                |
-| `tls.certs.certManagerIssuer.clientCertExpiryWindow`      | Expiry window of client cert means a window before actual expiry in which client cert should be rotated                   | `48h`                                       |
-| `tls.certs.certManagerIssuer.nodeCertDuration`            | Duration of node cert in hours                                  | `8760h`                                               |
-| `tls.certs.certManagerIssuer.nodeCertExpiryWindow`        | Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.             | `168h`                                      |
+| `tls.certs.clientCertManagerIssuer.group`                       | IssuerRef group to use when generating client certificates             | `cert-manager.io`                                     |
+| `tls.certs.clientCertManagerIssuer.kind`                        | IssuerRef kind to use when generating client certificates              | `Issuer`                                              |
+| `tls.certs.clientCertManagerIssuer.name`                        | IssuerRef name to use when generating client certificates              | `cockroachdb`                                         |
+| `tls.certs.nodeCertManagerIssuer.group`                         | IssuerRef group to use when generating node certificates              | `cert-manager.io`                                     |
+| `tls.certs.nodeCertManagerIssuer.kind`                        | IssuerRef kind to use when generating node certificates                  | `Issuer`                                              |
+| `tls.certs.nodeCertManagerIssuer.name`                        | IssuerRef name to use when generating node certificates                 | `cockroachdb`                                         |
+| `tls.certs.clientCertManagerIssuer.certDuration`          | Duration of client cert in hours                                | `672h`                                                |
+| `tls.certs.clientCertManagerIssuer.certExpiryWindow`      | Expiry window of client cert means a window before actual expiry in which client cert should be rotated                   | `48h`                                       |
+| `tls.certs.nodeCertManagerIssuer.certDuration`            | Duration of node cert in hours                                  | `8760h`                                               |
+| `tls.certs.nodeCertManagerIssuer.certExpiryWindow`        | Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.             | `168h`                                      |
 | `tls.selfSigner.image.repository`                         | Image to use for self signing TLS certificates                  | `cockroachlabs-helm-charts/cockroach-self-signer-cert`|
 | `tls.selfSigner.image.tag`                                | Image tag to use for self signing TLS certificates              | `0.1`                                                 |
 | `tls.selfSigner.image.pullPolicy`                         | Self signing TLS certificates container pull policy             | `IfNotPresent`                                        |
