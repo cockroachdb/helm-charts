@@ -9,11 +9,13 @@ import (
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
+	monitoring "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/stretchr/testify/require"
 )
 
@@ -270,10 +272,6 @@ func TestHelmSelfCertSignerCronJob(t *testing.T) {
 func TestHelmSelfCertSignerCronJobSchedule(t *testing.T) {
 	t.Parallel()
 
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
-
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
@@ -350,9 +348,6 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 
 	var statefulset appsv1.StatefulSet
 	var job batchv1.Job
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
@@ -407,10 +402,6 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 // TestSelfSignerHelmValidation contains the validations around the self-signer utility inputs
 func TestSelfSignerHelmValidation(t *testing.T) {
 	t.Parallel()
-
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
 
 	testCases := []struct {
 		name   string
@@ -505,12 +496,6 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 	t.Parallel()
 
-	var statefulset appsv1.StatefulSet
-	var secret corev1.Secret
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../cockroachdb")
-	require.NoError(t, err)
-
 	testCases := []struct {
 		name   string
 		values map[string]string
@@ -527,7 +512,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				statefulsetArgument string
 				logConfig           string
 				secretExists        bool
-			} {
+			}{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
 				"{}",
 				true,
@@ -537,13 +522,13 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 			"New logging configuration overridden",
 			map[string]string{
 				"conf.log.enabled": "true",
-				"conf.log.config": "file-defaults:\ndir: /custom/dir/path/",
+				"conf.log.config":  "file-defaults:\ndir: /custom/dir/path/",
 			},
 			struct {
 				statefulsetArgument string
 				logConfig           string
 				secretExists        bool
-			} {
+			}{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
 				"file-defaults:\n  dir: /custom/dir/path/",
 				true,
@@ -559,10 +544,611 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				statefulsetArgument string
 				logConfig           string
 				secretExists        bool
-			} {
+			}{
 				"--logtostderr=INFO",
 				"",
 				false,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		var statefulset appsv1.StatefulSet
+		var secret corev1.Secret
+
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
+
+			helm.UnmarshalK8SYaml(t, output, &statefulset)
+
+			require.Equal(subT, namespaceName, statefulset.Namespace)
+			require.Contains(t, statefulset.Spec.Template.Spec.Containers[0].Args[2], testCase.expect.statefulsetArgument)
+
+			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.logconfig.yaml"})
+
+			require.Equal(subT, testCase.expect.secretExists, err == nil)
+
+			if testCase.expect.secretExists {
+				helm.UnmarshalK8SYaml(t, output, &secret)
+				require.Equal(subT, namespaceName, secret.Namespace)
+				require.Contains(subT, secret.StringData["log-config.yaml"], testCase.expect.logConfig)
+			}
+		})
+	}
+}
+
+// TestHelmDatabaseProvisioning contains the tests around the cluster init and provisioning
+func TestHelmDatabaseProvisioning(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect struct {
+			job struct {
+				exists           bool
+				hookDeletePolicy string
+				initCluster      bool
+				provisionCluster bool
+				sql              string
+			}
+			secret struct {
+				exists          bool
+				users           map[string]string
+				clusterSettings map[string]string
+			}
+		}
+	}{
+		{
+			"Disabled provisioning",
+			map[string]string{"init.provisioning.enabled": "false"},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					false,
+					"",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					false,
+					nil,
+					nil,
+				},
+			},
+		},
+		{
+			"Enabled empty provisioning",
+			map[string]string{"init.provisioning.enabled": "true"},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					nil,
+				},
+			},
+		},
+		{
+			"Users provisioning",
+			map[string]string{
+				"init.provisioning.enabled":             "true",
+				"init.provisioning.users[0].name":       "testUser",
+				"init.provisioning.users[0].password":   "testPassword",
+				"init.provisioning.users[0].options[0]": "CREATEROLE",
+			},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE USER IF NOT EXISTS testUser WITH PASSWORD '$testUser_PASSWORD' CREATEROLE;",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{true,
+					map[string]string{
+						"testUser": "testPassword",
+					},
+					nil,
+				},
+			},
+		},
+		{
+			"Database provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                 "true",
+				"init.provisioning.databases[0].name":       "testDatabase",
+				"init.provisioning.databases[0].options[0]": "encoding='utf-8'",
+			},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE DATABASE IF NOT EXISTS testDatabase encoding='utf-8';",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					nil,
+				},
+			},
+		},
+		{
+			"Users with database granted provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                "true",
+				"init.provisioning.users[0].name":          "testUser",
+				"init.provisioning.users[0].password":      "testPassword",
+				"init.provisioning.databases[0].name":      "testDatabase",
+				"init.provisioning.databases[0].owners[0]": "testUser",
+			},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE USER IF NOT EXISTS testUser WITH PASSWORD '$testUser_PASSWORD';" +
+						"CREATE DATABASE IF NOT EXISTS testDatabase;" +
+						"GRANT ALL ON DATABASE testDatabase TO testUser;",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					map[string]string{
+						"testUser": "testPassword",
+					},
+					nil,
+				},
+			},
+		},
+		{
+			"Cluster settings provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                                "true",
+				"init.provisioning.clusterSettings.cluster\\.organization": "testOrganization",
+				"init.provisioning.clusterSettings.enterprise\\.license":   "testLicense",
+			},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"SET CLUSTER SETTING cluster.organization = '$cluster_organization_CLUSTER_SETTING';" +
+						"SET CLUSTER SETTING enterprise.license = '$enterprise_license_CLUSTER_SETTING';",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					map[string]string{
+						"cluster-organization": "testOrganization",
+						"enterprise-license":   "testLicense",
+					},
+				},
+			},
+		},
+		{
+			"Database backup provisioning",
+			map[string]string{
+				"init.provisioning.enabled":                                 "true",
+				"init.provisioning.databases[0].name":                       "testDatabase",
+				"init.provisioning.databases[0].backup.into":                "s3://backups/testDatabase?AWS_ACCESS_KEY_ID=minioadmin&AWS_ENDPOINT=http://minio.minio:80&AWS_REGION=us-east-1&AWS_SECRET_ACCESS_KEY=minioadmin",
+				"init.provisioning.databases[0].backup.options[0]":          "revision_history",
+				"init.provisioning.databases[0].backup.recurring":           "@always",
+				"init.provisioning.databases[0].backup.fullBackup":          "@daily",
+				"init.provisioning.databases[0].backup.schedule.options[0]": "first_run = 'now'",
+			},
+			struct {
+				job struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}
+				secret struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}
+			}{
+				struct {
+					exists           bool
+					hookDeletePolicy string
+					initCluster      bool
+					provisionCluster bool
+					sql              string
+				}{
+					true,
+					"before-hook-creation",
+					true,
+					true,
+					"CREATE DATABASE IF NOT EXISTS testDatabase;" +
+						"CREATE SCHEDULE IF NOT EXISTS testDatabase_scheduled_backup" +
+						"FOR BACKUP DATABASE testDatabase INTO 's3://backups/testDatabase?AWS_ACCESS_KEY_ID=minioadmin&AWS_ENDPOINT=http://minio.minio:80&AWS_REGION=us-east-1&AWS_SECRET_ACCESS_KEY=minioadmin'" +
+						"WITH revision_history" +
+						"RECURRING '@always'" +
+						"FULL BACKUP '@daily'" +
+						"WITH SCHEDULE OPTIONS first_run = 'now';",
+				},
+				struct {
+					exists          bool
+					users           map[string]string
+					clusterSettings map[string]string
+				}{
+					true,
+					nil,
+					nil,
+				},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		var job batchv1.Job
+		var secret corev1.Secret
+
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/job.init.yaml"})
+
+			require.Equal(subT, testCase.expect.job.exists, err == nil)
+
+			if testCase.expect.job.exists {
+				helm.UnmarshalK8SYaml(t, output, &job)
+				require.Equal(subT, job.Namespace, namespaceName)
+
+				require.Equal(subT, job.Annotations["helm.sh/hook-delete-policy"], testCase.expect.job.hookDeletePolicy)
+
+				initJobCommand := job.Spec.Template.Spec.Containers[0].Command[2]
+
+				if testCase.expect.job.initCluster {
+					require.Contains(subT, initJobCommand, "initCluster()")
+					require.Contains(subT, initJobCommand, "initCluster;")
+				} else {
+					require.NotContains(subT, initJobCommand, "initCluster()")
+					require.NotContains(subT, initJobCommand, "initCluster;")
+				}
+
+				if testCase.expect.job.provisionCluster {
+					require.Contains(subT, initJobCommand, "provisionCluster()")
+					require.Contains(subT, initJobCommand, "provisionCluster;")
+
+					// Stripping all whitespaces and new lines
+					preparedSql := strings.ReplaceAll(strings.ReplaceAll(initJobCommand, " ", ""), "\n", "")
+					expectedSql := strings.ReplaceAll(strings.ReplaceAll(testCase.expect.job.sql, " ", ""), "\n", "")
+
+					require.Contains(subT, preparedSql, expectedSql)
+				} else {
+					require.NotContains(subT, initJobCommand, "provisionCluster()")
+					require.NotContains(subT, initJobCommand, "provisionCluster;")
+				}
+			}
+
+			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secrets.init.yaml"})
+
+			require.Equal(subT, testCase.expect.secret.exists, err == nil)
+
+			if testCase.expect.secret.exists {
+				helm.UnmarshalK8SYaml(t, output, &secret)
+
+				require.Equal(subT, secret.Namespace, namespaceName)
+
+				for username, password := range testCase.expect.secret.users {
+					require.Equal(subT, secret.StringData[username+"-password"], password)
+				}
+
+				for name, value := range testCase.expect.secret.clusterSettings {
+					require.Equal(subT, secret.StringData[name+"-cluster-setting"], value)
+				}
+			}
+		})
+	}
+}
+
+func TestHelmServiceMonitor(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name       string
+		values     map[string]string
+		namespaced bool
+	}{
+		{
+			"All namespaces are selected",
+			map[string]string{
+				"serviceMonitor.enabled":    "true",
+				"serviceMonitor.namespaced": "false",
+			},
+			false,
+		},
+		{
+			"Current namespace is selected",
+			map[string]string{
+				"serviceMonitor.enabled":    "true",
+				"serviceMonitor.namespaced": "true",
+			},
+			true,
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/serviceMonitor.yaml"})
+
+			var monitor monitoring.ServiceMonitor
+			helm.UnmarshalK8SYaml(t, output, &monitor)
+
+			require.Equal(t, monitor.Spec.NamespaceSelector.Any, !testCase.namespaced)
+			if testCase.namespaced {
+				require.Len(t, monitor.Spec.NamespaceSelector.MatchNames, 1)
+				require.Contains(t, monitor.Spec.NamespaceSelector.MatchNames, namespaceName)
+			} else {
+				require.Empty(t, monitor.Spec.NamespaceSelector.MatchNames)
+			}
+		})
+	}
+}
+
+// TestHelmSecretBackendConfig tests the secret.backendconfig template
+func TestHelmSecretBackendConfig(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect string
+	}{
+		{
+			"IAP enabled and clientId empty",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "",
+				"iap.clientSecret": "notempty",
+			},
+			"iap.clientID can't be empty if iap.enabled is set to true",
+		},
+		{
+			"IAP enabled and clientSecret empty",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "",
+			},
+			"iap.clientSecret can't be empty if iap.enabled is set to true",
+		},
+		{
+			"IAP enabled and both clientId and clientSecret set",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "myclientid",
+				"iap.clientSecret": "myclientsecret",
+			},
+			"",
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			output, err := helm.RenderTemplateE(subT, options, helmChartPath, releaseName, []string{"templates/secret.backendconfig.yaml"})
+
+			if testCase.expect != "" {
+				require.Error(subT, err)
+				require.Contains(subT, err.Error(), testCase.expect)
+			} else {
+
+				require.Nil(t, err)
+
+				var secret corev1.Secret
+				helm.UnmarshalK8SYaml(t, output, &secret)
+
+				require.Equal(t, string(secret.Data["client_id"]), testCase.values["iap.clientId"])
+				require.Equal(t, string(secret.Data["client_secret"]), testCase.values["iap.clientSecret"])
+			}
+		})
+	}
+}
+
+// TestHelmBackendConfig tests the backendconfig template
+func TestHelmBackendConfig(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+	}{
+		{
+			"IAP enabled",
+			map[string]string{
+				"iap.enabled":      "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "notempty",
 			},
 		},
 	}
@@ -576,23 +1162,124 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 			subT.Parallel()
 
 			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			_, err := helm.RenderTemplateE(subT, options, helmChartPath, releaseName, []string{"templates/backendconfig.yaml"})
+			require.Nil(subT, err)
+		})
+	}
+}
+
+// TestHelmIngress tests the ingress template
+func TestHelmIngress(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		values           map[string]string
+		expectedPathType networkingv1.PathType
+	}{
+		{
+			"Ingress enabled",
+			map[string]string{
+				"ingress.enabled":  "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "notempty",
+			},
+			networkingv1.PathTypePrefix,
+		},
+		{
+			"Ingress and IAP enabled",
+			map[string]string{
+				"ingress.enabled":  "true",
+				"ingress.paths":    "{/*}",
+				"iap.enabled":      "true",
+				"iap.clientId":     "notempty",
+				"iap.clientSecret": "notempty",
+			},
+			networkingv1.PathTypeImplementationSpecific,
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{SetValues: testCase.values}
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/ingress.yaml"}, "--api-versions", "networking.k8s.io/v1/Ingress")
+
+			require.Nil(t, err)
+
+			var ingress networkingv1.Ingress
+			helm.UnmarshalK8SYaml(t, output, &ingress)
+
+			require.Equal(t, ingress.APIVersion, "networking.k8s.io/v1")
+
+			for _, rule := range ingress.Spec.Rules {
+				for _, path := range rule.HTTP.Paths {
+					require.NotNil(t, path.PathType)
+					require.Equal(t, *path.PathType, testCase.expectedPathType)
+				}
+			}
+		})
+	}
+}
+
+// TestHelmInitJobAnnotations contains the tests for the annotations of the Init Job
+func TestHelmInitJobAnnotations(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name        string
+		values      map[string]string
+		annotations map[string]string
+	}{
+		{
+			"No extra job annotations were supplied",
+			map[string]string{},
+			map[string]string{
+				"helm.sh/hook":               "post-install,post-upgrade",
+				"helm.sh/hook-delete-policy": "before-hook-creation",
+			},
+		},
+		{
+			"Extra job annotations were supplied",
+			map[string]string{
+				"init.jobAnnotations.test-key-1": "test-value-1",
+				"init.jobAnnotations.test-key-2": "test-value-2",
+			},
+			map[string]string{
+				"helm.sh/hook":               "post-install,post-upgrade",
+				"helm.sh/hook-delete-policy": "before-hook-creation",
+				"test-key-1":                 "test-value-1",
+				"test-key-2":                 "test-value-2",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
 			options := &helm.Options{
 				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 				SetValues:      testCase.values,
 			}
-			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/job.init.yaml"})
 
-			helm.UnmarshalK8SYaml(t, output, &statefulset)
-			require.Contains(t, statefulset.Spec.Template.Spec.Containers[0].Args[2], testCase.expect.statefulsetArgument)
+			require.Equal(subT, err, nil)
 
-			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.logconfig.yaml"})
+			var job batchv1.Job
+			helm.UnmarshalK8SYaml(t, output, &job)
 
-			require.Equal(subT, testCase.expect.secretExists, err == nil)
-
-			if testCase.expect.secretExists {
-				helm.UnmarshalK8SYaml(t, output, &secret)
-				require.Contains(subT, secret.StringData["log-config.yaml"], testCase.expect.logConfig)
-			}
+			require.Equal(t, testCase.annotations, job.Annotations)
 		})
 	}
 }

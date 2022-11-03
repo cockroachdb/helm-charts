@@ -2,9 +2,9 @@
 {{- $paths := .Values.ingress.paths -}}
 {{- $ports := .Values.service.ports -}}
 {{- $fullName := include "cockroachdb.fullname" . -}}
-{{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" -}}
+{{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
 apiVersion: networking.k8s.io/v1
-{{- else if $.Capabilities.APIVersions.Has "networking.k8s.io/v1beta1/Ingress" -}}
+{{- else if $.Capabilities.APIVersions.Has "networking.k8s.io/v1beta1/Ingress" }}
 apiVersion: networking.k8s.io/v1beta1
 {{- else -}}
 apiVersion: extensions/v1beta1
@@ -39,9 +39,13 @@ spec:
       http:
         paths:
   {{- range $path := $paths }}
-          - path: {{ $path }}
+          - path: {{ $path | quote }}
             {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
+            {{- if $.Values.iap.enabled }}
+            pathType: ImplementationSpecific
+            {{- else }}
             pathType: Prefix
+            {{- end }}
             {{- end }}
             backend:
               {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
@@ -53,15 +57,19 @@ spec:
               serviceName: {{ $fullName }}-public
               servicePort: {{ $ports.http.name | quote }}
               {{- end }}
-  {{- end -}}
-  {{- end -}}
+  {{- end }}
+  {{- end }}
   {{- else }}
     - http:
         paths:
   {{- range $path := $paths }}
-          - path: {{ $path }}
+          - path: {{ $path | quote }}
             {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
+            {{- if $.Values.iap.enabled }}
+            pathType: ImplementationSpecific
+            {{- else }}
             pathType: Prefix
+            {{- end }}
             {{- end }}
             backend:
               {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
@@ -73,10 +81,10 @@ spec:
               serviceName: {{ $fullName }}-public
               servicePort: {{ $ports.http.name | quote }}
               {{- end }}
-  {{- end -}}
-  {{- end -}}
+  {{- end }}
+  {{- end }}
   {{- if .Values.ingress.tls }}
   tls:
 {{- toYaml .Values.ingress.tls | nindent 4 }}
-  {{- end -}}
-{{- end -}}
+  {{- end }}
+{{- end }}

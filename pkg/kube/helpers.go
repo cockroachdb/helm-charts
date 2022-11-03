@@ -115,7 +115,7 @@ func WaitUntilAllStsPodsAreReady(ctx context.Context, cl client.Client, stsName,
 	return backoff.Retry(f, b)
 }
 
-func RollingUpdate(ctx context.Context, cl client.Client, stsName, namespace string, readinessWait time.Duration) error {
+func RollingUpdate(ctx context.Context, cl client.Client, stsName, namespace string, readinessWait, podUpdateTimeout time.Duration) error {
 	var sts v1.StatefulSet
 	if err := cl.Get(ctx, types.NamespacedName{Namespace: namespace, Name: stsName}, &sts); err != nil {
 		return err
@@ -137,7 +137,7 @@ func RollingUpdate(ctx context.Context, cl client.Client, stsName, namespace str
 		}
 
 		time.Sleep(5 * time.Second)
-		if err := WaitForPodReady(ctx, cl, replicaName, namespace, 2*time.Minute, 5*time.Second); err != nil {
+		if err := WaitForPodReady(ctx, cl, replicaName, namespace, podUpdateTimeout, 5*time.Second); err != nil {
 			return err
 		}
 
@@ -147,7 +147,7 @@ func RollingUpdate(ctx context.Context, cl client.Client, stsName, namespace str
 	}
 
 	// extra safe side check for all replicas to come in available state
-	if err := WaitUntilAllStsPodsAreReady(ctx, cl, stsName, namespace, 2*time.Minute, 5*time.Second); err != nil {
+	if err := WaitUntilAllStsPodsAreReady(ctx, cl, stsName, namespace, podUpdateTimeout, 5*time.Second); err != nil {
 		return err
 	}
 	return nil

@@ -1,7 +1,6 @@
-# Generated file, DO NOT EDIT. Source: build/templates/values.yaml
 image:
   repository: cockroachdb/cockroach
-  tag: v22.1.10
+  tag: v{{ .AppVersion }}
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
@@ -324,7 +323,6 @@ serviceMonitor:
   labels: {}
   annotations: {}
   interval: 10s
-  tlsConfig: {}
   # scrapeTimeout: 10s
   # Limits the ServiceMonitor to the current namespace if set to `true`.
   namespaced: false

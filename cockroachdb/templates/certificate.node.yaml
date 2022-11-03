@@ -17,8 +17,8 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  duration: 8760h
-  renewBefore: 168h
+  duration: {{ .Values.tls.certs.certManagerIssuer.nodeCertDuration }}
+  renewBefore: {{ .Values.tls.certs.certManagerIssuer.nodeCertExpiryWindow }}
   usages:
     - digital signature
     - key encipherment
@@ -33,8 +33,14 @@ spec:
   keyAlgorithm: rsa
 {{- end }}
   commonName: node
+{{- if .Values.tls.certs.useCertManagerV1CRDs }}
+  subject:
+    organizations:
+      - Cockroach
+{{- else }}
   organization:
     - Cockroach
+{{- end }}
   dnsNames:
     - "localhost"
     - "127.0.0.1"
@@ -45,5 +51,8 @@ spec:
     - {{ printf "*.%s.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
     - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
   secretName: {{ .Values.tls.certs.nodeSecret }}
-  issuerRef: {{- toYaml .Values.tls.certs.certManagerIssuer | nindent 4 }}
+  issuerRef:
+    name: {{ .Values.tls.certs.certManagerIssuer.name }}
+    kind: {{ .Values.tls.certs.certManagerIssuer.kind }}
+    group: {{ .Values.tls.certs.certManagerIssuer.group }}
 {{- end }}

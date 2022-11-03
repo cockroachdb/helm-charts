@@ -61,11 +61,8 @@ jobs:
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
 
-      - name: Get repositories
-        uses: hiberbee/github-action-helm@latest
-
       - name: Lint chart
-        run: helm lint cockroachdb
+        run: make test/lint
         working-directory: .
 
   # pre job to run the unit tests
@@ -84,14 +81,11 @@ jobs:
         with:
           go-version: 1.15
 
-      - name: Install cockroach binary
-        run: make install-cockroach
- 
       - name: HelmTemplate
-        run: go test -v ./tests/template/...
+        run: make test/template
 
       - name: Unit
-        run: go test -v ./pkg/...
+        run: make test/units
 
   self-signer-tag-change:
     name: Tag Change
@@ -107,14 +101,14 @@ jobs:
           repository: ${{github.event.pull_request.head.repo.full_name}}
 
       - name: Install yq
-        run: make install-yq
+        run: make bin/yq
 
       - name: Verify tag change
+        id: changetag
         run: |
-          ./build/self-signer-utility.sh
-          if [[ $? -ne 0 ]]; then
-            exit 1
-          fi
+          output=$(./build/self-signer-utility.sh)
+          echo $output | grep "You have changed the tag of selfSigner utility"
+          exit $?
 
   # pre job to run helm e2e tests
   helm-install-e2e:
@@ -127,25 +121,13 @@ jobs:
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
 
-      - name: Install Kind
-        uses: helm/kind-action@v1.2.0
-
-      - name: Install cockroach binary
-        run: make install-cockroach
-
-      - name: Build Self-signer
-        run: make build-self-signer
-
-      - name: Load docker images to kind
-        run: make load-docker-image-to-kind
-
       - name: Setup Go
         uses: actions/setup-go@v2
         with:
           go-version: 1.15
 
       - name: Run E2E Test
-        run: go test -v ./tests/e2e/install/...
+        run: make test/e2e/install
 
   helm-rotate-cert-e2e:
     name: Helm-rotate-cert-Test
@@ -157,22 +139,10 @@ jobs:
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
 
-      - name: Install Kind
-        uses: helm/kind-action@v1.2.0
-
-      - name: Install cockroach binary
-        run: make install-cockroach
-
-      - name: Build Self-signer
-        run: make build-self-signer
-
-      - name: Load docker images to kind
-        run: make load-docker-image-to-kind
-
       - name: Setup Go
         uses: actions/setup-go@v2
         with:
           go-version: 1.15
 
       - name: Run E2E Test
-        run: go test -v ./tests/e2e/rotate/...
+        run: make test/e2e/rotate

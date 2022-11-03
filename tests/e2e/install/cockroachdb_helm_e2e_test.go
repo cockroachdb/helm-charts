@@ -24,19 +24,15 @@ import (
 )
 
 var (
-	cfg            = ctrl.GetConfigOrDie()
-	k8sClient, _   = client.New(cfg, client.Options{})
-	releaseName    = "crdb-test"
-	customCASecret = "custom-ca-secret"
+	cfg              = ctrl.GetConfigOrDie()
+	k8sClient, _     = client.New(cfg, client.Options{})
+	releaseName      = "crdb-test"
+	customCASecret   = "custom-ca-secret"
+	helmChartPath, _ = filepath.Abs("../../../cockroachdb")
 )
 
 func TestCockroachDbHelmInstall(t *testing.T) {
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../../cockroachdb")
-	require.NoError(t, err)
-
 	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
-
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
 
 	crdbCluster := testutil.CockroachCluster{
@@ -54,16 +50,22 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	// ... and make sure to delete the namespace at the end of the test
 	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
+	const testDBName = "testdb"
+
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
+			"conf.cluster-name": "test",
+			"init.provisioning.enabled": "true",
+			"init.provisioning.databases[0].name": testDBName,
+			"init.provisioning.databases[0].owners[0]": "root",
 			"storage.persistentVolume.size": "1Gi",
 		},
 	}
 
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
-	err = helm.InstallE(t, options, helmChartPath, releaseName)
+	err := helm.InstallE(t, options, helmChartPath, releaseName)
 	require.NoError(t, err)
 
 	//... and make sure to delete the helm release at the end of the test.
@@ -93,14 +95,11 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
+	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+	testutil.RequireDatabaseToFunction(t, crdbCluster, testDBName)
 }
 
 func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../../cockroachdb")
-	require.NoError(t, err)
-
 	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
 
@@ -188,15 +187,11 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
+	testutil.RequireCRDBToFunction(t, crdbCluster, false)
 }
 
 // Test to check migration from Bring your own certificate method to self-sginer cert utility
 func TestCockroachDbHelmMigration(t *testing.T) {
-	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../../cockroachdb")
-	require.NoError(t, err)
-
 	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
 
@@ -265,7 +260,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 		require.NoError(t, err)
 	}
 
-	err = k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", crdbCluster.NodeSecret,
+	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", crdbCluster.NodeSecret,
 		fmt.Sprintf("--from-file=%s/node.crt", certsDir), fmt.Sprintf("--from-file=%s/node.key", certsDir),
 		fmt.Sprintf("--from-file=%s/ca.crt", certsDir))
 	require.NoError(t, err)
@@ -346,5 +341,53 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireDatabaseToFunction(t, crdbCluster, false)
+	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+}
+
+func TestCockroachDbWithInsecureMode(t *testing.T) {
+	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
+	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
+
+	crdbCluster := testutil.CockroachCluster{
+		Cfg:             cfg,
+		K8sClient:       k8sClient,
+		StatefulSetName: fmt.Sprintf("%s-cockroachdb", releaseName),
+		Namespace:       namespaceName,
+	}
+
+	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
+	// ... and make sure to delete the namespace at the end of the test
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+
+	// Setup the args. For this test, we will set the following input values:
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"tls.enabled": "false",
+		},
+	}
+
+	// Deploy the cockroachdb helm chart and checks installation should succeed.
+	err := helm.InstallE(t, options, helmChartPath, releaseName)
+	require.NoError(t, err)
+
+	//... and make sure to delete the helm release at the end of the test.
+	defer func() {
+		helm.Delete(t, options, releaseName, true)
+	}()
+
+	// Print the debug logs in case of test failure.
+	defer func() {
+		if t.Failed() {
+			testutil.PrintDebugLogs(t, kubectlOptions)
+		}
+	}()
+
+	// Next we wait for the service endpoint
+	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
+
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
+	time.Sleep(20 * time.Second)
+	testutil.RequireCRDBToFunction(t, crdbCluster, false)
 }

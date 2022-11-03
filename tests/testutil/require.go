@@ -113,20 +113,19 @@ func statefulSetIsReady(ss *appsv1.StatefulSet) bool {
 	return ss.Status.ReadyReplicas == ss.Status.Replicas
 }
 
-// RequireDatabaseToFunction creates a database, a table and insert two rows if it is a fresh install of the cluster.
-// If certificate is rotated and cluster rolling restart has happened, this will check that existing two rows are present.
-func RequireDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bool) {
+func getDBConn(t *testing.T, crdbCluster CockroachCluster, dbName string) *sql.DB {
+	isSecure := crdbCluster.CaSecret != ""
 	sqlPort := int32(26257)
 	conn := &database.DBConnection{
 		Ctx:    context.TODO(),
 		Client: crdbCluster.K8sClient,
 		Port:   &sqlPort,
-		UseSSL: true,
+		UseSSL: isSecure,
 
 		RestConfig:   crdbCluster.Cfg,
 		ServiceName:  fmt.Sprintf("%s-0.%s", crdbCluster.StatefulSetName, crdbCluster.StatefulSetName),
 		Namespace:    crdbCluster.Namespace,
-		DatabaseName: "system",
+		DatabaseName: dbName,
 
 		RunningInsideK8s:            false,
 		ClientCertificateSecretName: crdbCluster.ClientSecret,
@@ -136,7 +135,30 @@ func RequireDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, rotat
 	// Create a new database connection for the update.
 	db, err := database.NewDbConnection(conn)
 	require.NoError(t, err)
-	defer db.Close()
+	t.Cleanup(func() {
+		db.Close()
+	})
+	return db
+}
+
+// RequireDatabaseToFunction creates a table and insert two rows.
+func RequireDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, dbName string) {
+	db := getDBConn(t, crdbCluster, dbName)
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert two rows into the "accounts" table.
+	if _, err := db.Exec(
+		"INSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250)"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// RequireCRDBToFunction creates a database, a table and insert two rows if it is a fresh install of the cluster.
+// If certificate is rotated and cluster rolling restart has happened, this will check that existing two rows are present.
+func RequireCRDBToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bool) {
+	db := getDBConn(t, crdbCluster, "system")
 
 	if rotate {
 		t.Log("Verifying the existing data in the database after certificate rotation")

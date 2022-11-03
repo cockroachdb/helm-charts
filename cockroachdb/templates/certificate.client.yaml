@@ -17,8 +17,8 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  duration: 672h
-  renewBefore: 48h
+  duration: {{ .Values.tls.certs.certManagerIssuer.clientCertDuration }}
+  renewBefore: {{ .Values.tls.certs.certManagerIssuer.clientCertExpiryWindow }}
   usages:
     - digital signature
     - key encipherment
@@ -32,8 +32,17 @@ spec:
   keyAlgorithm: rsa
 {{- end }}
   commonName: root
+{{- if .Values.tls.certs.useCertManagerV1CRDs }}
+  subject:
+    organizations:
+      - Cockroach
+{{- else }}
   organization:
     - Cockroach
+{{- end }}
   secretName: {{ .Values.tls.certs.clientRootSecret }}
-  issuerRef: {{- toYaml .Values.tls.certs.certManagerIssuer | nindent 4 }}
+  issuerRef:
+    name: {{ .Values.tls.certs.certManagerIssuer.name }}
+    kind: {{ .Values.tls.certs.certManagerIssuer.kind }}
+    group: {{ .Values.tls.certs.certManagerIssuer.group }}
 {{- end }}
