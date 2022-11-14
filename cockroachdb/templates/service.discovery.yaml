@@ -26,9 +26,11 @@ metadata:
     service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
     # Enable automatic monitoring of all instances when Prometheus is running
     # in the cluster.
+    {{- if .Values.prometheus.enabled }}
     prometheus.io/scrape: "true"
     prometheus.io/path: _status/vars
     prometheus.io/port: {{ .Values.service.ports.http.port | quote }}
+    {{- end }}
   {{- with .Values.service.discovery.annotations }}
     {{- toYaml . | nindent 4 }}
   {{- end }}

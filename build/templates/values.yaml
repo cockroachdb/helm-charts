@@ -314,6 +314,9 @@ ingress:
   # - hosts: [cockroachlabs.com]
   #   secretName: cockroachlabs-tls
 
+prometheus:
+  enabled: true
+
 # CockroachDB's Prometheus operator ServiceMonitor support
 serviceMonitor:
   enabled: false
@@ -434,6 +437,18 @@ tls:
     name: ""
   copyCerts:
     image: busybox
+    # The copy-certs container copies provided certificates. It finishes
+    # quickly and doesn't continue to consume resources in the Kubernetes
+    # cluster. Normally, you should leave this section commented out, but if your
+    # Kubernetes cluster uses Resource Quotas and requires all containers to specify
+    # resource requests or limits, you can set those here.
+    resources: { }
+      # requests:
+      #   cpu: "10m"
+      #   memory: "128Mi"
+      # limits:
+      #   cpu: "10m"
+      #   memory: "128Mi"
   certs:
     # Bring your own certs scenario. If provided, tls.init section will be ignored.
     provided: false
