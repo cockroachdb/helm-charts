@@ -108,3 +108,18 @@ bin/yq: ## install yq
 	@mkdir -p bin
 	@curl -Lo bin/yq $(YQ_BIN)
 	@chmod +x bin/yq
+
+build-cockroachdb:
+	cd build/olm-catalog/ && make build-cockroach-image && cd -
+
+push-cockroachdb:
+	cd build/olm-catalog/ && make push-cockroach-image && cd -
+
+build-ocp-catalog:
+	cd build/olm-catalog/ && make build-image && cd -
+
+push-ocp-catalog:
+	cd build/olm-catalog/ && make build-push && cd -
+
+build-and-release-olm-operator:
+	./build/olm_builder.sh
