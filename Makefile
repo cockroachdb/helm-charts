@@ -16,6 +16,11 @@ endif
 
 KIND_CLUSTER ?= chart-testing
 REPOSITORY ?= gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert
+BUNDLE_IMAGE ?= cockroach-operator-bundle # TODO: Finalise names for images, project, registry and project
+OPERATOR_IMAGE ?= cockroachdb
+QUAY_DOCKER_REGISTRY ?= quay.io
+QUAY_PROJECT ?= cockroachdb
+
 
 .DEFAULT_GOAL := all
 all: build
@@ -109,17 +114,17 @@ bin/yq: ## install yq
 	@curl -Lo bin/yq $(YQ_BIN)
 	@chmod +x bin/yq
 
-build-cockroachdb:
-	cd build/olm-catalog/ && make build-cockroach-image && cd -
-
-push-cockroachdb:
-	cd build/olm-catalog/ && make push-cockroach-image && cd -
-
-build-ocp-catalog:
-	cd build/olm-catalog/ && make build-image && cd -
-
-push-ocp-catalog:
-	cd build/olm-catalog/ && make build-push && cd -
-
 build-and-release-olm-operator:
 	./build/olm_builder.sh
+
+build-operator-image:
+	docker build -t $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(OPERATOR_IMAGE):$(VERSION) -f build/docker-image/operator/Dockerfile .
+
+build-operator-push:
+	docker push $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(OPERATOR_IMAGE):$(VERSION)
+
+build-bundle-image:
+	docker build -t $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(BUNDLE_IMAGE):$(VERSION) -f build/docker-image/olm-catalog/bundle.Dockerfile ./
+
+build-bundle-push:
+	docker push $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(BUNDLE_IMAGE):$(VERSION)

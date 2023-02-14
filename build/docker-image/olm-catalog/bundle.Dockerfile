@@ -1,5 +1,4 @@
-# syntax=docker/dockerfile:1
-FROM --platform=linux/amd64 scratch
+FROM scratch
 
 LABEL operators.operatorframework.io.bundle.mediatype.v1=registry+v1
 LABEL operators.operatorframework.io.bundle.manifests.v1=manifests/
@@ -13,6 +12,6 @@ LABEL operators.operatorframework.io.metrics.project_layout=helm.sdk.operatorfra
 LABEL operators.operatorframework.io.test.config.v1=tests/scorecard/
 LABEL operators.operatorframework.io.test.mediatype.v1=scorecard+v1
 
-COPY ./build/olm-catalog/bundle/manifests /manifests/
-COPY ./build/olm-catalog/bundle/metadata /metadata/
-COPY ./build/olm-catalog/bundle/tests/scorecard /tests/scorecard/
+COPY ./bundle/manifests /manifests/
+COPY ./bundle/metadata /metadata/
+COPY ./bundle/tests/scorecard /tests/scorecard/

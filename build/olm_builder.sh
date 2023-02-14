@@ -1,64 +1,102 @@
 #!/bin/bash
 
-SRC_DIR=$(pwd)
-OLM_PATH="${SRC_DIR}"/build/olm-catalog
-COCKROACH_CHART="${SRC_DIR}"/cockroachdb
-stableCSV="${OLM_PATH}"/bundle/manifests/cockroachdb.clusterserviceversion.yaml
-bundleDockerfile="${OLM_PATH}"/bundle.Dockerfile
-metaAnnotations="${OLM_PATH}"/bundle/metadata/annotations.yaml
+set -euxo pipefail
 
+CERTIFIED_OPERATOR=${CERTIFIED_OPERATOR:-""}
 VERSION=${VERSION:-""}
+
+SRC_DIR=$(pwd)
+OLM_PATH="${SRC_DIR}"/bundle
+COCKROACH_CHART="${SRC_DIR}"/cockroachdb
+stableCSV="${OLM_PATH}"/manifests/cockroachdb.clusterserviceversion.yaml
+bundleDockerfile="${SRC_DIR}"/build/docker-image/olm-catalog/bundle.Dockerfile
+metaAnnotations="${OLM_PATH}"/metadata/annotations.yaml
+
+
 RELEASE_TAG=v"${VERSION}"
-IMAGE_REGISTRY=${IMAGE_REGISTRY:-"quay.io"} # TODO: Add project name after registry
+IMAGE_REGISTRY=${IMAGE_REGISTRY:-"quay.io/cockroachdb"} # TODO: Add project name after registry
 
 COCKROACH_TAG=v$(yq '.appVersion' "${COCKROACH_CHART}"/Chart.yaml)
 QUAY_PROJECT="cockraochdb"
 STABLE_CHANNEL=stable-v"$(cut -d'.' -f1 <<<"${VERSION}")".x
 
 function update_olm_operator() {
-    valuesJSON=$(yq -p yaml -o json "${COCKROACH_CHART}"/values.yaml | jq tostring)
+    valuesJSON=$(yq -p yaml -o json "${COCKROACH_CHART}"/values.yaml | jq tostring | sed 's/^.\(.*\).$/\1/')
 
-    sed -i '' 's|VALUES_PLACEHOLDER|'"${valuesJSON}"'|g' "${stableCSV}"
+    sed -i 's|VALUES_PLACEHOLDER|'"${valuesJSON}"'|g' "${stableCSV}"
 
-    sed -i '' 's|RELEASE_TAG|'"${RELEASE_TAG}"'|g' "${stableCSV}"
+    sed -i 's|RELEASE_TAG|'"${RELEASE_TAG}"'|g' "${stableCSV}"
 
-    sed -i '' 's|VERSION|'"${VERSION}"'|g' "${stableCSV}"
+    sed -i 's|VERSION|'"${VERSION}"'|g' "${stableCSV}"
 
-    sed -i '' 's|COCKROACH_TAG|'"${COCKROACH_TAG}"'|g' "${stableCSV}"
+    sed -i 's|COCKROACH_TAG|'"${COCKROACH_TAG}"'|g' "${stableCSV}"
 
-    sed -i '' 's|IMAGE_REGISTRY|'"${IMAGE_REGISTRY}"'|g' "${stableCSV}"
+    sed -i 's|IMAGE_REGISTRY|'"${IMAGE_REGISTRY}"'|g' "${stableCSV}"
 
-    sed -i '' 's|STABLE_CHANNEL|'"${STABLE_CHANNEL}"'|g' "${bundleDockerfile}"
+    sed -i 's|STABLE_CHANNEL|'"${STABLE_CHANNEL}"'|g' "${bundleDockerfile}"
 
-    sed -i '' 's|STABLE_CHANNEL|'"${STABLE_CHANNEL}"'|g' "${metaAnnotations}"
+    sed -i 's|STABLE_CHANNEL|'"${STABLE_CHANNEL}"'|g' "${metaAnnotations}"
 }
 
 function release_olm_operator() {
     # TODO: get docker credentials and login
 
-    make build-cockroachdb
-    make push-cockroachdb
+    make build-operator-image
+    make build-operator-push
 
-    make build-ocp-catalog
-    make push-ocp-catalog
+    make build-bundle-image
+    make build-bundle-push
 }
 
 function release_opm_catalogSource() {
-    # opm index add --overwrite-latest --container-tool=docker --bundles=quay.io/"${QUAY_PROJECT}"/cockroach-operator-bundle:"${VERSION}" \
-    # --tag quay.io/"${QUAY_PROJECT}"/cockroach-operator:"${VERSION}"
+    opm index add --overwrite-latest --container-tool=docker --bundles=quay.io/"${QUAY_PROJECT}"/cockroach-operator-bundle:"${VERSION}" \
+    --tag quay.io/"${QUAY_PROJECT}"/cockroach-operator:"${VERSION}"
 
-    # docker push quay.io/"${QUAY_PROJECT}"/cockroach-operator:"${VERSION}"
-
-    opm index add --overwrite-latest --container-tool=docker --bundles=hemanrnjn/cockroach-operator-bundle:"${VERSION}" \
-    --tag hemanrnjn/cockroach-operator:"${VERSION}"
-
-    docker push hemanrnjn/cockroach-operator:"${VERSION}"
+    docker push quay.io/"${QUAY_PROJECT}"/cockroach-operator:"${VERSION}"
 }
 
-# function create_release_bundle_pr() {
+function create_release_bundle_pr() {
+    ## make sure all relevant redhat images are published
+    echo "${TOKEN}" | gh auth login --with-token
 
-# }
+    local repo="https://github.com/redhat-openshift-ecosystem/certified-operators"
+
+    if [[ "${CERTIFIED_OPERATOR}" == "true" ]]
+    then
+        rm -rf certified-operators
+        gh repo delete https://github.com/<CI_BOT>/certified-operators.git --confirm # TODO: Add CI GithubBot
+        gh repo fork "${repo}" --clone
+        cd certified-operators || exit
+    else
+        repo="https://github.com/k8s-operatorhub/community-operators"
+        rm -rf community-operators
+        gh repo delete https://github.com/<CI_BOT>/community-operators.git --confirm # TODO: Add CI GithubBot
+        gh repo fork "${repo}" --clone
+        cd community-operators || exit
+    fi
+
+    git fetch upstream
+    git pull upstream main
+    git checkout main
+    git rebase upstream/main
+
+    ## commit new operator
+    cp -fR "${OLM_PATH}" ./operators/cockroachdb/"${RELEASE_TAG}"
+
+    if [[ "${CERTIFIED_OPERATOR}" == "true" ]]
+    then
+        operator-manifest pin ./operators/cockroachdb/"${RELEASE_TAG}"/
+    fi
+
+    git add operators/cockroachdb/"${RELEASE_TAG}"
+    git commit -m "cockroach release (${RELEASE_TAG})"
+    git push https://"${GITHUB_USER}":"${TOKEN}"@github.com/<CI_BOT>/certified-operators.git # TODO: Add CI GithubBot
+    gh pr create --title "operator cockroachdb (${RELEASE_VERSION})" --body "New operator bundle. Autogenerated PR" \
+      --repo "${repo}" \
+      --head "${GITHUB_USER}":main --base main
+}
 
 update_olm_operator
 release_olm_operator
 release_opm_catalogSource
+create_release_bundle_pr
