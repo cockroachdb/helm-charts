@@ -1,7 +1,7 @@
 # Generated file, DO NOT EDIT. Source: build/templates/values.yaml
 image:
   repository: cockroachdb/cockroach
-  tag: v22.2.4
+  tag: v22.2.3
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
@@ -436,6 +436,8 @@ tls:
     # The name of this ServiceAccount to use.
     # If not set and `create` is `true`, then a name is auto-generated.
     name: ""
+    # Additional serviceAccount annotations (e.g. for attaching AWS IAM roles to pods)
+    annotations: {}
   copyCerts:
     image: busybox
   certs:
@@ -476,6 +478,8 @@ tls:
       readinessWait: 30s
       # Wait time for each cockroachdb replica to get to running state. Only considered when rotateCerts is set to true
       podUpdateTimeout: 2m
+      # ServiceAccount annotations for selfSigner jobs (e.g. for attaching AWS IAM roles to pods)
+      svcAccountAnnotations: {}
 
     # Use cert-manager to issue certificates for mTLS.
     certManager: false
