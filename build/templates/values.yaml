@@ -436,7 +436,7 @@ tls:
     # If not set and `create` is `true`, then a name is auto-generated.
     name: ""
     # Additional serviceAccount annotations (e.g. for attaching AWS IAM roles to pods)
-    annotations: {}    
+    annotations: {}
   copyCerts:
     image: busybox
   certs:
@@ -479,6 +479,7 @@ tls:
       podUpdateTimeout: 2m
       # ServiceAccount annotations for selfSigner jobs (e.g. for attaching AWS IAM roles to pods)
       svcAccountAnnotations: {}
+
     # Use cert-manager to issue certificates for mTLS.
     certManager: false
     # Specify an Issuer or a ClusterIssuer to use, when issuing
