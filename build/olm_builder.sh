@@ -6,40 +6,65 @@ CERTIFIED_OPERATOR=${CERTIFIED_OPERATOR:-""}
 VERSION=${VERSION:-""}
 
 SRC_DIR=$(pwd)
-OLM_PATH="${SRC_DIR}"/bundle
-COCKROACH_CHART="${SRC_DIR}"/cockroachdb
-stableCSV="${OLM_PATH}"/manifests/cockroachdb.clusterserviceversion.yaml
-bundleDockerfile="${SRC_DIR}"/build/docker-image/olm-catalog/bundle.Dockerfile
-metaAnnotations="${OLM_PATH}"/metadata/annotations.yaml
 
+olmPath="${SRC_DIR}"/bundle
+cockroachChart="${SRC_DIR}"/cockroachdb
+stableCSV="${olmPath}"/manifests/cockroachdb.clusterserviceversion.yaml
+bundleDockerfile="${SRC_DIR}"/build/docker-image/olm-catalog/bundle.Dockerfile
+metaAnnotations="${olmPath}"/metadata/annotations.yaml
 
 RELEASE_TAG=v"${VERSION}"
-IMAGE_REGISTRY=${IMAGE_REGISTRY:-"quay.io/cockroachdb"} # TODO: Add project name after registry
-
-COCKROACH_TAG=v$(yq '.appVersion' "${COCKROACH_CHART}"/Chart.yaml)
-QUAY_PROJECT="cockraochdb"
+COCKROACH_TAG=v$(bin/yq '.appVersion' "${cockroachChart}"/Chart.yaml)
 STABLE_CHANNEL=stable-v"$(cut -d'.' -f1 <<<"${VERSION}")".x
 
+UNAME_S=$(uname -s)
+
 function update_olm_operator() {
-    valuesJSON=$(yq -p yaml -o json "${COCKROACH_CHART}"/values.yaml | jq tostring | sed 's/^.\(.*\).$/\1/')
+    valuesJSON=$(bin/yq -p yaml -o json "${cockroachChart}"/values.yaml | bin/jq tostring | sed 's/^.\(.*\).$/\1/')
 
-    sed -i 's|VALUES_PLACEHOLDER|'"${valuesJSON}"'|g' "${stableCSV}"
+    if [[ "${UNAME_S}" == "Linux" ]]; then
+        sed -i 's|VALUES_PLACEHOLDER|'"${valuesJSON}"'|g' "${stableCSV}"
 
-    sed -i 's|RELEASE_TAG|'"${RELEASE_TAG}"'|g' "${stableCSV}"
+        sed -i 's|RELEASE_TAG|'"${RELEASE_TAG}"'|g' "${stableCSV}"
 
-    sed -i 's|VERSION|'"${VERSION}"'|g' "${stableCSV}"
+        sed -i 's|VERSION|'"${VERSION}"'|g' "${stableCSV}"
 
-    sed -i 's|COCKROACH_TAG|'"${COCKROACH_TAG}"'|g' "${stableCSV}"
+        sed -i 's|COCKROACH_TAG|'"${COCKROACH_TAG}"'|g' "${stableCSV}"
 
-    sed -i 's|IMAGE_REGISTRY|'"${IMAGE_REGISTRY}"'|g' "${stableCSV}"
+        sed -i 's|QUAY_DOCKER_REGISTRY|'"${QUAY_DOCKER_REGISTRY}"'|g' "${stableCSV}"
 
-    sed -i 's|STABLE_CHANNEL|'"${STABLE_CHANNEL}"'|g' "${bundleDockerfile}"
+        sed -i 's|QUAY_PROJECT|'"${QUAY_PROJECT}"'|g' "${stableCSV}"
 
-    sed -i 's|STABLE_CHANNEL|'"${STABLE_CHANNEL}"'|g' "${metaAnnotations}"
+        sed -i 's|HELM_OPERATOR_IMAGE|'"${HELM_OPERATOR_IMAGE}"'|g' "${stableCSV}"
+
+        sed -i 's|STABLE_CHANNEL|'"${STABLE_CHANNEL}"'|g' "${bundleDockerfile}"
+
+        sed -i 's|STABLE_CHANNEL|'"${STABLE_CHANNEL}"'|g' "${metaAnnotations}"
+    elif [[ "${UNAME_S}" == "Darwin" ]]; then
+        sed -i '' 's|VALUES_PLACEHOLDER|'"${valuesJSON}"'|g' "${stableCSV}"
+
+        sed -i '' 's|RELEASE_TAG|'"${RELEASE_TAG}"'|g' "${stableCSV}"
+
+        sed -i '' 's|VERSION|'"${VERSION}"'|g' "${stableCSV}"
+
+        sed -i '' 's|COCKROACH_TAG|'"${COCKROACH_TAG}"'|g' "${stableCSV}"
+
+        sed -i '' 's|QUAY_DOCKER_REGISTRY|'"${QUAY_DOCKER_REGISTRY}"'|g' "${stableCSV}"
+
+        sed -i '' 's|QUAY_PROJECT|'"${QUAY_PROJECT}"'|g' "${stableCSV}"
+
+        sed -i '' 's|HELM_OPERATOR_IMAGE|'"${HELM_OPERATOR_IMAGE}"'|g' "${stableCSV}"
+
+        sed -i '' 's|STABLE_CHANNEL|'"${STABLE_CHANNEL}"'|g' "${bundleDockerfile}"
+
+        sed -i '' 's|STABLE_CHANNEL|'"${STABLE_CHANNEL}"'|g' "${metaAnnotations}"
+    fi
+
 }
 
 function release_olm_operator() {
-    # TODO: get docker credentials and login
+    echo "${QUAY_DOCKER_TOKEN}" | docker login --username="$QUAY_DOCKER_USERNAME" --password-stdin "${QUAY_DOCKER_REGISTRY}"
+    trap remove_files_on_exit EXIT
 
     make build-operator-image
     make build-operator-push
@@ -49,19 +74,18 @@ function release_olm_operator() {
 }
 
 function release_opm_catalogSource() {
-    opm index add --overwrite-latest --container-tool=docker --bundles=quay.io/"${QUAY_PROJECT}"/cockroach-operator-bundle:"${VERSION}" \
-    --tag quay.io/"${QUAY_PROJECT}"/cockroach-operator:"${VERSION}"
+    bin/opm index add --overwrite-latest --container-tool=docker --bundles="${QUAY_DOCKER_REGISTRY}"/"${QUAY_PROJECT}"/"${BUNDLE_IMAGE}":"${VERSION}" \
+    --tag "${QUAY_DOCKER_REGISTRY}"/"${QUAY_PROJECT}"/"${OPERATOR_IMAGE}":"${VERSION}"
 
-    docker push quay.io/"${QUAY_PROJECT}"/cockroach-operator:"${VERSION}"
+    docker push "${QUAY_DOCKER_REGISTRY}"/"${QUAY_PROJECT}"/"${OPERATOR_IMAGE}":"${VERSION}"
 }
 
 function create_release_bundle_pr() {
-    ## make sure all relevant redhat images are published
     echo "${TOKEN}" | gh auth login --with-token
 
     local repo="https://github.com/redhat-openshift-ecosystem/certified-operators"
 
-    if [[ "${CERTIFIED_OPERATOR}" == "true" ]]
+    if [[ "${1}" == "true" ]]
     then
         rm -rf certified-operators
         gh repo delete https://github.com/<CI_BOT>/certified-operators.git --confirm # TODO: Add CI GithubBot
@@ -81,9 +105,9 @@ function create_release_bundle_pr() {
     git rebase upstream/main
 
     ## commit new operator
-    cp -fR "${OLM_PATH}" ./operators/cockroachdb/"${RELEASE_TAG}"
+    cp -fR "${olmPath}" ./operators/cockroachdb/"${RELEASE_TAG}"
 
-    if [[ "${CERTIFIED_OPERATOR}" == "true" ]]
+    if [[ "${1}" == "true" ]]
     then
         operator-manifest pin ./operators/cockroachdb/"${RELEASE_TAG}"/
     fi
@@ -99,4 +123,14 @@ function create_release_bundle_pr() {
 update_olm_operator
 release_olm_operator
 release_opm_catalogSource
-create_release_bundle_pr
+
+# TODO: Uncomment after manual flow is verified
+# create_release_bundle_pr
+# if [[ "${CERTIFIED_OPERATOR}" == "true" ]]
+# then
+#     create_release_bundle_pr "$CERTIFIED_OPERATOR"
+# fi
+
+remove_files_on_exit() {
+  rm -rf ~/.docker
+}

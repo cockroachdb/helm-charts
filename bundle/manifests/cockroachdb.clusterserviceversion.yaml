@@ -16,13 +16,14 @@ metadata:
     capabilities: Basic Install
     categories: Database
     certified: "false"
-    containerImage: IMAGE_REGISTRY/cockroachdb:COCKROACH_TAG
+    containerImage: QUAY_DOCKER_REGISTRY/QUAY_PROJECT/HELM_OPERATOR_IMAGE:COCKROACH_TAG
     createdAt: 2021-01-23T10-00-00Z
     description: CockroachDB Operator based on the CockroachDB helm chart
     operators.operatorframework.io/builder: operator-sdk-v1.3.0
     operators.operatorframework.io/project_layout: helm.sdk.operatorframework.io/v1
     repository: https://github.com/cockroachdb/helm-charts
     support: CockroachDB
+    olm.skipRange: "<VERSION"
   name: cockroachdb.RELEASE_TAG
   namespace: placeholder
 spec:
@@ -554,12 +555,12 @@ spec:
                       fieldPath: metadata.name
                 - name: OPERATOR_NAME
                   value: cockroachdb
-                image: IMAGE_REGISTRY/cockroachdb:VERSION
+                image: QUAY_DOCKER_REGISTRY/QUAY_PROJECT/HELM_OPERATOR_IMAGE:VERSION
                 name: manager
                 resources:
                   limits:
-                    cpu: 100m
-                    memory: 90Mi
+                    cpu: 400m
+                    memory: 256Mi
                   requests:
                     cpu: 100m
                     memory: 60Mi
@@ -694,7 +695,7 @@ spec:
   - email: dmesser@redhat.com
     name: Daniel Messer
   maturity: stable
-  minKubeVersion: 1.8.0 # TODO: need to bump this
+  minKubeVersion: 1.8.0
   provider:
     name: Helm Community
     url: https://artifacthub.io/packages/helm/cockroachdb/cockroachdb
