@@ -137,6 +137,9 @@ bin/opm: ## install opm
 build-and-release-olm-operator: bin/yq bin/jq bin/opm
 	./build/olm_builder.sh
 
+prepare_bundle: bin/yq bin/jq
+	./build/olm_builder.sh "update_olm_operator"
+
 build-operator-image:
 	docker build -t $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(HELM_OPERATOR_IMAGE):$(VERSION) -f build/docker-image/operator/Dockerfile .
 

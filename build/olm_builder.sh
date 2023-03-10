@@ -2,8 +2,8 @@
 
 set -euxo pipefail
 
-CERTIFIED_OPERATOR=${CERTIFIED_OPERATOR:-""}
-VERSION=${VERSION:-""}
+CERTIFIED_OPERATOR=${CERTIFIED_OPERATOR:-"false"}
+VERSION=$(cat version.txt)
 
 SRC_DIR=$(pwd)
 
@@ -121,6 +121,11 @@ function create_release_bundle_pr() {
 }
 
 update_olm_operator
+ # return from here if make target `prepare_bundle` is called
+if [[ $# -ne 0 ]]; then
+    exit 0
+fi
+
 release_olm_operator
 release_opm_catalogSource
 

@@ -76,7 +76,7 @@ spec:
     ## Using the cluster
     The resulting cluster endpoint can be consumed from a `Service` that follows the pattern: `<StatefulSet-name>-public`. For example to connect using the command line client, use something like the following to obtain the name of the service:
     ```
-    kubectl get service -l chart=cockroachdb-5.0.4
+    kubectl get service -l chart=cockroachdb-VERSION
     NAME                                           TYPE        CLUSTER-IP       EXTERNAL-IP   PORT(S)              AGE
     example-9f8ngwzrxbxrulxqmdqfhn51h-cdb          ClusterIP   None             <none>        26257/TCP,8080/TCP   24m
     example-9f8ngwzrxbxrulxqmdqfhn51h-cdb-public   ClusterIP   10.106.249.134   <none>        26257/TCP,8080/TCP   24m
@@ -692,8 +692,8 @@ spec:
   - name: CockroachDB Source
     url: https://github.com/cockroachdb/cockroach
   maintainers: # TODO: update maintainer
-  - email: dmesser@redhat.com
-    name: Daniel Messer
+  - email: yandu@cockroachlabs.com
+    name: Yandu Oppacher
   maturity: stable
   minKubeVersion: 1.8.0
   provider:
