@@ -255,3 +255,14 @@ Validate that if user enabled tls, then either self-signed certificates or certi
 {{ include "cockroachdb.tls.certs.selfSigner.nodeCertValidation" . }}
 {{- end -}}
 
+{{- define "cockroachdb.securityContext.versionValidation" }}
+{{- if semverCompare ">=22.1.2" .Values.image.tag -}}
+    {{ print true }}
+{{- else }}
+{{- if semverCompare ">=21.2.13, <22.1.0" .Values.image.tag -}}
+    {{ print true }}
+{{- else }}
+    {{ print false }}
+{{- end }}
+{{- end }}
+{{- end }}

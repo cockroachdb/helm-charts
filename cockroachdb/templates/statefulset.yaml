@@ -287,6 +287,17 @@ spec:
             periodSeconds: 5
             failureThreshold: 2
           {{- end }}
+        {{- if eq (include "cockroachdb.securityContext.versionValidation" .) "true" }}
+        {{- if .Values.statefulset.securityContext.enabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+        {{- end }}
+        {{- end }}
         {{- with .Values.statefulset.resources }}
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
@@ -341,6 +352,15 @@ spec:
         - name: log-config
           secret:
             secretName: {{ template "cockroachdb.fullname" . }}-log-config
+      {{- end }}
+      {{- if eq (include "cockroachdb.securityContext.versionValidation" .) "true" }}
+      {{- if and .Values.securityContext.enabled }}
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
+      {{- end }}
       {{- end }}
 {{- if .Values.storage.persistentVolume.enabled }}
   volumeClaimTemplates:

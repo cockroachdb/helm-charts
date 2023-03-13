@@ -262,6 +262,9 @@ statefulset:
     # initialDelaySeconds: 30
     # periodSeconds: 5
 
+  securityContext:
+    enabled: true
+
 service:
   ports:
     # You can set a different external and internal gRPC ports and their name.
@@ -316,6 +319,9 @@ ingress:
   #   secretName: cockroachlabs-tls
 
 prometheus:
+  enabled: true
+
+securityContext:
   enabled: true
 
 # CockroachDB's Prometheus operator ServiceMonitor support
