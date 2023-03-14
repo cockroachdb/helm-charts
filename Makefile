@@ -28,6 +28,7 @@ export HELM_OPERATOR_IMAGE ?= cockroach-helm-operator
 export OPERATOR_IMAGE ?= cockroach-operator
 export QUAY_DOCKER_REGISTRY ?= quay.io
 export QUAY_PROJECT ?= cockroachdb
+export VERSION ?= $(shell cat version.txt)
 
 
 .DEFAULT_GOAL := all
