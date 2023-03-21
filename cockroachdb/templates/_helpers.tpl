@@ -24,6 +24,24 @@ If release name contains chart name it will be used as a full name.
 {{- end -}}
 
 {{/*
+Create a default fully qualified app name for cluster scope resource.
+We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+If release name contains chart name it will be used as a full name with release namespace appended at the end.
+*/}}
+{{- define "cockroachdb.clusterfullname" -}}
+{{- if .Values.fullnameOverride -}}
+    {{- printf "%s-%s" .Values.fullnameOverride .Release.Namespace | trunc 56 | trimSuffix "-" -}}
+{{- else -}}
+    {{- $name := default .Chart.Name .Values.nameOverride -}}
+    {{- if contains $name .Release.Name -}}
+        {{- printf "%s-%s" .Release.Name .Release.Namespace | trunc 56 | trimSuffix "-" -}}
+    {{- else -}}
+        {{- printf "%s-%s-%s" .Release.Name $name .Release.Namespace | trunc 56 | trimSuffix "-" -}}
+    {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Create chart name and version as used by the chart label.
 */}}
 {{- define "cockroachdb.chart" -}}

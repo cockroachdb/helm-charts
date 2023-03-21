@@ -2,7 +2,7 @@
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: {{ template "cockroachdb.fullname" . }}
+  name: {{ template "cockroachdb.clusterfullname" . }}
   namespace: {{ .Release.Namespace | quote }}
   labels:
     helm.sh/chart: {{ template "cockroachdb.chart" . }}
@@ -15,7 +15,7 @@ metadata:
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: {{ template "cockroachdb.fullname" . }}
+  name: {{ template "cockroachdb.clusterfullname" . }}
 subjects:
   - kind: ServiceAccount
     name: {{ template "cockroachdb.tls.serviceAccount.name" . }}
