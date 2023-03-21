@@ -16,7 +16,7 @@ metadata:
     capabilities: Basic Install
     categories: Database
     certified: "false"
-    containerImage: QUAY_DOCKER_REGISTRY/QUAY_PROJECT/HELM_OPERATOR_IMAGE:COCKROACH_TAG
+    containerImage: QUAY_DOCKER_REGISTRY/QUAY_PROJECT/HELM_OPERATOR_IMAGE:VERSION
     createdAt: 2021-01-23T10-00-00Z
     description: CockroachDB Operator based on the CockroachDB helm chart
     operators.operatorframework.io/builder: operator-sdk-v1.3.0
@@ -539,7 +539,13 @@ spec:
                 ports:
                 - containerPort: 8443
                   name: https
-                resources: {}
+                resources:
+                  limits:
+                    cpu: 500m
+                    memory: 128Mi
+                  requests:
+                    cpu: 5m
+                    memory: 64Mi
               - args:
                 - --metrics-addr=127.0.0.1:8080
                 - --enable-leader-election
@@ -639,14 +645,14 @@ spec:
           verbs:
           - '*'
         - apiGroups:
-          - batch
+          - batch/v1
           resources:
           - jobs
           - cronjobs
           verbs:
           - '*'
         - apiGroups:
-          - policy
+          - policy/v1
           resources:
           - poddisruptionbudgets
           verbs:
@@ -691,7 +697,7 @@ spec:
     url: https://github.com/helm/charts/tree/master/stable/cockroachdb#configuration
   - name: CockroachDB Source
     url: https://github.com/cockroachdb/cockroach
-  maintainers: # TODO: update maintainer
+  maintainers:
   - email: yandu@cockroachlabs.com
     name: Yandu Oppacher
   maturity: stable
