@@ -52,6 +52,14 @@ spec:
       serviceAccountName: {{ template "cockroachdb.tls.serviceAccount.name" . }}
       initContainers:
         - name: copy-certs
+        {{- if eq (include "cockroachdb.securityContext.versionValidation" .) "true" }}
+        {{- if and .Values.init.securityContext.enabled }}
+          securityContext:
+            runAsGroup: 1000
+            runAsUser: 1000
+            runAsNonRoot: true
+        {{- end }}
+        {{- end }}
           image: {{ .Values.tls.copyCerts.image | quote }}
           imagePullPolicy: {{ .Values.tls.selfSigner.image.pullPolicy | quote }}
           command:
@@ -83,6 +91,14 @@ spec:
     {{- end }}
       containers:
         - name: cluster-init
+        {{- if eq (include "cockroachdb.securityContext.versionValidation" .) "true" }}
+        {{- if and .Values.init.securityContext.enabled }}
+          securityContext:
+            runAsGroup: 1000
+            runAsUser: 1000
+            runAsNonRoot: true
+        {{- end }}
+        {{- end }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
           # Run the command in an `while true` loop because this Job is bound
