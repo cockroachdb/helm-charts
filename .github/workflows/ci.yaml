@@ -146,3 +146,24 @@ jobs:
 
       - name: Run E2E Test
         run: make test/e2e/rotate
+
+  lint-templates:
+    name: Lint release templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v2
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Setup Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18
+
+      - name: generate configs
+        run: go run build/build.go generate
+
+      - name: check diff
+        run: git diff --no-ext-diff --exit-code
