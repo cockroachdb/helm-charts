@@ -381,11 +381,12 @@ For details see the [`values.yaml`](values.yaml) file.
 | `init.affinity`                                           | [Affinity rules][2] of init Job Pod                             | `{}`                                                  |
 | `init.nodeSelector`                                       | Node labels for init Job Pod assignment                         | `{}`                                                  |
 | `init.tolerations`                                        | Node taints to tolerate by init Job Pod                         | `[]`                                                  |
-| `init.resources`                                          | Resource requests and limits for the Pod of init Job            | `{}`                                                  |
+| `init.resources`                                          | Resource requests and limits for the `cluster-init` container   | `{}`                                                  |
 | `tls.enabled`                                             | Whether to run securely using TLS certificates                  | `no`                                                  |
 | `tls.serviceAccount.create`                               | Whether to create a new RBAC service account                    | `yes`                                                 |
 | `tls.serviceAccount.name`                                 | Name of RBAC service account to use                             | `""`                                                  |
 | `tls.copyCerts.image`                                     | Image used in copy certs init container                         | `busybox`                                             |
+| `tls.copyCerts.resources`                                 | Resource requests and limits for the `copy-certs` container     | `{}`                                                 |
 | `tls.certs.provided`                                      | Bring your own certs scenario, i.e certificates are provided    | `no`                                                  |
 | `tls.certs.clientRootSecret`                              | If certs are provided, secret name for client root cert         | `cockroachdb-root`                                    |
 | `tls.certs.nodeSecret`                                    | If certs are provided, secret name for node cert                | `cockroachdb-node`                                    |
