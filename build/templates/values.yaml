@@ -401,6 +401,9 @@ init:
     #   cpu: "10m"
     #   memory: "128Mi"
 
+  securityContext:
+    enabled: true
+
   provisioning:
     enabled: false
     # https://www.cockroachlabs.com/docs/stable/cluster-settings.html
