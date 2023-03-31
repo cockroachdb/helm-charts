@@ -463,6 +463,9 @@ tls:
     selfSigner:
       # If set, the cockroach db will generate its own certificates
       enabled: true
+      # Run selfSigner as non-root
+      securityContext:
+        enabled: true
       # If set, the user should provide the CA certificate to sign other certificates.
       caProvided: false
       # It holds the name of the secret with caCerts. If caProvided is set, this can not be empty.
