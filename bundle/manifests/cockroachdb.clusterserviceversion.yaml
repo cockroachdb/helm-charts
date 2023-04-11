@@ -645,14 +645,14 @@ spec:
           verbs:
           - '*'
         - apiGroups:
-          - batch/v1
+          - batch
           resources:
           - jobs
           - cronjobs
           verbs:
           - '*'
         - apiGroups:
-          - policy/v1
+          - policy
           resources:
           - poddisruptionbudgets
           verbs:
