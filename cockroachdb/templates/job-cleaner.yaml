@@ -25,14 +25,12 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name | quote }}
         app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
     spec:
-    {{- if eq (include "cockroachdb.securityContext.versionValidation" .) "true" }}
     {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
       securityContext:
         runAsGroup: 1000
         runAsUser: 1000
         fsGroup: 1000
         runAsNonRoot: true
-    {{- end }}
     {{- end }}
       restartPolicy: Never
       containers:
