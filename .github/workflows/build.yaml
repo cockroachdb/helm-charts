@@ -30,6 +30,8 @@ jobs:
           echo $output | grep "You have changed the tag of selfSigner utility"
           if [[ $? -eq 0 ]]; then
             echo ::set-output name=tagChange::true
+          else
+            echo ::set-output name=tagChange::false
           fi
 
 
