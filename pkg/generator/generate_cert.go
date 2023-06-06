@@ -19,7 +19,6 @@ package generator
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"time"
@@ -214,13 +213,13 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 		}
 
 		// Read the ca key into memory
-		cakey, err := ioutil.ReadFile(rc.CAKey)
+		cakey, err := os.ReadFile(rc.CAKey)
 		if err != nil {
 			return errors.Wrap(err, "unable to read ca.key")
 		}
 
 		// Read the ca cert into memory
-		caCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+		caCert, err := os.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
 		if err != nil {
 			return errors.Wrap(err, "unable to read ca.crt")
 		}
@@ -254,7 +253,7 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 				logrus.Infof("CA Certificate: %s", reason)
 
 				// writing old cert file so that the new CA is a bundle of both old and new CA cert
-				if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
+				if err := os.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
 					return errors.Wrap(err, "failed to write CA cert")
 				}
 
@@ -269,11 +268,11 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 
 		logrus.Infof("CA secret [%s] is found in ready state, skipping CA generation", CASecretName)
 
-		if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
+		if err := os.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
 			return errors.Wrap(err, "failed to write CA cert")
 		}
 
-		if err := ioutil.WriteFile(rc.CAKey, secret.CAKey(), security.KeyFileMode); err != nil {
+		if err := os.WriteFile(rc.CAKey, secret.CAKey(), security.KeyFileMode); err != nil {
 			return errors.Wrap(err, "failed to write CA key")
 		}
 		return nil
@@ -322,13 +321,13 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 		}
 
 		// Read the CA certificate into memory
-		ca, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+		ca, err := os.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
 		if err != nil {
 			return errors.Wrap(err, "unable to read ca.crt")
 		}
 
 		// Read the node certificate into memory
-		pemCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "node.crt"))
+		pemCert, err := os.ReadFile(filepath.Join(rc.CertsDir, "node.crt"))
 		if err != nil {
 			return errors.Wrap(err, "unable to read node.crt")
 		}
@@ -339,7 +338,7 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 		}
 
 		// Read the node key into memory
-		pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, "node.key"))
+		pemKey, err := os.ReadFile(filepath.Join(rc.CertsDir, "node.key"))
 		if err != nil {
 			return errors.Wrap(err, "unable to ready node.key")
 		}
@@ -425,14 +424,14 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 		}
 
 		// Load the CA certificate into memory
-		ca, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+		ca, err := os.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
 		if err != nil {
 			return errors.Wrap(err, "unable to read ca.crt")
 		}
 
 		// Load the client user certificate into memory
 		userCertFile := fmt.Sprintf("client.%s.crt", user)
-		pemCert, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, userCertFile))
+		pemCert, err := os.ReadFile(filepath.Join(rc.CertsDir, userCertFile))
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("unable to read %s", userCertFile))
 		}
@@ -445,7 +444,7 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName
 
 		// Load the client root key into memory
 		userKeyFile := fmt.Sprintf("client.%s.key", user)
-		pemKey, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, userKeyFile))
+		pemKey, err := os.ReadFile(filepath.Join(rc.CertsDir, userKeyFile))
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("unable to read %s", userKeyFile))
 		}
@@ -507,7 +506,7 @@ func (rc *GenerateCert) getCertLife(pemCert []byte) (validFrom string, validUpto
 }
 
 func (rc *GenerateCert) UpdateNewCA(ctx context.Context, namespace string) error {
-	ca, err := ioutil.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+	ca, err := os.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
 	if err != nil {
 		return errors.Wrap(err, "unable to read ca.crt")
 	}
@@ -557,11 +556,11 @@ func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) erro
 		return errors.Wrap(err, "CA secret doesn't contain the required CA cert/key")
 	}
 
-	if err := ioutil.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
+	if err := os.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
 		return errors.Wrap(err, "failed to write CA cert")
 	}
 
-	if err := ioutil.WriteFile(rc.CAKey, secret.CAKey(), security.KeyFileMode); err != nil {
+	if err := os.WriteFile(rc.CAKey, secret.CAKey(), security.KeyFileMode); err != nil {
 		return errors.Wrap(err, "failed to write CA key")
 	}
 

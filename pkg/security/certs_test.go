@@ -17,7 +17,6 @@ limitations under the License.
 package security_test
 
 import (
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"testing"
@@ -37,7 +36,7 @@ const defaultCertLifetime = 1 * 366 * 24 * time.Hour // five years
 
 // tempDir is like testutils.TempDir but avoids a circular import.
 func tempDir(t *testing.T) (string, func()) {
-	certsDir, err := ioutil.TempDir("", "certs_test")
+	certsDir, err := os.MkdirTemp("", "certs_test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,7 +95,7 @@ func TestCreateNodePair(t *testing.T) {
 		t.Fail()
 	}
 
-	pemCert, err := ioutil.ReadFile(filepath.Join(certsDir, "node.crt"))
+	pemCert, err := os.ReadFile(filepath.Join(certsDir, "node.crt"))
 	if err != nil {
 		t.Error(err)
 	}
@@ -145,7 +144,7 @@ func TestCreateClientPair(t *testing.T) {
 		t.Fail()
 	}
 
-	pemCert, err := ioutil.ReadFile(filepath.Join(certsDir, "client.root.crt"))
+	pemCert, err := os.ReadFile(filepath.Join(certsDir, "client.root.crt"))
 	if err != nil {
 		t.Error(err)
 	}

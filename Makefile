@@ -40,7 +40,7 @@ build/chart: bin/helm ## build the helm chart to build/artifacts
 	@build/make.sh
 
 build/self-signer: bin/yq ## build the self-signer image
-	@docker build \
+	@docker build --platform=linux/amd64 \
 		-f build/docker-image/Dockerfile \
 		-t ${REPOSITORY}:$(shell bin/yq r ./cockroachdb/values.yaml 'tls.selfSigner.image.tag') .
 

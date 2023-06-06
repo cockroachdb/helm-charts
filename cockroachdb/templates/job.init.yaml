@@ -122,16 +122,17 @@ spec:
                       --cluster-name={{.}} \
                       {{- end }}
                       --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
-                              :{{ .Values.service.ports.grpc.internal.port | int64 }}
+                              :{{ .Values.service.ports.grpc.internal.port | int64 }} \
                   2>&1);
 
                   local exitCode="$?";
                   echo $output;
 
-                  if [[ "$exitCode" == "0" || "$output" == *"cluster has already been initialized"* ]]
-                    then break;
+                  if [[ "$output" =~ .*"Cluster successfully initialized".* || "$output" =~ .*"cluster has already been initialized".* ]]; then
+                    break;
                   fi
 
+                  echo "Cluster is not ready to be initialized, retrying in 5 seconds"
                   sleep 5;
                 done
               }

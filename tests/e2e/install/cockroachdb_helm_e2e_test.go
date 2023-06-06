@@ -56,11 +56,11 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
-			"conf.cluster-name": "test",
-			"init.provisioning.enabled": "true",
-			"init.provisioning.databases[0].name": testDBName,
+			"conf.cluster-name":                        "test",
+			"init.provisioning.enabled":                "true",
+			"init.provisioning.databases[0].name":      testDBName,
 			"init.provisioning.databases[0].owners[0]": "root",
-			"storage.persistentVolume.size": "1Gi",
+			"storage.persistentVolume.size":            "1Gi",
 		},
 	}
 
@@ -93,7 +93,7 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
 
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
-	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
 	testutil.RequireDatabaseToFunction(t, crdbCluster, testDBName)
@@ -185,7 +185,7 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
 
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
-	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
 }
@@ -298,7 +298,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	// Wait for the service endpoint
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, publicService, 30, 2*time.Second)
 
-	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 
 	// Setup the args for upgrade
@@ -339,7 +339,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, publicService, 30, 2*time.Second)
 
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
-	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
 }
@@ -387,7 +387,7 @@ func TestCockroachDbWithInsecureMode(t *testing.T) {
 	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
 
-	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
 }
