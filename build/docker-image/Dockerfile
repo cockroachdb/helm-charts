@@ -1,4 +1,4 @@
-FROM golang:1.15.2 as base
+FROM golang:1.18.2 as base
 
 WORKDIR /
 
@@ -21,8 +21,8 @@ COPY pkg/ pkg/
 RUN go build -a -installsuffix cgo -o self-signer cmd/main.go
 
 # Install the cockroach CLI
-ADD https://binaries.cockroachdb.com/cockroach-v20.2.5.linux-amd64.tgz .
-RUN tar -zxvf cockroach-v20.2.5.linux-amd64.tgz
+ADD https://binaries.cockroachdb.com/cockroach-v23.1.2.linux-amd64.tgz .
+RUN tar -zxvf cockroach-v23.1.2.linux-amd64.tgz
 
 FROM registry.access.redhat.com/ubi7/ubi-minimal:latest as final
 LABEL name=self-signer
@@ -33,7 +33,7 @@ LABEL description="CockroachDB is a PostgreSQL wire-compatible distributed SQL d
 WORKDIR /
 
 COPY --from=base /self-signer /self-signer
-COPY --from=base /cockroach-v20.2.5.linux-amd64/cockroach /usr/local/bin/
+COPY --from=base /cockroach-v23.1.2.linux-amd64/cockroach /usr/local/bin/
 RUN chmod +x /self-signer
 USER 1001
 ENTRYPOINT ["/self-signer"]

@@ -26,7 +26,7 @@ import (
 	"github.com/cockroachdb/helm-charts/pkg/resource"
 )
 
-//  cleanupCmd represents the cleanup command
+// cleanupCmd represents the cleanup command
 var cleanupCmd = &cobra.Command{
 	Use:   "cleanup",
 	Short: "cleanup cleans up the secrets generated using self-signer utility",

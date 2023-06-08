@@ -37,6 +37,11 @@ jobs:
     needs: detect-self-signer-change
     if: (needs.detect-self-signer-change.outputs.certUtility == 'true')
     steps:
+      - name: Setup Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: 1.18
+
       - name: Checkout sources
         uses: actions/checkout@v2
         with:
@@ -46,9 +51,12 @@ jobs:
       - name: Run golangci-lint
         uses: golangci/golangci-lint-action@v2
         with:
-          version: v1.30
+          version: v1.50.1
           working-directory: .
           args: --timeout=5m
+          skip-build-cache: true
+          skip-pkg-cache: true
+          skip-go-installation: true
 
   # pre job to run helm lint
   helm:
@@ -79,7 +87,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.15
+          go-version: 1.18
 
       - name: HelmTemplate
         run: make test/template
@@ -124,7 +132,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.15
+          go-version: 1.18
 
       - name: Run E2E Test
         run: make test/e2e/install
@@ -142,7 +150,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v2
         with:
-          go-version: 1.15
+          go-version: 1.18
 
       - name: Run E2E Test
         run: make test/e2e/rotate

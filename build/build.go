@@ -19,7 +19,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 	"text/template"
@@ -200,7 +199,7 @@ func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error)
 
 // getVersions reads chart and app versions from Chart.yaml file
 func getVersions(chartPath string) (versions, error) {
-	chartContents, err := ioutil.ReadFile(chartPath)
+	chartContents, err := os.ReadFile(chartPath)
 	if err != nil {
 		return versions{}, fmt.Errorf("cannot open chart file %s: %w", chartPath, err)
 	}
