@@ -284,9 +284,9 @@ Verify that no pod is deleted and then upgrade as normal. A new StatefulSet will
 
 ### See also
 
-For more information about upgrading a cluster to the latest major release of CockroachDB, see [Upgrade to CockroachDB v21.1](https://www.cockroachlabs.com/docs/stable/upgrade-cockroach-version.html).
+For more information about upgrading a cluster to the latest major release of CockroachDB, see [Upgrade to CockroachDB](https://www.cockroachlabs.com/docs/stable/upgrade-cockroach-version.html).
 
-Note that there are some backward-incompatible changes to SQL features between versions 20.2 and 21.1. For details, see the [CockroachDB v{{ .AppVersion }} release notes](https://www.cockroachlabs.com/docs/releases/v{{ .AppVersion }}.html#backward-incompatible-changes).
+Note that there are sometimes backward-incompatible changes to SQL features between major CockroachDB releases. For details, see the [Upgrade Policy](https://www.cockroachlabs.com/docs/cockroachcloud/upgrade-policy).
 
 ## Configuration
 
