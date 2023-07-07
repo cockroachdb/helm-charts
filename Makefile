@@ -55,7 +55,7 @@ build/chart: bin/helm ## build the helm chart to build/artifacts
 
 build/self-signer: bin/yq ## build the self-signer image
 	@docker build --platform=linux/amd64 \
-		-f build/docker-image/Dockerfile \
+		-f build/docker-image/self-signer-cert-utility/Dockerfile \
 		-t ${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
 
 ##@ Release
