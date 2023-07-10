@@ -265,6 +265,16 @@ statefulset:
   securityContext:
     enabled: true
 
+  serviceAccount:
+    # Specifies whether this ServiceAccount should be created.
+    create: true
+    # The name of this ServiceAccount to use.
+    # If not set and `create` is `true`, then service account is auto-generated.
+    # If not set and `create` is `false`, then it uses default service account.
+    name: ""
+    # Additional serviceAccount annotations (e.g. for attaching AWS IAM roles to pods)
+    annotations: {}
+
 service:
   ports:
     # You can set a different external and internal gRPC ports and their name.
@@ -439,14 +449,6 @@ init:
 # Whether to run securely using TLS certificates.
 tls:
   enabled: true
-  serviceAccount:
-    # Specifies whether this ServiceAccount should be created.
-    create: true
-    # The name of this ServiceAccount to use.
-    # If not set and `create` is `true`, then a name is auto-generated.
-    name: ""
-    # Additional serviceAccount annotations (e.g. for attaching AWS IAM roles to pods)
-    annotations: {}
   copyCerts:
     image: busybox
   certs:

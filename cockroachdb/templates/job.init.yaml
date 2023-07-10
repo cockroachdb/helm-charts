@@ -57,8 +57,8 @@ spec:
         - name: {{ template "cockroachdb.fullname" . }}.self-signed-certs.registry
       {{- end }}
     {{- end }}
+      serviceAccountName: {{ template "cockroachdb.serviceAccount.name" . }}
     {{- if .Values.tls.enabled }}
-      serviceAccountName: {{ template "cockroachdb.tls.serviceAccount.name" . }}
       initContainers:
         - name: copy-certs
           image: {{ .Values.tls.copyCerts.image | quote }}

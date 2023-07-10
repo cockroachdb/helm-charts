@@ -50,8 +50,7 @@ spec:
         - name: {{ template "cockroachdb.fullname" . }}.self-signed-certs.registry
       {{- end }}
     {{- end }}
-    {{- if .Values.tls.enabled }}
-      serviceAccountName: {{ template "cockroachdb.tls.serviceAccount.name" . }}
+      serviceAccountName: {{ template "cockroachdb.serviceAccount.name" . }}
       {{- if .Values.tls.enabled }}
       initContainers:
         - name: copy-certs
@@ -75,7 +74,6 @@ spec:
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
       {{- end }}
-    {{- end }}
     {{- if or .Values.statefulset.nodeAffinity .Values.statefulset.podAffinity .Values.statefulset.podAntiAffinity }}
       affinity:
       {{- with .Values.statefulset.nodeAffinity }}
