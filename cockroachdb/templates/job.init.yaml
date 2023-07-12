@@ -203,7 +203,7 @@ spec:
 
                   local exitCode="$?";
 
-                  if [[ "$exitCode" == "0" ]]
+                  if [[ "$exitCode" -eq "0" ]]
                     then break;
                   fi
 
