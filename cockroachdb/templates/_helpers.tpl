@@ -274,7 +274,7 @@ Validate that if user enabled tls, then either self-signed certificates or certi
 {{- end -}}
 
 {{- define "cockroachdb.securityContext.versionValidation" }}
-{{/* Allow using `securityContext` for custom images. */}}
+{{- /* Allow using `securityContext` for custom images. */}}
 {{- if ne "cockroachdb/cockroach" .Values.image.repository -}}
     {{ print true }}
 {{- else -}}
