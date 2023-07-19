@@ -178,6 +178,10 @@ spec:
                         GRANT ALL ON DATABASE {{ $database.name }} TO {{ $owner }};
                       {{- end }}
 
+                      {{- range $owner := $database.owners_with_grant_option }}
+                        GRANT ALL ON DATABASE {{ $database.name }} TO {{ $owner }} WITH GRANT OPTION;
+                      {{- end }}
+
                       {{- if $database.backup }}
                         CREATE SCHEDULE IF NOT EXISTS {{ $database.name }}_scheduled_backup
                           FOR BACKUP DATABASE {{ $database.name }} INTO '{{ $database.backup.into }}'
