@@ -1,7 +1,7 @@
 # Generated file, DO NOT EDIT. Source: build/templates/values.yaml
 image:
   repository: cockroachdb/cockroach
-  tag: v23.1.6
+  tag: v23.1.7
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
