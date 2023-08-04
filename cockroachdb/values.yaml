@@ -460,6 +460,8 @@ tls:
     clientRootSecret: cockroachdb-root
     # Secret name for node cert.
     nodeSecret: cockroachdb-node
+    # Secret name for CA cert
+    caSecret: cockroach-ca
     # Enable if the secret is a dedicated TLS.
     # TLS secrets are created by cert-mananger, for example.
     tlsSecret: false

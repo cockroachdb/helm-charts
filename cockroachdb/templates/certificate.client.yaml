@@ -28,7 +28,7 @@ spec:
       - Cockroach
   secretName: {{ .Values.tls.certs.clientRootSecret }}
   issuerRef:
-    name: {{ .Values.tls.certs.certManagerIssuer.name }}
-    kind: {{ .Values.tls.certs.certManagerIssuer.kind }}
-    group: {{ .Values.tls.certs.certManagerIssuer.group }}
+    name: {{ template "cockroachdb.fullname" . }}-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
 {{- end }}
