@@ -514,9 +514,6 @@ tls:
       nodeCertDuration: 8760h
       # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
       nodeCertExpiryWindow: 168h
-    # Enable if you run cert-manager >=1.0 on K8s <=1.15 with legacy CRDs
-    # Legacy CRDs only support cert-manager.io/v1 API Versions
-    useCertManagerV1CRDs: false
 
   selfSigner:
     # Image Placeholder for the selfSigner utility. This will be changed once the CI workflows for the image is in place.
