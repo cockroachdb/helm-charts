@@ -17,8 +17,8 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  duration: {{ .Values.tls.certs.certManagerIssuer.nodeCertDuration }}
-  renewBefore: {{ .Values.tls.certs.certManagerIssuer.nodeCertExpiryWindow }}
+  duration: {{ .Values.tls.certs.nodeCertManagerIssuer.certDuration }}
+  renewBefore: {{ .Values.tls.certs.nodeCertManagerIssuer.certExpiryWindow }}
   usages:
     - digital signature
     - key encipherment
@@ -52,7 +52,7 @@ spec:
     - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
   secretName: {{ .Values.tls.certs.nodeSecret }}
   issuerRef:
-    name: {{ .Values.tls.certs.certManagerIssuer.name }}
-    kind: {{ .Values.tls.certs.certManagerIssuer.kind }}
-    group: {{ .Values.tls.certs.certManagerIssuer.group }}
+    name: {{ .Values.tls.certs.nodeCertManagerIssuer.name }}
+    kind: {{ .Values.tls.certs.nodeCertManagerIssuer.kind }}
+    group: {{ .Values.tls.certs.nodeCertManagerIssuer.group }}
 {{- end }}
