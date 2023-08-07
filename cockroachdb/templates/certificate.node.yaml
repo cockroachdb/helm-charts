@@ -27,9 +27,9 @@ spec:
 {{- if .Values.tls.certs.useCertManagerV1CRDs }}
   privateKey:
     algorithm: RSA
-    size: 2048
+    size: {{ .Values.tls.certs.certDetails.keySize }}
 {{- else }}
-  keySize: 2048
+  keySize: {{ .Values.tls.certs.certDetails.keySize }}
   keyAlgorithm: rsa
 {{- end }}
   commonName: node
