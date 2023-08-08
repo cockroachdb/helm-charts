@@ -2,6 +2,8 @@ package integration
 
 import (
 	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -369,6 +371,105 @@ func TestCockroachDbWithInsecureMode(t *testing.T) {
 
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
 	err := helm.InstallE(t, options, helmChartPath, releaseName)
+	require.NoError(t, err)
+
+	//... and make sure to delete the helm release at the end of the test.
+	defer func() {
+		helm.Delete(t, options, releaseName, true)
+	}()
+
+	// Print the debug logs in case of test failure.
+	defer func() {
+		if t.Failed() {
+			testutil.PrintDebugLogs(t, kubectlOptions)
+		}
+	}()
+
+	// Next we wait for the service endpoint
+	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
+
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
+	time.Sleep(20 * time.Second)
+	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+}
+
+func TestCockroachDbWithCertManager(t *testing.T) {
+	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
+	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
+
+	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
+	// ... and make sure to delete the namespace at the end of the test
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+
+	certManagerHelmOptions := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", "cert-manager"),
+	}
+
+	jetStackRepoAdd := []string{"add", "jetstack", "https://charts.jetstack.io", "--force-update"}
+	_, err := helm.RunHelmCommandAndGetOutputE(t, &helm.Options{}, "repo", jetStackRepoAdd...)
+	require.NoError(t, err)
+
+	certManagerInstall := []string{"cert-manager", "jetstack/cert-manager", "--create-namespace", "--set", "installCRDs=true", "--version", "v1.11.0"}
+	output, err := helm.RunHelmCommandAndGetOutputE(t, certManagerHelmOptions, "install", certManagerInstall...)
+
+	require.NoError(t, err)
+
+	//... and make sure to delete the helm release at the end of the test.
+	defer func() {
+		if t.Failed() {
+			t.Log(output)
+		}
+		helm.Delete(t, certManagerHelmOptions, "cert-manager", true)
+		k8s.DeleteNamespace(t, &k8s.KubectlOptions{}, "cert-manager")
+	}()
+
+	issuerFile := "ca-issuer.yaml"
+	issuerCreateData := fmt.Sprintf(`
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: cockroachdb
+  namespace: %s
+spec:
+  selfSigned: {}
+`, namespaceName)
+
+	err = os.WriteFile(issuerFile, []byte(issuerCreateData), fs.ModePerm)
+	require.NoError(t, err)
+
+	defer func() {
+		_ = os.Remove(issuerFile)
+	}()
+
+	err = k8s.KubectlApplyE(t, &k8s.KubectlOptions{}, issuerFile)
+	require.NoError(t, err)
+
+	crdbCluster := testutil.CockroachCluster{
+		Cfg:              cfg,
+		K8sClient:        k8sClient,
+		StatefulSetName:  fmt.Sprintf("%s-cockroachdb", releaseName),
+		Namespace:        namespaceName,
+		ClientSecret:     "cockroachdb-root",
+		NodeSecret:       "cockroachdb-node",
+		CaSecret:         "cockroachdb-ca",
+		IsCaUserProvided: false,
+	}
+
+	// Setup the args. For this test, we will set the following input values:
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"tls.enabled":                      "true",
+			"tls.certs.selfSigner.enabled":     "false",
+			"tls.certs.certManager":            "true",
+			"tls.certs.certManagerIssuer.kind": "Issuer",
+			"tls.certs.certManagerIssuer.name": "cockroachdb",
+		},
+	}
+
+	// Deploy the cockroachdb helm chart and checks installation should succeed.
+	err = helm.InstallE(t, options, helmChartPath, releaseName)
 	require.NoError(t, err)
 
 	//... and make sure to delete the helm release at the end of the test.
