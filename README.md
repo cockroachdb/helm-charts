@@ -192,7 +192,7 @@ User should have [cert manager >=1.0](https://cert-manager.io/docs/installation/
 
 Create a Issuer for signing self-signed CA certificate.
 
-```shell
+```yaml
 apiVersion: cert-manager.io/v1
 kind: Issuer
 metadata:
@@ -203,7 +203,7 @@ spec:
 
 Now you can enable the cert-manager from `values.yaml` as follows:
 
-```shell
+```yaml
 # Disable the self signing certificates for cockroachdb
 tls.certs.selfSigner.enabled: false
 # Enable the cert manager
