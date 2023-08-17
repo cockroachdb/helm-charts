@@ -82,9 +82,12 @@ test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/publish-im
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && bin/helm lint cockroachdb
 
+IMAGE_LIST = cockroachdb/cockroach:v21.1.1 quay.io/jetstack/cert-manager-cainjector:v1.11.0 quay.io/jetstack/cert-manager-webhook:v1.11.0 quay.io/jetstack/cert-manager-controller:v1.11.0 quay.io/jetstack/cert-manager-ctl:v1.11.0
 test/publish-images-to-kind: bin/yq test/cluster ## publish signer and cockroach image to local kind registry
-	@docker pull cockroachdb/cockroach:v21.1.1
-	@bin/kind load docker-image cockroachdb/cockroach:v21.1.1 --name $(KIND_CLUSTER)
+	for i in $(IMAGE_LIST); do \
+		docker pull $$i; \
+		bin/kind load docker-image $$i --name $(KIND_CLUSTER); \
+	done
 	@bin/kind load docker-image \
 		${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) \
 		--name $(KIND_CLUSTER)

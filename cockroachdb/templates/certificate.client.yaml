@@ -1,9 +1,5 @@
 {{- if and .Values.tls.enabled .Values.tls.certs.certManager }}
-{{- if .Values.tls.certs.useCertManagerV1CRDs }}
 apiVersion: cert-manager.io/v1
-{{- else }}
-apiVersion: cert-manager.io/v1alpha2
-{{- end }}
 kind: Certificate
 metadata:
   name: {{ template "cockroachdb.fullname" . }}-root-client
@@ -23,26 +19,16 @@ spec:
     - digital signature
     - key encipherment
     - client auth
-{{- if .Values.tls.certs.useCertManagerV1CRDs }}
   privateKey:
     algorithm: RSA
     size: 2048
-{{- else }}
-  keySize: 2048
-  keyAlgorithm: rsa
-{{- end }}
   commonName: root
-{{- if .Values.tls.certs.useCertManagerV1CRDs }}
   subject:
     organizations:
       - Cockroach
-{{- else }}
-  organization:
-    - Cockroach
-{{- end }}
   secretName: {{ .Values.tls.certs.clientRootSecret }}
   issuerRef:
-    name: {{ .Values.tls.certs.certManagerIssuer.name }}
-    kind: {{ .Values.tls.certs.certManagerIssuer.kind }}
-    group: {{ .Values.tls.certs.certManagerIssuer.group }}
+    name: {{ template "cockroachdb.fullname" . }}-ca-issuer
+    kind: Issuer
+    group: cert-manager.io
 {{- end }}
