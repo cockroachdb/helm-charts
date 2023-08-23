@@ -1,3 +1,9 @@
+# Overrides the chart name against the label "app.kubernetes.io/name: " placed on every resource this chart creates.
+nameOverride: ""
+
+# Override the resource names created by this chart which originally is generated using release and chart name.
+fullnameOverride: ""
+
 image:
   repository: cockroachdb/cockroach
   tag: v{{ .AppVersion }}
