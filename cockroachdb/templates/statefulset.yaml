@@ -65,6 +65,17 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+        {{- if .Values.statefulset.securityContext.enabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+            seccompProfile:
+              type: "RuntimeDefault"
+        {{- end }}
           volumeMounts:
             - name: certs
               mountPath: /cockroach-certs/
