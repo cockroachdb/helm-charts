@@ -24,6 +24,9 @@ spec:
         app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name | quote }}
         app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+    {{- with .Values.tls.selfSigner.annotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+    {{- end }}
     spec:
     {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
       securityContext:
@@ -33,6 +36,18 @@ spec:
         runAsNonRoot: true
     {{- end }}
       restartPolicy: Never
+    {{- if or .Values.tls.selfSigner.nodeAffinity }}
+      affinity:
+      {{- with .Values.tls.selfSigner.nodeAffinity }}
+        nodeAffinity: {{- toYaml . | nindent 10 }}
+      {{- end }}
+    {{- end }}
+      {{- with .Values.tls.selfSigner.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tls.selfSigner.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: cert-generate-job
           image: "{{ .Values.tls.selfSigner.image.registry }}/{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"

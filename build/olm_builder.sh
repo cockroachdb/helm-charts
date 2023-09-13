@@ -66,18 +66,17 @@ function release_olm_operator() {
     echo "${QUAY_DOCKER_TOKEN}" | docker login --username="$QUAY_DOCKER_USERNAME" --password-stdin "${QUAY_DOCKER_REGISTRY}"
     trap remove_files_on_exit EXIT
 
-    make build-operator-image
-    make build-operator-push
+    make build-and-push-operator-image
 
-    make build-bundle-image
-    make build-bundle-push
+    make build-and-push-bundle-image
 }
 
 function release_opm_catalogSource() {
-    bin/opm index add --overwrite-latest --container-tool=docker --bundles="${QUAY_DOCKER_REGISTRY}"/"${QUAY_PROJECT}"/"${BUNDLE_IMAGE}":"${VERSION}" \
+    bin/opm index add --generate --overwrite-latest --container-tool=docker --bundles="${QUAY_DOCKER_REGISTRY}"/"${QUAY_PROJECT}"/"${BUNDLE_IMAGE}":"${VERSION}" \
     --tag "${QUAY_DOCKER_REGISTRY}"/"${QUAY_PROJECT}"/"${OPERATOR_IMAGE}":"${VERSION}"
 
-    docker push "${QUAY_DOCKER_REGISTRY}"/"${QUAY_PROJECT}"/"${OPERATOR_IMAGE}":"${VERSION}"
+    docker buildx build --platform=linux/amd64,linux/arm64 \
+    -t "${QUAY_DOCKER_REGISTRY}"/"${QUAY_PROJECT}"/"${OPERATOR_IMAGE}":"${VERSION}" --push -f index.Dockerfile .
 }
 
 function create_release_bundle_pr() {

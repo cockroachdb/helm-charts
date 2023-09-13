@@ -706,3 +706,6 @@ spec:
     name: Helm Community
     url: https://artifacthub.io/packages/helm/cockroachdb/cockroachdb
   version: VERSION
+  labels:
+    operatorframework.io/arch.amd64: supported
+    operatorframework.io/arch.arm64: supported
