@@ -54,8 +54,8 @@ build/chart: bin/helm ## build the helm chart to build/artifacts
 	@build/make.sh
 
 build/self-signer: bin/yq ## build the self-signer image
-	@docker build --platform=linux/amd64 \
-		-f build/docker-image/self-signer-cert-utility/Dockerfile \
+	@docker build --platform=linux/amd64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
+		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) \
 		-t ${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
 
 ##@ Release
@@ -63,8 +63,10 @@ build/self-signer: bin/yq ## build the self-signer image
 release: ## publish the build artifacts to S3
 	@build/release.sh
 
-push/self-signer: bin/yq ## push the self-signer image
-	@docker push ${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)
+build-and-push/self-signer: bin/yq ## push the self-signer image
+	@docker buildx build --platform=linux/amd64,linux/arm64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
+		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) --push \
+		-t ${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
 
 ##@ Dev
 dev/clean: ## remove built artifacts
@@ -144,14 +146,10 @@ build-and-release-olm-operator: bin/yq bin/jq bin/opm
 prepare_bundle: bin/yq bin/jq
 	./build/olm_builder.sh "update_olm_operator"
 
-build-operator-image:
-	docker build -t $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(HELM_OPERATOR_IMAGE):$(VERSION) -f build/docker-image/operator/Dockerfile .
+build-and-push-operator-image:
+	docker buildx build --platform=linux/amd64,linux/arm64 \
+		-t $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(HELM_OPERATOR_IMAGE):$(VERSION) --push -f build/docker-image/operator/Dockerfile .
 
-build-operator-push:
-	docker push $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(HELM_OPERATOR_IMAGE):$(VERSION)
-
-build-bundle-image:
-	docker build -t $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(BUNDLE_IMAGE):$(VERSION) -f build/docker-image/olm-catalog/bundle.Dockerfile ./
-
-build-bundle-push:
-	docker push $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(BUNDLE_IMAGE):$(VERSION)
+build-and-push-bundle-image:
+	docker buildx build --platform=linux/amd64,linux/arm64 \
+		-t $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(BUNDLE_IMAGE):$(VERSION) --push -f build/docker-image/olm-catalog/bundle.Dockerfile ./

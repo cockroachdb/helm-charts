@@ -525,6 +525,21 @@ tls:
       nodeCertExpiryWindow: 168h
 
   selfSigner:
+    # Additional annotations to apply to the Pod of this Job.
+    annotations: {}
+
+    # Affinity rules for scheduling the Pod of this Job.
+    # https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#node-affinity
+    affinity: {}
+
+    # Node selection constraints for scheduling the Pod of this Job.
+    # https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#nodeselector
+    nodeSelector: {}
+
+    # Taints to be tolerated by the Pod of this Job.
+    # https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
+    tolerations: []
+
     # Image Placeholder for the selfSigner utility. This will be changed once the CI workflows for the image is in place.
     image:
       repository: cockroachlabs-helm-charts/cockroach-self-signer-cert
