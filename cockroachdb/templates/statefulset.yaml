@@ -303,8 +303,6 @@ spec:
                 - ALL
             privileged: false
             readOnlyRootFilesystem: true
-            seccompProfile:
-              type: "RuntimeDefault"
         {{- end }}
         {{- end }}
         {{- with .Values.statefulset.resources }}
