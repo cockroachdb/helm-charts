@@ -38,13 +38,18 @@ var namespace string
 
 func init() {
 	cleanupCmd.Flags().StringVar(&namespace, "namespace", "", "namespace of the resources to be cleaned up")
-	if err := cleanupCmd.MarkFlagRequired("namespace"); err != nil {
-		log.Fatal(err)
-	}
+	cleanupCmd.Flags().MarkDeprecated("namespace", "namespace is deprecated, use the environment variable NAMESPACE instead")
 	rootCmd.AddCommand(cleanupCmd)
 }
 
 func cleanup(cmd *cobra.Command, args []string) {
+	if nsName, exists := os.LookupEnv("NAMESPACE"); exists {
+		namespace = nsName
+	}
+
+	if namespace == "" {
+		log.Fatal("Required NAMESPACE env not found")
+	}
 
 	stsName, exists := os.LookupEnv("STATEFULSET_NAME")
 	if !exists {
