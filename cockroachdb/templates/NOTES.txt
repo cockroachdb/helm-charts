@@ -42,7 +42,7 @@ CockroachDB cluster are:
 Finally, to open up the CockroachDB admin UI, you can port-forward from your
 local machine into one of the instances in the cluster:
 
-    kubectl port-forward {{ template "cockroachdb.fullname" . }}-0 {{ index .Values.conf `http-port` | int64 }}
+    kubectl port-forward -n {{ .Release.Namespace }} {{ template "cockroachdb.fullname" . }}-0 {{ index .Values.conf `http-port` | int64 }} 
 
 Then you can access the admin UI at http{{ if .Values.tls.enabled }}s{{ end }}://localhost:{{ index .Values.conf `http-port` | int64 }}/ in your web browser.
 
