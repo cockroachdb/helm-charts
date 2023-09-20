@@ -40,6 +40,8 @@ spec:
     {{- if eq (include "cockroachdb.securityContext.versionValidation" .) "true" }}
     {{- if and .Values.init.securityContext.enabled }}
       securityContext:
+        seccompProfile:
+          type: "RuntimeDefault"
         runAsGroup: 1000
         runAsUser: 1000
         fsGroup: 1000
@@ -72,6 +74,12 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
+        {{- if and .Values.init.securityContext.enabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:  
+              drop: ["ALL"]
+        {{- end }}
           volumeMounts:
             - name: client-certs
               mountPath: /cockroach-certs/
@@ -246,6 +254,12 @@ spec:
         {{- end }}
         {{- with .Values.init.resources }}
           resources: {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- if and .Values.init.securityContext.enabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:  
+              drop: ["ALL"]
         {{- end }}
     {{- if .Values.tls.enabled }}
       volumes:
