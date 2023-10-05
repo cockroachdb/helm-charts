@@ -48,4 +48,7 @@ spec:
     {{- if $serviceMonitor.scrapeTimeout }}
     scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
     {{- end }}
+    {{- if .Values.serviceMonitor.tlsConfig }}
+    tlsConfig: {{ toYaml .Values.serviceMonitor.tlsConfig | nindent 6 }}
+    {{- end }}
 {{- end }}
