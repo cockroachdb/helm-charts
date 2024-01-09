@@ -31,7 +31,7 @@ gcloud auth activate-service-account --key-file=.google-credentials.json
 
 # Push the new chart file and updated index.yaml file to GCS.
 # We rely on the gcloud CLI version installed system-wide.
-gsutil rsync "build/artifacts/" "gs://${gcs_bucket}/" -x old-index.yaml
+gsutil rsync -x old-index.yaml "build/artifacts/" "gs://${gcs_bucket}/"
 
 # Invalidate any cached version of index.yaml (so this version is immediately available)
 gcloud compute url-maps invalidate-cdn-cache $lb_name --path "/index.yaml"
