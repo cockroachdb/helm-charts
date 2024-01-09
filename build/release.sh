@@ -8,11 +8,13 @@ case $charts_hostname in
     lb_name=cockroach-helm-charts-prod-default
     gcs_bucket=cockroach-helm-charts-prod
     google_credentials="$GCS_CREDENTIALS_PROD"
+    google_project=releases-prod
     ;;
   charts-test.cockroachdb.com)
     lb_name=cockroach-helm-charts-test-default
     gcs_bucket=cockroach-helm-charts-test
     google_credentials="$GCS_CREDENTIALS_PROD"
+    google_project=releases-prod
     ;;
   *)
     echo "uknown host $charts_hostname"
@@ -34,4 +36,4 @@ gcloud auth activate-service-account --key-file=.google-credentials.json
 gsutil rsync -x old-index.yaml "build/artifacts/" "gs://${gcs_bucket}/"
 
 # Invalidate any cached version of index.yaml (so this version is immediately available)
-gcloud compute url-maps invalidate-cdn-cache $lb_name --path "/index.yaml"
+gcloud --project $google_project compute url-maps invalidate-cdn-cache $lb_name --path "/index.yaml"
