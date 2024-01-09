@@ -2,8 +2,6 @@
 
 set -euo pipefail
 
-helm_charts_toplevel="$(dirname "$(cd "$(dirname "${0}")"; pwd)")/"
-builder="${helm_charts_toplevel}/build/builder.sh"
 charts_hostname="${CHARTS_HOSTNAME:-charts.cockroachdb.com}"
 
 if [ -n "${DISTRIBUTION_ID-}" ] ; then
@@ -15,15 +13,12 @@ elif [ "${charts_hostname-}" = "charts-test.cockroachdb.com" ] ; then
 fi
 
 # Push the new chart file and updated index.yaml file to S3
-"${builder}" env \
-    AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
-    AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
-    aws s3 sync "build/artifacts/" "s3://${charts_hostname}" --exclude old-index.yaml
+# We rely on the aws-cli version installed system-wide.
+AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
+  aws s3 sync "build/artifacts/" "s3://${charts_hostname}" --exclude old-index.yaml
 
 # Invalidate any cached version of index.yaml (so this version is immediately available)
 if [ -n "${distribution_id}" ] ; then
-  "${builder}" env \
-    AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" \
-    AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
-    aws cloudfront create-invalidation --distribution-id "${distribution_id}" --paths /index.yaml
+ AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
+  aws cloudfront create-invalidation --distribution-id "${distribution_id}" --paths /index.yaml
 fi

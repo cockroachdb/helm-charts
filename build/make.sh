@@ -2,18 +2,22 @@
 
 set -euxo pipefail
 
-# Absolute path to the toplevel helm-charts directory.
-helm_charts_toplevel="$(dirname "$(cd "$(dirname "${0}")"; pwd)")/"
-relative_artifacts_dir="build/artifacts/"
-artifacts_dir="/charts/${relative_artifacts_dir}"
-builder="${helm_charts_toplevel}/build/builder.sh"
 charts_hostname="${CHARTS_HOSTNAME:-charts.cockroachdb.com}"
 
-mkdir -p "${helm_charts_toplevel}${relative_artifacts_dir}"
+HELM_INSTALL_DIR=$PWD/bin
+mkdir -p "$HELM_INSTALL_DIR"
+curl -fsSL -o "$HELM_INSTALL_DIR/get_helm.sh" https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
+chmod 700 "$HELM_INSTALL_DIR/get_helm.sh"
+export PATH="$HELM_INSTALL_DIR":$PATH
+HELM_INSTALL_DIR="$HELM_INSTALL_DIR" "$HELM_INSTALL_DIR/get_helm.sh" --no-sudo --version v3.13.3
+
+artifacts_dir="build/artifacts/"
+mkdir -p "$artifacts_dir"
 
 # Grab the current index.yaml to merge into the new index.yaml.
-curl "https://s3.amazonaws.com/${charts_hostname}/index.yaml" > "${relative_artifacts_dir}/old-index.yaml"
+curl -fsSL "https://s3.amazonaws.com/${charts_hostname}/index.yaml" > "${artifacts_dir}/old-index.yaml"
 
 # Build the charts
-"${builder}" helm package cockroachdb --destination "${artifacts_dir}"
-"${builder}" helm repo index "${artifacts_dir}" --url "https://${charts_hostname}" --merge "${artifacts_dir}/old-index.yaml"
+$HELM_INSTALL_DIR/helm package cockroachdb --destination "${artifacts_dir}"
+$HELM_INSTALL_DIR/helm repo index "${artifacts_dir}" --url "https://${charts_hostname}" --merge "${artifacts_dir}/old-index.yaml"
+diff -u "${artifacts_dir}/old-index.yaml" "${artifacts_dir}/index.yaml"
