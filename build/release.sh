@@ -3,22 +3,35 @@
 set -euo pipefail
 
 charts_hostname="${CHARTS_HOSTNAME:-charts.cockroachdb.com}"
+case $charts_hostname in
+  charts.cockroachdb.com)
+    lb_name=cockroach-helm-charts-prod-default
+    gcs_bucket=cockroach-helm-charts-prod
+    google_credentials="$GCS_CREDENTIALS_PROD"
+    ;;
+  charts-test.cockroachdb.com)
+    lb_name=cockroach-helm-charts-test-default
+    gcs_bucket=cockroach-helm-charts-test
+    google_credentials="$GCS_CREDENTIALS_PROD"
+    ;;
+  *)
+    echo "uknown host $charts_hostname"
+    exit 1
+    ;;
+esac
 
-if [ -n "${DISTRIBUTION_ID-}" ] ; then
-  distribution_id="${DISTRIBUTION_ID}"
-elif [ "${charts_hostname-}" = "charts.cockroachdb.com" ] ; then
-  distribution_id="E2PBFCZT8WAC7B"
-elif [ "${charts_hostname-}" = "charts-test.cockroachdb.com" ] ; then
-  distribution_id="E20WB6NQP118CN"
-fi
+remove_files_on_exit() {
+  rm -f .google-credentials.json
+}
 
-# Push the new chart file and updated index.yaml file to S3
-# We rely on the aws-cli version installed system-wide.
-AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
-  aws s3 sync "build/artifacts/" "s3://${charts_hostname}" --exclude old-index.yaml
+trap remove_files_on_exit EXIT
+
+echo "${google_credentials}" > .google-credentials.json
+gcloud auth activate-service-account --key-file=.google-credentials.json
+
+# Push the new chart file and updated index.yaml file to GCS.
+# We rely on the gcloud CLI version installed system-wide.
+gsutil rsync "build/artifacts/" "gs://${gcs_bucket}/" -x old-index.yaml
 
 # Invalidate any cached version of index.yaml (so this version is immediately available)
-if [ -n "${distribution_id}" ] ; then
- AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID}" AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY}" \
-  aws cloudfront create-invalidation --distribution-id "${distribution_id}" --paths /index.yaml
-fi
+gcloud compute url-maps invalidate-cdn-cache $lb_name --path "/index.yaml"

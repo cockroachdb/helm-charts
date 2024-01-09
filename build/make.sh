@@ -3,6 +3,18 @@
 set -euxo pipefail
 
 charts_hostname="${CHARTS_HOSTNAME:-charts.cockroachdb.com}"
+case $charts_hostname in
+  charts.cockroachdb.com)
+    gcs_bucket=cockroach-helm-charts-prod
+    ;;
+  charts-test.cockroachdb.com)
+    gcs_bucket=cockroach-helm-charts-test
+    ;;
+  *)
+    echo "uknown host $charts_hostname"
+    exit 1
+    ;;
+esac
 
 HELM_INSTALL_DIR=$PWD/bin
 mkdir -p "$HELM_INSTALL_DIR"
@@ -15,7 +27,7 @@ artifacts_dir="build/artifacts/"
 mkdir -p "$artifacts_dir"
 
 # Grab the current index.yaml to merge into the new index.yaml.
-curl -fsSL "https://s3.amazonaws.com/${charts_hostname}/index.yaml" > "${artifacts_dir}/old-index.yaml"
+curl -fsSL "https://storage.googleapis.com/$gcs_bucket/index.yaml" > "${artifacts_dir}/old-index.yaml"
 
 # Build the charts
 $HELM_INSTALL_DIR/helm package cockroachdb --destination "${artifacts_dir}"
