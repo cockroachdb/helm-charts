@@ -36,4 +36,4 @@ gcloud auth activate-service-account --key-file=.google-credentials.json
 gsutil rsync -x old-index.yaml "build/artifacts/" "gs://${gcs_bucket}/"
 
 # Invalidate any cached version of index.yaml (so this version is immediately available)
-gcloud --project $google_project compute url-maps invalidate-cdn-cache $lb_name --path "/index.yaml"
+gcloud --project $google_project compute url-maps invalidate-cdn-cache $lb_name --path "/index.yaml" --async
