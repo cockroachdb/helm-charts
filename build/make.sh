@@ -20,4 +20,4 @@ curl -fsSL "https://s3.amazonaws.com/${charts_hostname}/index.yaml" > "${artifac
 # Build the charts
 $HELM_INSTALL_DIR/helm package cockroachdb --destination "${artifacts_dir}"
 $HELM_INSTALL_DIR/helm repo index "${artifacts_dir}" --url "https://${charts_hostname}" --merge "${artifacts_dir}/old-index.yaml"
-diff -u "${artifacts_dir}/old-index.yaml" "${artifacts_dir}/index.yaml"
+diff -u "${artifacts_dir}/old-index.yaml" "${artifacts_dir}/index.yaml" || true
