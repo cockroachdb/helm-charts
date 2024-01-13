@@ -528,6 +528,9 @@ tls:
       nodeCertDuration: 8760h
       # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
       nodeCertExpiryWindow: 168h
+      # Additional DNS names that will be included in the node certificates
+      additionalDNSNames: []
+      # - cockroachlabs.com
 
   selfSigner:
     # Additional annotations to apply to the Pod of this Job.

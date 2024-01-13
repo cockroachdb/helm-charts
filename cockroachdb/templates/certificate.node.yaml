@@ -36,6 +36,9 @@ spec:
     - {{ printf "*.%s" (include "cockroachdb.fullname" .) | quote }}
     - {{ printf "*.%s.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
     - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
+    {{- range $domain := .Values.tls.certs.certManagerIssuer.additionalDNSNames  }}
+    - {{ $domain | quote }}
+    {{- end }}
   secretName: {{ .Values.tls.certs.nodeSecret }}
   issuerRef:
     name: {{ template "cockroachdb.fullname" . }}-ca-issuer
