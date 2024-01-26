@@ -25,18 +25,15 @@ spec:
         {{- end }}
         spec:
           restartPolicy: Never
-        {{- if or .Values.tls.selfSigner.nodeAffinity }}
-          affinity:
-          {{- with .Values.tls.selfSigner.nodeAffinity }}
-            nodeAffinity: {{- toYaml . | nindent 14 }}
-          {{- end }}
+        {{- with .Values.tls.selfSigner.affinity }}
+          affinity: {{- toYaml . | nindent 12 }}
         {{- end }}
-          {{- with .Values.tls.selfSigner.nodeSelector }}
+        {{- with .Values.tls.selfSigner.nodeSelector }}
           nodeSelector: {{- toYaml . | nindent 12 }}
-          {{- end }}
-          {{- with .Values.tls.selfSigner.tolerations }}
+        {{- end }}
+        {{- with .Values.tls.selfSigner.tolerations }}
           tolerations: {{- toYaml . | nindent 12 }}
-          {{- end }}
+        {{- end }}
           containers:
           - name: cert-rotate-job
             image: "{{ .Values.tls.selfSigner.image.registry }}/{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
