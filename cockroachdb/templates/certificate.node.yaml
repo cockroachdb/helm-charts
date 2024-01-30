@@ -38,7 +38,13 @@ spec:
     - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
   secretName: {{ .Values.tls.certs.nodeSecret }}
   issuerRef:
+  {{- if .Values.tls.certs.certManagerIssuer.isSelfSignedIssuer }}
     name: {{ template "cockroachdb.fullname" . }}-ca-issuer
     kind: Issuer
     group: cert-manager.io
+  {{- else }}
+    name: {{ .Values.tls.certs.certManagerIssuer.name }}
+    kind: {{ .Values.tls.certs.certManagerIssuer.kind }}
+    group: {{ .Values.tls.certs.certManagerIssuer.group }}
+  {{- end }}
 {{- end }}
