@@ -530,6 +530,9 @@ tls:
       nodeCertExpiryWindow: 168h
 
   selfSigner:
+    # Additional labels to apply to the Pod of this Job.
+    labels: {}
+
     # Additional annotations to apply to the Pod of this Job.
     annotations: {}
 

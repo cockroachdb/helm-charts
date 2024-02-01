@@ -24,6 +24,9 @@ spec:
         app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name | quote }}
         app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+      {{- with .Values.tls.selfSigner.labels }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     {{- with .Values.tls.selfSigner.annotations }}
       annotations: {{- toYaml . | nindent 8 }}
     {{- end }}

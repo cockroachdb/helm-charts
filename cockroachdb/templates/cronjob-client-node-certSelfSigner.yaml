@@ -20,6 +20,9 @@ spec:
       backoffLimit: 1
       template:
         metadata:
+        {{- with .Values.tls.selfSigner.labels }}
+          labels: {{- toYaml . | nindent 12 }}
+        {{- end }}
         {{- with .Values.tls.selfSigner.annotations }}
           annotations: {{- toYaml . | nindent 12 }}
         {{- end }}
