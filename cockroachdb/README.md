@@ -229,10 +229,10 @@ kubectl get pods \
 ```
 
 ```
-my-release-cockroachdb-0    cockroachdb/cockroach:v23.1.14
-my-release-cockroachdb-1    cockroachdb/cockroach:v23.1.14
-my-release-cockroachdb-2    cockroachdb/cockroach:v23.1.14
-my-release-cockroachdb-3    cockroachdb/cockroach:v23.1.14
+my-release-cockroachdb-0    cockroachdb/cockroach:v23.2.0
+my-release-cockroachdb-1    cockroachdb/cockroach:v23.2.0
+my-release-cockroachdb-2    cockroachdb/cockroach:v23.2.0
+my-release-cockroachdb-3    cockroachdb/cockroach:v23.2.0
 ```
 
 Resume normal operations. Once you are comfortable that the stability and performance of the cluster is what you'd expect post-upgrade, finalize the upgrade:
@@ -316,7 +316,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.store.size`                                         | CockroachDB storage size                                        | `""`                                                  |
 | `conf.store.attrs`                                        | CockroachDB storage attributes                                  | `""`                                                  |
 | `image.repository`                                        | Container image name                                            | `cockroachdb/cockroach`                               |
-| `image.tag`                                               | Container image tag                                             | `v23.1.14`                                             |
+| `image.tag`                                               | Container image tag                                             | `v23.2.0`                                             |
 | `image.pullPolicy`                                        | Container pull policy                                           | `IfNotPresent`                                        |
 | `image.credentials`                                       | `registry`, `user` and `pass` credentials to pull private image | `{}`                                                  |
 | `statefulset.replicas`                                    | StatefulSet replicas number                                     | `3`                                                   |
