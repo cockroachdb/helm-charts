@@ -1,19 +1,19 @@
 UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
-  COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v20.2.5.linux-amd64.tgz
-  HELM_BIN ?= https://get.helm.sh/helm-v3.8.0-linux-amd64.tar.gz
-  KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.11.1/kind-linux-amd64
-  KUBECTL_BIN ?= https://dl.k8s.io/release/v1.23.3/bin/linux/amd64/kubectl
+  COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.linux-amd64.tgz
+  HELM_BIN ?= https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz
+  KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.21.0/kind-linux-amd64
+  KUBECTL_BIN ?= https://dl.k8s.io/release/v1.29.1/bin/linux/amd64/kubectl
   YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_linux_amd64
   JQ_BIN ?= https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64
   OPM_TAR ?= https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/latest-4.8/opm-linux-4.8.57.tar.gz
   OPM_BIN ?= opm
 endif
 ifeq ($(UNAME_S),Darwin)
-  COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v20.2.5.darwin-10.9-amd64.tgz
-  HELM_BIN ?= https://get.helm.sh/helm-v3.8.0-darwin-amd64.tar.gz
-  KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.11.1/kind-darwin-amd64
-  KUBECTL_BIN ?= https://dl.k8s.io/release/v1.23.3/bin/darwin/amd64/kubectl
+  COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.darwin-10.9-amd64.tgz
+  HELM_BIN ?= https://get.helm.sh/helm-v3.14.0-darwin-amd64.tar.gz
+  KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.21.0/kind-darwin-amd64
+  KUBECTL_BIN ?= https://dl.k8s.io/release/v1.29.1/bin/darwin/amd64/kubectl
   YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_darwin_amd64
   JQ_BIN ?= https://github.com/stedolan/jq/releases/download/jq-1.6/jq-osx-amd64
   OPM_TAR ?= https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/latest-4.8/opm-mac-4.8.57.tar.gz
@@ -84,7 +84,7 @@ test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/publish-im
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && bin/helm lint cockroachdb
 
-IMAGE_LIST = cockroachdb/cockroach:v21.1.1 quay.io/jetstack/cert-manager-cainjector:v1.11.0 quay.io/jetstack/cert-manager-webhook:v1.11.0 quay.io/jetstack/cert-manager-controller:v1.11.0 quay.io/jetstack/cert-manager-ctl:v1.11.0
+IMAGE_LIST = cockroachdb/cockroach:v23.2.0 quay.io/jetstack/cert-manager-cainjector:v1.11.0 quay.io/jetstack/cert-manager-webhook:v1.11.0 quay.io/jetstack/cert-manager-controller:v1.11.0 quay.io/jetstack/cert-manager-ctl:v1.11.0
 test/publish-images-to-kind: bin/yq test/cluster ## publish signer and cockroach image to local kind registry
 	for i in $(IMAGE_LIST); do \
 		docker pull $$i; \
