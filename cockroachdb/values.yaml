@@ -7,7 +7,7 @@ fullnameOverride: ""
 
 image:
   repository: cockroachdb/cockroach
-  tag: v23.1.14
+  tag: v23.2.0
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
