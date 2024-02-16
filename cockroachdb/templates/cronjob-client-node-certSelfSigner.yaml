@@ -19,8 +19,24 @@ spec:
     spec:
       backoffLimit: 1
       template:
+        metadata:
+        {{- with .Values.tls.selfSigner.labels }}
+          labels: {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- with .Values.tls.selfSigner.annotations }}
+          annotations: {{- toYaml . | nindent 12 }}
+        {{- end }}
         spec:
           restartPolicy: Never
+        {{- with .Values.tls.selfSigner.affinity }}
+          affinity: {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- with .Values.tls.selfSigner.nodeSelector }}
+          nodeSelector: {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- with .Values.tls.selfSigner.tolerations }}
+          tolerations: {{- toYaml . | nindent 12 }}
+        {{- end }}
           containers:
           - name: cert-rotate-job
             image: "{{ .Values.tls.selfSigner.image.registry }}/{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
