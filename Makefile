@@ -79,7 +79,7 @@ test/cluster: bin/kind ## start a local kind cluster for testing
 
 test/e2e/%: PKG=$*
 test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/publish-images-to-kind ## run e2e tests for package (e.g. install or rotate)
-	@PATH="$(PWD)/bin:${PATH}" go test -v ./tests/e2e/$(PKG)/...
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/$(PKG)/...
 
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && bin/helm lint cockroachdb
