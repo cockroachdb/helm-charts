@@ -42,5 +42,9 @@ spec:
             - name: CLUSTER_DOMAIN
               value: {{ .Values.clusterDomain}}
           serviceAccountName: {{ template "rotatecerts.fullname" . }}
+      {{- with .Values.tls.selfSigner.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+      {{- end }}
+
   {{- end }}
 {{- end }}

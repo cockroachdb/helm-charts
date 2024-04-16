@@ -555,6 +555,17 @@ tls:
       # username: john_doe
       # password: changeme
 
+    # Uncomment the following resources definitions or pass them from
+    # command line to control the CPU and memory resources allocated
+    # by Pods of this StatefulSet.
+    resources: {}
+      # limits:
+      #   cpu: 100m
+      #   memory: 512Mi
+      # requests:
+      #   cpu: 100m
+      #   memory: 512Mi
+
 networkPolicy:
   enabled: false
 

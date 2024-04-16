@@ -45,6 +45,9 @@ spec:
           env:
           - name: STATEFULSET_NAME
             value: {{ template "cockroachdb.fullname" . }}
+        {{- with .Values.tls.selfSigner.resources }}
+            resources: {{- toYaml . | nindent 14 }}
+        {{- end }}
         {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
           securityContext:
             allowPrivilegeEscalation: false
