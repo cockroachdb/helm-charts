@@ -73,6 +73,9 @@ spec:
             value: {{ .Release.Namespace | quote }}
           - name: CLUSTER_DOMAIN
             value: {{ .Values.clusterDomain}}
+      {{- with .Values.tls.selfSigner.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+      {{- end }}
         {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
           securityContext:
             allowPrivilegeEscalation: false
