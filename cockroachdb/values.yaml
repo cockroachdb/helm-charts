@@ -350,6 +350,16 @@ serviceMonitor:
   # Limits the ServiceMonitor to the current namespace if set to `true`.
   namespaced: false
 
+  # Service
+  # This service is used to scrape the CockroachDB Pods.
+  service:
+    # Additional labels to apply to this Service.
+    labels:
+      app.kubernetes.io/component: cockroachdb-metrics
+    # Additional annotations to apply to this Service.
+    annotations: {}
+
+
   # tlsConfig: TLS configuration to use when scraping the endpoint.
   # Of type: https://github.com/coreos/prometheus-operator/blob/main/Documentation/api.md#tlsconfig
   tlsConfig: {}
