@@ -354,6 +354,16 @@ serviceMonitor:
   # Of type: https://github.com/coreos/prometheus-operator/blob/main/Documentation/api.md#tlsconfig
   tlsConfig: {}
 
+  # relabelingConfig: List of ServiceMonitor relabeling configurations.
+  # See: https://prometheus.io/docs/prometheus/latest/configuration/configuration/#relabel_config
+  relabelingConfig:
+    - replacement: cockroachdb_cluster_name
+      targetLabel: "{{ index .Values.conf `cluster-name` }}"
+#    - sourceLabels: [__meta_kubernetes_namespace]
+#      targetLabel: namespace
+#    - sourceLabels: [__meta_kubernetes_pod_name]
+#      targetLabel: pod
+
 # CockroachDB's data persistence.
 # If neither `persistentVolume` nor `hostPath` is used, then data will be
 # persisted in ad-hoc `emptyDir`.

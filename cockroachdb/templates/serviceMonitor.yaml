@@ -54,4 +54,5 @@ spec:
     {{- if .Values.serviceMonitor.tlsConfig }}
     tlsConfig: {{ toYaml .Values.serviceMonitor.tlsConfig | nindent 6 }}
     {{- end }}
+    relabelings: {{ tpl (toYaml .Values.serviceMonitor.relabelingConfig) . | nindent 6 }}
 {{- end }}
