@@ -19,7 +19,7 @@ go_binary(
 
 go_library(
     name = "build_lib",
-    srcs = ["bump.go"],
+    srcs = ["build.go"],
     importpath = "github.com/cockroachdb/helm-charts/build",
     visibility = ["//visibility:private"],
     deps = [

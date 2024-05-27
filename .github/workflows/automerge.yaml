@@ -1,0 +1,63 @@
+# This Workflow automatically merges pull requests, submitted by certain users
+# if they pass certain criteria.
+name: Automerge version bumps
+
+on:
+  pull_request:
+    branches: [ master ]
+    paths:
+    # Trigger the workflow only for certain files. First we need to exclude all
+    # files, then add the files we care about.
+    - "!**"
+    - "cockroachdb/Chart.yaml"
+    - "cockroachdb/README.md"
+    - "cockroachdb/values.yaml"
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  automerge:
+    runs-on: ubuntu-latest
+    if: ${{ github.actor == 'cockroach-teamcity' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Fetch all branches so it is possible to checkout the default branch files.
+          fetch-depth: 0
+      # The next steps tries to reproduce the steps taken to generate the
+      # files. We restore the changed files to their original state on the
+      # default branch, run the commands to regenerate the change, and verify
+      # the result matches the PR contents (git diff does not show any changes).
+      - name: Check for downgrades and regenerate the patch
+        run: |
+          set -euxo pipefail
+          version="$(cat cockroachdb/Chart.yaml | yq -r '.version')"
+          appVersion="$(cat cockroachdb/Chart.yaml | yq -r '.appVersion')"
+          git checkout origin/master -- cockroachdb/Chart.yaml cockroachdb/README.md cockroachdb/values.yaml
+          git restore --staged cockroachdb/Chart.yaml cockroachdb/README.md cockroachdb/values.yaml
+          master_version="$(cat cockroachdb/Chart.yaml | yq -r '.version')"
+          master_appVersion="$(cat cockroachdb/Chart.yaml | yq -r '.appVersion')"
+          latest_version="$(echo -e "$version\n$master_version" | sort --version-sort -r | head -n1)"
+          latest_appVersion="$(echo -e "$appVersion\n$master_appVersion" | sort --version-sort -r | head -n1)"
+          if [[ $latest_version != $version ]]; then
+            echo "Downgrades are not permitteed in automatic mode, $version < $latest_version"
+            exit 1
+          fi
+          if [[ $latest_appVersion != $appVersion ]]; then
+            echo "Downgrades are not permitteed in automatic mode, $appVersion < $latest_appVersion"
+            exit 1
+          fi
+          bazel build //build
+          $(bazel info bazel-bin)/build/build_/build bump "$appVersion"
+      - name: Confirm expected patch
+        run: git diff --exit-code
+      - name: Approve PR
+        run: gh pr review --approve "${{github.event.pull_request.html_url}}"
+        env:
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}
+      - name: Enable auto-merge
+        run: gh pr merge --auto --merge "${{github.event.pull_request.html_url}}"
+        env:
+          GITHUB_TOKEN: ${{secrets.GITHUB_TOKEN}}

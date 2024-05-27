@@ -31,7 +31,7 @@ spec:
     command:
     - sleep
     - "2147483648" # 2^31
-  terminationGracePeriodSeconds: 0
+  terminationGracePeriodSeconds: 300
   volumes:
   - name: client-certs
     projected:

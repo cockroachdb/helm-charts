@@ -16,7 +16,7 @@ jobs:
       tagChange: ${{ steps.changetag.outputs.tagChange }}
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 2
 
@@ -26,10 +26,10 @@ jobs:
       - name: Check Tag Change
         id: changetag
         run: |
-          output=$(./build/self-signer-utility.sh)
-          echo $output | grep "You have changed the tag of selfSigner utility"
-          if [[ $? -eq 0 ]]; then
+          if ./build/self-signer-utility.sh | grep -q "You have changed the tag of selfSigner utility"; then
             echo ::set-output name=tagChange::true
+          else
+            echo ::set-output name=tagChange::false
           fi
 
 
@@ -41,17 +41,20 @@ jobs:
     if: (needs.needs-build.outputs.tagChange == 'true')
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to GCR
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
           registry: gcr.io
           username: _json_key
           password: ${{ secrets.GCR_HELM_CHART_SA_JSON }}
 
-      - name: Build Self-signer
-        run: make build/self-signer
-
       - name: Push Self-signer
-        run: make push/self-signer
+        run: make build-and-push/self-signer

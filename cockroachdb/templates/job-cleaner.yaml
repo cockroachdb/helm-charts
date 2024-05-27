@@ -25,6 +25,15 @@ spec:
         app.kubernetes.io/instance: {{ .Release.Name | quote }}
         app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
     spec:
+    {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
+      securityContext:
+        seccompProfile:
+          type: "RuntimeDefault"
+        runAsGroup: 1000
+        runAsUser: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+    {{- end }}
       restartPolicy: Never
       containers:
         - name: cleaner
@@ -36,5 +45,11 @@ spec:
           env:
           - name: STATEFULSET_NAME
             value: {{ template "cockroachdb.fullname" . }}
+        {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:  
+              drop: ["ALL"]
+        {{- end }}
       serviceAccountName: {{ template "rotatecerts.fullname" . }}
 {{- end}}
