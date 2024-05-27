@@ -24,6 +24,24 @@ If release name contains chart name it will be used as a full name.
 {{- end -}}
 
 {{/*
+Create a default fully qualified app name for cluster scope resource.
+We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+If release name contains chart name it will be used as a full name with release namespace appended at the end.
+*/}}
+{{- define "cockroachdb.clusterfullname" -}}
+{{- if .Values.fullnameOverride -}}
+    {{- printf "%s-%s" .Values.fullnameOverride .Release.Namespace | trunc 56 | trimSuffix "-" -}}
+{{- else -}}
+    {{- $name := default .Chart.Name .Values.nameOverride -}}
+    {{- if contains $name .Release.Name -}}
+        {{- printf "%s-%s" .Release.Name .Release.Namespace | trunc 56 | trimSuffix "-" -}}
+    {{- else -}}
+        {{- printf "%s-%s-%s" .Release.Name $name .Release.Namespace | trunc 56 | trimSuffix "-" -}}
+    {{- end -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
 Create chart name and version as used by the chart label.
 */}}
 {{- define "cockroachdb.chart" -}}
@@ -33,11 +51,11 @@ Create chart name and version as used by the chart label.
 {{/*
 Create the name of the ServiceAccount to use.
 */}}
-{{- define "cockroachdb.tls.serviceAccount.name" -}}
-{{- if .Values.tls.serviceAccount.create -}}
-    {{- default (include "cockroachdb.fullname" .) .Values.tls.serviceAccount.name -}}
+{{- define "cockroachdb.serviceAccount.name" -}}
+{{- if .Values.statefulset.serviceAccount.create -}}
+    {{- default (include "cockroachdb.fullname" .) .Values.statefulset.serviceAccount.name -}}
 {{- else -}}
-    {{- default "default" .Values.tls.serviceAccount.name -}}
+    {{- default "default" .Values.statefulset.serviceAccount.name -}}
 {{- end -}}
 {{- end -}}
 
@@ -255,3 +273,19 @@ Validate that if user enabled tls, then either self-signed certificates or certi
 {{ include "cockroachdb.tls.certs.selfSigner.nodeCertValidation" . }}
 {{- end -}}
 
+{{- define "cockroachdb.securityContext.versionValidation" }}
+{{- /* Allow using `securityContext` for custom images. */}}
+{{- if ne "cockroachdb/cockroach" .Values.image.repository -}}
+    {{ print true }}
+{{- else -}}
+{{- if semverCompare ">=22.1.2" .Values.image.tag -}}
+    {{ print true }}
+{{- else -}}
+{{- if semverCompare ">=21.2.13, <22.1.0" .Values.image.tag -}}
+    {{ print true }}
+{{- else -}}
+    {{ print false }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- end }}

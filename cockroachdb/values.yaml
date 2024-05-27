@@ -1,7 +1,13 @@
 # Generated file, DO NOT EDIT. Source: build/templates/values.yaml
+# Overrides the chart name against the label "app.kubernetes.io/name: " placed on every resource this chart creates.
+nameOverride: ""
+
+# Override the resource names created by this chart which originally is generated using release and chart name.
+fullnameOverride: ""
+
 image:
   repository: cockroachdb/cockroach
-  tag: v22.1.10
+  tag: v23.2.5
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
@@ -262,6 +268,19 @@ statefulset:
     # initialDelaySeconds: 30
     # periodSeconds: 5
 
+  securityContext:
+    enabled: true
+
+  serviceAccount:
+    # Specifies whether this ServiceAccount should be created.
+    create: true
+    # The name of this ServiceAccount to use.
+    # If not set and `create` is `true`, then service account is auto-generated.
+    # If not set and `create` is `false`, then it uses default service account.
+    name: ""
+    # Additional serviceAccount annotations (e.g. for attaching AWS IAM roles to pods)
+    annotations: {}
+
 service:
   ports:
     # You can set a different external and internal gRPC ports and their name.
@@ -318,6 +337,9 @@ ingress:
 prometheus:
   enabled: true
 
+securityContext:
+  enabled: true
+
 # CockroachDB's Prometheus operator ServiceMonitor support
 serviceMonitor:
   enabled: false
@@ -330,6 +352,10 @@ serviceMonitor:
   tlsConfig: {}
   # Set a different scheme than http
   # scheme: https
+
+  # tlsConfig: TLS configuration to use when scraping the endpoint.
+  # Of type: https://github.com/coreos/prometheus-operator/blob/main/Documentation/api.md#tlsconfig
+  tlsConfig: {}
 
 # CockroachDB's data persistence.
 # If neither `persistentVolume` nor `hostPath` is used, then data will be
@@ -399,6 +425,9 @@ init:
     #   cpu: "10m"
     #   memory: "128Mi"
 
+  securityContext:
+    enabled: true
+
   provisioning:
     enabled: false
     # https://www.cockroachlabs.com/docs/stable/cluster-settings.html
@@ -415,6 +444,8 @@ init:
     #   # https://www.cockroachlabs.com/docs/stable/create-database.html#parameters
     #   options: [encoding='utf-8']
     #   owners: []
+    #   # https://www.cockroachlabs.com/docs/stable/grant.html#parameters
+    #   owners_with_grant_option: []
     #   # Backup schedules are not idemponent for now and will fail on next run
     #   # https://github.com/cockroachdb/cockroach/issues/57892
     #   backup:
@@ -437,12 +468,6 @@ init:
 # Whether to run securely using TLS certificates.
 tls:
   enabled: true
-  serviceAccount:
-    # Specifies whether this ServiceAccount should be created.
-    create: true
-    # The name of this ServiceAccount to use.
-    # If not set and `create` is `true`, then a name is auto-generated.
-    name: ""
   copyCerts:
     image: busybox
   certs:
@@ -452,6 +477,8 @@ tls:
     clientRootSecret: cockroachdb-root
     # Secret name for node cert.
     nodeSecret: cockroachdb-node
+    # Secret name for CA cert
+    caSecret: cockroach-ca
     # Enable if the secret is a dedicated TLS.
     # TLS secrets are created by cert-mananger, for example.
     tlsSecret: false
@@ -459,6 +486,9 @@ tls:
     selfSigner:
       # If set, the cockroach db will generate its own certificates
       enabled: true
+      # Run selfSigner as non-root
+      securityContext:
+        enabled: true
       # If set, the user should provide the CA certificate to sign other certificates.
       caProvided: false
       # It holds the name of the secret with caCerts. If caProvided is set, this can not be empty.
@@ -483,6 +513,8 @@ tls:
       readinessWait: 30s
       # Wait time for each cockroachdb replica to get to running state. Only considered when rotateCerts is set to true
       podUpdateTimeout: 2m
+      # ServiceAccount annotations for selfSigner jobs (e.g. for attaching AWS IAM roles to pods)
+      svcAccountAnnotations: {}
 
     # Use cert-manager to issue certificates for mTLS.
     certManager: false
@@ -493,6 +525,8 @@ tls:
       group: cert-manager.io
       kind: Issuer
       name: cockroachdb
+      # Make it false when you are providing your own CA issuer
+      isSelfSignedIssuer: true
       # Duration of Client certificates in hours
       clientCertDuration: 672h
       # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.
@@ -501,15 +535,27 @@ tls:
       nodeCertDuration: 8760h
       # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
       nodeCertExpiryWindow: 168h
-    # Enable if you run cert-manager >=1.0 on K8s <=1.15 with legacy CRDs
-    # Legacy CRDs only support cert-manager.io/v1 API Versions
-    useCertManagerV1CRDs: false
 
   selfSigner:
+    # Additional annotations to apply to the Pod of this Job.
+    annotations: {}
+
+    # Affinity rules for scheduling the Pod of this Job.
+    # https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#node-affinity
+    affinity: {}
+
+    # Node selection constraints for scheduling the Pod of this Job.
+    # https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#nodeselector
+    nodeSelector: {}
+
+    # Taints to be tolerated by the Pod of this Job.
+    # https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
+    tolerations: []
+
     # Image Placeholder for the selfSigner utility. This will be changed once the CI workflows for the image is in place.
     image:
       repository: cockroachlabs-helm-charts/cockroach-self-signer-cert
-      tag: "1.3"
+      tag: "1.5"
       pullPolicy: IfNotPresent
       credentials: {}
       registry: gcr.io

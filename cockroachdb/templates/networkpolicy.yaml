@@ -2,7 +2,7 @@
 kind: NetworkPolicy
 apiVersion: {{ template "cockroachdb.networkPolicy.apiVersion" . }}
 metadata:
-  name: {{ template "cockroachdb.tls.serviceAccount.name" . }}
+  name: {{ template "cockroachdb.serviceAccount.name" . }}
   namespace: {{ .Release.Namespace | quote }}
   labels:
     helm.sh/chart: {{ template "cockroachdb.chart" . }}

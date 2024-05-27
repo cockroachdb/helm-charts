@@ -284,9 +284,9 @@ Verify that no pod is deleted and then upgrade as normal. A new StatefulSet will
 
 ### See also
 
-For more information about upgrading a cluster to the latest major release of CockroachDB, see [Upgrade to CockroachDB v21.1](https://www.cockroachlabs.com/docs/stable/upgrade-cockroach-version.html).
+For more information about upgrading a cluster to the latest major release of CockroachDB, see [Upgrade to CockroachDB](https://www.cockroachlabs.com/docs/stable/upgrade-cockroach-version.html).
 
-Note that there are some backward-incompatible changes to SQL features between versions 20.2 and 21.1. For details, see the [CockroachDB v{{ .AppVersion }} release notes](https://www.cockroachlabs.com/docs/releases/v{{ .AppVersion }}.html#backward-incompatible-changes).
+Note that there are sometimes backward-incompatible changes to SQL features between major CockroachDB releases. For details, see the [Upgrade Policy](https://www.cockroachlabs.com/docs/cockroachcloud/upgrade-policy).
 
 ## Configuration
 
@@ -367,6 +367,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `serviceMonitor.annotations`                              | Additional annotations of ServiceMonitor                        | `{}`                                                  |
 | `serviceMonitor.interval`                                 | ServiceMonitor scrape metrics interval                          | `10s`                                                 |
 | `serviceMonitor.scrapeTimeout`                            | ServiceMonitor scrape timeout                                   | `nil`                                                 |
+| `serviceMonitor.tlsConfig`                                | Additional TLS configuration of ServiceMonitor                  | `{}`                                                  |
 | `serviceMonitor.namespaced`                               | Limit ServiceMonitor to current namespace                       | `false`                                               |
 | `storage.hostPath`                                        | Absolute path on host to store data                             | `""`                                                  |
 | `storage.persistentVolume.enabled`                        | Whether to use PersistentVolume to store data                   | `yes`                                                 |
@@ -380,11 +381,12 @@ For details see the [`values.yaml`](values.yaml) file.
 | `init.affinity`                                           | [Affinity rules][2] of init Job Pod                             | `{}`                                                  |
 | `init.nodeSelector`                                       | Node labels for init Job Pod assignment                         | `{}`                                                  |
 | `init.tolerations`                                        | Node taints to tolerate by init Job Pod                         | `[]`                                                  |
-| `init.resources`                                          | Resource requests and limits for the Pod of init Job            | `{}`                                                  |
+| `init.resources`                                          | Resource requests and limits for the `cluster-init` container   | `{}`                                                  |
 | `tls.enabled`                                             | Whether to run securely using TLS certificates                  | `no`                                                  |
 | `tls.serviceAccount.create`                               | Whether to create a new RBAC service account                    | `yes`                                                 |
 | `tls.serviceAccount.name`                                 | Name of RBAC service account to use                             | `""`                                                  |
 | `tls.copyCerts.image`                                     | Image used in copy certs init container                         | `busybox`                                             |
+| `tls.copyCerts.resources`                                 | Resource requests and limits for the `copy-certs` container     | `{}`                                                 |
 | `tls.certs.provided`                                      | Bring your own certs scenario, i.e certificates are provided    | `no`                                                  |
 | `tls.certs.clientRootSecret`                              | If certs are provided, secret name for client root cert         | `cockroachdb-root`                                    |
 | `tls.certs.nodeSecret`                                    | If certs are provided, secret name for node cert                | `cockroachdb-node`                                    |

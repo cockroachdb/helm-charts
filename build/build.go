@@ -19,7 +19,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"strings"
 	"text/template"
@@ -36,6 +35,11 @@ const (
 	valuesFileTemplate = "build/templates/values.yaml"
 	readmeFileTemplate = "build/templates/README.md"
 )
+
+const usage = `Usage:
+- go run build/build.go bump <crdbversion>
+- go run build/build.go generate
+`
 
 type parsedVersion struct {
 	*semver.Version
@@ -61,18 +65,49 @@ func (v *parsedVersion) UnmarshalYAML(value *yaml.Node) error {
 }
 
 func main() {
-	if len(os.Args) != 2 {
-		fmt.Println("Usage: go run build/bump.go crdbversion")
-		os.Exit(1)
-	}
-	if err := run(os.Args[1]); err != nil {
-		fmt.Fprintf(os.Stderr, "cannot run: %s", err)
+	if len(os.Args) < 2 {
+		fmt.Print(usage)
 		os.Exit(1)
 	}
 
+	switch os.Args[1] {
+	case "bump":
+		if len(os.Args) < 3 {
+			fmt.Print(usage)
+			os.Exit(1)
+		}
+		if err := bump(os.Args[2]); err != nil {
+			fmt.Fprintf(os.Stderr, "cannot run: %s", err)
+			os.Exit(1)
+		}
+		return
+	case "generate":
+		if len(os.Args) < 2 {
+			fmt.Print(usage)
+			os.Exit(1)
+		}
+		if err := generate(); err != nil {
+			fmt.Fprintf(os.Stderr, "cannot run: %s", err)
+			os.Exit(1)
+		}
+		return
+	}
+
+	fmt.Print(usage)
+	os.Exit(1)
 }
 
-func run(version string) error {
+// regenerate destination files based on templates, which should
+// result in a zero diff, if template is up-to-date with destination files.
+func generate() error {
+	chart, err := getVersions(chartsFile)
+	if err != nil {
+		return fmt.Errorf("cannot get chart versions: %w", err)
+	}
+	return processTemplates(chart.Version.String(), chart.AppVersion.String())
+}
+
+func bump(version string) error {
 	// Trim the "v" prefix if exists. It will be added explicitly in the templates when needed.
 	crdbVersion, err := semver.NewVersion(strings.TrimPrefix(version, "v"))
 	if err != nil {
@@ -87,9 +122,13 @@ func run(version string) error {
 	if err != nil {
 		return fmt.Errorf("cannot bump chart version: %w", err)
 	}
+	return processTemplates(newChartVersion, crdbVersion.Original())
+}
+
+func processTemplates(version string, appVersion string) error {
 	args := templateArgs{
-		Version:    newChartVersion,
-		AppVersion: crdbVersion.Original(),
+		Version:    version,
+		AppVersion: appVersion,
 	}
 	if err := processTemplate(
 		chartsFileTemplate,
@@ -160,7 +199,7 @@ func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error)
 
 // getVersions reads chart and app versions from Chart.yaml file
 func getVersions(chartPath string) (versions, error) {
-	chartContents, err := ioutil.ReadFile(chartPath)
+	chartContents, err := os.ReadFile(chartPath)
 	if err != nil {
 		return versions{}, fmt.Errorf("cannot open chart file %s: %w", chartPath, err)
 	}

@@ -46,7 +46,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 
 	cmd := shell.Command{
 		Command:    "yq",
-		Args:       []string{"r", path.Join(helmChartPath, "values.yaml"), "tls.selfSigner.image.tag"},
+		Args:       []string{".tls.selfSigner.image.tag", path.Join(helmChartPath, "values.yaml")},
 		WorkingDir: ".",
 	}
 

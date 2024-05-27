@@ -15,7 +15,7 @@ jobs:
       certUtility: ${{ steps.filter.outputs.certUtility }}
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 2
           ref: ${{github.event.pull_request.head.ref}}
@@ -37,18 +37,26 @@ jobs:
     needs: detect-self-signer-change
     if: (needs.detect-self-signer-change.outputs.certUtility == 'true')
     steps:
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.18
+
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v2
+        uses: golangci/golangci-lint-action@v3
         with:
-          version: v1.30
+          version: v1.50.1
           working-directory: .
           args: --timeout=5m
+          skip-build-cache: true
+          skip-pkg-cache: true
+          skip-go-installation: true
 
   # pre job to run helm lint
   helm:
@@ -56,7 +64,7 @@ jobs:
     runs-on: ubuntu-20.04
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
@@ -71,15 +79,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
 
       - name: Setup Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
-          go-version: 1.15
+          go-version: 1.18
 
       - name: HelmTemplate
         run: make test/template
@@ -94,7 +102,7 @@ jobs:
     if: (needs.detect-self-signer-change.outputs.certUtility == 'true')
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           fetch-depth: 2
           ref: ${{github.event.pull_request.head.ref}}
@@ -116,15 +124,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
 
       - name: Setup Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
-          go-version: 1.15
+          go-version: 1.18
 
       - name: Run E2E Test
         run: make test/e2e/install
@@ -134,15 +142,36 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
         with:
           ref: ${{github.event.pull_request.head.ref}}
           repository: ${{github.event.pull_request.head.repo.full_name}}
 
       - name: Setup Go
-        uses: actions/setup-go@v2
+        uses: actions/setup-go@v3
         with:
-          go-version: 1.15
+          go-version: 1.18
 
       - name: Run E2E Test
         run: make test/e2e/rotate
+
+  lint-templates:
+    name: Lint release templates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.18
+
+      - name: generate configs
+        run: go run build/build.go generate
+
+      - name: check diff
+        run: git diff --no-ext-diff --exit-code
