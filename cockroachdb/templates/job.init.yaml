@@ -1,4 +1,4 @@
-{{ $isClusterInitEnabled := and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`)) }}
+{{ $isClusterInitEnabled := and (and (eq (len .Values.conf.join) 0) (not (index .Values.conf `single-node`))) .Values.init.enabled }}
 {{ $isDatabaseProvisioningEnabled := .Values.init.provisioning.enabled }}
 {{ $isIstioEnabled := .Values.init.istio.enabled }}
 {{- if or $isClusterInitEnabled $isDatabaseProvisioningEnabled }}

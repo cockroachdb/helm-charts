@@ -392,6 +392,7 @@ storage:
 # Kubernetes Job which initializes multi-node CockroachDB cluster.
 # It's not created if `statefulset.replicas` is `1`.
 init:
+  enabled: true
   # Additional labels to apply to this Job and its Pod.
   labels:
     app.kubernetes.io/component: init
