@@ -37,6 +37,9 @@ spec:
     - {{ printf "*.%s.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
     - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
     {{- if .Values.multiCluster.enabled }}
+    {{- $name := (include "cockroachdb.fullname" .) }}
+    {{- $namespace := .Release.Namespace }}
+    {{- $clusterDomain := .Values.clusterDomain }}
     {{- range $i := untilStep (.Values.statefulset.ordinals.start | int ) ( (add .Values.statefulset.ordinals.start .Values.statefulset.replicas)| int) 1}}
     - {{ printf "%s-%d" $name $i | quote }}
     - {{ printf "%s-%d.%s" $name $i $namespace | quote }}
