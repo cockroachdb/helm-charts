@@ -597,3 +597,4 @@ iap:
 
 multiCluster:
   enabled: false
+  updateNodeCertificate: false

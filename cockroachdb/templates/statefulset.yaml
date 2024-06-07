@@ -50,7 +50,7 @@ spec:
         {{- end }}
     {{- else }}
     {{- with .Values.statefulset.annotations }}
-      {{- toYaml . | nindent 8 }}
+      annotations: {{- toYaml . | nindent 8 }}
     {{- end }}
     {{- end }}
     spec:
@@ -246,7 +246,11 @@ spec:
             - name: STATEFULSET_NAME
               value: {{ template "cockroachdb.fullname" . }}
             - name: STATEFULSET_FQDN
+              {{- if .Values.multiCluster.enabled }}
+              value: {{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
+              {{- else }}
               value: {{ template "cockroachdb.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
+              {{- end }}
             - name: COCKROACH_CHANNEL
               value: kubernetes-helm
           {{- with .Values.statefulset.env }}

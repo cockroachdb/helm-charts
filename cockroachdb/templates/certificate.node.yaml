@@ -36,7 +36,7 @@ spec:
     - {{ printf "*.%s" (include "cockroachdb.fullname" .) | quote }}
     - {{ printf "*.%s.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
     - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
-    {{- if .Values.multiCluster.enabled }}
+    {{- if or .Values.multiCluster.enabled .Values.multiCluster.updateNodeCertificate  }}
     {{- $name := (include "cockroachdb.fullname" .) }}
     {{- $namespace := .Release.Namespace }}
     {{- $clusterDomain := .Values.clusterDomain }}
