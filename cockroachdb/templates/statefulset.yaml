@@ -16,6 +16,8 @@ metadata:
   {{- end }}
 spec:
   serviceName: {{ template "cockroachdb.fullname" . }}
+  ordinals:
+    start: {{ .Values.statefulset.ordinals.start | int64 }}
   replicas: {{ .Values.statefulset.replicas | int64 }}
   updateStrategy: {{- toYaml .Values.statefulset.updateStrategy | nindent 4 }}
   podManagementPolicy: {{ .Values.statefulset.podManagementPolicy | quote }}

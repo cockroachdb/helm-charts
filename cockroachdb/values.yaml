@@ -169,6 +169,8 @@ conf:
     attrs:
 
 statefulset:
+  ordinals:
+    start: 0
   replicas: 3
   updateStrategy:
     type: RollingUpdate
@@ -591,3 +593,6 @@ iap:
   # Create Google Cloud OAuth credentials and set client id and secret
   # clientId:
   # clientSecret:
+
+multiCluster:
+  enabled: false

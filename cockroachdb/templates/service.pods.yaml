@@ -1,0 +1,38 @@
+{{- if .Values.multiCluster.enabled }}
+{{- $root := . -}}
+{{range $i := untilStep (.Values.statefulset.ordinals.start | int ) ( (add .Values.statefulset.ordinals.start .Values.statefulset.replicas)| int) 1}}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  namespace: {{ $root.Release.Namespace | quote }}
+  name: {{ template "cockroachdb.fullname" $root }}-{{ $i }}
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" $root }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" $root }}
+    app.kubernetes.io/instance: {{ $root.Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ $root.Release.Service | quote }}
+spec:
+  publishNotReadyAddresses: true
+  ports:
+  {{- $ports := $root.Values.service.ports }}
+    # The main port, served by gRPC, serves Postgres-flavor SQL, inter-node
+    # traffic and the CLI.
+    - name: {{ $ports.grpc.external.name | quote }}
+      port: {{ $ports.grpc.external.port | int64 }}
+      targetPort: grpc
+  {{- if ne ($ports.grpc.internal.port | int64) ($ports.grpc.external.port | int64) }}
+    - name: {{ $ports.grpc.internal.name | quote }}
+      port: {{ $ports.grpc.internal.port | int64 }}
+      targetPort: grpc
+  {{- end }}
+    # The secondary port serves the UI as well as health and debug endpoints.
+    - name: {{ $ports.http.name | quote }}
+      port: {{ $ports.http.port | int64 }}
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: {{ template "cockroachdb.name" $root }}
+    app.kubernetes.io/instance: {{ $root.Release.Name | quote }}
+    statefulset.kubernetes.io/pod-name: {{ template "cockroachdb.fullname" $root }}-{{ $i }}
+{{end}}
+{{- end }}
