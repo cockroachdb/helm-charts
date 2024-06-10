@@ -464,7 +464,6 @@ init:
   istio:
     enabled: false
 
-
 # Whether to run securely using TLS certificates.
 tls:
   enabled: true
