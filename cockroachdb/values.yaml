@@ -592,6 +592,9 @@ iap:
   # clientId:
   # clientSecret:
 
+# Multi k8s cluster deployment using istio multi-cluster service mesh
 multiCluster:
+  # Enable multi-cluster deployment, it will create k8s service for each pod and adjust the advertised address to point to the service.
   enabled: false
+  # This option to migrate an existing single cluster to multi-cluster. Before enabling multi-cluster, this option allow to provision in advance the node certificates for the new FQDN's.
   updateNodeCertificate: false
