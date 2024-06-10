@@ -434,6 +434,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `multiCluster.enabled`                                    | Enable multi-cluster deployment                                 | `false`                                               |
 | `multiCluster.updateNodeCertificate`                      | Update node certificate to include the multi-cliuster FQDN's    | `false`                                               |
 
+
 Override the default parameters using the `--set key=value[,key=value]` argument to `helm install`.
 
 Alternatively, a YAML file that specifies custom values for the parameters can be provided while installing the chart. For example:
