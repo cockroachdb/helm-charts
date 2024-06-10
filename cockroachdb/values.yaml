@@ -351,9 +351,6 @@ serviceMonitor:
   # scrapeTimeout: 10s
   # Limits the ServiceMonitor to the current namespace if set to `true`.
   namespaced: false
-  tlsConfig: {}
-  # Set a different scheme than http
-  # scheme: https
 
   # tlsConfig: TLS configuration to use when scraping the endpoint.
   # Of type: https://github.com/coreos/prometheus-operator/blob/main/Documentation/api.md#tlsconfig
