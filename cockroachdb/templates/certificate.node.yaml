@@ -36,6 +36,16 @@ spec:
     - {{ printf "*.%s" (include "cockroachdb.fullname" .) | quote }}
     - {{ printf "*.%s.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
     - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
+    {{- if or .Values.multiCluster.enabled .Values.multiCluster.updateNodeCertificate  }}
+    {{- $name := (include "cockroachdb.fullname" .) }}
+    {{- $namespace := .Release.Namespace }}
+    {{- $clusterDomain := .Values.clusterDomain }}
+    {{- range $i := untilStep (.Values.statefulset.ordinals.start | int ) ( (add .Values.statefulset.ordinals.start .Values.statefulset.replicas)| int) 1}}
+    - {{ printf "%s-%d" $name $i | quote }}
+    - {{ printf "%s-%d.%s" $name $i $namespace | quote }}
+    - {{ printf "%s-%d.%s.svc.%s" $name $i $namespace $clusterDomain | quote }}
+    {{- end }}
+    {{- end }}
   secretName: {{ .Values.tls.certs.nodeSecret }}
   issuerRef:
   {{- if .Values.tls.certs.certManagerIssuer.isSelfSignedIssuer }}

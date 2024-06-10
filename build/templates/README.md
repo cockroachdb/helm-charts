@@ -81,6 +81,18 @@ pvc-64945b4f-f3f0-11e8-ab5b-42010a8e0035   100Gi      RWO            Delete     
 pvc-649d920d-f3f0-11e8-ab5b-42010a8e0035   100Gi      RWO            Delete           Bound     default/datadir-my-release-cockroachdb-2   standard                 51s
 ```
 
+### Multi K8S Cluster deployment
+CockroachDB cluster can be deployed across multiple K8S cluster. This is achieved by setting `multiCluster.enabled` to `true`. Pre-requisites for this deployment is Istio multi-cluster setup. For more information on Istio multi-cluster setup, please refer to [Istio documentation](https://istio.io/latest/docs/setup/install/multicluster/gateways/).
+
+Install CockroachDB in the first K8S cluster:
+```shell
+helm install my-release cockroachdb/cockroachdb --set multiCluster.enabled=true --set cockroachdb.conf.locality="zone=cluster1"
+```
+For each subsequent K8S cluster, use a different locality value and specify a starting index for the StatefulSet::
+```shell
+helm install my-release cockroachdb/cockroachdb --set multiCluster.enabled=true --set cockroachdb.conf.locality="zone=cluster2" --set cockroachdb.statefulset.ordinals.start=10 --set cockroachdb.init.enabled=false 
+```
+
 ### Running in secure mode
 
 In order to set up a secure cockroachdb cluster set `tls.enabled` to `yes`/`true`
@@ -419,6 +431,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `networkPolicy.enabled`                                   | Enable NetworkPolicy for CockroachDB's Pods                     | `no`                                                  |
 | `networkPolicy.ingress.grpc`                              | Whitelist resources to access gRPC port of CockroachDB's Pods   | `[]`                                                  |
 | `networkPolicy.ingress.http`                              | Whitelist resources to access gRPC port of CockroachDB's Pods   | `[]`                                                  |
+| `multiCluster.enabled`                                    | Enable multi-cluster deployment                                 | `false`                                               |
+| `multiCluster.updateNodeCertificate`                      | Update node certificate to include the multi-cliuster FQDN's    | `false`                                               |
 
 
 Override the default parameters using the `--set key=value[,key=value]` argument to `helm install`.

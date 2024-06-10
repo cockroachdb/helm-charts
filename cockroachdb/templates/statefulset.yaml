@@ -16,6 +16,8 @@ metadata:
   {{- end }}
 spec:
   serviceName: {{ template "cockroachdb.fullname" . }}
+  ordinals:
+    start: {{ .Values.statefulset.ordinals.start | int64 }}
   replicas: {{ .Values.statefulset.replicas | int64 }}
   updateStrategy: {{- toYaml .Values.statefulset.updateStrategy | nindent 4 }}
   podManagementPolicy: {{ .Values.statefulset.podManagementPolicy | quote }}
@@ -37,8 +39,19 @@ spec:
       {{- with .Values.labels }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
+    {{- if .Values.multiCluster.enabled }}
+      annotations:
+        proxy.istio.io/config: |
+          proxyMetadata:
+            ISTIO_META_DNS_CAPTURE: "true"
+            ISTIO_META_DNS_AUTO_ALLOCATE: "true"
+        {{- with .Values.statefulset.annotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    {{- else }}
     {{- with .Values.statefulset.annotations }}
       annotations: {{- toYaml . | nindent 8 }}
+    {{- end }}
     {{- end }}
     spec:
     {{- if or .Values.image.credentials (and .Values.tls.enabled .Values.tls.selfSigner.image.credentials (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager)) }}
@@ -233,7 +246,11 @@ spec:
             - name: STATEFULSET_NAME
               value: {{ template "cockroachdb.fullname" . }}
             - name: STATEFULSET_FQDN
+              {{- if .Values.multiCluster.enabled }}
+              value: {{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
+              {{- else }}
               value: {{ template "cockroachdb.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
+              {{- end }}
             - name: COCKROACH_CHANNEL
               value: kubernetes-helm
           {{- with .Values.statefulset.env }}
