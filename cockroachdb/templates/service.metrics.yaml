@@ -1,0 +1,37 @@
+# This Service is only to scrape metrics from the CockroachDB cluster.
+{{- if .Values.serviceMonitor.enabled }}
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ template "cockroachdb.fullname" . }}-metrics
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+  {{- with .Values.serviceMonitor.service.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  annotations:
+  {{- with .Values.serviceMonitor.service.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  type: ClusterIP
+  ports:
+  {{- $ports := .Values.service.ports }}
+    # Only http port should be exposed
+    - name: {{ $ports.http.name | quote }}
+      port: {{ $ports.http.port | int64 }}
+      targetPort: http
+  selector:
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  {{- with .Values.statefulset.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
