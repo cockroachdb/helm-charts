@@ -7,7 +7,7 @@ fullnameOverride: ""
 
 image:
   repository: cockroachdb/cockroach
-  tag: v23.2.5
+  tag: v24.1.3
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
@@ -526,6 +526,10 @@ tls:
       name: cockroachdb
       # Make it false when you are providing your own CA issuer
       isSelfSignedIssuer: true
+      # Duration of CA certificates in hour
+      caCertDuration: 43800h
+      # Expiry window of CA certificates means a window before actual expiry in which CA certs should be rotated.
+      caCertExpiryWindow: 648h
       # Duration of Client certificates in hours
       clientCertDuration: 672h
       # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.

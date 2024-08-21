@@ -420,6 +420,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.certManagerIssuer.group`                       | IssuerRef group to use when generating certificates             | `cert-manager.io`                                     |
 | `tls.certs.certManagerIssuer.kind`                        | IssuerRef kind to use when generating certificates              | `Issuer`                                              |
 | `tls.certs.certManagerIssuer.name`                        | IssuerRef name to use when generating certificates              | `cockroachdb`                                         |
+| `tls.certs.certManagerIssuer.caCertDuration`              | Duration of CA cert in hour                                     | `43824h`                                         |
+| `tls.certs.certManagerIssuer.caCertExpiryWindow`          | Expiry window of CA cert means a window before actual expiry in which CA cert should be rotated                    | `648h`                                               |
 | `tls.certs.certManagerIssuer.clientCertDuration`          | Duration of client cert in hours                                | `672h`                                                |
 | `tls.certs.certManagerIssuer.clientCertExpiryWindow`      | Expiry window of client cert means a window before actual expiry in which client cert should be rotated                   | `48h`                                       |
 | `tls.certs.certManagerIssuer.nodeCertDuration`            | Duration of node cert in hours                                  | `8760h`                                               |
