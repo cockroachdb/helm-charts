@@ -229,10 +229,10 @@ kubectl get pods \
 ```
 
 ```
-my-release-cockroachdb-0    cockroachdb/cockroach:v23.2.0
-my-release-cockroachdb-1    cockroachdb/cockroach:v23.2.0
-my-release-cockroachdb-2    cockroachdb/cockroach:v23.2.0
-my-release-cockroachdb-3    cockroachdb/cockroach:v23.2.0
+my-release-cockroachdb-0    cockroachdb/cockroach:v24.2.1
+my-release-cockroachdb-1    cockroachdb/cockroach:v24.2.1
+my-release-cockroachdb-2    cockroachdb/cockroach:v24.2.1
+my-release-cockroachdb-3    cockroachdb/cockroach:v24.2.1
 ```
 
 Resume normal operations. Once you are comfortable that the stability and performance of the cluster is what you'd expect post-upgrade, finalize the upgrade:
@@ -316,7 +316,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.store.size`                                         | CockroachDB storage size                                        | `""`                                                  |
 | `conf.store.attrs`                                        | CockroachDB storage attributes                                  | `""`                                                  |
 | `image.repository`                                        | Container image name                                            | `cockroachdb/cockroach`                               |
-| `image.tag`                                               | Container image tag                                             | `v23.2.0`                                             |
+| `image.tag`                                               | Container image tag                                             | `v24.2.1`                                             |
 | `image.pullPolicy`                                        | Container pull policy                                           | `IfNotPresent`                                        |
 | `image.credentials`                                       | `registry`, `user` and `pass` credentials to pull private image | `{}`                                                  |
 | `statefulset.replicas`                                    | StatefulSet replicas number                                     | `3`                                                   |
@@ -409,6 +409,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.certManagerIssuer.group`                       | IssuerRef group to use when generating certificates             | `cert-manager.io`                                     |
 | `tls.certs.certManagerIssuer.kind`                        | IssuerRef kind to use when generating certificates              | `Issuer`                                              |
 | `tls.certs.certManagerIssuer.name`                        | IssuerRef name to use when generating certificates              | `cockroachdb`                                         |
+| `tls.certs.certManagerIssuer.caCertDuration`              | Duration of CA cert in hour                                     | `43824h`                                         |
+| `tls.certs.certManagerIssuer.caCertExpiryWindow`          | Expiry window of CA cert means a window before actual expiry in which CA cert should be rotated                    | `648h`                                               |
 | `tls.certs.certManagerIssuer.clientCertDuration`          | Duration of client cert in hours                                | `672h`                                                |
 | `tls.certs.certManagerIssuer.clientCertExpiryWindow`      | Expiry window of client cert means a window before actual expiry in which client cert should be rotated                   | `48h`                                       |
 | `tls.certs.certManagerIssuer.nodeCertDuration`            | Duration of node cert in hours                                  | `8760h`                                               |

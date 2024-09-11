@@ -315,6 +315,11 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 			"storage.persistentVolume.size":   "1Gi",
 			"statefulset.updateStrategy.type": "OnDelete",
 		},
+		ExtraArgs: map[string][]string{
+			"upgrade": []string{
+				"--timeout=20m",
+			},
+		},
 	}
 
 	// Upgrade the cockroachdb helm chart and checks installation should succeed.

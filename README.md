@@ -159,7 +159,7 @@ Kick off the upgrade process by changing the new Docker image, where `$new_versi
 ```shell
 helm upgrade my-release cockroachdb/cockroachdb \
 --set image.tag=$new_version \
---reuse-values
+--reuse-values --timeout=20m
 ```
 
 Kubernetes will carry out a safe [rolling upgrade](https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#updating-statefulsets) of your CockroachDB nodes one-by-one. Monitor the cluster's pods until all have been successfully restarted:
@@ -174,7 +174,7 @@ User can move from old kubernetes signing certificates by performing following s
 Run the upgrade command with upgrade strategy set as "onDelete" which only upgrades the pods when deleted by the user.
 
 ```shell
-helm upgrade crdb-test cockroachdb --set statefulset.updateStrategy.type="OnDelete"
+helm upgrade crdb-test cockroachdb --set statefulset.updateStrategy.type="OnDelete" --timeout=20m
 ```
 
 While monitor all the pods, once the init-job is created, you can delete all the cockroachdb pods with following command:
