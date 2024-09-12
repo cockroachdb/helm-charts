@@ -26,7 +26,7 @@ spec:
     matchLabels:
       app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
       app.kubernetes.io/instance: {{ .Release.Name | quote }}
-    {{- with .Values.service.discovery.labels }}
+    {{- with .Values.serviceMonitor.service.labels }}
       {{- toYaml . | nindent 6 }}
     {{- end }}
     {{- with .Values.labels }}
@@ -42,6 +42,9 @@ spec:
   endpoints:
   - port: {{ $ports.http.name | quote }}
     path: /_status/vars
+    {{- if .Values.tls.enabled }}
+    scheme: https
+    {{- end }}
     {{- if $serviceMonitor.interval }}
     interval: {{ $serviceMonitor.interval }}
     {{- end }}
@@ -51,4 +54,5 @@ spec:
     {{- if .Values.serviceMonitor.tlsConfig }}
     tlsConfig: {{ toYaml .Values.serviceMonitor.tlsConfig | nindent 6 }}
     {{- end }}
+    relabelings: {{ tpl (toYaml .Values.serviceMonitor.relabelingConfig) . | nindent 6 }}
 {{- end }}
