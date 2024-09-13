@@ -131,6 +131,13 @@ spec:
                       {{- end }}
                       --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
                               :{{ .Values.service.ports.grpc.internal.port | int64 }} \
+                      {{- if .Values.init.pcr.enabled -}}
+                      {{- if .Values.init.pcr.isPrimary }}
+                      --virtualized \
+                      {{- else }}
+                      --virtualized-empty \
+                      {{- end }}
+                      {{- end }}
                   2>&1);
 
                   local exitCode="$?";
