@@ -169,6 +169,8 @@ conf:
     attrs:
 
 statefulset:
+  # Change the statefulset terminationGracePeriodSeconds (default is 5min)
+  terminationGracePeriodSeconds: 300
   replicas: 3
   updateStrategy:
     type: RollingUpdate

@@ -370,6 +370,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `serviceMonitor.scrapeTimeout`                            | ServiceMonitor scrape timeout                                   | `nil`                                                 |
 | `serviceMonitor.tlsConfig`                                | Additional TLS configuration of ServiceMonitor                  | `{}`                                                  |
 | `serviceMonitor.namespaced`                               | Limit ServiceMonitor to current namespace                       | `false`                                               |
+| `statefulSets.terminationGracePeriodSeconds`              | Sets the termination grace period for the CRDB container        | `300`                                                 |
 | `storage.hostPath`                                        | Absolute path on host to store data                             | `""`                                                  |
 | `storage.persistentVolume.enabled`                        | Whether to use PersistentVolume to store data                   | `yes`                                                 |
 | `storage.persistentVolume.size`                           | PersistentVolume size                                           | `100Gi`                                               |
