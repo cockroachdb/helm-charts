@@ -424,6 +424,13 @@ init:
   securityContext:
     enabled: true
 
+  # Setup Physical Cluster Replication (PCR) between primary and standby cluster.
+  # If isPrimary is set to true, the CockroachDB cluster created is the primary cluster.
+  # If isPrimary is set to false, the CockroachDB cluster created is the standby cluster.
+  pcr:
+    enabled: false
+  # isPrimary: true
+
   provisioning:
     enabled: false
     # https://www.cockroachlabs.com/docs/stable/cluster-settings.html

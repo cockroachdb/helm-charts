@@ -7,7 +7,7 @@ fullnameOverride: ""
 
 image:
   repository: cockroachdb/cockroach
-  tag: v24.2.1
+  tag: v24.2.0
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
@@ -424,6 +424,13 @@ init:
 
   securityContext:
     enabled: true
+
+  # Setup Physical Cluster Replication (PCR) between primary and standby cluster.
+  # If isPrimary is set to true, the CockroachDB cluster created is the primary cluster.
+  # If isPrimary is set to false, the CockroachDB cluster created is the standby cluster.
+  pcr:
+    enabled: false
+  # isPrimary: true
 
   provisioning:
     enabled: false
