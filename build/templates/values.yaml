@@ -247,6 +247,9 @@ statefulset:
     #   cpu: 100m
     #   memory: 512Mi
 
+  # terminationGracePeriodSeconds is the duration in seconds the Pod needs to terminate gracefully.
+  terminationGracePeriodSeconds: 300
+
   # Custom Liveness probe
   # https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#define-a-liveness-http-request
   customLivenessProbe: {}
@@ -420,6 +423,9 @@ init:
     # limits:
     #   cpu: "10m"
     #   memory: "128Mi"
+
+  # terminationGracePeriodSeconds is the duration in seconds the Pod needs to terminate gracefully.
+  terminationGracePeriodSeconds: 300
 
   securityContext:
     enabled: true
