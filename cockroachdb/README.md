@@ -344,6 +344,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `statefulset.resources`                                   | Resource requests and limits for StatefulSet Pods               | `{}`                                                  |
 | `statefulset.customLivenessProbe`                         | Custom Liveness probe                                           | `{}`                                             |
 | `statefulset.customReadinessProbe`                        | Custom Rediness probe                                           | `{}`                                             |
+| `statefulset.terminationGracePeriodSeconds`               | Termination grace period for CRDB statefulset pods              | `300`                                                 |
 | `service.ports.grpc.external.port`                        | CockroachDB primary serving port in Services                    | `26257`                                               |
 | `service.ports.grpc.external.name`                        | CockroachDB primary serving port name in Services               | `grpc`                                                |
 | `service.ports.grpc.internal.port`                        | CockroachDB inter-communication port in Services                | `26257`                                               |
@@ -383,6 +384,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `init.nodeSelector`                                       | Node labels for init Job Pod assignment                         | `{}`                                                  |
 | `init.tolerations`                                        | Node taints to tolerate by init Job Pod                         | `[]`                                                  |
 | `init.resources`                                          | Resource requests and limits for the `cluster-init` container   | `{}`                                                  |
+| `init.terminationGracePeriodSeconds`                      | Termination grace period for CRDB init job                      | `300`                                                 |
 | `tls.enabled`                                             | Whether to run securely using TLS certificates                  | `no`                                                  |
 | `tls.serviceAccount.create`                               | Whether to create a new RBAC service account                    | `yes`                                                 |
 | `tls.serviceAccount.name`                                 | Name of RBAC service account to use                             | `""`                                                  |

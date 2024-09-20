@@ -49,7 +49,7 @@ spec:
     {{- end }}
     {{- end }}
       restartPolicy: OnFailure
-      terminationGracePeriodSeconds: 300
+      terminationGracePeriodSeconds: {{ .Values.init.terminationGracePeriodSeconds }}
     {{- if or .Values.image.credentials (and .Values.tls.enabled .Values.tls.selfSigner.image.credentials (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager)) }}
       imagePullSecrets:
       {{- if .Values.image.credentials }}
