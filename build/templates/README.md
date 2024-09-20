@@ -343,6 +343,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `statefulset.resources`                                   | Resource requests and limits for StatefulSet Pods               | `{}`                                                  |
 | `statefulset.customLivenessProbe`                         | Custom Liveness probe                                           | `{}`                                             |
 | `statefulset.customReadinessProbe`                        | Custom Rediness probe                                           | `{}`                                             |
+| `statefulset.customStartupProbe`                          | Custom Startup probe                                            | `{}`                                             |
 | `statefulset.terminationGracePeriodSeconds`               | Termination grace period for CRDB statefulset pods              | `300`                                                 |
 | `service.ports.grpc.external.port`                        | CockroachDB primary serving port in Services                    | `26257`                                               |
 | `service.ports.grpc.external.name`                        | CockroachDB primary serving port name in Services               | `grpc`                                                |
