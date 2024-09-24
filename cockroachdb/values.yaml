@@ -148,11 +148,11 @@ conf:
   # If non-empty, create a SQL audit log in the specified directory.
   sql-audit-dir: ""
 
-  # CockroachDB's port to listen to inter-communications and client connections.
-  port: 26257
+  # WARNING this parameter is deprecated and will be removed in a future version. Use `.service.ports.grpc.internal.port` instead
+  port: ""
 
-  # CockroachDB's port to listen to HTTP requests.
-  http-port: 8080
+  # WARNING this parameter is deprecated and will be removed in a future version. Use `.service.ports.http.port` instead
+  http-port: ""
 
   # CockroachDB's data mount path.
   path: cockroach-data
@@ -304,10 +304,12 @@ service:
       # If the port number is different than `external.port`, then it will be
       # named as `internal.name` in Service.
       internal:
+        # CockroachDB's port to listen to inter-communications and client connections.
         port: 26257
         # If using Istio set it to `cockroach`.
         name: grpc-internal
     http:
+      # CockroachDB's port to listen to HTTP requests.
       port: 8080
       name: http
 
