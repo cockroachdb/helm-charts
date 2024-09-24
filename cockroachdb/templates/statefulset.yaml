@@ -267,6 +267,10 @@ spec:
               mountPath: /cockroach/log-config
               readOnly: true
           {{- end }}
+          {{- if .Values.statefulset.customStartupProbe }}
+          startupProbe:
+            {{ toYaml .Values.statefulset.customStartupProbe | nindent 12 }}
+          {{- end }}
           livenessProbe:
           {{- if .Values.statefulset.customLivenessProbe }}
             {{ toYaml .Values.statefulset.customLivenessProbe | nindent 12 }}

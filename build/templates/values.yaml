@@ -270,6 +270,16 @@ statefulset:
     # initialDelaySeconds: 30
     # periodSeconds: 5
 
+  # Custom Startup Probe
+  # https://kubernetes.io/docs/tasks/configure-pod-container/configure-liveness-readiness-startup-probes/#define-startup-probes
+  customStartupProbe: {}
+    # httpGet:
+    #   path: /health
+    #   port: http
+    #   scheme: HTTPS
+    # initialDelaySeconds: 30
+    # periodSeconds: 5
+
   securityContext:
     enabled: true
 
