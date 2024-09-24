@@ -308,8 +308,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.locality`                                           | Locality attribute for this deployment                          | `""`                                                  |
 | `conf.single-node`                                        | Disable CockroachDB clustering (standalone mode)                | `no`                                                  |
 | `conf.sql-audit-dir`                                      | Directory for SQL audit log                                     | `""`                                                  |
-| `conf.port`                                               | CockroachDB primary serving port in Pods                        | `26257`                                               |
-| `conf.http-port`                                          | CockroachDB HTTP port in Pods                                   | `8080`                                                |
+| `conf.port`                                               | WARNING this parameter is deprecated and will be removed in future version. Use `service.ports.grpc.internal.port` instead | `""` |
+| `conf.http-port`                                          | WARNING this parameter is deprecated and will be removed in future version. Use `service.ports.http.port` instead | `""` |
 | `conf.path`                                               | CockroachDB data directory mount path                           | `cockroach-data`                                      |
 | `conf.store.enabled`                                      | Enable store configuration for CockroachDB                      | `false`                                               |
 | `conf.store.type`                                         | CockroachDB storage type                                        | `""`                                                  |
@@ -348,9 +348,9 @@ For details see the [`values.yaml`](values.yaml) file.
 | `statefulset.terminationGracePeriodSeconds`               | Termination grace period for CRDB statefulset pods              | `300`                                                 |
 | `service.ports.grpc.external.port`                        | CockroachDB primary serving port in Services                    | `26257`                                               |
 | `service.ports.grpc.external.name`                        | CockroachDB primary serving port name in Services               | `grpc`                                                |
-| `service.ports.grpc.internal.port`                        | CockroachDB inter-communication port in Services                | `26257`                                               |
+| `service.ports.grpc.internal.port`                        | CockroachDB inter-communication port in Pods and Services       | `26257`                                               |
 | `service.ports.grpc.internal.name`                        | CockroachDB inter-communication port name in Services           | `grpc-internal`                                       |
-| `service.ports.http.port`                                 | CockroachDB HTTP port in Services                               | `8080`                                                |
+| `service.ports.http.port`                                 | CockroachDB HTTP port in Pods and Services                      | `8080`                                                |
 | `service.ports.http.name`                                 | CockroachDB HTTP port name in Services                          | `http`                                                |
 | `service.public.type`                                     | Public Service type                                             | `ClusterIP`                                           |
 | `service.public.labels`                                   | Additional labels of public Service                             | `{"app.kubernetes.io/component": "cockroachdb"}`      |

@@ -202,8 +202,16 @@ spec:
             {{- with .Values.conf.attrs }}
               --attrs={{ join `:` . }}
             {{- end }}
+            {{- if index .Values.conf `http-port` }}
               --http-port={{ index .Values.conf `http-port` | int64 }}
+            {{- else }}
+              --http-port={{ index .Values.service.ports.http.port | int64 }}
+            {{- end }}
+            {{ if .Values.conf.port }}
               --port={{ .Values.conf.port | int64 }}
+            {{- else }}
+              --port={{ .Values.service.ports.grpc.internal.port | int64 }}
+            {{- end }}
               --cache={{ .Values.conf.cache }}
             {{- with index .Values.conf `max-disk-temp-storage` }}
               --max-disk-temp-storage={{ . }}
@@ -241,10 +249,18 @@ spec:
           {{- end }}
           ports:
             - name: grpc
+              {{ if .Values.conf.port }}
               containerPort: {{ .Values.conf.port | int64 }}
+              {{- else }}
+              containerPort: {{ .Values.service.ports.grpc.internal.port | int64 }}
+              {{- end }}
               protocol: TCP
             - name: http
+              {{- if index .Values.conf `http-port` }}
               containerPort: {{ index .Values.conf `http-port` | int64 }}
+              {{- else }}
+              containerPort: {{ index .Values.service.ports.http.port | int64 }}
+              {{- end }}
               protocol: TCP
           volumeMounts:
             - name: datadir
