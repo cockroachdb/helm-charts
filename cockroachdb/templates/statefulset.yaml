@@ -51,7 +51,7 @@ spec:
       {{- end }}
     {{- end }}
       serviceAccountName: {{ template "cockroachdb.serviceAccount.name" . }}
-      {{- if .Values.tls.enabled }}
+      {{- if and .Values.tls.enabled .Values.statefulset.securityContext.runAsNonRootUser.enabled }}
       initContainers:
         - name: copy-certs
           image: {{ .Values.tls.copyCerts.image | quote }}
@@ -266,11 +266,15 @@ spec:
             - name: datadir
               mountPath: /cockroach/{{ .Values.conf.path }}/
           {{- if .Values.tls.enabled }}
+            {{- if .Values.statefulset.securityContext.runAsNonRootUser.enabled }}
             - name: certs
               mountPath: /cockroach/cockroach-certs/
-              {{- if .Values.tls.certs.provided }}
+            {{- end }}
             - name: certs-secret
+              {{- if .Values.statefulset.securityContext.runAsNonRootUser.enabled }}
               mountPath: /cockroach/certs/
+              {{- else }}
+              mountPath: /cockroach/cockroach-certs/
               {{- end }}
           {{- end }}
           {{- range .Values.statefulset.secretMounts }}
@@ -340,34 +344,29 @@ spec:
           emptyDir: {}
         {{- end }}
       {{- if .Values.tls.enabled }}
+        {{- if .Values.statefulset.securityContext.runAsNonRootUser.enabled}}
         - name: certs
           emptyDir: {}
+        {{- end }}
           {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager  .Values.tls.certs.selfSigner.enabled }}
         - name: certs-secret
-          {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
-          projected:
-            sources:
-            - secret:
-                {{- if .Values.tls.certs.selfSigner.enabled }}
-                name: {{ template "cockroachdb.fullname" . }}-node-secret
-                {{ else }}
-                name: {{ .Values.tls.certs.nodeSecret }}
-                {{ end -}}
-                items:
-                - key: ca.crt
-                  path: ca.crt
-                  mode: 256
-                - key: tls.crt
-                  path: node.crt
-                  mode: 256
-                - key: tls.key
-                  path: node.key
-                  mode: 256
-          {{- else }}
           secret:
+            {{- if .Values.tls.certs.selfSigner.enabled }}
+            secretName: {{ template "cockroachdb.fullname" . }}-node-secret
+            {{ else }}
             secretName: {{ .Values.tls.certs.nodeSecret }}
+            {{- end }}
             defaultMode: 256
-          {{- end }}
+            items:
+              - key: ca.crt
+                path: ca.crt
+                mode: 256
+              - key: tls.crt
+                path: node.crt
+                mode: 256
+              - key: tls.key
+                path: node.key
+                mode: 256
           {{- end }}
       {{- end }}
       {{- range .Values.statefulset.secretMounts }}
@@ -385,10 +384,12 @@ spec:
       securityContext:
         seccompProfile:
           type: "RuntimeDefault"
+        {{- if .Values.statefulset.securityContext.runAsNonRootUser.enabled }}
         fsGroup: 1000
         runAsGroup: 1000
         runAsUser: 1000
         runAsNonRoot: true
+        {{- end }}
       {{- end }}
       {{- end }}
 {{- if .Values.storage.persistentVolume.enabled }}
