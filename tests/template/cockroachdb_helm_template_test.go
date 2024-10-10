@@ -1283,3 +1283,62 @@ func TestHelmInitJobAnnotations(t *testing.T) {
 		})
 	}
 }
+
+func TestStatefulSetInitContainers(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name   string
+		values map[string]string
+	}{
+		{
+			"Add extra init container",
+			map[string]string{
+				"statefulset.initContainers[0].name":                      "fetch-metadata",
+				"statefulset.initContainers[0].image":                     "busybox",
+				"statefulset.initContainers[0].command[0]":                "/bin/bash",
+				"statefulset.initContainers[0].command[1]":                "-c",
+				"statefulset.initContainers[0].command[2]":                "echo 'Fetching metadata'",
+				"statefulset.initContainers[0].volumeMounts[0].name":      "metadata",
+				"statefulset.initContainers[0].volumeMounts[0].mountPath": "/metadata",
+				"statefulset.volumes[0].name":                             "metadata",
+				"statefulset.volumes[0].emptyDir":                         "",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
+
+			require.Equal(subT, err, nil)
+
+			var sts appsv1.StatefulSet
+			helm.UnmarshalK8SYaml(t, output, &sts)
+
+			var fetchMetadata bool
+			for _, c := range sts.Spec.Template.Spec.InitContainers {
+				if c.Name == "fetch-metadata" {
+					fetchMetadata = true
+					require.Equal(subT, "busybox", c.Image)
+					require.Equal(subT, []string{"/bin/bash", "-c", "echo 'Fetching metadata'"}, c.Command)
+					require.Equal(subT, []corev1.VolumeMount{{Name: "metadata", MountPath: "/metadata"}}, c.VolumeMounts)
+				}
+			}
+
+			if !fetchMetadata {
+				require.Fail(subT, "Init container fetch-metadata not found")
+			}
+		})
+	}
+
+}
