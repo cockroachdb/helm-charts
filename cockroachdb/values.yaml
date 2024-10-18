@@ -294,6 +294,39 @@ statefulset:
     # Additional serviceAccount annotations (e.g. for attaching AWS IAM roles to pods)
     annotations: {}
 
+  # initContainers allows you to add additional containers to cockroachdb statefulset.
+  initContainers: []
+#  - name: "fetch-metadata"
+#    image: "badouralix/curl-jq"
+#    command:
+#      - "sh"
+#      - "-c"
+#      - "curl -s -H \"Metadata:true\" --noproxy \"*\" \"http://169.254.169.254/metadata/instance?api-version=2021-02-01\" | jq '.' > /metadata/instance_metadata.json"
+#    resources: {}
+#        # requests:
+#        #   cpu: "10m"
+#        #   memory: "128Mi"
+#        # limits:
+#        #   cpu: "10m"
+#        #   memory: "128Mi"
+#    securityContext:
+#      allowPrivilegeEscalation: false
+#      capabilities:
+#        drop:
+#          - ALL
+#      privileged: false
+#      readOnlyRootFilesystem: true
+
+  # volumeMounts are mounted on the same path in the main crdb container and all init containers.
+  volumeMounts: []
+#   - name: metadata
+#     mountPath: /metadata
+
+  # volumes allows you to add additional volumes to cockroachdb statefulset.
+  volumes: []
+#  - name: metadata
+#    emptyDir: {}
+
 service:
   ports:
     # You can set a different external and internal gRPC ports and their name.

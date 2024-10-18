@@ -1283,3 +1283,109 @@ func TestHelmInitJobAnnotations(t *testing.T) {
 		})
 	}
 }
+
+func TestStatefulSetInitContainers(t *testing.T) {
+	t.Parallel()
+	testCases := []struct {
+		name          string
+		initContainer bool
+		volume        bool
+		values        map[string]string
+	}{
+		{
+			"Add extra init container",
+			true,
+			true,
+			map[string]string{
+				"statefulset.initContainers[0].name":       "fetch-metadata",
+				"statefulset.initContainers[0].image":      "busybox",
+				"statefulset.initContainers[0].command[0]": "/bin/bash",
+				"statefulset.initContainers[0].command[1]": "-c",
+				"statefulset.initContainers[0].command[2]": "echo 'Fetching metadata'",
+				"statefulset.volumeMounts[0].name":         "metadata",
+				"statefulset.volumeMounts[0].mountPath":    "/metadata",
+				"statefulset.volumes[0].name":              "metadata",
+				"statefulset.volumes[0].configMap.name":    "log-config",
+			},
+		},
+		{
+			"Add extra volume without init container",
+			false,
+			true,
+			map[string]string{
+				"statefulset.volumeMounts[0].name":      "metadata",
+				"statefulset.volumeMounts[0].mountPath": "/metadata",
+				"statefulset.volumes[0].name":           "metadata",
+				"statefulset.volumes[0].configMap.name": "log-config",
+			},
+		},
+		{
+			"Add extra init container without volume",
+			true,
+			false,
+			map[string]string{
+				"statefulset.initContainers[0].name":       "fetch-metadata",
+				"statefulset.initContainers[0].image":      "busybox",
+				"statefulset.initContainers[0].command[0]": "/bin/bash",
+				"statefulset.initContainers[0].command[1]": "-c",
+				"statefulset.initContainers[0].command[2]": "echo 'Fetching metadata'",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
+
+			require.Equal(subT, err, nil)
+
+			var sts appsv1.StatefulSet
+			helm.UnmarshalK8SYaml(t, output, &sts)
+
+			if testCase.initContainer {
+				var fetchMetadata bool
+				for _, c := range sts.Spec.Template.Spec.InitContainers {
+					if c.Name == "fetch-metadata" {
+						fetchMetadata = true
+						require.Equal(subT, "busybox", c.Image)
+						require.Equal(subT, []string{"/bin/bash", "-c", "echo 'Fetching metadata'"}, c.Command)
+						if testCase.volume {
+							require.Equal(subT, []corev1.VolumeMount{{Name: "metadata", MountPath: "/metadata"}}, c.VolumeMounts)
+						}
+						break
+					}
+				}
+
+				if !fetchMetadata {
+					require.Fail(subT, "Init container fetch-metadata not found")
+				}
+			}
+
+			if testCase.volume {
+				var metadataVolume bool
+				for _, v := range sts.Spec.Template.Spec.Volumes {
+					if v.Name == "metadata" {
+						metadataVolume = true
+						require.Equal(subT, v.ConfigMap.Name, "log-config")
+						break
+					}
+				}
+
+				if !metadataVolume {
+					require.Fail(subT, "Volume metadata not found")
+				}
+			}
+		})
+	}
+
+}

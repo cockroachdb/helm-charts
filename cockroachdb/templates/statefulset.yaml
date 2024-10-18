@@ -82,6 +82,13 @@ spec:
         {{- with .Values.tls.copyCerts.resources }}
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
+        {{- range $ic := .Values.statefulset.initContainers }}
+        - {{- toYaml $ic | nindent 10 }}
+          {{ with $.Values.statefulset.volumeMounts}}
+          volumeMounts:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
       {{- end }}
     {{- if or .Values.statefulset.nodeAffinity .Values.statefulset.podAffinity .Values.statefulset.podAntiAffinity }}
       affinity:
@@ -283,6 +290,9 @@ spec:
               mountPath: /cockroach/log-config
               readOnly: true
           {{- end }}
+          {{ with .Values.statefulset.volumeMounts }}
+            {{ toYaml . | nindent 12 }}
+          {{- end }}
           {{- if .Values.statefulset.customStartupProbe }}
           startupProbe:
             {{ toYaml .Values.statefulset.customStartupProbe | nindent 12 }}
@@ -338,6 +348,9 @@ spec:
             path: {{ .Values.storage.hostPath | quote }}
         {{- else }}
           emptyDir: {}
+        {{- end }}
+        {{ with .Values.statefulset.volumes }}
+          {{ toYaml . | nindent 8 }}
         {{- end }}
       {{- if .Values.tls.enabled }}
         - name: certs
