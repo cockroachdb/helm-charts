@@ -17,6 +17,7 @@ limitations under the License.
 package kube
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"strconv"
@@ -29,6 +30,10 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
+	"k8s.io/client-go/kubernetes"
+	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
+	"k8s.io/client-go/tools/remotecommand"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	ctrlutil "sigs.k8s.io/controller-runtime/pkg/controller/controllerutil"
@@ -151,6 +156,72 @@ func RollingUpdate(ctx context.Context, cl client.Client, stsName, namespace str
 		return err
 	}
 	return nil
+}
+
+// SighupSignalToPods sends SIGHUP signal to all the pods in the statefulset.
+func SighupSignalToPods(ctx context.Context, config *rest.Config, cl client.Client, stsName, namespace string) error {
+
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return err
+	}
+
+	var sts v1.StatefulSet
+	if err := cl.Get(ctx, types.NamespacedName{Namespace: namespace, Name: stsName}, &sts); err != nil {
+		return err
+	}
+
+	containerName := sts.Spec.Template.Spec.Containers[0].Name
+	command := []string{"/bin/bash", "-c", "echo 'Send SIGHUP to cockroach'; kill -s 1 $(ls -l /proc/*/exe | grep cockroach | awk '{print $2}')"}
+	for i := int32(0); i < sts.Status.Replicas; i++ {
+		replicaName := stsName + "-" + strconv.Itoa(int(i))
+
+		stdout, stderr, err := execCommandInPod(clientset, config, namespace, replicaName, containerName, command)
+		if err != nil {
+			logrus.Errorf("Failed to send SIGHUP signal to pod [%s], error: %v, stdout: %s, stderr: %s", replicaName, err, stdout, stderr)
+		}
+		logrus.Info(stdout)
+
+		// Sleeping for 1 second to allow the pod to receive the signal
+		time.Sleep(1 * time.Second)
+	}
+
+	return nil
+}
+
+// execCommandInPod executes the provided command in the given pod and returns the stdout and stderr.
+func execCommandInPod(clientset *kubernetes.Clientset, config *rest.Config, namespace, podName, containerName string, command []string) (string, string, error) {
+	logrus.Infof("Running command %s in pod %s in container %s", command, podName, containerName)
+
+	req := clientset.CoreV1().RESTClient().Post().
+		Resource("pods").
+		Name(podName).
+		Namespace(namespace).
+		SubResource("exec").
+		Param("container", containerName).
+		VersionedParams(&corev1.PodExecOptions{
+			Command: command,
+			Stdin:   false,
+			Stdout:  true,
+			Stderr:  true,
+			TTY:     true,
+		}, scheme.ParameterCodec)
+
+	exec, err := remotecommand.NewSPDYExecutor(config, "POST", req.URL())
+	if err != nil {
+		return "", "", err
+	}
+
+	var stdout, stderr bytes.Buffer
+	err = exec.Stream(remotecommand.StreamOptions{
+		Stdout: &stdout,
+		Stderr: &stderr,
+	})
+	if err != nil {
+		return stdout.String(), stderr.String(), err
+	}
+
+	return stdout.String(), stderr.String(), nil
 }
 
 func WaitForPodReady(ctx context.Context, cl client.Client, name, namespace string, podUpdateTimeout,
