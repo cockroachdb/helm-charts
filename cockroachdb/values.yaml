@@ -652,4 +652,4 @@ iap:
 
 # Use the CRDB Operator to manage the CRDB clusters
 operator:
- enabled: true
+ enabled: false
