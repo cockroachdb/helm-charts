@@ -2,7 +2,7 @@ UNAME_S := $(shell uname -s)
 ifeq ($(UNAME_S),Linux)
   COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.linux-amd64.tgz
   HELM_BIN ?= https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz
-  KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.21.0/kind-linux-amd64
+  K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.7.4/k3d-linux-amd64
   KUBECTL_BIN ?= https://dl.k8s.io/release/v1.29.1/bin/linux/amd64/kubectl
   YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_linux_amd64
   JQ_BIN ?= https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64
@@ -12,7 +12,7 @@ endif
 ifeq ($(UNAME_S),Darwin)
   COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.darwin-10.9-amd64.tgz
   HELM_BIN ?= https://get.helm.sh/helm-v3.14.0-darwin-amd64.tar.gz
-  KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.21.0/kind-darwin-amd64
+  K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.7.4/k3d-darwin-arm64
   KUBECTL_BIN ?= https://dl.k8s.io/release/v1.29.1/bin/darwin/amd64/kubectl
   YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_darwin_amd64
   JQ_BIN ?= https://github.com/stedolan/jq/releases/download/jq-1.6/jq-osx-amd64
@@ -20,7 +20,7 @@ ifeq ($(UNAME_S),Darwin)
   OPM_BIN ?= darwin-amd64-opm
 endif
 
-KIND_CLUSTER ?= chart-testing
+K3D_CLUSTER ?= chart-testing
 REPOSITORY ?= gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert
 
 export BUNDLE_IMAGE ?= cockroach-operator-bundle
@@ -73,26 +73,31 @@ dev/clean: ## remove built artifacts
 	@rm -r build/artifacts/
 
 ##@ Test
+test/cluster: bin/k3d test/cluster_up ## start a local k3d cluster for testing
 
-test/cluster: bin/kind ## start a local kind cluster for testing
-	@bin/kind get clusters -q | grep $(KIND_CLUSTER) || bin/kind create cluster --name $(KIND_CLUSTER)
+test/cluster_up: bin/k3d
+	@bin/k3d cluster list | grep $(K3D_CLUSTER) || bin/k3d cluster create $(K3D_CLUSTER)
+
+test/cluster_down: bin/k3d
+	bin/k3d cluster delete $(K3D_CLUSTER)
 
 test/e2e/%: PKG=$*
-test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/publish-images-to-kind ## run e2e tests for package (e.g. install or rotate)
+test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/publish-images-to-k3d ## run e2e tests for package (e.g. install or rotate)
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/$(PKG)/...
 
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && bin/helm lint cockroachdb
 
 IMAGE_LIST = cockroachdb/cockroach:v23.2.0 quay.io/jetstack/cert-manager-cainjector:v1.11.0 quay.io/jetstack/cert-manager-webhook:v1.11.0 quay.io/jetstack/cert-manager-controller:v1.11.0 quay.io/jetstack/cert-manager-ctl:v1.11.0
-test/publish-images-to-kind: bin/yq test/cluster ## publish signer and cockroach image to local kind registry
+test/publish-images-to-k3d: bin/yq test/cluster ## publish signer and cockroach image to local k3d registry
 	for i in $(IMAGE_LIST); do \
 		docker pull $$i; \
-		bin/kind load docker-image $$i --name $(KIND_CLUSTER); \
+		bin/k3d image import $$i -c $(K3D_CLUSTER); \
 	done
-	@bin/kind load docker-image \
+	docker pull ${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml); \
+	bin/k3d image import \
 		${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) \
-		--name $(KIND_CLUSTER)
+		-c $(K3D_CLUSTER)
 
 test/template: bin/cockroach bin/helm ## Run template tests
 	@PATH="$(PWD)/bin:${PATH}" go test -v ./tests/template/...
@@ -101,7 +106,7 @@ test/units: bin/cockroach ## Run unit tests in ./pkg/...
 	@PATH="$(PWD)/bin:${PATH}" go test -v ./pkg/...
 
 ##@ Binaries
-bin: bin/cockroach bin/helm bin/kind bin/kubectl bin/yq ## install all binaries
+bin: bin/cockroach bin/helm bin/k3d bin/kubectl bin/yq ## install all binaries
 
 bin/cockroach: ## install cockroach
 	@mkdir -p bin
@@ -113,10 +118,10 @@ bin/helm: ## install helm
 	@curl -L $(HELM_BIN) | tar -xzf - -C bin/ --strip-components 1
 	@rm -f bin/README.md bin/LICENSE
 
-bin/kind: ## install kind
+bin/k3d: ## install k3d
 	@mkdir -p bin
-	@curl -Lo bin/kind $(KIND_BIN)	
-	@chmod +x bin/kind
+	@curl -Lo bin/k3d $(K3D_BIN)	
+	@chmod +x bin/k3d
 
 bin/kubectl: ## install kubectl
 	@mkdir -p bin
