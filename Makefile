@@ -89,6 +89,8 @@ dev/registries/down: bin/k3d
 		cd ../../bin/k3d; ./tests/k3d/registries.sh down $(DOCKER_NETWORK_NAME); \
 	fi
 
+dev/registries/bounce: bin/k3d dev/registries/down dev/registries/up
+
 dev/push/local: dev/registries/up
 	@echo "$(CYAN)Pushing image to local registry...$(NC)"
 	@docker build --platform=linux/amd64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
@@ -96,13 +98,15 @@ dev/push/local: dev/registries/up
           	-t ${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
 
 ##@ Test
-test/cluster: bin/k3d test/cluster_up ## start a local k3d cluster for testing
+test/cluster: bin/k3d test/cluster/up ## start a local k3d cluster for testing
 
-test/cluster_up: bin/k3d
-	@bin/k3d cluster list | grep $(K3D_CLUSTER) || bin/k3d cluster create $(K3D_CLUSTER)
+test/cluster/bounce: bin/k3d test/cluster/down test/cluster/up ## restart a local k3d cluster for testing
 
-test/cluster_down: bin/k3d
-	bin/k3d cluster delete $(K3D_CLUSTER)
+test/cluster/up: bin/k3d
+	@bin/k3d cluster list | grep $(K3D_CLUSTER) || ./tests/k3d/dev-cluster.sh up --name "$(K3D_CLUSTER)"
+
+test/cluster/down: bin/k3d
+	./tests/k3d/dev-cluster.sh down --name "$(K3D_CLUSTER)"
 
 test/e2e/%: PKG=$*
 test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/publish-images-to-k3d ## run e2e tests for package (e.g. install or rotate)

@@ -428,7 +428,7 @@ metadata:
   labels:
     app: cockroach-operator
 spec:
-  replicas: 1
+  replicas: {{ .Values.numReplicas }}
   selector:
     matchLabels:
       app: cockroach-operator

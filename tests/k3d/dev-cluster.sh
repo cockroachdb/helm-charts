@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-
-CLUSTER_NAME=local
-
-NETWORK_NAME=k3d-local
+region="us-east-1"
+zones=3
 
 if [ $# -eq 0 ]
   then
@@ -10,6 +8,11 @@ if [ $# -eq 0 ]
       echo "  up: Start cluster."
       echo "     --nodes x: The cluster should have x nodes (default 1)"
       echo "     --version x: The version of Kubernetes (default 1.24.14)"
+      echo "     --name x: The name of the cluster (default local)"
+      echo "     --network_name x: The name of the cluster's network (default k3d-\${name})"
+      echo "     --region x: The name of the cluster's region for node labels topology.kubernetes.io/region (default us-east-1)"
+      echo "     --zones x: The number of zones in the region for node labels topology.kubernetes.io/zone (default 3)"
+      
       echo "  down: Delete cluster."
 
       exit 1
@@ -32,18 +35,39 @@ while [ $# -gt 0 ]; do
   shift
 done
 
+name=${name:-local}
+network_name=${network_name:-"k3d-${name}"}
+
+# Function to set topology.kubernetes.io/zone labels in a round-robin fashion
+set_node_labels() {
+  local nodes=$1
+  local region=$2
+  local zones=$3
+  local labels=""
+  local az=(a b c d e f g h i j k l m n o p q r s t u v w x y z)
+
+  for ((i=0; i<nodes; i++)); do
+    zone="${region}${az[$((i % zones))]}"
+    labels+="--k3s-node-label topology.kubernetes.io/zone=${zone}@agent:${i} "
+    labels+="--k3s-node-label topology.kubernetes.io/region=${region}@agent:${i} "
+  done
+
+  echo "${labels}"
+}
+
 case $COMMAND in
   up)
-    k3d cluster create ${CLUSTER_NAME} \
-      --network ${NETWORK_NAME} \
+    node_labels=$(set_node_labels ${nodes} ${region} ${zones})
+    k3d cluster create ${name} \
+      --network ${network_name} \
 			--registry-config "$SCRIPT_DIR/registries.yaml" \
 			--image rancher/k3s:v${version}-k3s1 \
 			--agents ${nodes} \
-      --k3s-node-label "topology.kubernetes.io/region=us-east-1@agent:0" \
-      --k3s-node-label "topology.kubernetes.io/region=us-east-1@server:0" 
+      --k3s-node-label "topology.kubernetes.io/region=${region}@server:0" \
+      ${node_labels} 
   ;;
   down)
-    k3d cluster delete ${CLUSTER_NAME}
+    k3d cluster delete ${name}
   ;;
   *)
     echo "Unknown command: $COMMAND"
