@@ -649,3 +649,7 @@ iap:
   # Create Google Cloud OAuth credentials and set client id and secret
   # clientId:
   # clientSecret:
+
+# Use the CRDB Operator to manage the CRDB clusters
+operator:
+ enabled: true
