@@ -1,4 +1,5 @@
 UNAME_S := $(shell uname -s)
+NC := $(shell tput sgr0) # No Color
 ifeq ($(UNAME_S),Linux)
   COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.linux-amd64.tgz
   HELM_BIN ?= https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz
@@ -21,7 +22,10 @@ ifeq ($(UNAME_S),Darwin)
 endif
 
 K3D_CLUSTER ?= chart-testing
-REPOSITORY ?= gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert
+REGISTRY ?= gcr.io
+REPOSITORY ?= cockroachlabs-helm-charts/cockroach-self-signer-cert
+DOCKER_NETWORK_NAME ?= ${K3D_CLUSTER}
+LOCAL_REGISTRY ?= "localhost:5000"
 
 export BUNDLE_IMAGE ?= cockroach-operator-bundle
 export HELM_OPERATOR_IMAGE ?= cockroach-helm-operator
@@ -56,7 +60,7 @@ build/chart: bin/helm ## build the helm chart to build/artifacts
 build/self-signer: bin/yq ## build the self-signer image
 	@docker build --platform=linux/amd64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
 		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) \
-		-t ${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
+		-t ${REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
 
 ##@ Release
 
@@ -66,11 +70,30 @@ release: ## publish the build artifacts to S3
 build-and-push/self-signer: bin/yq ## push the self-signer image
 	@docker buildx build --platform=linux/amd64,linux/arm64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
 		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) --push \
-		-t ${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
+		-t ${REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
 
 ##@ Dev
 dev/clean: ## remove built artifacts
 	@rm -r build/artifacts/
+
+## Setup/teardown registries for easier local dev
+dev/registries/up: bin/k3d
+	@if [ "`docker ps -f name=registry.localhost -q`" = "" ]; then \
+		echo "$(CYAN)Starting local Docker registry (for fast offline image push/pull)...$(NC)"; \
+		cd ../../bin/k3d; ./tests/k3d/registries.sh up $(DOCKER_NETWORK_NAME); \
+	fi
+
+dev/registries/down: bin/k3d
+	@if [ "`docker ps -f name=registry.localhost -q`" != "" ]; then \
+		echo "$(CYAN)Stopping local Docker registry (for fast offline image push/pull)...$(NC)"; \
+		cd ../../bin/k3d; ./tests/k3d/registries.sh down $(DOCKER_NETWORK_NAME); \
+	fi
+
+dev/push/local: dev/registries/up
+	@echo "$(CYAN)Pushing image to local registry...$(NC)"
+	@docker build --platform=linux/amd64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
+          	--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) --push \
+          	-t ${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
 
 ##@ Test
 test/cluster: bin/k3d test/cluster_up ## start a local k3d cluster for testing
@@ -94,9 +117,9 @@ test/publish-images-to-k3d: bin/yq test/cluster ## publish signer and cockroach 
 		docker pull $$i; \
 		bin/k3d image import $$i -c $(K3D_CLUSTER); \
 	done
-	docker pull ${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml); \
+	docker pull ${REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml); \
 	bin/k3d image import \
-		${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) \
+		${REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) \
 		-c $(K3D_CLUSTER)
 
 test/template: bin/cockroach bin/helm ## Run template tests
