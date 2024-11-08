@@ -1,3 +1,4 @@
+{{- if not .Values.operator.enabled }}
 kind: StatefulSet
 apiVersion: {{ template "cockroachdb.statefulset.apiVersion" . }}
 metadata:
@@ -432,4 +433,5 @@ spec:
         resources:
           requests:
             storage: {{ .Values.storage.persistentVolume.size | quote }}
+{{- end }}
 {{- end }}
