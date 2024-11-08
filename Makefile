@@ -24,8 +24,9 @@ endif
 K3D_CLUSTER ?= chart-testing
 REGISTRY ?= gcr.io
 REPOSITORY ?= cockroachlabs-helm-charts/cockroach-self-signer-cert
-DOCKER_NETWORK_NAME ?= ${K3D_CLUSTER}
+DOCKER_NETWORK_NAME ?= "k3d-${K3D_CLUSTER}"
 LOCAL_REGISTRY ?= "localhost:5000"
+CLUSTER_SIZE ?= 1
 
 export BUNDLE_IMAGE ?= cockroach-operator-bundle
 export HELM_OPERATOR_IMAGE ?= cockroach-helm-operator
@@ -103,7 +104,7 @@ test/cluster: bin/k3d test/cluster/up ## start a local k3d cluster for testing
 test/cluster/bounce: bin/k3d test/cluster/down test/cluster/up ## restart a local k3d cluster for testing
 
 test/cluster/up: bin/k3d
-	@bin/k3d cluster list | grep $(K3D_CLUSTER) || ./tests/k3d/dev-cluster.sh up --name "$(K3D_CLUSTER)"
+	@bin/k3d cluster list | grep $(K3D_CLUSTER) || ./tests/k3d/dev-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $(CLUSTER_SIZE)
 
 test/cluster/down: bin/k3d
 	./tests/k3d/dev-cluster.sh down --name "$(K3D_CLUSTER)"
