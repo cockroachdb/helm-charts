@@ -289,3 +289,17 @@ Validate that if user enabled tls, then either self-signed certificates or certi
 {{- end }}
 {{- end }}
 {{- end }}
+
+{{/*
+Validate the log configuration.
+*/}}
+{{- define "cockroachdb.conf.log.validation" -}}
+{{- if and (not .Values.conf.log.enabled) .Values.conf.log.persistentVolume.enabled -}}
+    {{ fail "Persistent volume for logs can only be enabled if logging is enabled" }}
+{{- end -}}
+{{- if and .Values.conf.log.persistentVolume.enabled (dig "file-defaults" "dir" "" .Values.conf.log.config) -}}
+{{- if not (hasPrefix (printf "/cockroach/%s" .Values.conf.log.persistentVolume.path) (dig "file-defaults" "dir" "" .Values.conf.log.config)) }}
+    {{ fail "Log configuration should use the persistent volume if enabled" }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
