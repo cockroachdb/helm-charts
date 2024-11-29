@@ -214,7 +214,7 @@ spec:
             {{- else }}
               --http-port={{ index .Values.service.ports.http.port | int64 }}
             {{- end }}
-            {{ if .Values.conf.port }}
+            {{- if .Values.conf.port }}
               --port={{ .Values.conf.port | int64 }}
             {{- else }}
               --port={{ .Values.service.ports.grpc.internal.port | int64 }}
@@ -256,7 +256,7 @@ spec:
           {{- end }}
           ports:
             - name: grpc
-              {{ if .Values.conf.port }}
+              {{- if .Values.conf.port }}
               containerPort: {{ .Values.conf.port | int64 }}
               {{- else }}
               containerPort: {{ .Values.service.ports.grpc.internal.port | int64 }}
@@ -349,7 +349,7 @@ spec:
         {{- else }}
           emptyDir: {}
         {{- end }}
-        {{ with .Values.statefulset.volumes }}
+        {{- with .Values.statefulset.volumes }}
           {{ toYaml . | nindent 8 }}
         {{- end }}
       {{- if .Values.tls.enabled }}
