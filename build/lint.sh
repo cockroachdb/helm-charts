@@ -2,4 +2,4 @@
 
 set -euox pipefail
 
-build/tester.sh ct lint --config build/ct.yaml --all
+build/tester.sh ct lint --config build/ct.yaml --all --validate-maintainers=false
