@@ -1389,3 +1389,154 @@ func TestStatefulSetInitContainers(t *testing.T) {
 	}
 
 }
+
+// TestHelmCockroachStartCmd tests the arguments to the cockroach start command.
+func TestHelmCockroachStartCmd(t *testing.T) {
+	t.Parallel()
+
+	type expect struct {
+		startCmd string
+	}
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect expect
+	}{
+		{
+			"start single node with default args",
+			map[string]string{
+				"conf.single-node": "true",
+			},
+			expect{
+				"exec /cockroach/cockroach start-single-node " +
+					"--advertise-host=$(hostname).${STATEFULSET_FQDN} " +
+					"--certs-dir=/cockroach/cockroach-certs/ " +
+					"--http-port=8080 " +
+					"--port=26257 " +
+					"--cache=25% " +
+					"--max-sql-memory=25% " +
+					"--logtostderr=INFO",
+			},
+		},
+		{
+			"start single node with custom args",
+			map[string]string{
+				"conf.single-node":                 "true",
+				"tls.enabled":                      "false",
+				"conf.attrs":                       "gpu",
+				"service.ports.http.port":          "8081",
+				"service.ports.grpc.internal.port": "26258",
+				"conf.cache":                       "10%",
+				"conf.max-disk-temp-storage":       "1GB",
+				"conf.max-offset":                  "100ms",
+				"conf.max-sql-memory":              "10%",
+				"conf.locality":                    "region=us-west-1",
+				"conf.sql-audit-dir":               "/audit",
+				"conf.log.enabled":                 "true",
+			},
+			expect{
+				"exec /cockroach/cockroach start-single-node " +
+					"--advertise-host=$(hostname).${STATEFULSET_FQDN} " +
+					"--insecure " +
+					"--attrs=gpu " +
+					"--http-port=8081 " +
+					"--port=26258 " +
+					"--cache=10% " +
+					"--max-disk-temp-storage=1GB " +
+					"--max-offset=100ms " +
+					"--max-sql-memory=10% " +
+					"--locality=region=us-west-1 " +
+					"--sql-audit-dir=/audit " +
+					"--log-config-file=/cockroach/log-config/log-config.yaml",
+			},
+		},
+		{
+			"start multiple node cluster with default args",
+			map[string]string{
+				"conf.join": "1.1.1.1",
+			},
+			expect{
+				"exec /cockroach/cockroach start --join=1.1.1.1 " +
+					"--advertise-host=$(hostname).${STATEFULSET_FQDN} " +
+					"--certs-dir=/cockroach/cockroach-certs/ " +
+					"--http-port=8080 " +
+					"--port=26257 " +
+					"--cache=25% " +
+					"--max-sql-memory=25% " +
+					"--logtostderr=INFO",
+			},
+		},
+		{
+			"start multiple node cluster with custom args",
+			map[string]string{
+				"conf.join":                              "1.1.1.1",
+				"conf.cluster-name":                      "test",
+				"conf.disable-cluster-name-verification": "true",
+				"tls.enabled":                            "false",
+				"conf.attrs":                             "gpu",
+				"service.ports.http.port":                "8081",
+				"service.ports.grpc.internal.port":       "26258",
+				"conf.cache":                             "10%",
+				"conf.max-disk-temp-storage":             "1GB",
+				"conf.max-offset":                        "100ms",
+				"conf.max-sql-memory":                    "10%",
+				"conf.locality":                          "region=us-west-1",
+				"conf.sql-audit-dir":                     "/audit",
+				"conf.log.enabled":                       "true",
+			},
+			expect{
+				"exec /cockroach/cockroach start --join=1.1.1.1 " +
+					"--cluster-name=test " +
+					"--disable-cluster-name-verification " +
+					"--advertise-host=$(hostname).${STATEFULSET_FQDN} " +
+					"--insecure " +
+					"--attrs=gpu " +
+					"--http-port=8081 " +
+					"--port=26258 " +
+					"--cache=10% " +
+					"--max-disk-temp-storage=1GB " +
+					"--max-offset=100ms " +
+					"--max-sql-memory=10% " +
+					"--locality=region=us-west-1 " +
+					"--sql-audit-dir=/audit " +
+					"--log-config-file=/cockroach/log-config/log-config.yaml",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		var statefulset appsv1.StatefulSet
+
+		// Here, we capture the range variable and force it into the scope of this block.
+		// If we don't do this, when the subtest switches contexts (because of t.Parallel),
+		// the testCase value will have been updated by the for loop and will be the next testCase!
+		testCase := testCase
+
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			output, err := helm.RenderTemplateE(
+				t,
+				options,
+				helmChartPath,
+				releaseName,
+				[]string{"templates/statefulset.yaml"},
+			)
+			require.NoError(subT, err)
+
+			helm.UnmarshalK8SYaml(t, output, &statefulset)
+
+			require.Equal(subT, namespaceName, statefulset.Namespace)
+			cmdString := statefulset.Spec.Template.Spec.Containers[0].Args[2]
+			require.Equal(subT, testCase.expect.startCmd, cmdString)
+			// Validate that there is no newline in the command due to improper template formatting.
+			require.NotContains(subT, cmdString, "\n")
+		})
+	}
+}
