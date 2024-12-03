@@ -1,3 +1,4 @@
+{{ template "cockroachdb.conf.log.validation" . }}
 kind: StatefulSet
 apiVersion: {{ template "cockroachdb.statefulset.apiVersion" . }}
 metadata:
@@ -290,7 +291,11 @@ spec:
               mountPath: /cockroach/log-config
               readOnly: true
           {{- end }}
-          {{ with .Values.statefulset.volumeMounts }}
+          {{- if .Values.conf.log.persistentVolume.enabled }}
+            - name: logsdir
+              mountPath: /cockroach/{{ .Values.conf.log.persistentVolume.path }}/
+          {{- end }}
+          {{- with .Values.statefulset.volumeMounts }}
             {{ toYaml . | nindent 12 }}
           {{- end }}
           {{- if .Values.statefulset.customStartupProbe }}
@@ -393,6 +398,15 @@ spec:
           secret:
             secretName: {{ template "cockroachdb.fullname" . }}-log-config
       {{- end }}
+      {{- if .Values.conf.log.enabled }}
+        - name: logsdir
+        {{- if .Values.conf.log.persistentVolume.enabled }}
+          persistentVolumeClaim:
+            claimName: logsdir
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+      {{- end }}
       {{- if eq (include "cockroachdb.securityContext.versionValidation" .) "true" }}
       {{- if and .Values.securityContext.enabled }}
       securityContext:
@@ -404,8 +418,9 @@ spec:
         runAsNonRoot: true
       {{- end }}
       {{- end }}
-{{- if .Values.storage.persistentVolume.enabled }}
+{{- if or .Values.storage.persistentVolume.enabled .Values.conf.log.persistentVolume.enabled }}
   volumeClaimTemplates:
+  {{- if .Values.storage.persistentVolume.enabled }}
     - metadata:
         name: datadir
         labels:
@@ -432,4 +447,33 @@ spec:
         resources:
           requests:
             storage: {{ .Values.storage.persistentVolume.size | quote }}
+  {{- end }}
+  {{- if .Values.conf.log.persistentVolume.enabled }}
+    - metadata:
+        name: logsdir
+        labels:
+          app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+          app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        {{- with .Values.conf.log.persistentVolume.labels }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.labels }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- with .Values.conf.log.persistentVolume.annotations }}
+        annotations: {{- toYaml . | nindent 10 }}
+      {{- end }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+      {{- if .Values.conf.log.persistentVolume.storageClass }}
+      {{- if (eq "-" .Values.conf.log.persistentVolume.storageClass) }}
+        storageClassName: ""
+      {{- else }}
+        storageClassName: {{ .Values.conf.log.persistentVolume.storageClass | quote}}
+      {{- end }}
+      {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.conf.log.persistentVolume.size | quote }}
+  {{- end }}
 {{- end }}

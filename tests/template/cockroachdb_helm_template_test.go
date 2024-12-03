@@ -496,42 +496,42 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 	t.Parallel()
 
+	type expect struct {
+		statefulsetArgument     string
+		logConfig               string
+		secretExists            bool
+		renderErr               string
+		persistentVolumeCreated bool
+	}
+
 	testCases := []struct {
 		name   string
 		values map[string]string
-		expect struct {
-			statefulsetArgument string
-			logConfig           string
-			secretExists        bool
-		}
+		expect expect
 	}{
 		{
 			"New logging configuration enabled",
 			map[string]string{"conf.log.enabled": "true"},
-			struct {
-				statefulsetArgument string
-				logConfig           string
-				secretExists        bool
-			}{
+			expect{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
-				"{}",
+				"",
 				true,
+				"",
+				false,
 			},
 		},
 		{
 			"New logging configuration overridden",
 			map[string]string{
-				"conf.log.enabled": "true",
-				"conf.log.config":  "file-defaults:\ndir: /custom/dir/path/",
+				"conf.log.enabled":                  "true",
+				"conf.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
 			},
-			struct {
-				statefulsetArgument string
-				logConfig           string
-				secretExists        bool
-			}{
+			expect{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
-				"file-defaults:\n  dir: /custom/dir/path/",
+				"file-defaults:\n  dir: /cockroach/cockroach-logs",
 				true,
+				"",
+				false,
 			},
 		},
 		{
@@ -540,14 +540,57 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				"conf.log.enabled": "false",
 				"conf.logtostderr": "INFO",
 			},
-			struct {
-				statefulsetArgument string
-				logConfig           string
-				secretExists        bool
-			}{
+			expect{
 				"--logtostderr=INFO",
 				"",
 				false,
+				"",
+				false,
+			},
+		},
+		{
+			"New logging configuration disabled, but persistent volume enabled",
+			map[string]string{
+				"conf.log.enabled":                  "false",
+				"conf.logtostderr":                  "INFO",
+				"conf.log.persistentVolume.enabled": "true",
+			},
+			expect{
+				"--logtostderr=INFO",
+				"",
+				false,
+				"Persistent volume for logs can only be enabled if logging is enabled",
+				false,
+			},
+		},
+		{
+			"New logging configuration not using persistent volume when enabled",
+			map[string]string{
+				"conf.log.enabled":                  "true",
+				"conf.log.config.file-defaults.dir": "/wrong/path",
+				"conf.log.persistentVolume.enabled": "true",
+			},
+			expect{
+				"",
+				"",
+				false,
+				"Log configuration should use the persistent volume if enabled",
+				false,
+			},
+		},
+		{
+			"New logging configuration using the persistent volume",
+			map[string]string{
+				"conf.log.enabled":                  "true",
+				"conf.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
+				"conf.log.persistentVolume.enabled": "true",
+			},
+			expect{
+				"--log-config-file=/cockroach/log-config/log-config.yaml",
+				"file-defaults:\n  dir: /cockroach/cockroach-logs",
+				true,
+				"",
+				true,
 			},
 		},
 	}
@@ -569,15 +612,30 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 				SetValues:      testCase.values,
 			}
-			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
+
+			output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
+			if err != nil {
+				require.ErrorContains(subT, err, testCase.expect.renderErr)
+				return
+			} else {
+				require.Empty(subT, testCase.expect.renderErr)
+			}
 
 			helm.UnmarshalK8SYaml(t, output, &statefulset)
 
 			require.Equal(subT, namespaceName, statefulset.Namespace)
 			require.Contains(t, statefulset.Spec.Template.Spec.Containers[0].Args[2], testCase.expect.statefulsetArgument)
 
-			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.logconfig.yaml"})
+			if testCase.expect.persistentVolumeCreated {
+				// Expect 2 persistent volumes: data, logs
+				require.Equal(subT, 2, len(statefulset.Spec.VolumeClaimTemplates))
+				require.Equal(subT, "logsdir", statefulset.Spec.VolumeClaimTemplates[1].Name)
+			} else {
+				// Expect 1 persistent volume: data
+				require.Equal(subT, 1, len(statefulset.Spec.VolumeClaimTemplates))
+			}
 
+			output, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/secret.logconfig.yaml"})
 			require.Equal(subT, testCase.expect.secretExists, err == nil)
 
 			if testCase.expect.secretExists {
