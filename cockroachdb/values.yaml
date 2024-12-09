@@ -70,14 +70,35 @@ conf:
   log:
     enabled: false
     # https://www.cockroachlabs.com/docs/v21.1/configure-logs
-    config: {}
+    config:
       # file-defaults:
-      #   dir: /custom/dir/path/
+      #   dir: /cockroach/cockroach-logs
       # fluent-defaults:
       #   format: json-fluent
       # sinks:
       #   stderr:
       #     channels: [DEV]
+    persistentVolume:
+      # If enabled, then a PersistentVolumeClaim will be created and
+      # used to store CockroachDB's logs.
+      enabled: false
+      # CockroachDB's logs volume mount path. This gets prepended with
+      # `/cockroach/` in the stateful set. The `conf.log.config` should have
+      # `file-defaults.dir` to specify the log path and should reference the
+      # mounted volume.
+      path: cockroach-logs
+      size: 10Gi
+      # If defined, then `storageClassName: <storageClass>`.
+      # If set to "-", then `storageClassName: ""`, which disables dynamic
+      # provisioning.
+      # If undefined or empty (default), then no `storageClassName` spec is
+      # set, so the default provisioner will be chosen (gp2 on AWS, standard
+      # on GKE, AWS & OpenStack).
+      storageClass: ""
+      # Additional labels to apply to the created PersistentVolumeClaims.
+      labels: {}
+      # Additional annotations to apply to the created PersistentVolumeClaims.
+      annotations: {}
 
   # Logs at or above this threshold to STDERR. Ignored when "log" is enabled
   logtostderr: INFO
