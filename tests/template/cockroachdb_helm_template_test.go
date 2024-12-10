@@ -1598,3 +1598,212 @@ func TestHelmCockroachStartCmd(t *testing.T) {
 		})
 	}
 }
+
+// TestHelmWALFailoverConfiguration contains the tests around WAL failover configuration.
+func TestHelmWALFailoverConfiguration(t *testing.T) {
+	t.Parallel()
+
+	type expect struct {
+		statefulsetArgument   string
+		renderErr             string
+		persistentVolumeNames []string
+	}
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect expect
+	}{
+		{
+			"WAL failover invalid configuration",
+			map[string]string{
+				"conf.wal-failover.value": "invalid",
+			},
+			expect{
+				"",
+				"Invalid WAL failover configuration value. Expected either of '', 'disabled', 'among-stores' or 'path=<path>'",
+				[]string{"datadir"},
+			},
+		},
+		{
+			"WAL failover not configured",
+			map[string]string{
+				"conf.wal-failover.value": "",
+				"conf.store.enabled":      "true",
+				"conf.store.count":        "1",
+			},
+			expect{
+				"--store=path=cockroach-data,size=100Gi",
+				"",
+				[]string{"datadir"},
+			},
+		},
+		{
+			"WAL failover among multiple stores",
+			map[string]string{
+				"conf.wal-failover.value": "among-stores",
+				"conf.store.enabled":      "true",
+				"conf.store.count":        "2",
+			},
+			expect{
+				"--store=path=cockroach-data,size=100Gi " +
+					"--store=path=cockroach-data-2,size=100Gi " +
+					"--wal-failover=among-stores",
+				"",
+				[]string{"datadir", "datadir-2"},
+			},
+		},
+		{
+			"WAL failover disabled with multiple stores",
+			map[string]string{
+				"conf.wal-failover.value": "disabled",
+				"conf.store.enabled":      "true",
+				"conf.store.count":        "2",
+			},
+			expect{
+				"--store=path=cockroach-data,size=100Gi " +
+					"--store=path=cockroach-data-2,size=100Gi " +
+					"--wal-failover=disabled",
+				"",
+				[]string{"datadir", "datadir-2"},
+			},
+		},
+		{
+			"WAL failover among stores but store disabled",
+			map[string]string{
+				"conf.wal-failover.value": "among-stores",
+				"conf.store.enabled":      "false",
+			},
+			expect{
+				"",
+				"WAL failover among stores requires store enabled with count greater than 1",
+				[]string{"datadir"},
+			},
+		},
+		{
+			"WAL failover among stores but single store",
+			map[string]string{
+				"conf.wal-failover.value": "among-stores",
+				"conf.store.enabled":      "true",
+				"conf.store.count":        "1",
+			},
+			expect{
+				"",
+				"WAL failover among stores requires store enabled with count greater than 1",
+				[]string{"datadir"},
+			},
+		},
+		{
+			"WAL failover through side disk (absolute path)",
+			map[string]string{
+				"conf.wal-failover.value":                    "path=/cockroach/cockroach-failover/abc",
+				"conf.wal-failover.persistentVolume.enabled": "true",
+			},
+			expect{
+				"--wal-failover=path=/cockroach/cockroach-failover/abc",
+				"",
+				[]string{"datadir", "failoverdir"},
+			},
+		},
+		{
+			"WAL failover through side disk (relative path)",
+			map[string]string{
+				"conf.wal-failover.value":                    "path=cockroach-failover/abc",
+				"conf.wal-failover.persistentVolume.enabled": "true",
+			},
+			expect{
+				"--wal-failover=path=cockroach-failover/abc",
+				"",
+				[]string{"datadir", "failoverdir"},
+			},
+		},
+		{
+			"WAL failover disabled through side disk",
+			map[string]string{
+				"conf.wal-failover.value":                    "disabled",
+				"conf.wal-failover.persistentVolume.enabled": "true",
+			},
+			expect{
+				"--wal-failover=disabled",
+				"",
+				[]string{"datadir", "failoverdir"},
+			},
+		},
+		{
+			"WAL failover through side disk but no pvc",
+			map[string]string{
+				"conf.wal-failover.value":                    "path=/cockroach/cockroach-failover",
+				"conf.wal-failover.persistentVolume.enabled": "false",
+			},
+			expect{
+				"",
+				"WAL failover to a side disk requires a persistent volume",
+				[]string{"datadir"},
+			},
+		},
+		{
+			"WAL failover through side disk but invalid path",
+			map[string]string{
+				"conf.wal-failover.value":                    "path=/invalid",
+				"conf.wal-failover.persistentVolume.enabled": "true",
+			},
+			expect{
+				"",
+				"WAL failover to a side disk requires a path to the mounted persistent volume",
+				[]string{"datadir", "failoverdir"},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		var statefulset appsv1.StatefulSet
+
+		// Here, we capture the range variable and force it into the scope of this block.
+		// If we don't do this, when the subtest switches contexts (because of t.Parallel),
+		// the testCase value will have been updated by the for loop and will be the next testCase.
+		testCase := testCase
+
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			output, err := helm.RenderTemplateE(
+				t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"},
+			)
+			if err != nil {
+				require.ErrorContains(subT, err, testCase.expect.renderErr)
+				return
+			} else {
+				require.Empty(subT, testCase.expect.renderErr)
+			}
+
+			helm.UnmarshalK8SYaml(t, output, &statefulset)
+
+			require.Equal(subT, namespaceName, statefulset.Namespace)
+			require.Contains(
+				t,
+				statefulset.Spec.Template.Spec.Containers[0].Args[2],
+				testCase.expect.statefulsetArgument,
+			)
+
+			require.Equal(
+				subT,
+				len(testCase.expect.persistentVolumeNames),
+				len(statefulset.Spec.VolumeClaimTemplates),
+			)
+			var actualPersistentVolumeNames []string
+			for _, pvc := range statefulset.Spec.VolumeClaimTemplates {
+				actualPersistentVolumeNames = append(actualPersistentVolumeNames, pvc.Name)
+			}
+			require.EqualValues(
+				subT,
+				testCase.expect.persistentVolumeNames,
+				actualPersistentVolumeNames,
+			)
+		})
+	}
+}
