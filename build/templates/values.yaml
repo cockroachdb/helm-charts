@@ -184,7 +184,7 @@ conf:
   # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v21.1/cockroach-start.html#storage
   # Uses --store flag
   store:
-    enabled: false
+    enabled: true
     # Should be empty or 'mem'
     type:
     # Required for type=mem. If type and size is empty - storage.persistentVolume.size is used
@@ -193,7 +193,7 @@ conf:
     attrs:
 
 statefulset:
-  replicas: 3
+  replicas: 1
   updateStrategy:
     type: RollingUpdate
   podManagementPolicy: Parallel
@@ -442,7 +442,7 @@ storage:
 
     # Number of data stores per node.
     # For multi-store configuration, set this to a value greater than 1.
-    count: 1
+    count: 2
 
     size: 100Gi
 
