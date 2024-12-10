@@ -176,18 +176,59 @@ conf:
   http-port: ""
 
   # CockroachDB's data mount path.
+  # For multi-store configuration, the path for each store is evaluated as:
+  # Store 1: cockroach-data
+  # Store 2: cockroach-data-2
+  # Store N: cockroach-data-N
   path: cockroach-data
 
   # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v21.1/cockroach-start.html#storage
   # Uses --store flag
   store:
     enabled: false
+    # Number of data stores per node.
+    # For multi-store configuration, set this to a value greater than 1.
+    count: 1
     # Should be empty or 'mem'
     type:
     # Required for type=mem. If type and size is empty - storage.persistentVolume.size is used
     size:
     # Arbitrary strings, separated by colons, specifying disk type or capability
     attrs:
+
+  # CockroachDB's WAL failover configuration:
+  # https://www.cockroachlabs.com/docs/stable/cockroach-start#write-ahead-log-wal-failover
+  # Uses `--wal-failover` flag
+  wal-failover:
+    # The value to be passed to the `--wal-failover` flag.
+    # Possible configurations:
+    # 1. ``: If empty, `--wal-failover` is not passed to cockroach start.
+    # 2. `disabled`: Disables WAL failover.
+    # 3. `among-stores`: Enables WAL failover among multiple stores. This requires
+    # `conf.store.count` to be greater than 1.
+    # 4. `path=<path-to-side-disk>`: Enables WAL failover to a side disk. This requires
+    # a persistent volume should be mounted at this path (e.g. `path=/cockroach/cockroach-failover`).
+    value:
+
+    persistentVolume:
+      # If enabled, then a PersistentVolumeClaim will be created and
+      # used for WAL failover as a side disk.
+      # https://www.cockroachlabs.com/docs/v24.3/wal-failover#provision-a-single-store-cluster-and-side-disk-for-wal-failover
+      enabled: false
+      # Mount path for the side disk. This gets prepended with `/cockroach/` in the stateful set.
+      path: cockroach-failover
+      size: 25Gi
+      # If defined, then `storageClassName: <storageClass>`.
+      # If set to "-", then `storageClassName: ""`, which disables dynamic
+      # provisioning.
+      # If undefined or empty (default), then no `storageClassName` spec is
+      # set, so the default provisioner will be chosen (gp2 on AWS, standard
+      # on GKE, AWS & OpenStack).
+      storageClass: ""
+      # Additional labels to apply to the created PersistentVolumeClaims.
+      labels: {}
+      # Additional annotations to apply to the created PersistentVolumeClaims.
+      annotations: {}
 
 statefulset:
   replicas: 3
