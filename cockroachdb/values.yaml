@@ -176,6 +176,10 @@ conf:
   http-port: ""
 
   # CockroachDB's data mount path.
+  # For multi-store configuration, the path for each store is evaluated as:
+  # Store 1: cockroach-data
+  # Store 2: cockroach-data-2
+  # Store N: cockroach-data-N
   path: cockroach-data
 
   # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v21.1/cockroach-start.html#storage
@@ -436,6 +440,10 @@ storage:
   # used to store CockroachDB's data, otherwise `hostPath` is used.
   persistentVolume:
     enabled: true
+
+    # Number of data stores per node.
+    # For multi-store configuration, set this to a value greater than 1.
+    count: 1
 
     size: 100Gi
 

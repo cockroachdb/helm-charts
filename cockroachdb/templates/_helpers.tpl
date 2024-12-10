@@ -85,16 +85,20 @@ Return the appropriate apiVersion for StatefulSets
 Return CockroachDB store expression
 */}}
 {{- define "cockroachdb.conf.store" -}}
-{{- $isInMemory := eq (.Values.conf.store.type | toString) "mem" -}}
-{{- $persistentSize := empty .Values.conf.store.size | ternary .Values.storage.persistentVolume.size .Values.conf.store.size -}}
+  {{- $isInMemory := eq (.Values.conf.store.type | toString) "mem" -}}
+  {{- $persistentSize := empty .Values.conf.store.size | ternary .Values.storage.persistentVolume.size .Values.conf.store.size -}}
 
-{{- $store := dict -}}
-{{- $_ := set $store "type" ($isInMemory | ternary "type=mem" "") -}}
-{{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.path)) -}}
-{{- $_ := set $store "size" (print "size=" ($isInMemory | ternary .Values.conf.store.size $persistentSize)) -}}
-{{- $_ := set $store "attrs" (empty .Values.conf.store.attrs | ternary "" (print "attrs=" .Values.conf.store.attrs)) -}}
+  {{- $store := dict -}}
+  {{- $_ := set $store "type" ($isInMemory | ternary "type=mem" "") -}}
+  {{- if eq .Args.idx 0 -}}
+    {{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.path)) -}}
+  {{- else -}}
+    {{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.path "-" (add1 .Args.idx))) -}}
+  {{- end -}}
+  {{- $_ := set $store "size" (print "size=" ($isInMemory | ternary .Values.conf.store.size $persistentSize)) -}}
+  {{- $_ := set $store "attrs" (empty .Values.conf.store.attrs | ternary "" (print "attrs=" .Values.conf.store.attrs)) -}}
 
-{{ compact (values $store) | join "," }}
+  {{- compact (values $store) | join "," -}}
 {{- end -}}
 
 {{/*

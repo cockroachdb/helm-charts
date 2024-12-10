@@ -235,7 +235,10 @@ spec:
               --sql-audit-dir={{ . }}
             {{- end }}
             {{- if .Values.conf.store.enabled }}
-              --store={{ template "cockroachdb.conf.store" . }}
+              {{- range $idx := until (int .Values.storage.persistentVolume.count) }}
+              {{- $_ := set $ "Args" (dict "idx" $idx) }}
+              --store={{ include "cockroachdb.conf.store" $ }}
+              {{- end }}
             {{- end }}
             {{- if .Values.conf.log.enabled }}
               --log-config-file=/cockroach/log-config/log-config.yaml
@@ -271,8 +274,15 @@ spec:
               {{- end }}
               protocol: TCP
           volumeMounts:
+          {{- range $i := until (int .Values.storage.persistentVolume.count) }}
+            {{- if eq $i 0 }}
             - name: datadir
-              mountPath: /cockroach/{{ .Values.conf.path }}/
+              mountPath: /cockroach/{{ $.Values.conf.path }}/
+            {{- else }}
+            - name: datadir-{{ add1 $i }}
+              mountPath: /cockroach/{{ $.Values.conf.path }}-{{ add1 $i }}/
+            {{- end }}
+          {{- end }}
           {{- if .Values.tls.enabled }}
             - name: certs
               mountPath: /cockroach/cockroach-certs/
@@ -344,16 +354,31 @@ spec:
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
       volumes:
+      {{- range $i := until (int .Values.storage.persistentVolume.count) }}
+      {{- if eq $i 0 }}
         - name: datadir
-        {{- if .Values.storage.persistentVolume.enabled }}
+        {{- if $.Values.storage.persistentVolume.enabled }}
           persistentVolumeClaim:
             claimName: datadir
-        {{- else if .Values.storage.hostPath }}
+        {{- else if $.Values.storage.hostPath }}
           hostPath:
-            path: {{ .Values.storage.hostPath | quote }}
+            path: {{ $.Values.storage.hostPath | quote }}
         {{- else }}
           emptyDir: {}
         {{- end }}
+      {{- else }}
+        - name: datadir-{{ add1 $i }}
+        {{- if $.Values.storage.persistentVolume.enabled }}
+          persistentVolumeClaim:
+            claimName: datadir-{{ add1 $i }}
+        {{- else if $.Values.storage.hostPath }}
+          hostPath:
+          path: {{ $.Values.storage.hostPath | quote }}
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+      {{- end }}
+      {{- end }}
         {{- with .Values.statefulset.volumes }}
           {{ toYaml . | nindent 8 }}
         {{- end }}
@@ -421,32 +446,38 @@ spec:
 {{- if or .Values.storage.persistentVolume.enabled .Values.conf.log.persistentVolume.enabled }}
   volumeClaimTemplates:
   {{- if .Values.storage.persistentVolume.enabled }}
+  {{- range $i := until (int .Values.storage.persistentVolume.count) }}
     - metadata:
+    {{- if eq $i 0 }}
         name: datadir
+    {{- else }}
+        name: datadir-{{ add1 $i }}
+    {{- end }}
         labels:
-          app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
-          app.kubernetes.io/instance: {{ .Release.Name | quote }}
-        {{- with .Values.storage.persistentVolume.labels }}
+          app.kubernetes.io/name: {{ template "cockroachdb.name" $ }}
+          app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+        {{- with $.Values.storage.persistentVolume.labels }}
           {{- toYaml . | nindent 10 }}
         {{- end }}
-        {{- with .Values.labels }}
+        {{- with $.Values.labels }}
           {{- toYaml . | nindent 10 }}
         {{- end }}
-      {{- with .Values.storage.persistentVolume.annotations }}
+      {{- with $.Values.storage.persistentVolume.annotations }}
         annotations: {{- toYaml . | nindent 10 }}
       {{- end }}
       spec:
         accessModes: ["ReadWriteOnce"]
-      {{- if .Values.storage.persistentVolume.storageClass }}
-      {{- if (eq "-" .Values.storage.persistentVolume.storageClass) }}
+      {{- if $.Values.storage.persistentVolume.storageClass }}
+      {{- if (eq "-" $.Values.storage.persistentVolume.storageClass) }}
         storageClassName: ""
       {{- else }}
-        storageClassName: {{ .Values.storage.persistentVolume.storageClass | quote}}
+        storageClassName: {{ $.Values.storage.persistentVolume.storageClass | quote}}
       {{- end }}
       {{- end }}
         resources:
           requests:
-            storage: {{ .Values.storage.persistentVolume.size | quote }}
+            storage: {{ $.Values.storage.persistentVolume.size | quote }}
+  {{- end }}
   {{- end }}
   {{- if .Values.conf.log.persistentVolume.enabled }}
     - metadata:
