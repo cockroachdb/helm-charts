@@ -59,31 +59,27 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-		SetValues: map[string]string{
+		SetValues: patchHelmValues(map[string]string{
 			"conf.cluster-name":                        "test",
 			"init.provisioning.enabled":                "true",
 			"init.provisioning.databases[0].name":      testDBName,
 			"init.provisioning.databases[0].owners[0]": "root",
-			"storage.persistentVolume.size":            "1Gi",
-		},
+		}),
 	}
 
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
-	err := helm.InstallE(t, options, helmChartPath, releaseName)
-	require.NoError(t, err)
-
-	//... and make sure to delete the helm release at the end of the test.
-	defer func() {
-		helm.Delete(t, options, releaseName, true)
-
-		danglingSecrets := []string{crdbCluster.CaSecret, crdbCluster.ClientSecret, crdbCluster.NodeSecret}
-
-		for i := range danglingSecrets {
-			_, err = k8s.GetSecretE(t, kubectlOptions, danglingSecrets[i])
-			require.Equal(t, true, kube.IsNotFound(err))
-			t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
-		}
-	}()
+	helm.Install(t, options, helmChartPath, releaseName)
+	defer cleanupResources(
+		t,
+		releaseName,
+		kubectlOptions,
+		options,
+		[]string{
+			crdbCluster.CaSecret,
+			crdbCluster.ClientSecret,
+			crdbCluster.NodeSecret,
+		},
+	)
 
 	// Print the debug logs in case of test failure.
 	defer func() {
@@ -149,28 +145,27 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-		SetValues: map[string]string{
+		SetValues: patchHelmValues(map[string]string{
 			"tls.certs.selfSigner.caProvided": "true",
 			"tls.certs.selfSigner.caSecret":   customCASecret,
-			"storage.persistentVolume.size":   "1Gi",
-		},
+		}),
 	}
 
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
-	err = helm.InstallE(t, options, helmChartPath, releaseName)
-	require.NoError(t, err)
+	helm.Install(t, options, helmChartPath, releaseName)
 
 	//... and make sure to delete the helm release at the end of the test.
 	defer func() {
-		helm.Delete(t, options, releaseName, true)
-
-		danglingSecrets := []string{crdbCluster.ClientSecret, crdbCluster.NodeSecret}
-
-		for i := range danglingSecrets {
-			_, err = k8s.GetSecretE(t, kubectlOptions, danglingSecrets[i])
-			require.Equal(t, true, kube.IsNotFound(err))
-			t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
-		}
+		cleanupResources(
+			t,
+			releaseName,
+			kubectlOptions,
+			options,
+			[]string{
+				crdbCluster.ClientSecret,
+				crdbCluster.NodeSecret,
+			},
+		)
 
 		// custom user CA certificate secret should not be deleted by pre-delete job
 		_, err = k8s.GetSecretE(t, kubectlOptions, crdbCluster.CaSecret)
@@ -277,21 +272,18 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	// Setup the args
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-		SetValues: map[string]string{
-			"tls.certs.provided":            "true",
-			"tls.certs.selfSigner.enabled":  "false",
-			"tls.certs.clientRootSecret":    crdbCluster.ClientSecret,
-			"tls.certs.nodeSecret":          crdbCluster.NodeSecret,
-			"storage.persistentVolume.size": "1Gi",
-		},
+		SetValues: patchHelmValues(map[string]string{
+			"tls.certs.provided":           "true",
+			"tls.certs.selfSigner.enabled": "false",
+			"tls.certs.clientRootSecret":   crdbCluster.ClientSecret,
+			"tls.certs.nodeSecret":         crdbCluster.NodeSecret,
+		}),
 	}
 
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
-	err = helm.InstallE(t, options, helmChartPath, releaseName)
-	require.NoError(t, err)
+	helm.Install(t, options, helmChartPath, releaseName)
+	defer cleanupResources(t, releaseName, kubectlOptions, options, []string{})
 
-	//... and make sure to delete the helm release at the end of the test.
-	defer helm.Delete(t, options, releaseName, true)
 	// Print the debug logs in case of test failure.
 	defer func() {
 		if t.Failed() {
@@ -313,10 +305,9 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	// Default method is self-signer so no need to set explicitly
 	options = &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-		SetValues: map[string]string{
-			"storage.persistentVolume.size":   "1Gi",
+		SetValues: patchHelmValues(map[string]string{
 			"statefulset.updateStrategy.type": "OnDelete",
-		},
+		}),
 		ExtraArgs: map[string][]string{
 			"upgrade": []string{
 				"--timeout=20m",
@@ -371,19 +362,14 @@ func TestCockroachDbWithInsecureMode(t *testing.T) {
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-		SetValues: map[string]string{
+		SetValues: patchHelmValues(map[string]string{
 			"tls.enabled": "false",
-		},
+		}),
 	}
 
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
-	err := helm.InstallE(t, options, helmChartPath, releaseName)
-	require.NoError(t, err)
-
-	//... and make sure to delete the helm release at the end of the test.
-	defer func() {
-		helm.Delete(t, options, releaseName, true)
-	}()
+	helm.Install(t, options, helmChartPath, releaseName)
+	defer cleanupResources(t, releaseName, kubectlOptions, options, []string{})
 
 	// Print the debug logs in case of test failure.
 	defer func() {
@@ -466,23 +452,18 @@ spec:
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-		SetValues: map[string]string{
+		SetValues: patchHelmValues(map[string]string{
 			"tls.enabled":                      "true",
 			"tls.certs.selfSigner.enabled":     "false",
 			"tls.certs.certManager":            "true",
 			"tls.certs.certManagerIssuer.kind": "Issuer",
 			"tls.certs.certManagerIssuer.name": "cockroachdb",
-		},
+		}),
 	}
 
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
-	err = helm.InstallE(t, options, helmChartPath, releaseName)
-	require.NoError(t, err)
-
-	//... and make sure to delete the helm release at the end of the test.
-	defer func() {
-		helm.Delete(t, options, releaseName, true)
-	}()
+	helm.Install(t, options, helmChartPath, releaseName)
+	defer cleanupResources(t, releaseName, kubectlOptions, options, []string{})
 
 	// Print the debug logs in case of test failure.
 	defer func() {
@@ -503,21 +484,21 @@ spec:
 func TestWALFailoverSideDiskExistingCluster(t *testing.T) {
 	testWALFailoverExistingCluster(
 		t,
-		map[string]string{
+		patchHelmValues(map[string]string{
 			"conf.wal-failover.value":                    "path=cockroach-failover",
 			"conf.wal-failover.persistentVolume.enabled": "true",
 			"conf.wal-failover.persistentVolume.size":    "1Gi",
-		},
+		}),
 	)
 }
 
 func TestWALFailoverAmongStoresExistingCluster(t *testing.T) {
 	testWALFailoverExistingCluster(
 		t,
-		map[string]string{
+		patchHelmValues(map[string]string{
 			"conf.wal-failover.value": "among-stores",
 			"conf.store.count":        "2",
-		},
+		}),
 	)
 }
 
@@ -525,7 +506,6 @@ func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]st
 	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
 	numReplicas := 3
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
-	var err error
 
 	crdbCluster := testutil.CockroachCluster{
 		Cfg:              cfg,
@@ -549,12 +529,11 @@ func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]st
 	}()
 
 	// Configure options for the initial deployment.
-	initialValues := map[string]string{
-		"conf.cluster-name":             "test",
-		"conf.store.enabled":            "true",
-		"storage.persistentVolume.size": "1Gi",
-		"statefulset.replicas":          strconv.Itoa(numReplicas),
-	}
+	initialValues := patchHelmValues(map[string]string{
+		"conf.cluster-name":    "test",
+		"conf.store.enabled":   "true",
+		"statefulset.replicas": strconv.Itoa(numReplicas),
+	})
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues:      initialValues,
@@ -562,25 +541,7 @@ func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]st
 
 	// Deploy the helm chart and confirm the installation is successful.
 	helm.Install(t, options, helmChartPath, releaseName)
-
-	defer func() {
-		err = helm.DeleteE(t, options, releaseName, true)
-		// Ignore the error if the operation timed out.
-		if err == nil || !strings.Contains(err.Error(), "timed out") {
-			require.NoError(t, err)
-		}
-
-		danglingSecrets := []string{
-			crdbCluster.CaSecret,
-			crdbCluster.ClientSecret,
-			crdbCluster.NodeSecret,
-		}
-		for i := range danglingSecrets {
-			_, err = k8s.GetSecretE(t, kubectlOptions, danglingSecrets[i])
-			require.Equal(t, true, kube.IsNotFound(err))
-			t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
-		}
-	}()
+	defer cleanupResources(t, releaseName, kubectlOptions, options, []string{})
 
 	// Wait for the service endpoint to be available.
 	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
@@ -637,5 +598,40 @@ func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]st
 
 		k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
 		testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
+	}
+}
+
+func patchHelmValues(inputValues map[string]string) map[string]string {
+	overrides := map[string]string{
+		// Override the persistent storage size to 1Gi so that we do not run out of space.
+		"storage.persistentVolume.size": "1Gi",
+	}
+
+	for k, v := range overrides {
+		inputValues[k] = v
+	}
+
+	return inputValues
+}
+
+func cleanupResources(
+	t *testing.T,
+	releaseName string,
+	kubectlOptions *k8s.KubectlOptions,
+	options *helm.Options,
+	danglingSecrets []string,
+) {
+	err := helm.DeleteE(t, options, releaseName, true)
+	// Ignore the error if the operation timed out.
+	if err == nil || !strings.Contains(err.Error(), "timed out") {
+		require.NoError(t, err)
+	} else {
+		t.Logf("Error while deleting helm release: %v", err)
+	}
+
+	for i := range danglingSecrets {
+		_, err = k8s.GetSecretE(t, kubectlOptions, danglingSecrets[i])
+		require.Equal(t, true, kube.IsNotFound(err))
+		t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
 	}
 }
