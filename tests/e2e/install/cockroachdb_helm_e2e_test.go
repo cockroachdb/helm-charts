@@ -3,13 +3,16 @@ package integration
 import (
 	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/cockroach-operator/pkg/kube"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -19,7 +22,6 @@ import (
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
-	"github.com/cockroachdb/cockroach-operator/pkg/kube"
 	"github.com/cockroachdb/helm-charts/pkg/security"
 	util "github.com/cockroachdb/helm-charts/pkg/utils"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
@@ -496,4 +498,144 @@ spec:
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+}
+
+func TestWALFailoverSideDiskExistingCluster(t *testing.T) {
+	testWALFailoverExistingCluster(
+		t,
+		map[string]string{
+			"conf.wal-failover.value":                    "path=cockroach-failover",
+			"conf.wal-failover.persistentVolume.enabled": "true",
+			"conf.wal-failover.persistentVolume.size":    "1Gi",
+		},
+	)
+}
+
+func TestWALFailoverAmongStoresExistingCluster(t *testing.T) {
+	testWALFailoverExistingCluster(
+		t,
+		map[string]string{
+			"conf.wal-failover.value": "among-stores",
+			"conf.store.count":        "2",
+		},
+	)
+}
+
+func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]string) {
+	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
+	numReplicas := 3
+	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
+	var err error
+
+	crdbCluster := testutil.CockroachCluster{
+		Cfg:              cfg,
+		K8sClient:        k8sClient,
+		StatefulSetName:  fmt.Sprintf("%s-cockroachdb", releaseName),
+		Namespace:        namespaceName,
+		ClientSecret:     fmt.Sprintf("%s-cockroachdb-client-secret", releaseName),
+		NodeSecret:       fmt.Sprintf("%s-cockroachdb-node-secret", releaseName),
+		CaSecret:         fmt.Sprintf("%s-cockroachdb-ca-secret", releaseName),
+		IsCaUserProvided: false,
+	}
+
+	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+
+	// Print the debug logs in case of test failure.
+	defer func() {
+		if t.Failed() {
+			testutil.PrintDebugLogs(t, kubectlOptions)
+		}
+	}()
+
+	// Configure options for the initial deployment.
+	initialValues := map[string]string{
+		"conf.cluster-name":             "test",
+		"conf.store.enabled":            "true",
+		"storage.persistentVolume.size": "1Gi",
+		"statefulset.replicas":          strconv.Itoa(numReplicas),
+	}
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues:      initialValues,
+	}
+
+	// Deploy the helm chart and confirm the installation is successful.
+	helm.Install(t, options, helmChartPath, releaseName)
+
+	defer func() {
+		err = helm.DeleteE(t, options, releaseName, true)
+		// Ignore the error if the operation timed out.
+		if err == nil || !strings.Contains(err.Error(), "timed out") {
+			require.NoError(t, err)
+		}
+
+		danglingSecrets := []string{
+			crdbCluster.CaSecret,
+			crdbCluster.ClientSecret,
+			crdbCluster.NodeSecret,
+		}
+		for i := range danglingSecrets {
+			_, err = k8s.GetSecretE(t, kubectlOptions, danglingSecrets[i])
+			require.Equal(t, true, kube.IsNotFound(err))
+			t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
+		}
+	}()
+
+	// Wait for the service endpoint to be available.
+	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
+
+	// Enable WAL Failover and upgrade the cluster.
+	// In order to prevent any downtime, we need to follow the below steps for each pod:
+	// - delete the statefulset with --cascade=orphan
+	// - delete the pod
+	// - upgrade the Helm chart
+
+	// Configure options for the updated deployment.
+	updatedValues := map[string]string{}
+	for k, v := range initialValues {
+		updatedValues[k] = v
+	}
+	for k, v := range additionalValues {
+		updatedValues[k] = v
+	}
+	options = &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues:      updatedValues,
+	}
+
+	updateSinglePod := func(idx int) {
+		podName := fmt.Sprintf("%s-%d", crdbCluster.StatefulSetName, idx)
+		log.Printf("Request received to update pod %s\n", podName)
+
+		// Delete the statefulset with --cascade=orphan
+		log.Println("Deleting the statefulset with --cascade=orphan")
+		k8s.RunKubectl(
+			t,
+			kubectlOptions,
+			"delete",
+			"statefulset",
+			crdbCluster.StatefulSetName,
+			"--cascade=orphan",
+		)
+
+		// Delete the pod
+		log.Printf("Deleting the pod %s\n", podName)
+		k8s.RunKubectl(t, kubectlOptions, "delete", "pod", podName)
+		testutil.WaitUntilPodDeleted(t, kubectlOptions, podName, 30, 2*time.Second)
+
+		// Upgrade the Helm release
+		log.Println("Upgrading the Helm release")
+		helm.Upgrade(t, options, helmChartPath, releaseName)
+	}
+
+	// Iterate over all pods in the statefulset.
+	for idx := 0; idx < numReplicas; idx++ {
+		updateSinglePod(idx)
+
+		k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
+		testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
+	}
 }

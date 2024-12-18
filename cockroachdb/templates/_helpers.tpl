@@ -85,16 +85,20 @@ Return the appropriate apiVersion for StatefulSets
 Return CockroachDB store expression
 */}}
 {{- define "cockroachdb.conf.store" -}}
-{{- $isInMemory := eq (.Values.conf.store.type | toString) "mem" -}}
-{{- $persistentSize := empty .Values.conf.store.size | ternary .Values.storage.persistentVolume.size .Values.conf.store.size -}}
+  {{- $isInMemory := eq (.Values.conf.store.type | toString) "mem" -}}
+  {{- $persistentSize := empty .Values.conf.store.size | ternary .Values.storage.persistentVolume.size .Values.conf.store.size -}}
 
-{{- $store := dict -}}
-{{- $_ := set $store "type" ($isInMemory | ternary "type=mem" "") -}}
-{{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.path)) -}}
-{{- $_ := set $store "size" (print "size=" ($isInMemory | ternary .Values.conf.store.size $persistentSize)) -}}
-{{- $_ := set $store "attrs" (empty .Values.conf.store.attrs | ternary "" (print "attrs=" .Values.conf.store.attrs)) -}}
+  {{- $store := dict -}}
+  {{- $_ := set $store "type" ($isInMemory | ternary "type=mem" "") -}}
+  {{- if eq .Args.idx 0 -}}
+    {{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.path)) -}}
+  {{- else -}}
+    {{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.path "-" (add1 .Args.idx))) -}}
+  {{- end -}}
+  {{- $_ := set $store "size" (print "size=" ($isInMemory | ternary .Values.conf.store.size $persistentSize)) -}}
+  {{- $_ := set $store "attrs" (empty .Values.conf.store.attrs | ternary "" (print "attrs=" .Values.conf.store.attrs)) -}}
 
-{{ compact (values $store) | join "," }}
+  {{- compact (values $store) | sortAlpha | join "," -}}
 {{- end -}}
 
 {{/*
@@ -302,4 +306,47 @@ Validate the log configuration.
     {{ fail "Log configuration should use the persistent volume if enabled" }}
 {{- end -}}
 {{- end -}}
+{{- end -}}
+
+{{- define "cockroachdb.storage.hostPath.computation" -}}
+{{- if hasSuffix "/" .Values.storage.hostPath -}}
+    {{- printf "%s-%d/" (dir .Values.storage.hostPath) (add1 .Args.idx) | quote -}}
+{{- else -}}
+    {{- printf "%s-%d" .Values.storage.hostPath (add1 .Args.idx) | quote -}}
+{{- end -}}
+{{- end -}}
+
+{{/*
+Validate the store count configuration.
+*/}}
+{{- define "cockroachdb.conf.store.validation" -}}
+  {{- if and (not .Values.conf.store.enabled) (ne (int .Values.conf.store.count) 1) -}}
+    {{ fail "Store count should be 1 when disabled" }}
+  {{- end -}}
+{{- end -}}
+
+{{/*
+Validate the WAL failover configuration.
+*/}}
+{{- define "cockroachdb.conf.wal-failover.validation" -}}
+  {{- with index .Values.conf `wal-failover` -}}
+    {{- if not (mustHas .value (list "" "disabled" "among-stores")) -}}
+        {{- if not (hasPrefix "path=" (.value | toString)) -}}
+            {{ fail "Invalid WAL failover configuration value. Expected either of '', 'disabled', 'among-stores' or 'path=<path>'" }}
+        {{- end -}}
+    {{- end -}}
+    {{- if eq .value "among-stores" -}}
+      {{- if or (not $.Values.conf.store.enabled) (eq (int $.Values.conf.store.count) 1) -}}
+        {{ fail "WAL failover among stores requires store enabled with count greater than 1" }}
+      {{- end -}}
+    {{- end -}}
+    {{- if hasPrefix "path=" (.value | toString) -}}
+      {{- if not .persistentVolume.enabled -}}
+        {{ fail "WAL failover to a side disk requires a persistent volume" }}
+      {{- end -}}
+      {{- if and (not (hasPrefix (printf "/cockroach/%s" .persistentVolume.path) (trimPrefix "path=" .value))) (not (hasPrefix .persistentVolume.path (trimPrefix "path=" .value))) -}}
+        {{ fail "WAL failover to a side disk requires a path to the mounted persistent volume" }}
+      {{- end -}}
+    {{- end -}}
+  {{- end -}}
 {{- end -}}

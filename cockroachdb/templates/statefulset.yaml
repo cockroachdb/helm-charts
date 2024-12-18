@@ -1,4 +1,5 @@
 {{ template "cockroachdb.conf.log.validation" . }}
+{{ template "cockroachdb.conf.store.validation" . }}
 kind: StatefulSet
 apiVersion: {{ template "cockroachdb.statefulset.apiVersion" . }}
 metadata:
@@ -235,7 +236,14 @@ spec:
               --sql-audit-dir={{ . }}
             {{- end }}
             {{- if .Values.conf.store.enabled }}
-              --store={{ template "cockroachdb.conf.store" . }}
+              {{- range $idx := until (int .Values.conf.store.count) }}
+              {{- $_ := set $ "Args" (dict "idx" $idx) }}
+              --store={{ include "cockroachdb.conf.store" $ }}
+              {{- end }}
+            {{- end }}
+            {{- with index .Values.conf `wal-failover` `value` }}
+              {{- template "cockroachdb.conf.wal-failover.validation" $ }}
+              --wal-failover={{ . }}
             {{- end }}
             {{- if .Values.conf.log.enabled }}
               --log-config-file=/cockroach/log-config/log-config.yaml
@@ -271,8 +279,21 @@ spec:
               {{- end }}
               protocol: TCP
           volumeMounts:
+          {{- range $i := until (int .Values.conf.store.count) }}
+            {{- if eq $i 0 }}
             - name: datadir
-              mountPath: /cockroach/{{ .Values.conf.path }}/
+              mountPath: /cockroach/{{ $.Values.conf.path }}/
+            {{- else }}
+            - name: datadir-{{ add1 $i }}
+              mountPath: /cockroach/{{ $.Values.conf.path }}-{{ add1 $i }}/
+            {{- end }}
+          {{- end }}
+          {{- with index .Values.conf `wal-failover` `persistentVolume` }}
+            {{- if .enabled }}
+            - name: failoverdir
+              mountPath: /cockroach/{{ .path }}/
+            {{- end }}
+          {{- end }}
           {{- if .Values.tls.enabled }}
             - name: certs
               mountPath: /cockroach/cockroach-certs/
@@ -344,16 +365,43 @@ spec:
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
       volumes:
+      {{- range $i := until (int .Values.conf.store.count) }}
+      {{- if eq $i 0 }}
         - name: datadir
-        {{- if .Values.storage.persistentVolume.enabled }}
+        {{- if $.Values.storage.persistentVolume.enabled }}
           persistentVolumeClaim:
             claimName: datadir
-        {{- else if .Values.storage.hostPath }}
+        {{- else if $.Values.storage.hostPath }}
           hostPath:
-            path: {{ .Values.storage.hostPath | quote }}
+            path: {{ $.Values.storage.hostPath | quote }}
         {{- else }}
           emptyDir: {}
         {{- end }}
+      {{- else }}
+        - name: datadir-{{ add1 $i }}
+        {{- if $.Values.storage.persistentVolume.enabled }}
+          persistentVolumeClaim:
+            claimName: datadir-{{ add1 $i }}
+        {{- else if $.Values.storage.hostPath }}
+          {{- $_ := set $ "Args" (dict "idx" $i) }}
+          hostPath:
+            path: {{ include "cockroachdb.storage.hostPath.computation" $ }}
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- with index .Values.conf `wal-failover` }}
+      {{- if .value }}
+        - name: failoverdir
+        {{- if .persistentVolume.enabled }}
+          persistentVolumeClaim:
+            claimName: failoverdir
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+      {{- end }}
+      {{- end }}
         {{- with .Values.statefulset.volumes }}
           {{ toYaml . | nindent 8 }}
         {{- end }}
@@ -418,35 +466,71 @@ spec:
         runAsNonRoot: true
       {{- end }}
       {{- end }}
-{{- if or .Values.storage.persistentVolume.enabled .Values.conf.log.persistentVolume.enabled }}
+{{- if or .Values.storage.persistentVolume.enabled (index .Values.conf `wal-failover` `persistentVolume` `enabled`) .Values.conf.log.persistentVolume.enabled }}
   volumeClaimTemplates:
   {{- if .Values.storage.persistentVolume.enabled }}
+  {{- range $i := until (int .Values.conf.store.count) }}
     - metadata:
+    {{- if eq $i 0 }}
         name: datadir
+    {{- else }}
+        name: datadir-{{ add1 $i }}
+    {{- end }}
         labels:
-          app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
-          app.kubernetes.io/instance: {{ .Release.Name | quote }}
-        {{- with .Values.storage.persistentVolume.labels }}
+          app.kubernetes.io/name: {{ template "cockroachdb.name" $ }}
+          app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+        {{- with $.Values.storage.persistentVolume.labels }}
           {{- toYaml . | nindent 10 }}
         {{- end }}
-        {{- with .Values.labels }}
+        {{- with $.Values.labels }}
           {{- toYaml . | nindent 10 }}
         {{- end }}
-      {{- with .Values.storage.persistentVolume.annotations }}
+      {{- with $.Values.storage.persistentVolume.annotations }}
         annotations: {{- toYaml . | nindent 10 }}
       {{- end }}
       spec:
         accessModes: ["ReadWriteOnce"]
-      {{- if .Values.storage.persistentVolume.storageClass }}
-      {{- if (eq "-" .Values.storage.persistentVolume.storageClass) }}
+      {{- if $.Values.storage.persistentVolume.storageClass }}
+      {{- if (eq "-" $.Values.storage.persistentVolume.storageClass) }}
         storageClassName: ""
       {{- else }}
-        storageClassName: {{ .Values.storage.persistentVolume.storageClass | quote}}
+        storageClassName: {{ $.Values.storage.persistentVolume.storageClass | quote}}
       {{- end }}
       {{- end }}
         resources:
           requests:
-            storage: {{ .Values.storage.persistentVolume.size | quote }}
+            storage: {{ $.Values.storage.persistentVolume.size | quote }}
+  {{- end }}
+  {{- end }}
+  {{- with index .Values.conf `wal-failover` }}
+  {{- if .persistentVolume.enabled }}
+    - metadata:
+        name: failoverdir
+        labels:
+          app.kubernetes.io/name: {{ template "cockroachdb.name" $ }}
+          app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+        {{- with .persistentVolume.labels }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $.Values.labels }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- with .persistentVolume.annotations }}
+        annotations: {{- toYaml . | nindent 10 }}
+      {{- end }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+      {{- with .persistentVolume.storageClass }}
+      {{- if eq "-" . }}
+        storageClassName: ""
+      {{- else }}
+        storageClassName: {{ . | quote}}
+      {{- end }}
+      {{- end }}
+        resources:
+          requests:
+            storage: {{ .persistentVolume.size | quote }}
+  {{- end }}
   {{- end }}
   {{- if .Values.conf.log.persistentVolume.enabled }}
     - metadata:

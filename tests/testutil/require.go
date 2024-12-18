@@ -7,15 +7,18 @@ import (
 	"encoding/pem"
 	"errors"
 	"fmt"
-	"github.com/gruntwork-io/terratest/modules/k8s"
-	batchv1 "k8s.io/api/batch/v1"
-	corev1 "k8s.io/api/core/v1"
+	"log"
 	"testing"
 	"time"
 
 	"github.com/cockroachdb/cockroach-operator/pkg/database"
+	"github.com/cockroachdb/cockroach-operator/pkg/kube"
+	"github.com/gruntwork-io/terratest/modules/k8s"
+	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -292,17 +295,21 @@ func verifyCertificate(t *testing.T, caCert []byte, cert *x509.Certificate) {
 
 // PrintDebugLogs adds the verbose logging of the cluster at the runtime.
 func PrintDebugLogs(t *testing.T, options *k8s.KubectlOptions) {
-	out, err := k8s.RunKubectlAndGetOutputE(t, options, []string{"get", "nodes"}...)
-	require.NoError(t, err)
-	t.Log(out)
-
-	out, err = k8s.RunKubectlAndGetOutputE(t, options, []string{"get", "pods"}...)
-	require.NoError(t, err)
-	t.Log(out)
-
-	out, err = k8s.RunKubectlAndGetOutputE(t, options, []string{"describe", "pods"}...)
-	require.NoError(t, err)
-	t.Log(out)
+	for _, args := range [][]string{
+		{"get", "nodes"},
+		{"get", "pvc"},
+		{"describe", "pvc"},
+		{"get", "pv"},
+		{"describe", "pv"},
+		{"get", "sts"},
+		{"describe", "sts"},
+		{"get", "pods"},
+		{"describe", "pods"},
+	} {
+		out, err := k8s.RunKubectlAndGetOutputE(t, options, args...)
+		require.NoError(t, err)
+		t.Log(out)
+	}
 }
 
 // RequireToRunRotateJob triggers the client/node or CA certificate rotation job based on next cron schedule.
@@ -426,4 +433,33 @@ func fetchJob(k8sClient client.Client, name, namespace string) (*batchv1.Job, er
 	}
 
 	return &job, nil
+}
+
+// WaitUntilPodDeleted waits until the pod is deleted, retrying the check for the specified
+// amount of times, sleeping for the provided duration between each try.
+func WaitUntilPodDeleted(
+	t *testing.T,
+	options *k8s.KubectlOptions,
+	podName string,
+	retries int,
+	sleepBetweenRetries time.Duration,
+) {
+	statusMsg := fmt.Sprintf("Wait for pod %s to be deleted.", podName)
+	message, err := retry.DoWithRetryE(
+		t,
+		statusMsg,
+		retries,
+		sleepBetweenRetries,
+		func() (string, error) {
+			_, err := k8s.GetPodE(t, options, podName)
+			if err != nil && kube.IsNotFound(err) {
+				return "Pod is now deleted", nil
+			}
+			return "", errors.New(fmt.Sprintf("pod is not deleted: %s", err))
+		},
+	)
+	if err != nil {
+		log.Printf("Timedout waiting for Pod to be deleted: %s\n", err)
+	}
+	log.Println(message)
 }
