@@ -32,7 +32,7 @@ This chart will do the following:
 ## Add the CockroachDB Repository
 
 ```shell
-helm repo add cockroachdb https://charts.cockroachdb.com/
+$ helm repo add cockroachdb https://charts.cockroachdb.com/
 ```
 
 ## Installing the Chart
@@ -40,7 +40,7 @@ helm repo add cockroachdb https://charts.cockroachdb.com/
 To install the chart with the release name `my-release`:
 
 ```shell
-helm install my-release cockroachdb/cockroachdb
+$ helm install my-release cockroachdb/cockroachdb
 ```
 
 Note that for a production cluster, you will likely want to override the following parameters in [`values.yaml`](values.yaml) with your own values.
@@ -57,10 +57,8 @@ For more information on overriding the `values.yaml` parameters, please see:
 Confirm that all pods are `Running` successfully and init has been completed:
 
 ```shell
-kubectl get pods
-```
+$ kubectl get pods
 
-```
 NAME                                READY     STATUS      RESTARTS   AGE
 my-release-cockroachdb-0            1/1       Running     0          1m
 my-release-cockroachdb-1            1/1       Running     0          1m
@@ -71,10 +69,8 @@ my-release-cockroachdb-init-k6jcr   0/1       Completed   0          1m
 Confirm that persistent volumes are created and claimed for each pod:
 
 ```shell
-kubectl get pv
-```
+$ kubectl get pv
 
-```
 NAME                                       CAPACITY   ACCESS MODES   RECLAIM POLICY   STATUS    CLAIM                                      STORAGECLASS   REASON    AGE
 pvc-64878ebf-f3f0-11e8-ab5b-42010a8e0035   100Gi      RWO            Delete           Bound     default/datadir-my-release-cockroachdb-0   standard                 51s
 pvc-64945b4f-f3f0-11e8-ab5b-42010a8e0035   100Gi      RWO            Delete           Bound     default/datadir-my-release-cockroachdb-1   standard                 51s
@@ -98,10 +94,8 @@ This is the default behaviour, and requires no configuration beyond setting cert
 If you are running in this mode, self-signed certificates are created by self-signed utility for the nodes and root client and are stored in a secret.
 You can look for the certificates created:
 ```shell
-kubectl get secrets
-```
+$ kubectl get secrets
 
-```shell
 crdb-cockroachdb-ca-secret                 Opaque                                2      23s
 crdb-cockroachdb-client-secret             kubernetes.io/tls                     3      22s
 crdb-cockroachdb-node-secret               kubernetes.io/tls                     3      23s
@@ -179,7 +173,7 @@ spec:
 Launch a temporary interactive pod and start the built-in SQL client:
 
 ```shell
-kubectl run cockroachdb --rm -it \
+$ kubectl run cockroachdb --rm -it \
 --image=cockroachdb/cockroach \
 --restart=Never \
 -- sql --insecure --host=my-release-cockroachdb-public
@@ -202,18 +196,39 @@ Exit the shell and delete the temporary pod:
 Kick off the upgrade process by changing the new Docker image, where `$new_version` is the CockroachDB version to which you are upgrading:
 
 ```shell
-helm upgrade my-release cockroachdb/cockroachdb \
+$ helm upgrade my-release cockroachdb/cockroachdb \
 --set image.tag=$new_version \
 --reuse-values
 ```
 
-Kubernetes will carry out a safe [rolling upgrade](https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#updating-statefulsets) of your CockroachDB nodes one-by-one. Monitor the cluster's pods until all have been successfully restarted:
+Kubernetes will carry out a safe [rolling upgrade](https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#updating-statefulsets) of your CockroachDB nodes one-by-one.
+
+However, the upgrade will fail if it involves adding new Persistent Volume Claim (PVC) to the existing pods (e.g. enabling WAL Failover, pushing logs to a separate volume, etc.). In such cases, kindly repeat the following steps for each pod:
+1. Delete the statefulset
+```shell
+$ kubectl delete sts my-release-cockroachdb --cascade=orphan
+```
+The statefulset name can be found by running `kubectl get sts`. Note the `--cascade=orphan` flag used to prevent the deletion of pods.
+
+2. Delete the pod
+```shell
+$ kubectl delete pod my-release-cockroachdb-<pod_number>
+```
+
+3. Upgrade Helm chart
+```shell
+$ helm upgrade my-release cockroachdb/cockroachdb
+```
+Kindly update the values.yaml file or provide the necessary flags to the `helm upgrade` command. This step will recreate the pod with the new PVCs.
+
+Note that the above steps need to be repeated for each pod in the CockroachDB cluster. This will ensure that the cluster is upgraded without any downtime.
+Given the manual process involved, it is likely to cause network churn as cockroachdb will try to rebalance data across the other nodes. We are working on an automated solution to handle this scenario.
+
+Monitor the cluster's pods until all have been successfully restarted:
 
 ```shell
-kubectl get pods
-```
+$ kubectl get pods
 
-```
 NAME                                READY     STATUS              RESTARTS   AGE
 my-release-cockroachdb-0            1/1       Running             0          2m
 my-release-cockroachdb-1            1/1       Running             0          3m
@@ -223,11 +238,9 @@ my-release-cockroachdb-init-nwjkh   0/1       ContainerCreating   0          6s
 ```
 
 ```shell
-kubectl get pods \
+$ kubectl get pods \
 -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}'
-```
 
-```
 my-release-cockroachdb-0    cockroachdb/cockroach:v{{ .AppVersion }}
 my-release-cockroachdb-1    cockroachdb/cockroach:v{{ .AppVersion }}
 my-release-cockroachdb-2    cockroachdb/cockroach:v{{ .AppVersion }}
@@ -237,7 +250,7 @@ my-release-cockroachdb-3    cockroachdb/cockroach:v{{ .AppVersion }}
 Resume normal operations. Once you are comfortable that the stability and performance of the cluster is what you'd expect post-upgrade, finalize the upgrade:
 
 ```shell
-kubectl run cockroachdb --rm -it \
+$ kubectl run cockroachdb --rm -it \
 --image=cockroachdb/cockroach \
 --restart=Never \
 -- sql --insecure --host=my-release-cockroachdb-public
@@ -255,11 +268,9 @@ Due to a change in the label format in version 3.0.0 of this chart, upgrading re
 Get the new labels from the specs rendered by Helm:
 
 ```shell
-helm template -f deploy.vals.yml cockroachdb/cockroachdb -x templates/statefulset.yaml \
+$ helm template -f deploy.vals.yml cockroachdb/cockroachdb -x templates/statefulset.yaml \
 | yq r - spec.template.metadata.labels
-```
 
-```
 app.kubernetes.io/name: cockroachdb
 app.kubernetes.io/instance: my-release
 app.kubernetes.io/component: cockroachdb
@@ -268,7 +279,7 @@ app.kubernetes.io/component: cockroachdb
 Place the new labels on all pods of the StatefulSet (change `my-release-cockroachdb-0` to the name of each pod):
 
 ```shell
-kubectl label pods my-release-cockroachdb-0 \
+$ kubectl label pods my-release-cockroachdb-0 \
 app.kubernetes.io/name=cockroachdb \
 app.kubernetes.io/instance=my-release \
 app.kubernetes.io/component=cockroachdb
@@ -277,7 +288,7 @@ app.kubernetes.io/component=cockroachdb
 Delete the StatefulSet without deleting pods:
 
 ```shell
-kubectl delete statefulset my-release-cockroachdb --cascade=false
+$ kubectl delete statefulset my-release-cockroachdb --cascade=false
 ```
 
 Verify that no pod is deleted and then upgrade as normal. A new StatefulSet will be created, taking over the management of the existing pods and upgrading them if needed.
@@ -301,6 +312,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.cluster-name`                                       | Name of CockroachDB cluster                                     | `""`                                                  |
 | `conf.disable-cluster-name-verification`                  | Disable CockroachDB cluster name verification                   | `no`                                                  |
 | `conf.join`                                               | List of already-existing CockroachDB instances                  | `[]`                                                  |
+| `conf.log`                                                | Logging configuration                                           | `{}`                                                  |
 | `conf.max-disk-temp-storage`                              | Max storage capacity for temp data                              | `0`                                                   |
 | `conf.max-offset`                                         | Max allowed clock offset for CockroachDB cluster                | `500ms`                                               |
 | `conf.max-sql-memory`                                     | Max memory to use processing SQL querie                         | `25%`                                                 |
@@ -311,9 +323,11 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.http-port`                                          | WARNING this parameter is deprecated and will be removed in future version. Use `service.ports.http.port` instead | `""` |
 | `conf.path`                                               | CockroachDB data directory mount path                           | `cockroach-data`                                      |
 | `conf.store.enabled`                                      | Enable store configuration for CockroachDB                      | `false`                                               |
+| `conf.store.count`                                        | Number of data stores per node                                  | `1`                                                   |
 | `conf.store.type`                                         | CockroachDB storage type                                        | `""`                                                  |
 | `conf.store.size`                                         | CockroachDB storage size                                        | `""`                                                  |
 | `conf.store.attrs`                                        | CockroachDB storage attributes                                  | `""`                                                  |
+| `conf.wal-failover`                                       | CockroachDB WAL Failover configuration                          | `{}`                                                  |
 | `image.repository`                                        | Container image name                                            | `cockroachdb/cockroach`                               |
 | `image.tag`                                               | Container image tag                                             | `v{{ .AppVersion }}`                                             |
 | `image.pullPolicy`                                        | Container pull policy                                           | `IfNotPresent`                                        |
@@ -431,7 +445,7 @@ Override the default parameters using the `--set key=value[,key=value]` argument
 Alternatively, a YAML file that specifies custom values for the parameters can be provided while installing the chart. For example:
 
 ```shell
-helm install my-release -f my-values.yaml cockroachdb/cockroachdb
+$ helm install my-release -f my-values.yaml cockroachdb/cockroachdb
 ```
 
 > **Tip**: You can use the default [values.yaml](values.yaml)
@@ -443,12 +457,11 @@ helm install my-release -f my-values.yaml cockroachdb/cockroachdb
 Once you've created the cluster, you can start talking to it by connecting to its `-public` Service. CockroachDB is PostgreSQL wire protocol compatible, so there's a [wide variety of supported clients](https://www.cockroachlabs.com/docs/install-client-drivers.html). As an example, we'll open up a SQL shell using CockroachDB's built-in shell and play around with it a bit, like this (likely needing to replace `my-release-cockroachdb-public` with the name of the `-public` Service that was created with your installed chart):
 
 ```shell
-kubectl run cockroach-client --rm -it \
+$ kubectl run cockroach-client --rm -it \
 --image=cockroachdb/cockroach \
 --restart=Never \
 -- sql --insecure --host my-release-cockroachdb-public
 ```
-
 ```
 Waiting for pod default/cockroach-client to be running, status is Pending,
 pod ready: false
@@ -495,7 +508,7 @@ If you want more detailed information about the cluster, the best place to look 
 If you want to see information about how the cluster is doing, you can try pulling up the CockroachDB Admin UI by port-forwarding from your local machine to one of the pods (replacing `my-release-cockroachdb-0` with the name of one of your pods:
 
 ```shell
-kubectl port-forward my-release-cockroachdb-0 8080
+$ kubectl port-forward my-release-cockroachdb-0 8080
 ```
 
 You should then be able to access the Admin UI by visiting <http://localhost:8080/> in your web browser.
@@ -505,14 +518,12 @@ You should then be able to access the Admin UI by visiting <http://localhost:808
 If any CockroachDB member fails, it is restarted or recreated automatically by the Kubernetes infrastructure, and will re-join the cluster automatically when it comes back up. You can test this scenario by killing any of the CockroachDB pods:
 
 ```shell
-kubectl delete pod my-release-cockroachdb-1
+$ kubectl delete pod my-release-cockroachdb-1
 ```
 
 ```shell
-kubectl get pods -l "app.kubernetes.io/instance=my-release,app.kubernetes.io/component=cockroachdb"
-```
+$ kubectl get pods -l "app.kubernetes.io/instance=my-release,app.kubernetes.io/component=cockroachdb"
 
-```
 NAME                      READY     STATUS        RESTARTS   AGE
 my-release-cockroachdb-0  1/1       Running       0          5m
 my-release-cockroachdb-2  1/1       Running       0          5m
@@ -521,10 +532,8 @@ my-release-cockroachdb-2  1/1       Running       0          5m
 After a while:
 
 ```shell
-kubectl get pods -l "app.kubernetes.io/instance=my-release,app.kubernetes.io/component=cockroachdb"
-```
+$ kubectl get pods -l "app.kubernetes.io/instance=my-release,app.kubernetes.io/component=cockroachdb"
 
-```
 NAME                      READY     STATUS        RESTARTS   AGE
 my-release-cockroachdb-0  1/1       Running       0          5m
 my-release-cockroachdb-1  1/1       Running       0          20s
@@ -534,10 +543,8 @@ my-release-cockroachdb-2  1/1       Running       0          5m
 You can check the state of re-joining from the new pod's logs:
 
 ```shell
-kubectl logs my-release-cockroachdb-1
-```
+$ kubectl logs my-release-cockroachdb-1
 
-```
 [...]
 I161028 19:32:09.754026 1 server/node.go:586  [n1] node connected via gossip and
 verified as part of cluster {"35ecbc27-3f67-4e7d-9b8f-27c31aae17d6"}
@@ -562,7 +569,7 @@ To enable NetworkPolicy for CockroachDB, install [a networking plugin that imple
 For Kubernetes v1.5 & v1.6, you must also turn on NetworkPolicy by setting the `DefaultDeny` Namespace annotation. Note: this will enforce policy for _all_ pods in the Namespace:
 
 ```shell
-kubectl annotate namespace default "net.beta.kubernetes.io/network-policy={\"ingress\":{\"isolation\":\"DefaultDeny\"}}"
+$ kubectl annotate namespace default "net.beta.kubernetes.io/network-policy={\"ingress\":{\"isolation\":\"DefaultDeny\"}}"
 ```
 
 For more precise policy, set `networkPolicy.ingress.grpc` and `networkPolicy.ingress.http` rules. This will only allow pods that match the provided rules to connect to CockroachDB.
@@ -572,7 +579,7 @@ For more precise policy, set `networkPolicy.ingress.grpc` and `networkPolicy.ing
 Scaling should be managed via the `helm upgrade` command. After resizing your cluster on your cloud environment (e.g., GKE or EKS), run the following command to add a pod. This assumes you scaled from 3 to 4 nodes:
 
 ```shell
-helm upgrade \
+$ helm upgrade \
 my-release \
 cockroachdb/cockroachdb \
 --set statefulset.replicas=4 \
