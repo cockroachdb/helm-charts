@@ -702,13 +702,13 @@ operator:
     # validForDays: 3650
 
     # External certificates for the CRDB cluster.
-    externalCertificates: 
-      clientCaConfigMapName: my-release-cockroachdb-ca-secret-crt
-      nodeCaConfigMapName: my-release-cockroachdb-ca-secret-crt
-      httpSecretName: my-release-cockroachdb-client-secret
-      nodeClientSecretName: my-release-cockroachdb-client-secret
-      nodeSecretName: my-release-cockroachdb-node-secret
-      rootSqlClientSecretName: my-release-cockroachdb-client-secret
+    externalCertificates:
+      clientCaConfigMapName: ""
+      nodeCaConfigMapName: ""
+      httpSecretName: ""
+      nodeClientSecretName: ""
+      nodeSecretName: ""
+      rootSqlClientSecretName: ""
 
   # RBAC settings for CRDB nodes
   rbac:
@@ -737,12 +737,12 @@ operator:
         resources: ["nodes"]
         verbs: ["get"]
     serviceAccountName: ~
-  
+
   regions:
-  - code: us-east-1
-    nodes: 3
-    cloudProvider: k3d
-    namespace: default
+    - code: us-east-1
+      nodes: 3
+      cloudProvider: k3d
+      namespace: default
 
   extras:
     # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
