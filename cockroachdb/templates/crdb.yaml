@@ -37,6 +37,12 @@ spec:
       {{- with .Values.operator.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
       {{- end }}
+      podLabels:
+        app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        {{- with .Values.operator.podLabels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.operator.resources }}
       resourceRequirements: {{- toYaml . | nindent 8 }}
       {{- end }}
