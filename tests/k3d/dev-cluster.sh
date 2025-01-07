@@ -2,6 +2,8 @@
 region="us-east-1"
 zones=3
 
+K3D_PATH="./bin/k3d"
+
 if [ $# -eq 0 ]
   then
       echo "No arguments supplied: "
@@ -58,7 +60,7 @@ set_node_labels() {
 case $COMMAND in
   up)
     node_labels=$(set_node_labels ${nodes} ${region} ${zones})
-    k3d cluster create ${name} \
+    ${K3D_PATH} cluster create ${name} \
       --network ${network_name} \
 			--registry-config "$SCRIPT_DIR/registries.yaml" \
 			--image rancher/k3s:v${version}-k3s1 \
@@ -67,7 +69,7 @@ case $COMMAND in
       ${node_labels} 
   ;;
   down)
-    k3d cluster delete ${name}
+    ${K3D_PATH} cluster delete ${name}
   ;;
   *)
     echo "Unknown command: $COMMAND"

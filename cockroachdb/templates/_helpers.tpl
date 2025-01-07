@@ -350,3 +350,23 @@ Validate the WAL failover configuration.
     {{- end -}}
   {{- end -}}
 {{- end -}}
+
+
+{{/* Common labels that are applied to all managed objects. */}}
+{{- define "cluster.labels" -}}
+helm.sh/chart: {{ include "cockroachdb.chart" . }}
+{{ include "cluster.selectorLabels" . }}
+{{- if .Chart.AppVersion }}
+app.kubernetes.io/version: {{ .Chart.AppVersion | quote }}
+{{- end }}
+app.kubernetes.io/managed-by: {{ .Release.Service }}
+{{- end }}
+
+{{/*
+  Selector labels defines the set of labels that can be used as selectors for
+  crdb nodes.
+*/}}
+{{- define "cluster.selectorLabels" -}}
+app.kubernetes.io/name: {{ include "cockroachdb.clusterfullname" . }}
+app.kubernetes.io/instance: {{ .Release.Name }}
+{{- end }}

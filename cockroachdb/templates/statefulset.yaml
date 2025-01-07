@@ -1,3 +1,4 @@
+{{- if not .Values.operator.enabled }}
 {{ template "cockroachdb.conf.log.validation" . }}
 {{ template "cockroachdb.conf.store.validation" . }}
 kind: StatefulSet
@@ -560,4 +561,5 @@ spec:
           requests:
             storage: {{ .Values.conf.log.persistentVolume.size | quote }}
   {{- end }}
+{{- end }}
 {{- end }}

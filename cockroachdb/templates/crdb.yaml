@@ -1,0 +1,48 @@
+{{- if .Values.operator.enabled }}
+---
+apiVersion: crdb.cockroachlabs.com/v1alpha1
+kind: CrdbCluster
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cluster.labels" . | nindent 4 }}
+  {{- with .Values.statefulset.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.operator.clusterSettings }}
+  clusterSettings: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.operator.regions }}
+  regions: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  features:
+    - reconcile
+    - reconcile-beta
+  template:
+    spec:
+      image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+      certificates:
+        externalCertificates:
+          clientCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.clientCaConfigMapName | default (printf "%s-client-ca" $.Release.Name) }}
+          nodeCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.nodeCaConfigMapName | default (printf "%s-node-ca" $.Release.Name) }}
+          httpSecretName: {{ .Values.operator.certificates.externalCertificates.httpSecretName | default (printf "%s-ui-certs" $.Release.Name) }} 
+          nodeClientSecretName: {{ .Values.operator.certificates.externalCertificates.nodeClientSecretName | default (printf "%s-node-client-certs" $.Release.Name) }} 
+          nodeSecretName: {{ .Values.operator.certificates.externalCertificates.nodeSecretName | default (printf "%s-node-certs" $.Release.Name) }} 
+          rootSqlClientSecretName: {{ .Values.operator.certificates.externalCertificates.rootSqlClientSecretName | default (printf "%s-client-certs" $.Release.Name) }}
+    {{- with .Values.operator.resources }}
+      resourceRequirements: {{- toYaml . | nindent 8 }}
+    {{- end }}
+      serviceAccountName: {{ default .Release.Name .Values.operator.rbac.serviceAccountName }}
+    {{- if .Values.operator.loggingConf }}
+      loggingConfigMapName: {{ .Release.Name }}-logging
+    {{- end }}
+  # All properties below are solely to pass validation. They aren't used by the
+  # betaclusterctrl controller so the values don't matter so long as they're
+  # valid.
+  dataStore: {}
+{{- end }}

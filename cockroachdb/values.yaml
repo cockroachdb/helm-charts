@@ -675,7 +675,7 @@ tls:
     # Image Placeholder for the selfSigner utility. This will be changed once the CI workflows for the image is in place.
     image:
       repository: cockroachlabs-helm-charts/cockroach-self-signer-cert
-      tag: "1.5"
+      tag: "1.6"
       pullPolicy: IfNotPresent
       credentials: {}
       registry: gcr.io
@@ -714,4 +714,98 @@ iap:
 
 # Use the CRDB Operator to manage the CRDB clusters
 operator:
- enabled: false
+  enabled: true
+  # Default values for the cluster chart.
+  image:
+    repository: cockroachdb/cockroach
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the cluster chart's appVersion.
+    tag: ""
+
+  nameOverride: ""
+  fullnameOverride: ""
+
+  # A map of CRDB cluster settings.
+  # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
+  clusterSettings: ~
+
+  # Regions controls the number of CRDB nodes that are deployed per region.
+  # regions: ~
+    # - code: us-central1
+      # nodes: 3
+
+  # loggingConf is the logging configuration used by cockroach.
+  # More details: https://www.cockroachlabs.com/docs/stable/logging-overview.html
+  loggingConf: ~
+    # sinks:
+      # stderr:
+        # channels: [health, dev]
+        # filter: INFO
+
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as K3D. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the tilde after 'resources:'.
+  resources: ~
+    # limits:
+      # cpu: 100m
+      # memory: 128Mi
+    # requests:
+      # cpu: 100m
+      # memory: 128Mi
+
+  certificates:
+    # Any extra alt names that should be added to the node certs.
+    extraNodeAltNames: []
+      # - somevalue
+      # - somevalue.default
+      # - somevalue.default.svc.local
+    # the number of days generated certs are valid for
+    # validForDays: 3650
+
+    # External certificates for the CRDB cluster.
+    externalCertificates:
+      clientCaConfigMapName: my-release-cockroachdb-ca-secret-crt
+      nodeCaConfigMapName: my-release-cockroachdb-ca-secret-crt
+      httpSecretName: my-release-cockroachdb-client-secret
+      nodeClientSecretName: my-release-cockroachdb-client-secret
+      nodeSecretName: my-release-cockroachdb-node-secret
+      rootSqlClientSecretName: my-release-cockroachdb-client-secret
+
+  # RBAC settings for CRDB nodes
+  rbac:
+    # By default the service account will be the resource name. It will
+    # be created during the installation along with a namespaced role and
+    # a cluster role with the policy rules below.
+    #
+    # Uncomment the line below to use a custom SA. If a custom SA is used,
+    # no roles or bindings will be created.
+    # serviceAccountName: my-custom-sa
+
+    # Rules for the namespaced role bound to the service account.
+    #
+    # E.g.
+    # permissions:
+    #   - apiGroup: [""]
+    #     resources: ["secrets"]
+    #     verbs: ["create", "get"]
+    rules: []
+
+    # Rules for the cluster role bound to the service account.
+    clusterRules:
+      # Get nodes allows the locality container to work as expected. It pulls the
+      # failure-domain.beta.kubernetes.io/zone label to determine node locality.
+      - apiGroups: [""]
+        resources: ["nodes"]
+        verbs: ["get"]
+    serviceAccountName: ~
+
+  regions:
+  - code: us-east-1
+    nodes: 3
+    cloudProvider: k3d
+    namespace: default
+
+  extras:
+    # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
+    dnsutils: false
