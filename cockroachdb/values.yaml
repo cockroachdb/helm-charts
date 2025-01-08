@@ -729,8 +729,8 @@ operator:
   # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
   clusterSettings: ~
 
-  # Regions controls the number of CRDB nodes that are deployed per region.
-  # regions: ~
+    # Regions controls the number of CRDB nodes that are deployed per region.
+    # regions: ~
     # - code: us-central1
       # nodes: 3
 
@@ -754,6 +754,18 @@ operator:
       # cpu: 100m
       # memory: 128Mi
 
+  # dataStore specifies the disk configuration for the CRDB Node.
+  dataStore:
+    volumeClaimTemplate:
+      metadata: {}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+        volumeMode: Filesystem
+
   certificates:
     # Any extra alt names that should be added to the node certs.
     extraNodeAltNames: []
@@ -765,12 +777,12 @@ operator:
 
     # External certificates for the CRDB cluster.
     externalCertificates:
-      clientCaConfigMapName: my-release-cockroachdb-ca-secret-crt
-      nodeCaConfigMapName: my-release-cockroachdb-ca-secret-crt
-      httpSecretName: my-release-cockroachdb-client-secret
-      nodeClientSecretName: my-release-cockroachdb-client-secret
-      nodeSecretName: my-release-cockroachdb-node-secret
-      rootSqlClientSecretName: my-release-cockroachdb-client-secret
+      clientCaConfigMapName: ""
+      nodeCaConfigMapName: ""
+      httpSecretName: ""
+      nodeClientSecretName: ""
+      nodeSecretName: ""
+      rootSqlClientSecretName: ""
 
   # RBAC settings for CRDB nodes
   rbac:
@@ -801,10 +813,14 @@ operator:
     serviceAccountName: ~
 
   regions:
-  - code: us-east-1
-    nodes: 3
-    cloudProvider: k3d
-    namespace: default
+    - code: us-east-1
+      nodes: 3
+      cloudProvider: k3d
+      namespace: default
+
+  # PodLabels are the labels that should be applied to the underlying CRDB pod
+  podLabels:
+    app.kubernetes.io/component: cockroachdb
 
   extras:
     # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.

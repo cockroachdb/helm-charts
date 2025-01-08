@@ -95,8 +95,9 @@ dev/registries/bounce: bin/k3d dev/registries/down dev/registries/up
 dev/push/local: dev/registries/up
 	@echo "$(CYAN)Pushing image to local registry...$(NC)"
 	@docker build --platform=linux/amd64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
-          	--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) --push \
+          	--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) \
           	-t ${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
+	@docker push "${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
 
 ##@ Test
 test/cluster: bin/k3d test/cluster/up ## start a local k3d cluster for testing
