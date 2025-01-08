@@ -30,6 +30,33 @@ metadata:
   {{- end }}
   {{- end }}
 spec:
+  selector:
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+{{- if .Values.operator.enabled }}
+  {{- with .Values.operator.podLabels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  # Cockroach Cloud operator doesn't provide a way to change the sql,grpc and http ports for the pods. Hence, making these
+  # ports static here.
+  type: ClusterIP
+  ports:
+  - name: sql
+    port: 26257
+    protocol: TCP
+    targetPort: 26257
+  - name: grpc
+    port: 26258
+    protocol: TCP
+    targetPort: 26258
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+{{- else }}
+  {{- with .Values.statefulset.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
   type: {{ .Values.service.public.type | quote }}
   ports:
   {{- $ports := .Values.service.ports }}
@@ -47,15 +74,4 @@ spec:
     - name: {{ $ports.http.name | quote }}
       port: {{ $ports.http.port | int64 }}
       targetPort: http
-  selector:
-    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
-    app.kubernetes.io/instance: {{ .Release.Name | quote }}
-  {{- if .Values.operator.enabled }}
-  {{- with .Values.operator.podLabels }}
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- else }}
-  {{- with .Values.statefulset.labels }}
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-  {{- end }}
+{{- end }}
