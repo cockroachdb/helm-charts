@@ -203,26 +203,10 @@ $ helm upgrade my-release cockroachdb/cockroachdb \
 
 Kubernetes will carry out a safe [rolling upgrade](https://kubernetes.io/docs/tutorials/stateful-application/basic-stateful-set/#updating-statefulsets) of your CockroachDB nodes one-by-one.
 
-However, the upgrade will fail if it involves adding new Persistent Volume Claim (PVC) to the existing pods (e.g. enabling WAL Failover, pushing logs to a separate volume, etc.). In such cases, kindly repeat the following steps for each pod:
-1. Delete the statefulset
-```shell
-$ kubectl delete sts my-release-cockroachdb --cascade=orphan
-```
-The statefulset name can be found by running `kubectl get sts`. Note the `--cascade=orphan` flag used to prevent the deletion of pods.
+However, the upgrade will fail if it involves adding new Persistent Volume Claim (PVC) to the existing pods (e.g. enabling WAL Failover, pushing logs to a separate volume, etc.).
+In such cases, kindly run the `scripts/upgrade_with_new_pvc.sh` script to upgrade the cluster.
 
-2. Delete the pod
-```shell
-$ kubectl delete pod my-release-cockroachdb-<pod_number>
-```
-
-3. Upgrade Helm chart
-```shell
-$ helm upgrade my-release cockroachdb/cockroachdb
-```
-Kindly update the values.yaml file or provide the necessary flags to the `helm upgrade` command. This step will recreate the pod with the new PVCs.
-
-Note that the above steps need to be repeated for each pod in the CockroachDB cluster. This will ensure that the cluster is upgraded without any downtime.
-Given the manual process involved, it is likely to cause network churn as cockroachdb will try to rebalance data across the other nodes. We are working on an automated solution to handle this scenario.
+`./scripts/upgrade_with_new_pvc.sh -h` can be used for generating help on how to run the script.
 
 Monitor the cluster's pods until all have been successfully restarted:
 
