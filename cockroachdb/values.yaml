@@ -822,6 +822,25 @@ operator:
   podLabels:
     app.kubernetes.io/component: cockroachdb
 
+  # Flags passed to the cockroachdb container.
+  flags:
+    # Disable backup/restore to local disk by default.
+    --external-io-dir: disabled
+
+  # Environment variables set on cockroachdb pods.
+  env: []
+
+  # Delay between cockroachdb pod restarts. Wait 3m by default to avoid
+  # unavailability during restarts.
+  rollingRestartDelay: 3m0s
+
+  # Topology spread constraints set on cockroachdb pods. Spread cockroachdb
+  # pods across zones by default.
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+
   extras:
     # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
     dnsutils: false

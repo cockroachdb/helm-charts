@@ -23,6 +23,10 @@ spec:
   features:
     - reconcile
     - reconcile-beta
+  {{- with .Values.operator.flags }}
+  flags: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rollingRestartDelay: {{ .Values.operator.rollingRestartDelay }}
   template:
     spec:
       image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
@@ -37,6 +41,12 @@ spec:
           rootSqlClientSecretName: {{ .Values.operator.certificates.externalCertificates.rootSqlClientSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
       {{- with .Values.operator.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.env }}
+      env: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
       {{- end }}
       podLabels:
         app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
