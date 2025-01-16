@@ -59,6 +59,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 
 	// Setup the args. For this test, we will set the following input values:
 	helmValues := map[string]string{
+		"operator.enabled":                            "false",
 		"tls.selfSigner.image.tag":                    tagOutput,
 		"storage.persistentVolume.size":               "1Gi",
 		"tls.certs.selfSigner.minimumCertDuration":    "24h",

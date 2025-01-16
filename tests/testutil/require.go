@@ -455,7 +455,7 @@ func WaitUntilPodDeleted(
 			if err != nil && kube.IsNotFound(err) {
 				return "Pod is now deleted", nil
 			}
-			return "", errors.New(fmt.Sprintf("pod is not deleted: %s", err))
+			return "", fmt.Errorf("pod is not deleted: %s", err)
 		},
 	)
 	if err != nil {

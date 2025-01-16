@@ -60,6 +60,7 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled":                         "false",
 			"conf.cluster-name":                        "test",
 			"init.provisioning.enabled":                "true",
 			"init.provisioning.databases[0].name":      testDBName,
@@ -146,6 +147,7 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled":                "false",
 			"tls.certs.selfSigner.caProvided": "true",
 			"tls.certs.selfSigner.caSecret":   customCASecret,
 		}),
@@ -273,6 +275,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled":             "false",
 			"tls.certs.provided":           "true",
 			"tls.certs.selfSigner.enabled": "false",
 			"tls.certs.clientRootSecret":   crdbCluster.ClientSecret,
@@ -306,6 +309,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	options = &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled":                "false",
 			"statefulset.updateStrategy.type": "OnDelete",
 		}),
 		ExtraArgs: map[string][]string{
@@ -363,7 +367,8 @@ func TestCockroachDbWithInsecureMode(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
-			"tls.enabled": "false",
+			"operator.enabled": "false",
+			"tls.enabled":      "false",
 		}),
 	}
 
@@ -453,6 +458,7 @@ spec:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled":                 "false",
 			"tls.enabled":                      "true",
 			"tls.certs.selfSigner.enabled":     "false",
 			"tls.certs.certManager":            "true",
@@ -485,6 +491,7 @@ func TestWALFailoverSideDiskExistingCluster(t *testing.T) {
 	testWALFailoverExistingCluster(
 		t,
 		patchHelmValues(map[string]string{
+			"operator.enabled":                           "false",
 			"conf.wal-failover.value":                    "path=cockroach-failover",
 			"conf.wal-failover.persistentVolume.enabled": "true",
 			"conf.wal-failover.persistentVolume.size":    "1Gi",
@@ -496,6 +503,7 @@ func TestWALFailoverAmongStoresExistingCluster(t *testing.T) {
 	testWALFailoverExistingCluster(
 		t,
 		patchHelmValues(map[string]string{
+			"operator.enabled":        "false",
 			"conf.wal-failover.value": "among-stores",
 			"conf.store.count":        "2",
 		}),
@@ -530,6 +538,7 @@ func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]st
 
 	// Configure options for the initial deployment.
 	initialValues := patchHelmValues(map[string]string{
+		"operator.enabled":     "false",
 		"conf.cluster-name":    "test",
 		"conf.store.enabled":   "true",
 		"statefulset.replicas": strconv.Itoa(numReplicas),
