@@ -380,7 +380,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: cockroach-operator-default
-  namespace: default
+  namespace: {{ .Release.Namespace }}
   labels:
     app: cockroach-operator
 
@@ -397,7 +397,7 @@ roleRef:
   name: cockroach-operator-role
 subjects:
   - name: cockroach-operator-default
-    namespace: default
+    namespace: {{ .Release.Namespace }}
     kind: ServiceAccount
 
 ---
@@ -406,7 +406,7 @@ apiVersion: v1
 kind: Service
 metadata:
   name: cockroach-operator
-  namespace: default
+  namespace: {{ .Release.Namespace }}
   labels:
     app: cockroach-operator
 spec:
@@ -424,7 +424,7 @@ apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: cockroach-operator
-  namespace: default
+  namespace: {{ .Release.Namespace }}
   labels:
     app: cockroach-operator
 spec:
@@ -447,7 +447,7 @@ spec:
       priorityClassName: cockroach-operator
       containers:
         - name: cockroach-operator
-          image: {{ .Values.image.registry }}/{{ .Values.image.repository }}:release-2024-07-10-0-384-g53408b608c
+          image: {{ .Values.image.registry }}/{{ .Values.image.repository }}@sha256:af1ad8c772bb38a5702db1cb4b04728f096bccbad09ccf785ebb04007de8f336
           args:
             # Pin metrics port so it can be properly exposed by the "ports"
             # field below even in the event of a change to the default value.
@@ -461,7 +461,7 @@ spec:
             - name: grpc
               containerPort: 9070
           env:
-            - name: WATCH_NAMESPACE
+            - name: NAMESPACE
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
@@ -512,17 +512,6 @@ spec:
             periodSeconds: 3
             timeoutSeconds: 3
             failureThreshold: 3
-      # TODO(CC-27018) Use a node label that defines which nodes operator pods
-      # can run on, instead of blocking operator pods from running on some nodes.
-      affinity:
-        nodeAffinity:
-          requiredDuringSchedulingIgnoredDuringExecution:
-            nodeSelectorTerms:
-              - matchExpressions:
-                  - key: crdb.io/app
-                    operator: NotIn
-                    values:
-                      - "in-situ"
       volumes:
         - name: certs
           secret:
