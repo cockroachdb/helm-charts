@@ -3,7 +3,7 @@ apiVersion: v1
 kind: Secret
 metadata:
   name: cockroach-operator-certs
-  namespace: default   # Change the namespace if needed
+  namespace: {{ .Release.Namespace }}
 type: Opaque
 data:
   {{ index $operatorCerts 0 }}
