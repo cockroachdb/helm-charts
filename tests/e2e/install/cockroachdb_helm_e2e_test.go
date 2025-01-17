@@ -2,10 +2,9 @@ package integration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io/fs"
-	v1 "k8s.io/api/rbac/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"log"
 	"os"
 	"path/filepath"
@@ -22,22 +21,135 @@ import (
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/rbac/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var (
-	cfg              = ctrl.GetConfigOrDie()
-	k8sClient, _     = client.New(cfg, client.Options{})
-	releaseName      = "crdb-test"
-	customCASecret   = "custom-ca-secret"
-	helmChartPath, _ = filepath.Abs("../../../cockroachdb")
+	cfg                  = ctrl.GetConfigOrDie()
+	k8sClient, _         = client.New(cfg, client.Options{})
+	releaseName          = "crdb-test"
+	operatorReleaseName  = "crdb-operator-test"
+	customCASecret       = "custom-ca-secret"
+	helmChartPath, _     = filepath.Abs("../../../cockroachdb")
+	operatorChartPath, _ = filepath.Abs("../../../operator")
+	skipCleanup          = os.Getenv("SKIP_CLEANUP") != ""
 )
 
 const role = "crdb-test-cockroachdb-node-reader"
+
+func mustMarshalJson(value interface{}) string {
+	out, err := json.Marshal(value)
+	if err != nil {
+		panic(err)
+	}
+	return string(out)
+}
+
+func TestCockroachDBOperator(t *testing.T) {
+	namespaceName := fmt.Sprintf("cockroach-%s", strings.ToLower(t.Name()))
+	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
+
+	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
+	if !skipCleanup {
+		defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+	}
+
+	const testDBName = "testdb"
+
+	extraArgs := map[string][]string{
+		"install": {
+			"--wait",
+			"--debug",
+		},
+	}
+
+	crdbCluster := testutil.CockroachCluster{
+		Cfg:              cfg,
+		K8sClient:        k8sClient,
+		StatefulSetName:  fmt.Sprintf("%s-cockroachdb", releaseName),
+		Namespace:        namespaceName,
+		ClientSecret:     fmt.Sprintf("%s-cockroachdb-client-secret", releaseName),
+		NodeSecret:       fmt.Sprintf("%s-cockroachdb-node-secret", releaseName),
+		CaSecret:         fmt.Sprintf("%s-cockroachdb-ca-secret", releaseName),
+		IsCaUserProvided: false,
+		DesiredNodes:     1,
+	}
+
+	// Deploy operator
+	operatorOpts := &helm.Options{
+		KubectlOptions: kubectlOptions,
+		ExtraArgs:      extraArgs,
+	}
+	helm.Install(t, operatorOpts, operatorChartPath, operatorReleaseName)
+	if !skipCleanup {
+		defer cleanupResources(
+			t,
+			operatorReleaseName,
+			kubectlOptions,
+			operatorOpts,
+			[]string{},
+		)
+	}
+
+	// Wait for crd to be installed
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator", 30, 2*time.Second)
+	retry.DoWithRetryE(t, "wait-for-crd", 60, time.Second*5, func() (string, error) {
+		return k8s.RunKubectlAndGetOutputE(t, operatorOpts.KubectlOptions, "get", "crd", "crdbclusters.crdb.cockroachlabs.com")
+	})
+
+	// Deploy crdb
+	crdbOpts := &helm.Options{
+		KubectlOptions: kubectlOptions,
+		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled": "true",
+			"operator.dataStore.volumeClaimTemplate.spec.resources.requests.storage": "1Gi",
+		}),
+		SetJsonValues: map[string]string{
+			"operator.regions": mustMarshalJson([]map[string]interface{}{
+				{
+					"code":          "us-east-1",
+					"cloudProvider": "k3d",
+					"nodes":         crdbCluster.DesiredNodes,
+					"namespace":     namespaceName,
+				},
+			}),
+		},
+		ExtraArgs: extraArgs,
+	}
+	helm.Install(t, crdbOpts, helmChartPath, releaseName)
+	if !skipCleanup {
+		defer cleanupResources(
+			t,
+			releaseName,
+			kubectlOptions,
+			crdbOpts,
+			[]string{},
+		)
+	}
+
+	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
+
+	testutil.RequireCertificatesToBeValid(t, crdbCluster)
+	testutil.RequireCRDBClusterToBeReadyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
+
+	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+		LabelSelector: "app=cockroachdb",
+	})
+	require.True(t, len(pods) > 0)
+	podName := fmt.Sprintf("%s.%s-cockroachdb", pods[0].Name, releaseName)
+
+	testutil.RequireCRDBClusterToFunction(t, crdbCluster, false, podName)
+	testutil.RequireCRDBDatabaseToFunction(t, crdbCluster, testDBName, podName)
+}
 
 func TestCockroachDbHelmInstall(t *testing.T) {
 	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
@@ -216,8 +328,10 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 
 	cmdCa := shell.Command{
 		Command: "cockroach",
-		Args: []string{"cert", "create-ca", fmt.Sprintf("--certs-dir=%s", certsDir),
-			fmt.Sprintf("--ca-key=%s/ca.key", certsDir)},
+		Args: []string{
+			"cert", "create-ca", fmt.Sprintf("--certs-dir=%s", certsDir),
+			fmt.Sprintf("--ca-key=%s/ca.key", certsDir),
+		},
 		WorkingDir: ".",
 		Env:        nil,
 		Logger:     nil,
@@ -247,8 +361,10 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 
 	cmdClient := shell.Command{
 		Command: "cockroach",
-		Args: []string{"cert", "create-client", security.RootUser, fmt.Sprintf("--certs-dir=%s", certsDir),
-			fmt.Sprintf("--ca-key=%s/ca.key", certsDir)},
+		Args: []string{
+			"cert", "create-client", security.RootUser, fmt.Sprintf("--certs-dir=%s", certsDir),
+			fmt.Sprintf("--ca-key=%s/ca.key", certsDir),
+		},
 		WorkingDir: ".",
 		Env:        nil,
 		Logger:     nil,
