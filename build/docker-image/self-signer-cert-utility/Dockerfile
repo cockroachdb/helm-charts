@@ -1,4 +1,4 @@
-FROM golang:1.18.2 as base
+FROM golang:1.22 as base
 
 ARG TARGETPLATFORM
 ARG TARGETOS
