@@ -112,6 +112,7 @@ test/cluster/down: bin/k3d
 
 test/e2e/%: PKG=$*
 test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/publish-images-to-k3d ## run e2e tests for package (e.g. install or rotate)
+	@bin/kubectl get node -o yaml
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/$(PKG)/...
 
 test/lint: bin/helm ## lint the helm chart
