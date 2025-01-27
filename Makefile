@@ -27,6 +27,8 @@ REPOSITORY ?= cockroachlabs-helm-charts/cockroach-self-signer-cert
 DOCKER_NETWORK_NAME ?= "k3d-${K3D_CLUSTER}"
 LOCAL_REGISTRY ?= "localhost:5000"
 CLUSTER_SIZE ?= 1
+MULTI_REGION_NODE_SIZE ?= 3
+REGIONS ?= 3
 
 export BUNDLE_IMAGE ?= cockroach-operator-bundle
 export HELM_OPERATOR_IMAGE ?= cockroach-helm-operator
@@ -112,9 +114,25 @@ test/cluster/down: bin/k3d
 
 test/e2e/%: PKG=$*
 test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/cluster ## run e2e tests for package (e.g. install or rotate)
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/${PKG}/... || EXIT_CODE=$$?; \
-	$(MAKE) test/cluster/down; \
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/$(PKG)/... || EXIT_CODE=$$?; \
+    $(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
+
+test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer test/single-cluster/up
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || EXIT_CODE=$$?; \
+	$(MAKE) test/multi-cluster/down; \
+	exit $${EXIT_CODE:-0}
+
+test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer test/single-cluster/up
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || EXIT_CODE=$$?; \
+	$(MAKE) test/multi-cluster/down; \
+	exit $${EXIT_CODE:-0}
+	
+test/single-cluster/up: bin/k3d
+	 ./tests/k3d/dev-multi-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters 1
+
+test/multi-cluster/down: bin/k3d
+	./tests/k3d/dev-multi-cluster.sh down --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters $(REGIONS)
 
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && bin/helm lint cockroachdb

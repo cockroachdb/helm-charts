@@ -151,6 +151,43 @@ jobs:
       - name: Run E2E Test
         run: make test/e2e/rotate
 
+  helm-single-region-e2e:
+    name: Helm-single-region-Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.22
+
+      - name: Run E2E Test
+        run: make test/e2e/single-region
+
+  helm-multi-region-e2e:
+    name: Helm-multi-region-Test
+    runs-on: ubuntu-latest
+    needs: helm-install-e2e
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.22
+
+      - name: Run E2E Test
+        run: make test/e2e/multi-region
+
   lint-templates:
     name: Lint release templates
     runs-on: ubuntu-latest
