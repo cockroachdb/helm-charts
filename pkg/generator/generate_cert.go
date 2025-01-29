@@ -578,6 +578,17 @@ func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) erro
 		return errors.Wrap(err, "CA secret doesn't contain the required CA cert/key")
 	}
 
+	// If we are using the operator to manage secrets then we need to store the CA cert in a
+	// ConfigMap.
+	if rc.CaSecret != "" && rc.OperatorManaged {
+		cm := resource.CreateConfigMap(namespace, rc.CaSecret, secret.CA(),
+			resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+		if err = cm.Update(); err != nil {
+			return errors.Wrap(err, "failed to update CA cert in ConfigMap")
+		}
+		logrus.Infof("Generated and saved CA certificate in ConfigMap [%s]", rc.CaSecret)
+	}
+
 	if err := os.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
 		return errors.Wrap(err, "failed to write CA cert")
 	}
