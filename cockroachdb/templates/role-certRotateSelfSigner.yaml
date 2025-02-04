@@ -22,6 +22,9 @@ rules:
     resourceNames:
       - {{ template "cockroachdb.fullname" . }}
   - apiGroups: [""]
-    resources: ["pods"]
+    resources: ["pods", "pods/logs"]
     verbs: ["delete", "get"]
+  - apiGroups: [""]
+    resources: ["pods/exec"]
+    verbs: ["create"]
 {{- end }}
