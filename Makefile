@@ -24,8 +24,9 @@ endif
 K3D_CLUSTER ?= chart-testing
 REGISTRY ?= gcr.io
 REPOSITORY ?= cockroachlabs-helm-charts/cockroach-self-signer-cert
-DOCKER_NETWORK_NAME ?= ${K3D_CLUSTER}
+DOCKER_NETWORK_NAME ?= "k3d-${K3D_CLUSTER}"
 LOCAL_REGISTRY ?= "localhost:5000"
+CLUSTER_SIZE ?= 1
 
 export BUNDLE_IMAGE ?= cockroach-operator-bundle
 export HELM_OPERATOR_IMAGE ?= cockroach-helm-operator
@@ -89,20 +90,25 @@ dev/registries/down: bin/k3d
 		cd ../../bin/k3d; ./tests/k3d/registries.sh down $(DOCKER_NETWORK_NAME); \
 	fi
 
+dev/registries/bounce: bin/k3d dev/registries/down dev/registries/up
+
 dev/push/local: dev/registries/up
 	@echo "$(CYAN)Pushing image to local registry...$(NC)"
 	@docker build --platform=linux/amd64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
-          	--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) --push \
+          	--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) \
           	-t ${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
+	@docker push "${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
 
 ##@ Test
-test/cluster: bin/k3d test/cluster_up ## start a local k3d cluster for testing
+test/cluster: bin/k3d test/cluster/up ## start a local k3d cluster for testing
 
-test/cluster_up: bin/k3d
-	@bin/k3d cluster list | grep $(K3D_CLUSTER) || bin/k3d cluster create $(K3D_CLUSTER)
+test/cluster/bounce: bin/k3d test/cluster/down test/cluster/up ## restart a local k3d cluster for testing
 
-test/cluster_down: bin/k3d
-	bin/k3d cluster delete $(K3D_CLUSTER)
+test/cluster/up: bin/k3d
+	@bin/k3d cluster list | grep $(K3D_CLUSTER) || ./tests/k3d/dev-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $(CLUSTER_SIZE)
+
+test/cluster/down: bin/k3d
+	./tests/k3d/dev-cluster.sh down --name "$(K3D_CLUSTER)"
 
 test/e2e/%: PKG=$*
 test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/publish-images-to-k3d ## run e2e tests for package (e.g. install or rotate)
