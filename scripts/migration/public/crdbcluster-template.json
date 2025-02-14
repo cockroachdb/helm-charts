@@ -1,0 +1,95 @@
+{
+  "apiVersion": "crdb.cockroachlabs.com/v1alpha1",
+  "kind": "CrdbCluster",
+  "metadata": {
+    "name": env(CRDBCLUSTER),
+    "namespace": env(NAMESPACE)
+  },
+  "spec": {
+    "dataStore": {},
+    "features": [
+      "reconcile",
+      "reconcile-beta"
+    ],
+    "mode": "MutableOnly",
+    "regions": [
+      {
+        "cloudProvider": env(CLOUD_PROVIDER),
+        "code": env(REGION),
+        "namespace": env(NAMESPACE),
+        "domain": "",
+        "nodes": .spec.replicas
+      }
+    ],
+    "rollingRestartDelay": "30s",
+    "template": {
+      "metadata": {
+        "annotations": {
+          "crdb.cockroachlabs.com/cloudProvider": env(CLOUD_PROVIDER)
+        },
+        "finalizers": [
+          "crdbnode.crdb.cockroachlabs.com/finalizer"
+        ],
+        "labels": {
+          "app": "cockroachdb",
+          "crdb.cockroachlabs.com/cluster": env(CRDBCLUSTER),
+          "svc": "cockroachdb"
+        },
+        "namespace": env(NAMESPACE)
+      },
+      "spec": {
+        "podLabels": .spec.template.metadata.labels,
+        "certificates": {
+          "externalCertificates": {
+            "caConfigMapName": env(CRDBCLUSTER) + "-ca",
+            "nodeSecretName": env(CRDBCLUSTER) + "-node-certs",
+            "rootSqlClientSecretName": env(CRDBCLUSTER) + "-client-certs"
+          }
+        },
+        "dataStore": {
+          "volumeClaimTemplate": {
+            "metadata": {
+              "name": "datadir"
+            },
+            "spec": {
+              "accessModes": [
+                "ReadWriteOnce"
+              ],
+              "resources": {
+                "requests": {
+                  "storage": .spec.volumeClaimTemplates[
+                    0
+                  ].spec.resources.requests.storage
+                }
+              },
+              "storageClassName": .spec.volumeClaimTemplates[
+                0
+              ].spec.storageClassName
+            }
+          }
+        },
+        "domain": "",
+        "env": [
+          {
+            "name": "HOST_IP",
+            "valueFrom": {
+              "fieldRef": {
+                "apiVersion": "v1",
+                "fieldPath": "status.hostIP"
+              }
+            }
+          }
+        ],
+        "resourceRequirements": .spec.template.spec.containers[
+          0
+        ].resources,
+        "image": .spec.template.spec.containers[
+          0
+        ].image,
+        "serviceAccountName": "cockroachdb",
+        "useSecurityContexts": true
+      }
+    },
+    "tlsEnabled": true
+  }
+}
