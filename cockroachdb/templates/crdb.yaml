@@ -34,19 +34,9 @@ spec:
     spec:
       image: "{{ .Values.operator.image.name }}"
       certificates:
-        externalCertificates:
-          {{- /* Note: defaults should match secrets and configmaps created by the self-signer job. */}}
-          caConfigMapName: {{ .Values.operator.certificates.externalCertificates.caConfigMapName | default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
-          httpSecretName: {{ .Values.operator.certificates.externalCertificates.httpSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
-          nodeClientSecretName: {{ .Values.operator.certificates.externalCertificates.nodeClientSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
-          nodeSecretName: {{ .Values.operator.certificates.externalCertificates.nodeSecretName | default (printf "%s-node-secret" (include "cockroachdb.fullname" .)) }}
-          rootSqlClientSecretName: {{ .Values.operator.certificates.externalCertificates.rootSqlClientSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
-          {{- if .Values.operator.certificates.externalCertificates.nodeCaConfigMapName }}
-          nodeCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.nodeCaConfigMapName }}
-          {{- end }}
-          {{- if .Values.operator.certificates.externalCertificates.clientCaConfigMapName }}
-          clientCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.clientCaConfigMapName }}
-          {{- end }}
+        {{- with .Values.operator.certificates.externalCertificates }}
+        externalCertificates: {{- toYaml . | nindent 10 }}
+        {{- end }}
       {{- with .Values.operator.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
       {{- end }}
