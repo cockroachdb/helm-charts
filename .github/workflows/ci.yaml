@@ -61,7 +61,7 @@ jobs:
   # pre job to run helm lint
   helm:
     name: HelmLint
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v3
