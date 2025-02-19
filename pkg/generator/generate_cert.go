@@ -68,6 +68,7 @@ type GenerateCert struct {
 	ClusterDomain             string
 	ReadinessWait             time.Duration
 	PodUpdateTimeout          time.Duration
+	OperatorManaged           bool
 }
 
 type certConfig struct {
@@ -240,6 +241,17 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 			return errors.Wrap(err, "failed to update ca key secret ")
 		}
 
+		// If we are using the operator to manage secrets then we need to store the CA cert in a
+		// ConfigMap.
+		if rc.OperatorManaged {
+			cm := resource.CreateConfigMap(namespace, CASecretName, caCert,
+				resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+			if err = cm.Update(); err != nil {
+				return errors.Wrap(err, "failed to update CA cert in ConfigMap")
+			}
+			logrus.Infof("Generated and saved CA certificate in ConfigMap [%s]", CASecretName)
+		}
+
 		logrus.Infof("Generated and saved CA key and certificate in secret [%s]", CASecretName)
 		return nil
 	}
@@ -305,6 +317,16 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 			fmt.Sprintf("*.%s", rc.DiscoveryServiceName),
 			fmt.Sprintf("*.%s.%s", rc.DiscoveryServiceName, namespace),
 			fmt.Sprintf("*.%s.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
+		}
+
+		if rc.OperatorManaged {
+			operatorJoinServiceHosts := []string{
+				fmt.Sprintf("%s-join", rc.DiscoveryServiceName),
+				fmt.Sprintf("%s-join.%s", rc.DiscoveryServiceName, namespace),
+				fmt.Sprintf("%s-join.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
+			}
+
+			hosts = append(hosts, operatorJoinServiceHosts...)
 		}
 
 		// create the Node Pair certificates
@@ -554,6 +576,17 @@ func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) erro
 	// check if the secret contains required info
 	if !secret.ReadyCA() {
 		return errors.Wrap(err, "CA secret doesn't contain the required CA cert/key")
+	}
+
+	// If we are using the operator to manage secrets then we need to store the CA cert in a
+	// ConfigMap.
+	if rc.CaSecret != "" && rc.OperatorManaged {
+		cm := resource.CreateConfigMap(namespace, rc.CaSecret, secret.CA(),
+			resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+		if err = cm.Update(); err != nil {
+			return errors.Wrap(err, "failed to update CA cert in ConfigMap")
+		}
+		logrus.Infof("Generated and saved CA certificate in ConfigMap [%s]", rc.CaSecret)
 	}
 
 	if err := os.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {

@@ -2,8 +2,7 @@ name: Helm Chart Package CI
 on:
   pull_request:
     branches:
-      - 'master'
-      - 'cert-manager-feature-branch'
+      - '*'
 
 jobs:
 

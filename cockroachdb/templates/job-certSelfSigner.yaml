@@ -66,6 +66,9 @@ spec:
             - --client-expiry={{ .Values.tls.certs.selfSigner.clientCertExpiryWindow }}
             - --node-duration={{ .Values.tls.certs.selfSigner.nodeCertDuration }}
             - --node-expiry={{ .Values.tls.certs.selfSigner.nodeCertExpiryWindow }}
+            {{- if .Values.operator.enabled }}
+            - --operator-managed=true
+            {{- end}}
           env:
           - name: STATEFULSET_NAME
             value: {{ template "cockroachdb.fullname" . }}

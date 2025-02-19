@@ -7,7 +7,7 @@ require (
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/cockroachdb/cockroach-operator v0.0.0-20230531051823-2cb3e2e676f4
 	github.com/google/martian v2.1.1-0.20190517191504-25dcb96d9e51+incompatible
-	github.com/gruntwork-io/terratest v0.41.19
+	github.com/gruntwork-io/terratest v0.41.26
 	github.com/mitchellh/hashstructure/v2 v2.0.2
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring v0.51.2
