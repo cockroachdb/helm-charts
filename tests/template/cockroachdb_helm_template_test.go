@@ -386,8 +386,8 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 
 			helm.UnmarshalK8SYaml(t, output, &statefulset)
 			require.Equal(t, namespaceName, statefulset.Namespace)
-			require.Equal(t, 1, len(statefulset.Spec.Template.Spec.InitContainers))
-			require.Equal(t, testCase.expect, statefulset.Spec.Template.Spec.InitContainers[0].Name)
+			require.Equal(t, 2, len(statefulset.Spec.Template.Spec.InitContainers))
+			require.Equal(t, testCase.expect, statefulset.Spec.Template.Spec.InitContainers[1].Name)
 
 			output = helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/job.init.yaml"})
 
@@ -395,6 +395,58 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 			require.Equal(t, namespaceName, job.Namespace)
 			require.Equal(t, 1, len(job.Spec.Template.Spec.InitContainers))
 			require.Equal(t, testCase.expect, job.Spec.Template.Spec.InitContainers[0].Name)
+		})
+	}
+}
+
+// TestHelmTransparentHugePageInitContainerStatefulSet contains the tests around the THP management initContainer
+func TestHelmTransparentHugePageInitContainerStatefulSet(t *testing.T) {
+	t.Parallel()
+
+	var statefulset appsv1.StatefulSet
+
+	testCases := []struct {
+		name    string
+		values  map[string]string
+		expect  string
+		expect2 string
+	}{
+		{
+			name:    "defaults",
+			expect:  "echo madvise > /sys/kernel/mm/transparent_hugepage/enabled",
+			expect2: "echo defer+madvise > /sys/kernel/mm/transparent_hugepage/defrag",
+		},
+		{
+			name: "never",
+			values: map[string]string{
+				"thp.policy":       "never",
+				"thp.defragPolicy": "defer",
+			},
+			expect:  "echo never > /sys/kernel/mm/transparent_hugepage/enabled",
+			expect2: "echo defer > /sys/kernel/mm/transparent_hugepage/defrag",
+		},
+	}
+
+	for _, testCase := range testCases {
+		// Here, we capture the range variable and force it into the scope of this block. If we don't do this, when the
+		// subtest switches contexts (because of t.Parallel), the testCase value will have been updated by the for loop
+		// and will be the next testCase!
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			// Now we try rendering the template, but verify we get an error
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			output := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
+
+			helm.UnmarshalK8SYaml(t, output, &statefulset)
+			require.Equal(t, namespaceName, statefulset.Namespace)
+			require.Equal(t, 2, len(statefulset.Spec.Template.Spec.InitContainers))
+			require.Equal(t, "transparent-huge-pages", statefulset.Spec.Template.Spec.InitContainers[0].Name)
+			require.Equal(t, testCase.expect, statefulset.Spec.Template.Spec.InitContainers[0].Command[2])
 		})
 	}
 }

@@ -710,3 +710,15 @@ iap:
   # Create Google Cloud OAuth credentials and set client id and secret
   # clientId:
   # clientSecret:
+
+# Transparent Huge Page control
+# See https://www.cockroachlabs.com/docs/v25.1/recommended-production-settings.html#software
+thp:
+  # policy is the value we set /sys/kernel/mm/transparent_hugepage/enabled to. 'madvise' disables THP for the pod
+  # unless a process specifically requests it.
+  policy: madvise
+  # defragPolicy ends up in /sys/kernel/mm/transparent_hugepage/defrag. 'defer+madvise' prefers latency to
+  # throughput, unless an application explicitly requests THP
+  defragPolicy: defer+madvise
+  image: busybox
+  imagePullPolicy: IfNotPresent
