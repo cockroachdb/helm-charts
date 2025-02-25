@@ -711,3 +711,10 @@ iap:
   # Create Google Cloud OAuth credentials and set client id and secret
   # clientId:
   # clientSecret:
+
+# Transparent Huge Page control
+thp:
+  # policy is the value we set /sys/kernel/mm/transparent_hugepage/enabled to. 'never' disables THP for the pod.
+  policy: never
+  image: busybox
+  imagePullPolicy: IfNotPresent

@@ -55,6 +55,13 @@ spec:
       serviceAccountName: {{ template "cockroachdb.serviceAccount.name" . }}
       {{- if .Values.tls.enabled }}
       initContainers:
+        - name: disable-transparent-huge-pages
+          image: {{ .Values.thp.image | quote }}
+          imagePullPolicy: {{ .Values.thp.imagePullPolicy | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - "echo {{ .Values.thp.policy }} > /sys/kernel/mm/transparent_hugepage/enabled"
         - name: copy-certs
           image: {{ .Values.tls.copyCerts.image | quote }}
           imagePullPolicy: {{ .Values.tls.selfSigner.image.pullPolicy | quote }}
