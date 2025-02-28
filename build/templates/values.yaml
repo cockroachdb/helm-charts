@@ -710,3 +710,8 @@ iap:
   # Create Google Cloud OAuth credentials and set client id and secret
   # clientId:
   # clientSecret:
+
+# Set the GODEBUG env var for the Go runtime. By default, disable Transparent Huge Pages,
+# which cause memory inefficiency for CRDB.
+godebug:
+  disablethp: "1"
