@@ -350,3 +350,14 @@ Validate the WAL failover configuration.
     {{- end -}}
   {{- end -}}
 {{- end -}}
+
+{{/*
+Construct the GODEBUG env var value (looks like: GODEBUG="foo=bar,baz=quux"; default: "disablethp=1")
+*/}}
+{{- define "godebugList" -}}
+{{- $godebugList := list -}}
+{{- range $key, $value := .Values.godebug }}
+  {{- $godebugList = append $godebugList (printf "%s=%s" $key $value) -}}
+{{- end }}
+{{- join "," $godebugList -}}
+{{- end }}
