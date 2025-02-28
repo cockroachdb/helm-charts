@@ -260,6 +260,15 @@ spec:
               value: {{ template "cockroachdb.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
             - name: COCKROACH_CHANNEL
               value: kubernetes-helm
+            {{- define "godebugList" -}}
+            {{- $godebugList := list -}}
+            {{- range $key, $value := .Values.godebug }}
+              {{- $godebugList = append $godebugList (printf "%s=%s" $key $value) -}}
+            {{- end }}
+            {{- join "," $godebugList -}}
+            {{- end }}
+            - name: GODEBUG
+              value: {{ include "godebugList" . }}
           {{- with .Values.statefulset.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}
