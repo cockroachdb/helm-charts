@@ -111,22 +111,13 @@ test/cluster/down: bin/k3d
 	./tests/k3d/dev-cluster.sh down --name "$(K3D_CLUSTER)"
 
 test/e2e/%: PKG=$*
-test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/publish-images-to-k3d ## run e2e tests for package (e.g. install or rotate)
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/$(PKG)/...
+test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/cluster ## run e2e tests for package (e.g. install or rotate)
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/... || EXIT_CODE=$$?; \
+	$(MAKE) test/cluster/down; \
+	exit $${EXIT_CODE:-0}
 
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && bin/helm lint cockroachdb
-
-IMAGE_LIST = cockroachdb/cockroach:v23.2.0 quay.io/jetstack/cert-manager-cainjector:v1.11.0 quay.io/jetstack/cert-manager-webhook:v1.11.0 quay.io/jetstack/cert-manager-controller:v1.11.0 quay.io/jetstack/cert-manager-ctl:v1.11.0
-test/publish-images-to-k3d: bin/yq test/cluster ## publish signer and cockroach image to local k3d registry
-	for i in $(IMAGE_LIST); do \
-		docker pull $$i; \
-		bin/k3d image import $$i -c $(K3D_CLUSTER); \
-	done
-	docker pull ${REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml); \
-	bin/k3d image import \
-		${REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) \
-		-c $(K3D_CLUSTER)
 
 test/template: bin/cockroach bin/helm ## Run template tests
 	@PATH="$(PWD)/bin:${PATH}" go test -v ./tests/template/...

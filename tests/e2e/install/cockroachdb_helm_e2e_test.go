@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cockroachdb/cockroach-operator/pkg/kube"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -24,7 +25,6 @@ import (
 
 	"github.com/cockroachdb/helm-charts/pkg/security"
 	util "github.com/cockroachdb/helm-charts/pkg/utils"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 var (
@@ -52,7 +52,7 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
 
 	const testDBName = "testdb"
 
@@ -124,7 +124,7 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
 
 	certOutput, err := shell.RunCommandAndGetOutputE(t, cmd)
 	t.Log(certOutput)
@@ -250,7 +250,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// Make sure to delete the namespace at the end of the test
-	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
 
 	cmds := []shell.Command{cmdCa, cmdNode, cmdClient}
 	for i := range cmds {
@@ -357,7 +357,7 @@ func TestCockroachDbWithInsecureMode(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
 
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
@@ -393,7 +393,7 @@ func TestCockroachDbWithCertManager(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
 
 	certManagerHelmOptions := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", "cert-manager"),
@@ -519,7 +519,7 @@ func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]st
 	}
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
-	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
 
 	// Print the debug logs in case of test failure.
 	defer func() {
