@@ -81,13 +81,13 @@ dev/clean: ## remove built artifacts
 dev/registries/up: bin/k3d
 	@if [ "`docker ps -f name=registry.localhost -q`" = "" ]; then \
 		echo "$(CYAN)Starting local Docker registry (for fast offline image push/pull)...$(NC)"; \
-		cd ../../bin/k3d; ./tests/k3d/registries.sh up $(DOCKER_NETWORK_NAME); \
+		./tests/k3d/registries.sh up $(DOCKER_NETWORK_NAME); \
 	fi
 
 dev/registries/down: bin/k3d
 	@if [ "`docker ps -f name=registry.localhost -q`" != "" ]; then \
 		echo "$(CYAN)Stopping local Docker registry (for fast offline image push/pull)...$(NC)"; \
-		cd ../../bin/k3d; ./tests/k3d/registries.sh down $(DOCKER_NETWORK_NAME); \
+		./tests/k3d/registries.sh down $(DOCKER_NETWORK_NAME); \
 	fi
 
 dev/registries/bounce: bin/k3d dev/registries/down dev/registries/up

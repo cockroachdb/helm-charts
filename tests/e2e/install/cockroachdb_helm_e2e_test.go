@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/cockroachdb/cockroach-operator/pkg/kube"
+	"github.com/cockroachdb/helm-charts/pkg/security"
+	util "github.com/cockroachdb/helm-charts/pkg/utils"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
@@ -22,9 +24,6 @@ import (
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/cockroachdb/helm-charts/pkg/security"
-	util "github.com/cockroachdb/helm-charts/pkg/utils"
 )
 
 var (
@@ -309,7 +308,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 			"statefulset.updateStrategy.type": "OnDelete",
 		}),
 		ExtraArgs: map[string][]string{
-			"upgrade": []string{
+			"upgrade": {
 				"--timeout=20m",
 			},
 		},
