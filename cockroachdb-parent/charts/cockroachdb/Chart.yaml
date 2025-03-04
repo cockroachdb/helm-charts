@@ -1,0 +1,20 @@
+# Generated file, DO NOT EDIT. Source: build/templates/Chart.yaml
+apiVersion: v1
+name: cockroachdb
+home: https://www.cockroachlabs.com
+version: 15.0.7
+appVersion: 24.3.5
+description: CockroachDB is a scalable, survivable, strongly-consistent SQL database.
+icon: https://raw.githubusercontent.com/cockroachdb/cockroach/master/docs/media/cockroach_db.png
+sources:
+  - https://github.com/cockroachdb/cockroach
+maintainers:
+  - name: cockroachlabs
+    email: helm-charts@cockroachlabs.com
+annotations:
+  # Helm Spray annotations for controlling installation order
+  spray.helm.io/component-name: "cockroachdb"
+  spray.helm.io/component-description: "CockroachDB Database Component"
+  spray.helm.io/post-hook-dependencies: "operator"
+  spray.helm.io/weight: "1"
+  spray.helm.io/hook-weight: 10

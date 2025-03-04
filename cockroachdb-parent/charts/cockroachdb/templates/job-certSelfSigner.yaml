@@ -1,0 +1,86 @@
+{{- if and .Values.tls.enabled .Values.tls.certs.selfSigner.enabled }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ template "selfcerts.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  annotations:
+    # This is what defines this resource as a hook. Without this line, the
+    # job is considered part of the release.
+    "helm.sh/hook": pre-install,pre-upgrade
+    "helm.sh/hook-weight": "4"
+    "helm.sh/hook-delete-policy": hook-succeeded,hook-failed
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+spec:
+  template:
+    metadata:
+      name: {{ template "selfcerts.fullname" . }}
+      labels:
+        helm.sh/chart: {{ template "cockroachdb.chart" . }}
+        app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+      {{- with .Values.tls.selfSigner.labels }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.tls.selfSigner.annotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+    {{- end }}
+    spec:
+    {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
+      securityContext:
+        seccompProfile:
+          type: "RuntimeDefault"
+        runAsGroup: 1000
+        runAsUser: 1000
+        fsGroup: 1000
+        runAsNonRoot: true
+    {{- end }}
+      restartPolicy: Never
+    {{- with .Values.tls.selfSigner.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.tls.selfSigner.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- with .Values.tls.selfSigner.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+    {{- end }}
+      containers:
+        - name: cert-generate-job
+          image: "{{ .Values.tls.selfSigner.image.registry }}/{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
+          imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
+          args:
+            - generate
+            {{- if .Values.tls.certs.selfSigner.caProvided }}
+            - --ca-secret={{ .Values.tls.certs.selfSigner.caSecret }}
+            {{- else }}
+            - --ca-duration={{ .Values.tls.certs.selfSigner.caCertDuration }}
+            - --ca-expiry={{ .Values.tls.certs.selfSigner.caCertExpiryWindow }}
+            {{- end }}
+            - --client-duration={{ .Values.tls.certs.selfSigner.clientCertDuration }}
+            - --client-expiry={{ .Values.tls.certs.selfSigner.clientCertExpiryWindow }}
+            - --node-duration={{ .Values.tls.certs.selfSigner.nodeCertDuration }}
+            - --node-expiry={{ .Values.tls.certs.selfSigner.nodeCertExpiryWindow }}
+            {{- if .Values.operator.enabled }}
+            - --operator-managed=true
+            {{- end}}
+          env:
+          - name: STATEFULSET_NAME
+            value: {{ template "cockroachdb.fullname" . }}
+          - name: NAMESPACE
+            value: {{ .Release.Namespace | quote }}
+          - name: CLUSTER_DOMAIN
+            value: {{ .Values.clusterDomain}}
+        {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+        {{- end }}
+      serviceAccountName: {{ template "selfcerts.fullname" . }}
+{{- end}}

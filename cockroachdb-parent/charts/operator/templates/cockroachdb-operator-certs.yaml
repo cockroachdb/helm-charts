@@ -1,3 +1,4 @@
+
 {{- $operatorCerts := splitList "\n" (include "operator.certs" .) }}
 apiVersion: v1
 kind: Secret

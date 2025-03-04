@@ -1,0 +1,13 @@
+apiVersion: v2
+name: operator
+description: A Helm chart for managing the CockroachDB operator.
+type: application
+appVersion: "latest"
+version: 0.1.0
+annotations:
+  # Helm Spray annotations for controlling installation order
+  spray.helm.io/component-name: "operator"
+  spray.helm.io/component-description: "CockroachDB Operator Component"
+  spray.helm.io/ordered-first: "true"
+  spray.helm.io/weight: "0"
+  spray.helm.io/hook-weight: 5

@@ -1,0 +1,27 @@
+{{/*apiVersion: batch/v1*/}}
+{{/*kind: Job*/}}
+{{/*metadata:*/}}
+{{/*  name: "{{ .Release.Name }}-operator-post-install"*/}}
+{{/*  annotations:*/}}
+{{/*    "helm.sh/hook": post-install*/}}
+{{/*    "helm.sh/hook-weight": "0"*/}}
+{{/*    "helm.sh/hook-delete-policy": hook-succeeded*/}}
+{{/*spec:*/}}
+{{/*  template:*/}}
+{{/*    metadata:*/}}
+{{/*      name: "{{ .Release.Name }}-operator-post-install"*/}}
+{{/*    spec:*/}}
+{{/*      serviceAccountName: {{ .Release.Name }}-operator*/}}
+{{/*      restartPolicy: Never*/}}
+{{/*      containers:*/}}
+{{/*      - name: post-install-job*/}}
+{{/*        image: "bitnami/kubectl:latest"*/}}
+{{/*        command:*/}}
+{{/*        - /bin/bash*/}}
+{{/*        - -c*/}}
+{{/*        - |*/}}
+{{/*          # Wait for operator deployment to be ready*/}}
+{{/*          kubectl wait --for=condition=Available deployment/{{ .Release.Name }}-operator --timeout=300s*/}}
+{{/*          echo "Operator is ready, cockroachdb can be installed now"*/}}
+{{/*          # Create a marker for helm spray to identify this hook as completed*/}}
+{{/*          touch /tmp/operator-ready*/}}
