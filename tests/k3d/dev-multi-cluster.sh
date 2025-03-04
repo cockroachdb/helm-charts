@@ -34,7 +34,7 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-controller:v1.11.0"
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
     "coredns/coredns:1.9.2"
-    "$(bin/yq '.operator.image.name' ./cockroachdb/values.yaml)"
+    "$(bin/yq '.image.name' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
     "us.gcr.io/cockroach-cloud-images/inotifywait:20200513"
     "bash:latest"
     "busybox"

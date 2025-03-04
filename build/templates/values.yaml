@@ -1037,3 +1037,13 @@ operator:
 
     # Volumes will be requested in addition to the crdb volumes.
     volumes: []
+
+  tolerations: []
+
+  # An ordered, comma-separated list of keys that which must be present as labels on the nodes.
+  # These labels along with their values are used to determine the locality of the node.
+  # For example:
+  # locality: country=us,region=us-west,datacenter=us-west-1b,rack=12
+  # locality: country=ca,region=ca-east,datacenter=ca-east-2,rack=4
+  # locality: planet=earth,province=manitoba,colo=secondary,power=3
+  localityLabels: []

@@ -1,5 +1,5 @@
 # operator.yaml defines how the operator are installed in a K8s
-# cluster, including its deployment and permissions.
+  # cluster, including its deployment and permissions.
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -447,7 +447,7 @@ spec:
       priorityClassName: cockroach-operator
       containers:
         - name: cockroach-operator
-          image: us-docker.pkg.dev/cockroach-cloud-images/development/cockroach-operator@sha256:022b24e4ce2bdd3298a0aa67aa0a8b7f7503de5f87e4ded82c749c3865c115be
+          image: us-docker.pkg.dev/cockroach-cloud-images/development/cockroach-operator@sha256:046759a1e8037d11b11be0825eea2941fc1887aed1414acaec4526b46e0a2112
           args:
             # Pin metrics port so it can be properly exposed by the "ports"
             # field below even in the event of a change to the default value.
@@ -474,7 +474,7 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
             - name: CLOUD_REGION
-              value: "ca-central-1"
+              value: "random-region"
           resources:
             requests:
               cpu: 500m
