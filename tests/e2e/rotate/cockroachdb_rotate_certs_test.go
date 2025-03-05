@@ -1,8 +1,7 @@
-package rotate
+package integration
 
 import (
 	"fmt"
-	"github.com/gruntwork-io/terratest/modules/shell"
 	"path"
 	"path/filepath"
 	"strings"
@@ -13,6 +12,7 @@ import (
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -55,7 +55,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
+	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
 
 	// Setup the args. For this test, we will set the following input values:
 	helmValues := map[string]string{
