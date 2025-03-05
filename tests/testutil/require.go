@@ -456,7 +456,7 @@ func WaitUntilPodDeleted(
 			if err != nil && kube.IsNotFound(err) {
 				return "Pod is now deleted", nil
 			}
-			return "", errors.New(fmt.Sprintf("pod is not deleted: %s", err))
+			return "", fmt.Errorf("pod is not deleted: %s", err)
 		},
 	)
 	if err != nil {
@@ -495,5 +495,4 @@ func DeleteNamespace(t *testing.T, k8sClient client.Client, namespace string) {
 	}); err != nil && !apierrors.IsNotFound(err) {
 		t.Logf("Error deleting namespace %s: %v", namespace, err)
 	}
-	return
 }

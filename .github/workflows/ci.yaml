@@ -48,14 +48,11 @@ jobs:
           repository: ${{github.event.pull_request.head.repo.full_name}}
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v3
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: v1.50.1
+          version: v1.64
           working-directory: .
           args: --timeout=5m
-          skip-build-cache: true
-          skip-pkg-cache: true
-          skip-go-installation: true
 
   # pre job to run helm lint
   helm:
