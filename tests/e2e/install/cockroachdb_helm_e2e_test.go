@@ -51,7 +51,7 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	const testDBName = "testdb"
 
@@ -124,7 +124,7 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	certOutput, err := shell.RunCommandAndGetOutputE(t, cmd)
 	t.Log(certOutput)
@@ -251,7 +251,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// Make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	cmds := []shell.Command{cmdCa, cmdNode, cmdClient}
 	for i := range cmds {
@@ -360,7 +360,7 @@ func TestCockroachDbWithInsecureMode(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
@@ -397,7 +397,7 @@ func TestCockroachDbWithCertManager(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	certManagerHelmOptions := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", "cert-manager"),
@@ -526,7 +526,7 @@ func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]st
 	}
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	// Print the debug logs in case of test failure.
 	defer func() {

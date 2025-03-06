@@ -1,5 +1,5 @@
-# cockroach-operator.yaml defines how the operator are installed in a K8s
-  # cluster, including its deployment and permissions.
+# operator.yaml defines how the operator are installed in a K8s
+# cluster, including its deployment and permissions.
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
