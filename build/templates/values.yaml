@@ -716,13 +716,14 @@ operator:
   enabled: true
   # Default values for the cluster chart.
   image:
-    repository: cockroachdb/cockroach
+    name: cockroachdb/cockroach:v24.3.1
     pullPolicy: IfNotPresent
-    # Overrides the image tag whose default is the cluster chart's appVersion.
-    tag: ""
+    pullSecret: ""
 
   nameOverride: ""
   fullnameOverride: ""
+
+  # tlsEnabled: true
 
   # A map of CRDB cluster settings.
   # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
@@ -740,6 +741,10 @@ operator:
       # stderr:
         # channels: [health, dev]
         # filter: INFO
+
+  # loggingConfigMapName define the config map which contains log configuration used to send the logs through the
+  # proper channels in the cockroachdb.
+  loggingConfigMapName: ""
 
   # We usually recommend not to specify default resources and to leave this as a conscious
   # choice for the user. This also increases chances charts run on environments with little
@@ -821,6 +826,40 @@ operator:
   podLabels:
     app.kubernetes.io/component: cockroachdb
 
+  # PodAnnotations are the annotations that should be applied to the underlying CRDB pod
+  podAnnotations: {}
+
+  # Env is a list of environment variables to set in the container.
+  podEnvVariables: []
+  # - name: APP_NAME
+  #   value: "CRDB"
+  # - name: POD_NAME
+  #   valueFrom:
+  #     fieldRef:
+  #       fieldPath: metadata.name
+
+  # TopologySpreadConstraints will be used to construct the crdb pod's topology spread
+  # constraints.
+  topologySpreadConstraints: []
+  # - maxSkew: 1
+  #   topologyKey: zone
+  #   whenUnsatisfiable: DoNotSchedule
+  #   labelSelector:
+  #     matchLabels:
+  #       foo: bar
+
   extras:
     # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
     dnsutils: false
+
+  # Flags specifies the flags that will be used for starting the cluster.
+  flags: {}
+
+  # Configure grpc, sql and http port for cockroachdb cluster
+  ports: {}
+  #  grpcPort: 26258
+  #  sqlPort: 26257
+  #  httpPort: 8080
+
+  # NodeSelector is the set of nodeSelector labels to apply to a node.
+  nodeSelector: {}
