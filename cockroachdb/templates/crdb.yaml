@@ -3,7 +3,7 @@
 apiVersion: crdb.cockroachlabs.com/v1alpha1
 kind: CrdbCluster
 metadata:
-  name: {{ template "cockroachdb.fullname" . }}
+  name: {{ .Release.Name }}
   namespace: {{ .Release.Namespace }}
   labels:
     {{- include "cluster.labels" . | nindent 4 }}
@@ -14,6 +14,9 @@ metadata:
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
+  {{- if .Values.operator.tlsEnabled }}
+  tlsEnabled: {{ .Values.operator.tlsEnabled }}
+  {{- end }}
   {{- with .Values.operator.clusterSettings }}
   clusterSettings: {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -25,18 +28,33 @@ spec:
     - reconcile-beta
   template:
     spec:
-      image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+      image: "{{ .Values.operator.image.name }}"
       certificates:
         externalCertificates:
           {{- /* Note: defaults should match secrets and configmaps created by the self-signer job. */}}
-          clientCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.clientCaConfigMapName | default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
-          nodeCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.nodeCaConfigMapName | default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
-          httpSecretName: {{ .Values.operator.certificates.externalCertificates.httpSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
-          nodeClientSecretName: {{ .Values.operator.certificates.externalCertificates.nodeClientSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
-          nodeSecretName: {{ .Values.operator.certificates.externalCertificates.nodeSecretName | default (printf "%s-node-secret" (include "cockroachdb.fullname" .)) }}
-          rootSqlClientSecretName: {{ .Values.operator.certificates.externalCertificates.rootSqlClientSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+          {{- if (eq (include "externalCertificates.isEmpty" .) "true") }}
+            caConfigMapName: {{ printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .) }}
+            nodeSecretName: {{ printf "%s-node-secret" (include "cockroachdb.fullname" .) }}
+            rootSqlClientSecretName: {{ printf "%s-client-secret" (include "cockroachdb.fullname" .) }}
+            nodeCaConfigMapName: {{ printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .) }}
+            httpSecretName: {{ printf "%s-client-secret" (include "cockroachdb.fullname" .) }}
+            nodeClientSecretName: {{ printf "%s-client-secret" (include "cockroachdb.fullname" .) }}
+          {{- else }}
+          caConfigMapName: {{ .Values.operator.certificates.externalCertificates.clientCaConfigMapName }}
+          nodeSecretName: {{ .Values.operator.certificates.externalCertificates.nodeSecretName }}
+          rootSqlClientSecretName: {{ .Values.operator.certificates.externalCertificates.rootSqlClientSecretName }}
+          nodeCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.nodeCaConfigMapName }}
+          httpSecretName: {{ .Values.operator.certificates.externalCertificates.httpSecretName }}
+          nodeClientSecretName: {{ .Values.operator.certificates.externalCertificates.nodeClientSecretName }}
+          {{- end }}
       {{- with .Values.operator.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.ports }}
+      ports: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.flags }}
+      flags: {{- toYaml . | nindent 8 }}
       {{- end }}
       podLabels:
         app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
@@ -44,12 +62,28 @@ spec:
         {{- with .Values.operator.podLabels }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
+      {{- with .Values.operator.podAnnotations }}
+      podAnnotations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.podEnvVariables }}
+      env: {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.operator.resources }}
       resourceRequirements: {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.operator.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ .Values.operator.rbac.serviceAccountName | default (include "cockroachdb.serviceAccount.name" .) }}
+      {{- if .Values.operator.loggingConfigMapName }}
+      loggingConfigMapName: {{ .Values.operator.loggingConfigMapName }}
+      {{- else }}
       {{- if .Values.operator.loggingConf }}
       loggingConfigMapName: {{ .Release.Name }}-logging
+      {{- end }}
       {{- end }}
   # All properties below are solely to pass validation. They aren't used by the
   # betaclusterctrl controller so the values don't matter so long as they're
