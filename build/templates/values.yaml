@@ -716,6 +716,6 @@ iap:
 godebug:
   disablethp: "1"
 
-# Use the CRDB Operator to manage the CRDB clusters
+# Use the CockroachDB Operator to manage the CockroachDB clusters.
 operator:
   enabled: false

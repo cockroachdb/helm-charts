@@ -23,9 +23,10 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
+// ConfigMap represents a Kubernetes ConfigMap resource.
 type ConfigMap struct {
 	Resource
-
+	// configMap holds the Kubernetes ConfigMap object.
 	configMap *corev1.ConfigMap
 }
 
