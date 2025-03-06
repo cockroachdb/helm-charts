@@ -716,3 +716,7 @@ iap:
 # which cause memory inefficiency for CRDB.
 godebug:
   disablethp: "1"
+
+# Use the CockroachDB Operator to manage the CockroachDB clusters.
+operator:
+  enabled: false
