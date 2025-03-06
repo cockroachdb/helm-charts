@@ -5,6 +5,10 @@ nameOverride: ""
 # Override the resource names created by this chart which originally is generated using release and chart name.
 fullnameOverride: ""
 
+# Sets timestamp annotation for CockroachDB pods,
+# This is added for the purpose of rolling restarts with helm upgrade without any other configuration changes.
+timestamp: "2021-10-18T00:00:00Z"
+
 image:
   repository: cockroachdb/cockroach
   tag: v25.1.0
@@ -719,7 +723,7 @@ godebug:
 
 # Use the CockroachDB Operator to manage the CockroachDB clusters.
 operator:
-  enabled: true
+  enabled: false
   # Default values for the cluster chart.
   image:
     repository: cockroachdb/cockroach
@@ -733,11 +737,6 @@ operator:
   # A map of CockroachDB cluster settings.
   # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
   clusterSettings: ~
-
-    # Regions controls the number of CockroachDB nodes that are deployed per region.
-    # regions: ~
-    # - code: us-central1
-      # nodes: 3
 
   # loggingConf is the logging configuration used by cockroach.
   # More details: https://www.cockroachlabs.com/docs/stable/logging-overview.html
@@ -817,6 +816,7 @@ operator:
         verbs: ["get"]
     serviceAccountName: ~
 
+  # Regions controls the number of CockroachDB nodes that are deployed per region.
   regions:
     - code: us-east-1
       nodes: 3
@@ -872,6 +872,10 @@ operator:
     # to the different database Pods.
     public:
       type: ClusterIP
+
+  # PodAnnotations are the annotations that should be applied to the
+  # underlying CockroachDB pod.
+  podAnnotations: {}
 
   extras:
     # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
