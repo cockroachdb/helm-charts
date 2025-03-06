@@ -716,3 +716,7 @@ iap:
 # which cause memory inefficiency for CRDB.
 godebug:
   disablethp: "1"
+
+# Use the CRDB Operator to manage the CRDB clusters
+operator:
+  enabled: false
