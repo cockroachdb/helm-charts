@@ -13,7 +13,6 @@ import (
 
 	"github.com/cockroachdb/cockroach-operator/pkg/database"
 	"github.com/cockroachdb/cockroach-operator/pkg/kube"
-	"github.com/cockroachdb/cockroach-operator/pkg/ptr"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/stretchr/testify/require"
@@ -463,36 +462,4 @@ func WaitUntilPodDeleted(
 		log.Printf("Timedout waiting for Pod to be deleted: %s\n", err)
 	}
 	log.Println(message)
-}
-
-// DeleteNamespace deletes a namespace by removing Finalizers and setting GracePeriodSeconds to 0 for immediate deletion.
-// Since we use force deletion, we don't need to wait for the namespace to be fully deleted.
-// Namespace will be cleaned up when cluster is deleted post e2e execution
-func DeleteNamespace(t *testing.T, k8sClient client.Client, namespace string) {
-	t.Helper()
-
-	ns := &corev1.Namespace{}
-	if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: namespace}, ns); err != nil {
-		if apierrors.IsNotFound(err) {
-			return
-		}
-		t.Logf("Error getting namespace %s: %v", namespace, err)
-		return
-	}
-
-	if len(ns.Spec.Finalizers) > 0 {
-		ns.Spec.Finalizers = nil
-		if err := k8sClient.Update(context.Background(), ns); err != nil {
-			t.Logf("Error removing finalizers from namespace %s: %v", namespace, err)
-		}
-	}
-
-	deleteOptions := metav1.DeleteOptions{
-		GracePeriodSeconds: ptr.Int64(0),
-	}
-	if err := k8sClient.Delete(context.Background(), ns, &client.DeleteOptions{
-		Raw: &deleteOptions,
-	}); err != nil && !apierrors.IsNotFound(err) {
-		t.Logf("Error deleting namespace %s: %v", namespace, err)
-	}
 }

@@ -112,7 +112,7 @@ test/cluster/down: bin/k3d
 
 test/e2e/%: PKG=$*
 test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/cluster ## run e2e tests for package (e.g. install or rotate)
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/... || EXIT_CODE=$$?; \
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/${PKG}/... || EXIT_CODE=$$?; \
 	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
 

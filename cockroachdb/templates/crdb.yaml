@@ -61,8 +61,14 @@ spec:
       {{- if .Values.operator.loggingConf }}
       loggingConfigMapName: {{ .Release.Name }}-logging
       {{- end }}
-  # All properties below are solely to pass validation. They aren't used by the
-  # betaclusterctrl controller so the values don't matter so long as they're
-  # valid.
+      {{- if .Values.operator.service.ports.grpc.external.port }}
+      gRPCPort: {{ .Values.operator.service.ports.grpc.external.port }}
+      {{- end }}
+      {{- if .Values.operator.service.ports.grpc.internal.port }}
+      sQLPort: {{ .Values.operator.service.ports.grpc.internal.port }}
+      {{- end }}
+      {{- if .Values.operator.service.ports.http.port }}
+      hTTPPort: {{ .Values.operator.service.ports.http.port }}
+      {{- end }}
   dataStore: {}
 {{- end }}

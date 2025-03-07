@@ -712,11 +712,11 @@ iap:
   # clientSecret:
 
 # Set the GODEBUG env var for the Go runtime. By default, disable Transparent Huge Pages,
-# which cause memory inefficiency for CRDB.
+# which cause memory inefficiency for CockroachDB.
 godebug:
   disablethp: "1"
 
-# Use the CRDB Operator to manage the CRDB clusters
+# Use the CockroachDB Operator to manage the CockroachDB clusters.
 operator:
   enabled: true
   # Default values for the cluster chart.
@@ -729,11 +729,11 @@ operator:
   nameOverride: ""
   fullnameOverride: ""
 
-  # A map of CRDB cluster settings.
+  # A map of CockroachDB cluster settings.
   # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
   clusterSettings: ~
 
-    # Regions controls the number of CRDB nodes that are deployed per region.
+    # Regions controls the number of CockroachDB nodes that are deployed per region.
     # regions: ~
     # - code: us-central1
       # nodes: 3
@@ -758,7 +758,7 @@ operator:
       # cpu: 100m
       # memory: 128Mi
 
-  # dataStore specifies the disk configuration for the CRDB Node.
+  # dataStore specifies the disk configuration for the CockroachDB Node.
   dataStore:
     volumeClaimTemplate:
       metadata: {}
@@ -779,7 +779,7 @@ operator:
     # the number of days generated certs are valid for
     # validForDays: 3650
 
-    # External certificates for the CRDB cluster.
+    # External certificates for the CockroachDB cluster.
     externalCertificates:
       clientCaConfigMapName: ""
       nodeCaConfigMapName: ""
@@ -788,7 +788,7 @@ operator:
       nodeSecretName: ""
       rootSqlClientSecretName: ""
 
-  # RBAC settings for CRDB nodes
+  # RBAC settings for CockroachDB nodes
   rbac:
     # By default the service account will be the resource name. It will
     # be created during the installation along with a namespaced role and
@@ -822,28 +822,55 @@ operator:
       cloudProvider: k3d
       namespace: default
 
-  # PodLabels are the labels that should be applied to the underlying CRDB pod
+  # PodLabels are the labels that should be applied to the underlying CockroachDB pod
   podLabels:
     app.kubernetes.io/component: cockroachdb
 
-  # Flags passed to the cockroachdb container.
+  # Flags passed to the CockroachDB container.
   flags:
     # Disable backup/restore to local disk by default.
     --external-io-dir: disabled
 
-  # Environment variables set on cockroachdb pods.
+  # Environment variables set on CockroachDB pods.
   env: []
 
-  # Delay between cockroachdb pod restarts. Wait 3m by default to avoid
+  # Delay between CockroachDB pod restarts. Wait 3m by default to avoid
   # unavailability during restarts.
   rollingRestartDelay: 3m0s
 
-  # Topology spread constraints set on cockroachdb pods. Spread cockroachdb
+  # Topology spread constraints set on CockroachDB pods. Spread CockroachDB
   # pods across zones by default.
   topologySpreadConstraints:
     - maxSkew: 1
       topologyKey: topology.kubernetes.io/zone
       whenUnsatisfiable: DoNotSchedule
+
+  # Service Ports for configuring non-standard ports
+  # for grpc, sql, http services.
+  service:
+    ports:
+      # You can set a different external and internal gRPC ports and their name.
+      grpc:
+        external:
+          port: 26258
+          name: grpc
+        # If the port number is different than `external.port`, then it will be
+        # named as `internal.name` in Service.
+        internal:
+          # CockroachDB's port to listen to inter-communications and client connections.
+          port: 26257
+          # If using Istio set it to `cockroach`.
+          name: grpc-internal
+      http:
+        # CockroachDB's port to listen to HTTP requests.
+        port: 8080
+        name: http
+
+    # This Service is meant to be used by clients of the database.
+    # It exposes a ClusterIP that will automatically load balance connections
+    # to the different database Pods.
+    public:
+      type: ClusterIP
 
   extras:
     # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
