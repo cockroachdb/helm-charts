@@ -2,6 +2,7 @@
 # the StatefulSet such that they can resolve each other's IP addresses.
 # It does not create a load-balanced ClusterIP and should not be used directly
 # by clients in most circumstances.
+{{- if not .Values.operator.enabled }}
 kind: Service
 apiVersion: v1
 metadata:
@@ -62,3 +63,4 @@ spec:
   {{- with .Values.statefulset.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
+{{- end }}
