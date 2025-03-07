@@ -362,7 +362,6 @@ Construct the GODEBUG env var value (looks like: GODEBUG="foo=bar,baz=quux"; def
 {{- join "," $godebugList -}}
 {{- end }}
 
-
 {{/* Common labels that are applied to all managed objects. */}}
 {{- define "cluster.labels" -}}
 helm.sh/chart: {{ include "cockroachdb.chart" . }}
@@ -375,7 +374,7 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 
 {{/*
   Selector labels defines the set of labels that can be used as selectors for
-  crdb nodes.
+  CockroachDB nodes.
 */}}
 {{- define "cluster.selectorLabels" -}}
 app.kubernetes.io/name: {{ include "cockroachdb.clusterfullname" . }}

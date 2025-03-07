@@ -5,7 +5,6 @@
   By convention, the first line is expected to be the ca.crt
   entry. Lines 2-3 are the client.root entries. Finally, lines
   4-5 are the client.node entries.
-
 */}}
 {{- define "operator.certs" -}}
 {{- $days := default .Values.certificate.validForDays 3650 | int -}}
