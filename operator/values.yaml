@@ -1,0 +1,11 @@
+# Default values for the operator chart.
+image:
+  # TODO: once this is published somewhere, use the real repo.
+  registry: "us-docker.pkg.dev/cockroach-cloud-images/development"
+  repository: "cockroach-operator"
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the cluster chart's appVersion.
+  tag: ""
+certificate:
+  validForDays: ""
+numReplicas: 1

@@ -55,10 +55,11 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	// Setup the args. For this test, we will set the following input values:
 	helmValues := map[string]string{
+		"operator.enabled":                            "false",
 		"tls.selfSigner.image.tag":                    tagOutput,
 		"storage.persistentVolume.size":               "1Gi",
 		"tls.certs.selfSigner.minimumCertDuration":    "24h",

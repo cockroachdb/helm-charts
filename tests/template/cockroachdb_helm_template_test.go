@@ -36,7 +36,6 @@ func init() {
 // TestTLSEnable tests the enabling the TLS, you have to enable only one method of TLS certs
 func TestTLSEnable(t *testing.T) {
 	t.Parallel()
-
 	testCases := []struct {
 		name   string
 		values map[string]string
@@ -47,6 +46,7 @@ func TestTLSEnable(t *testing.T) {
 			map[string]string{
 				"tls.certs.selfSigner.enabled": "false",
 				"tls.certs.certManager":        "false",
+				"operator.enabled":             "false",
 			},
 			"You have to enable either self signed certificates or certificate manager, if you have enabled tls",
 		},
@@ -55,6 +55,7 @@ func TestTLSEnable(t *testing.T) {
 			map[string]string{
 				"tls.certs.selfSigner.enabled": "true",
 				"tls.certs.certManager":        "true",
+				"operator.enabled":             "false",
 			},
 			"Can not enable the self signed certificates and certificate manager at the same time",
 		},
@@ -356,7 +357,10 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 	}{
 		{
 			"Self Signer enable",
-			map[string]string{"tls.certs.selfSigner.enabled": "true"},
+			map[string]string{
+				"tls.certs.selfSigner.enabled": "true",
+				"operator.enabled":             "false",
+			},
 			"copy-certs",
 		},
 		{
@@ -364,6 +368,7 @@ func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 			map[string]string{
 				"tls.certs.selfSigner.enabled": "false",
 				"tls.certs.certManager":        "true",
+				"operator.enabled":             "false",
 			},
 			"copy-certs",
 		},
@@ -511,7 +516,10 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 	}{
 		{
 			"New logging configuration enabled",
-			map[string]string{"conf.log.enabled": "true"},
+			map[string]string{
+				"conf.log.enabled": "true",
+				"operator.enabled": "false",
+			},
 			expect{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
 				"",
@@ -525,6 +533,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 			map[string]string{
 				"conf.log.enabled":                  "true",
 				"conf.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
+				"operator.enabled":                  "false",
 			},
 			expect{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
@@ -539,6 +548,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 			map[string]string{
 				"conf.log.enabled": "false",
 				"conf.logtostderr": "INFO",
+				"operator.enabled": "false",
 			},
 			expect{
 				"--logtostderr=INFO",
@@ -554,6 +564,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				"conf.log.enabled":                  "false",
 				"conf.logtostderr":                  "INFO",
 				"conf.log.persistentVolume.enabled": "true",
+				"operator.enabled":                  "false",
 			},
 			expect{
 				"--logtostderr=INFO",
@@ -569,6 +580,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				"conf.log.enabled":                  "true",
 				"conf.log.config.file-defaults.dir": "/wrong/path",
 				"conf.log.persistentVolume.enabled": "true",
+				"operator.enabled":                  "false",
 			},
 			expect{
 				"",
@@ -584,6 +596,7 @@ func TestHelmLogConfigFileStatefulSet(t *testing.T) {
 				"conf.log.enabled":                  "true",
 				"conf.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
 				"conf.log.persistentVolume.enabled": "true",
+				"operator.enabled":                  "false",
 			},
 			expect{
 				"--log-config-file=/cockroach/log-config/log-config.yaml",
@@ -671,7 +684,10 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 	}{
 		{
 			"Disabled provisioning",
-			map[string]string{"init.provisioning.enabled": "false"},
+			map[string]string{
+				"init.provisioning.enabled": "false",
+				"operator.enabled":          "false",
+			},
 			struct {
 				job struct {
 					exists           bool
@@ -712,7 +728,10 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 		},
 		{
 			"Enabled empty provisioning",
-			map[string]string{"init.provisioning.enabled": "true"},
+			map[string]string{
+				"init.provisioning.enabled": "true",
+				"operator.enabled":          "false",
+			},
 			struct {
 				job struct {
 					exists           bool
@@ -758,6 +777,7 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				"init.provisioning.users[0].name":       "testUser",
 				"init.provisioning.users[0].password":   "testPassword",
 				"init.provisioning.users[0].options[0]": "CREATEROLE",
+				"operator.enabled":                      "false",
 			},
 			struct {
 				job struct {
@@ -804,6 +824,7 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				"init.provisioning.enabled":                 "true",
 				"init.provisioning.databases[0].name":       "testDatabase",
 				"init.provisioning.databases[0].options[0]": "encoding='utf-8'",
+				"operator.enabled":                          "false",
 			},
 			struct {
 				job struct {
@@ -851,6 +872,7 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				"init.provisioning.users[0].password":      "testPassword",
 				"init.provisioning.databases[0].name":      "testDatabase",
 				"init.provisioning.databases[0].owners[0]": "testUser",
+				"operator.enabled":                         "false",
 			},
 			struct {
 				job struct {
@@ -900,6 +922,7 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				"init.provisioning.enabled":                                "true",
 				"init.provisioning.clusterSettings.cluster\\.organization": "testOrganization",
 				"init.provisioning.clusterSettings.enterprise\\.license":   "testLicense",
+				"operator.enabled":                                         "false",
 			},
 			struct {
 				job struct {
@@ -953,6 +976,7 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 				"init.provisioning.databases[0].backup.recurring":           "@always",
 				"init.provisioning.databases[0].backup.fullBackup":          "@daily",
 				"init.provisioning.databases[0].backup.schedule.options[0]": "first_run = 'now'",
+				"operator.enabled":                                          "false",
 			},
 			struct {
 				job struct {
@@ -1297,7 +1321,9 @@ func TestHelmInitJobAnnotations(t *testing.T) {
 	}{
 		{
 			"No extra job annotations were supplied",
-			map[string]string{},
+			map[string]string{
+				"operator.enabled": "false",
+			},
 			map[string]string{
 				"helm.sh/hook":               "post-install,post-upgrade",
 				"helm.sh/hook-delete-policy": "before-hook-creation",
@@ -1308,6 +1334,7 @@ func TestHelmInitJobAnnotations(t *testing.T) {
 			map[string]string{
 				"init.jobAnnotations.test-key-1": "test-value-1",
 				"init.jobAnnotations.test-key-2": "test-value-2",
+				"operator.enabled":               "false",
 			},
 			map[string]string{
 				"helm.sh/hook":               "post-install,post-upgrade",
@@ -1364,6 +1391,7 @@ func TestStatefulSetInitContainers(t *testing.T) {
 				"statefulset.volumeMounts[0].mountPath":    "/metadata",
 				"statefulset.volumes[0].name":              "metadata",
 				"statefulset.volumes[0].configMap.name":    "log-config",
+				"operator.enabled":                         "false",
 			},
 		},
 		{
@@ -1375,6 +1403,7 @@ func TestStatefulSetInitContainers(t *testing.T) {
 				"statefulset.volumeMounts[0].mountPath": "/metadata",
 				"statefulset.volumes[0].name":           "metadata",
 				"statefulset.volumes[0].configMap.name": "log-config",
+				"operator.enabled":                      "false",
 			},
 		},
 		{
@@ -1387,6 +1416,7 @@ func TestStatefulSetInitContainers(t *testing.T) {
 				"statefulset.initContainers[0].command[0]": "/bin/bash",
 				"statefulset.initContainers[0].command[1]": "-c",
 				"statefulset.initContainers[0].command[2]": "echo 'Fetching metadata'",
+				"operator.enabled":                         "false",
 			},
 		},
 	}
@@ -1465,6 +1495,7 @@ func TestHelmCockroachStartCmd(t *testing.T) {
 			"start single node with default args",
 			map[string]string{
 				"conf.single-node": "true",
+				"operator.enabled": "false",
 			},
 			expect{
 				"exec /cockroach/cockroach start-single-node " +
@@ -1492,6 +1523,7 @@ func TestHelmCockroachStartCmd(t *testing.T) {
 				"conf.locality":                    "region=us-west-1",
 				"conf.sql-audit-dir":               "/audit",
 				"conf.log.enabled":                 "true",
+				"operator.enabled":                 "false",
 			},
 			expect{
 				"exec /cockroach/cockroach start-single-node " +
@@ -1512,7 +1544,8 @@ func TestHelmCockroachStartCmd(t *testing.T) {
 		{
 			"start multiple node cluster with default args",
 			map[string]string{
-				"conf.join": "1.1.1.1",
+				"conf.join":        "1.1.1.1",
+				"operator.enabled": "false",
 			},
 			expect{
 				"exec /cockroach/cockroach start --join=1.1.1.1 " +
@@ -1542,6 +1575,7 @@ func TestHelmCockroachStartCmd(t *testing.T) {
 				"conf.locality":                          "region=us-west-1",
 				"conf.sql-audit-dir":                     "/audit",
 				"conf.log.enabled":                       "true",
+				"operator.enabled":                       "false",
 			},
 			expect{
 				"exec /cockroach/cockroach start --join=1.1.1.1 " +
@@ -1602,6 +1636,7 @@ func TestHelmCockroachStartCmd(t *testing.T) {
 // TestHelmWALFailoverConfiguration contains the tests around WAL failover configuration.
 func TestHelmWALFailoverConfiguration(t *testing.T) {
 	t.Parallel()
+	t.Logf("helm chart path: %s", helmChartPath)
 
 	type expect struct {
 		statefulsetArgument   string
@@ -1618,6 +1653,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 			"WAL failover invalid configuration",
 			map[string]string{
 				"conf.wal-failover.value": "invalid",
+				"operator.enabled":        "false",
 			},
 			expect{
 				"",
@@ -1631,6 +1667,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 				"conf.wal-failover.value": "",
 				"conf.store.enabled":      "true",
 				"conf.store.count":        "1",
+				"operator.enabled":        "false",
 			},
 			expect{
 				"--store=path=cockroach-data,size=100Gi",
@@ -1644,6 +1681,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 				"conf.wal-failover.value": "among-stores",
 				"conf.store.enabled":      "true",
 				"conf.store.count":        "2",
+				"operator.enabled":        "false",
 			},
 			expect{
 				"--store=path=cockroach-data,size=100Gi " +
@@ -1659,6 +1697,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 				"conf.wal-failover.value": "disabled",
 				"conf.store.enabled":      "true",
 				"conf.store.count":        "2",
+				"operator.enabled":        "false",
 			},
 			expect{
 				"--store=path=cockroach-data,size=100Gi " +
@@ -1673,6 +1712,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 			map[string]string{
 				"conf.wal-failover.value": "among-stores",
 				"conf.store.enabled":      "false",
+				"operator.enabled":        "false",
 			},
 			expect{
 				"",
@@ -1686,6 +1726,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 				"conf.wal-failover.value": "among-stores",
 				"conf.store.enabled":      "true",
 				"conf.store.count":        "1",
+				"operator.enabled":        "false",
 			},
 			expect{
 				"",
@@ -1698,6 +1739,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 			map[string]string{
 				"conf.wal-failover.value":                    "path=/cockroach/cockroach-failover/abc",
 				"conf.wal-failover.persistentVolume.enabled": "true",
+				"operator.enabled":                           "false",
 			},
 			expect{
 				"--wal-failover=path=/cockroach/cockroach-failover/abc",
@@ -1710,6 +1752,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 			map[string]string{
 				"conf.wal-failover.value":                    "path=cockroach-failover/abc",
 				"conf.wal-failover.persistentVolume.enabled": "true",
+				"operator.enabled":                           "false",
 			},
 			expect{
 				"--wal-failover=path=cockroach-failover/abc",
@@ -1722,6 +1765,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 			map[string]string{
 				"conf.wal-failover.value":                    "disabled",
 				"conf.wal-failover.persistentVolume.enabled": "true",
+				"operator.enabled":                           "false",
 			},
 			expect{
 				"--wal-failover=disabled",
@@ -1734,6 +1778,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 			map[string]string{
 				"conf.wal-failover.value":                    "path=/cockroach/cockroach-failover",
 				"conf.wal-failover.persistentVolume.enabled": "false",
+				"operator.enabled":                           "false",
 			},
 			expect{
 				"",
@@ -1746,6 +1791,7 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 			map[string]string{
 				"conf.wal-failover.value":                    "path=/invalid",
 				"conf.wal-failover.persistentVolume.enabled": "true",
+				"operator.enabled":                           "false",
 			},
 			expect{
 				"",

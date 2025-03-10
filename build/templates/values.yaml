@@ -712,10 +712,166 @@ iap:
   # clientSecret:
 
 # Set the GODEBUG env var for the Go runtime. By default, disable Transparent Huge Pages,
-# which cause memory inefficiency for CRDB.
+# which cause memory inefficiency for CockroachDB.
 godebug:
   disablethp: "1"
 
 # Use the CockroachDB Operator to manage the CockroachDB clusters.
 operator:
-  enabled: false
+  enabled: true
+  # Default values for the cluster chart.
+  image:
+    repository: cockroachdb/cockroach
+    pullPolicy: IfNotPresent
+    # Overrides the image tag whose default is the cluster chart's appVersion.
+    tag: ""
+
+  nameOverride: ""
+  fullnameOverride: ""
+
+  # A map of CockroachDB cluster settings.
+  # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
+  clusterSettings: ~
+
+    # Regions controls the number of CockroachDB nodes that are deployed per region.
+    # regions: ~
+    # - code: us-central1
+      # nodes: 3
+
+  # loggingConf is the logging configuration used by cockroach.
+  # More details: https://www.cockroachlabs.com/docs/stable/logging-overview.html
+  loggingConf: ~
+    # sinks:
+      # stderr:
+        # channels: [health, dev]
+        # filter: INFO
+
+  # We usually recommend not to specify default resources and to leave this as a conscious
+  # choice for the user. This also increases chances charts run on environments with little
+  # resources, such as K3D. If you do want to specify resources, uncomment the following
+  # lines, adjust them as necessary, and remove the tilde after 'resources:'.
+  resources: ~
+    # limits:
+      # cpu: 100m
+      # memory: 128Mi
+    # requests:
+      # cpu: 100m
+      # memory: 128Mi
+
+  # dataStore specifies the disk configuration for the CockroachDB Node.
+  dataStore:
+    volumeClaimTemplate:
+      metadata: {}
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        resources:
+          requests:
+            storage: 10Gi
+        volumeMode: Filesystem
+
+  certificates:
+    # Any extra alt names that should be added to the node certs.
+    extraNodeAltNames: []
+      # - somevalue
+      # - somevalue.default
+      # - somevalue.default.svc.local
+    # the number of days generated certs are valid for
+    # validForDays: 3650
+
+    # External certificates for the CockroachDB cluster.
+    externalCertificates:
+      clientCaConfigMapName: ""
+      nodeCaConfigMapName: ""
+      httpSecretName: ""
+      nodeClientSecretName: ""
+      nodeSecretName: ""
+      rootSqlClientSecretName: ""
+
+  # RBAC settings for CockroachDB nodes
+  rbac:
+    # By default the service account will be the resource name. It will
+    # be created during the installation along with a namespaced role and
+    # a cluster role with the policy rules below.
+    #
+    # Uncomment the line below to use a custom SA. If a custom SA is used,
+    # no roles or bindings will be created.
+    # serviceAccountName: my-custom-sa
+
+    # Rules for the namespaced role bound to the service account.
+    #
+    # E.g.
+    # permissions:
+    #   - apiGroup: [""]
+    #     resources: ["secrets"]
+    #     verbs: ["create", "get"]
+    rules: []
+
+    # Rules for the cluster role bound to the service account.
+    clusterRules:
+      # Get nodes allows the locality container to work as expected. It pulls the
+      # failure-domain.beta.kubernetes.io/zone label to determine node locality.
+      - apiGroups: [""]
+        resources: ["nodes"]
+        verbs: ["get"]
+    serviceAccountName: ~
+
+  regions:
+    - code: us-east-1
+      nodes: 3
+      cloudProvider: k3d
+      namespace: default
+
+  # PodLabels are the labels that should be applied to the underlying CockroachDB pod
+  podLabels:
+    app.kubernetes.io/component: cockroachdb
+
+  # Flags passed to the CockroachDB container.
+  flags:
+    # Disable backup/restore to local disk by default.
+    --external-io-dir: disabled
+
+  # Environment variables set on CockroachDB pods.
+  env: []
+
+  # Delay between CockroachDB pod restarts. Wait 3m by default to avoid
+  # unavailability during restarts.
+  rollingRestartDelay: 3m0s
+
+  # Topology spread constraints set on CockroachDB pods. Spread CockroachDB
+  # pods across zones by default.
+  topologySpreadConstraints:
+    - maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: DoNotSchedule
+
+  # Service Ports for configuring non-standard ports
+  # for grpc, sql, http services.
+  service:
+    ports:
+      # You can set a different external and internal gRPC ports and their name.
+      grpc:
+        external:
+          port: 26258
+          name: grpc
+        # If the port number is different than `external.port`, then it will be
+        # named as `internal.name` in Service.
+        internal:
+          # CockroachDB's port to listen to inter-communications and client connections.
+          port: 26257
+          # If using Istio set it to `cockroach`.
+          name: grpc-internal
+      http:
+        # CockroachDB's port to listen to HTTP requests.
+        port: 8080
+        name: http
+
+    # This Service is meant to be used by clients of the database.
+    # It exposes a ClusterIP that will automatically load balance connections
+    # to the different database Pods.
+    public:
+      type: ClusterIP
+
+  extras:
+    # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
+    dnsutils: false

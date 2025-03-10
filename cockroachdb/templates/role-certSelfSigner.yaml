@@ -30,4 +30,7 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["delete", "get"]
+  - apiGroups: [""]
+    resources: ["configmaps"]
+    verbs: ["create", "get", "update", "delete"]
 {{- end }}

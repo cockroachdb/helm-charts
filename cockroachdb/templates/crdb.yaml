@@ -1,0 +1,74 @@
+{{- if .Values.operator.enabled }}
+---
+apiVersion: crdb.cockroachlabs.com/v1alpha1
+kind: CrdbCluster
+metadata:
+  name: {{ template "cockroachdb.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cluster.labels" . | nindent 4 }}
+    {{- with .Values.statefulset.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- with .Values.operator.clusterSettings }}
+  clusterSettings: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.operator.regions }}
+  regions: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  features:
+    - reconcile
+    - reconcile-beta
+  {{- with .Values.operator.flags }}
+  flags: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rollingRestartDelay: {{ .Values.operator.rollingRestartDelay }}
+  template:
+    spec:
+      image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+      certificates:
+        externalCertificates:
+          {{- /* Note: defaults should match secrets and configmaps created by the self-signer job. */}}
+          clientCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.clientCaConfigMapName | default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
+          nodeCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.nodeCaConfigMapName | default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
+          httpSecretName: {{ .Values.operator.certificates.externalCertificates.httpSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+          nodeClientSecretName: {{ .Values.operator.certificates.externalCertificates.nodeClientSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+          nodeSecretName: {{ .Values.operator.certificates.externalCertificates.nodeSecretName | default (printf "%s-node-secret" (include "cockroachdb.fullname" .)) }}
+          rootSqlClientSecretName: {{ .Values.operator.certificates.externalCertificates.rootSqlClientSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+      {{- with .Values.operator.dataStore }}
+      dataStore: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.env }}
+      env: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      podLabels:
+        app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        {{- with .Values.operator.podLabels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.operator.resources }}
+      resourceRequirements: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.operator.rbac.serviceAccountName | default (include "cockroachdb.serviceAccount.name" .) }}
+      {{- if .Values.operator.loggingConf }}
+      loggingConfigMapName: {{ .Release.Name }}-logging
+      {{- end }}
+      {{- if .Values.operator.service.ports.grpc.external.port }}
+      gRPCPort: {{ .Values.operator.service.ports.grpc.external.port }}
+      {{- end }}
+      {{- if .Values.operator.service.ports.grpc.internal.port }}
+      sQLPort: {{ .Values.operator.service.ports.grpc.internal.port }}
+      {{- end }}
+      {{- if .Values.operator.service.ports.http.port }}
+      hTTPPort: {{ .Values.operator.service.ports.http.port }}
+      {{- end }}
+  dataStore: {}
+{{- end }}

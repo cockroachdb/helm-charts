@@ -1,8 +1,11 @@
 package integration
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
+	v1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/types"
 	"log"
 	"os"
 	"path/filepath"
@@ -34,6 +37,8 @@ var (
 	helmChartPath, _ = filepath.Abs("../../../cockroachdb")
 )
 
+const role = "crdb-test-cockroachdb-node-reader"
+
 func TestCockroachDbHelmInstall(t *testing.T) {
 	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
@@ -50,8 +55,8 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	}
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
-	// ... and make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	// ... and make sure to delete the namespace at the end of the test.
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	const testDBName = "testdb"
 
@@ -59,6 +64,7 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled":                         "false",
 			"conf.cluster-name":                        "test",
 			"init.provisioning.enabled":                "true",
 			"init.provisioning.databases[0].name":      testDBName,
@@ -87,7 +93,7 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 		}
 	}()
 
-	// Next we wait for the service endpoint
+	// Next we wait for the service endpoint.
 	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
 
@@ -122,8 +128,8 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	}
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
-	// ... and make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	// ... and make sure to delete the namespace at the end of the test.
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	certOutput, err := shell.RunCommandAndGetOutputE(t, cmd)
 	t.Log(certOutput)
@@ -145,6 +151,7 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled":                "false",
 			"tls.certs.selfSigner.caProvided": "true",
 			"tls.certs.selfSigner.caSecret":   customCASecret,
 		}),
@@ -166,7 +173,7 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 			},
 		)
 
-		// custom user CA certificate secret should not be deleted by pre-delete job
+		// custom user CA certificate secret should not be deleted by pre-delete job.
 		_, err = k8s.GetSecretE(t, kubectlOptions, crdbCluster.CaSecret)
 		require.NoError(t, err)
 	}()
@@ -178,7 +185,7 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 		}
 	}()
 
-	// Next we wait for the service endpoint
+	// Next we wait for the service endpoint.
 	serviceName := fmt.Sprintf("%s-cockroachdb-public", releaseName)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
 
@@ -188,7 +195,7 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
 }
 
-// Test to check migration from Bring your own certificate method to self-sginer cert utility
+// Test to check migration from Bring your own certificate method to self-sginer cert utility.
 func TestCockroachDbHelmMigration(t *testing.T) {
 	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespaceName)
@@ -248,8 +255,8 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	}
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
-	// Make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	// Make sure to delete the namespace at the end of the test.
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	cmds := []shell.Command{cmdCa, cmdNode, cmdClient}
 	for i := range cmds {
@@ -268,10 +275,11 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 		fmt.Sprintf("--from-file=%s/ca.crt", certsDir))
 	require.NoError(t, err)
 
-	// Setup the args
+	// Setup the args.
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled":             "false",
 			"tls.certs.provided":           "true",
 			"tls.certs.selfSigner.enabled": "false",
 			"tls.certs.clientRootSecret":   crdbCluster.ClientSecret,
@@ -296,15 +304,16 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 
-	// Setup the args for upgrade
+	// Setup the args for upgrade.
 	crdbCluster.NodeSecret = fmt.Sprintf("%s-cockroachdb-node-secret", releaseName)
 	crdbCluster.ClientSecret = fmt.Sprintf("%s-cockroachdb-client-secret", releaseName)
 	crdbCluster.CaSecret = fmt.Sprintf("%s-cockroachdb-ca-secret", releaseName)
 
-	// Default method is self-signer so no need to set explicitly
+	// Default method is self-signer so no need to set explicitly.
 	options = &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled":                "false",
 			"statefulset.updateStrategy.type": "OnDelete",
 		}),
 		ExtraArgs: map[string][]string{
@@ -315,8 +324,8 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 	}
 
 	// Upgrade the cockroachdb helm chart and checks installation should succeed.
-	// Upgrade is done in goRoutine to unblock the code flow
-	// While upgrading statefulset pods need to be deleted manually to consume the new certificate chain
+	// Upgrade is done in goRoutine to unblock the code flow.
+	// While upgrading statefulset pods need to be deleted manually to consume the new certificate chain.
 	wg := sync.WaitGroup{}
 	wg.Add(1)
 
@@ -334,7 +343,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 
 	wg.Wait()
 
-	// Wait for the service endpoint
+	// Wait for the service endpoint.
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, publicService, 30, 2*time.Second)
 
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
@@ -356,13 +365,14 @@ func TestCockroachDbWithInsecureMode(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	// Setup the args. For this test, we will set the following input values:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
-			"tls.enabled": "false",
+			"operator.enabled": "false",
+			"tls.enabled":      "false",
 		}),
 	}
 
@@ -392,7 +402,7 @@ func TestCockroachDbWithCertManager(t *testing.T) {
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
 	// ... and make sure to delete the namespace at the end of the test
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	certManagerHelmOptions := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", "cert-manager"),
@@ -452,6 +462,7 @@ spec:
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: patchHelmValues(map[string]string{
+			"operator.enabled":                 "false",
 			"tls.enabled":                      "true",
 			"tls.certs.selfSigner.enabled":     "false",
 			"tls.certs.certManager":            "true",
@@ -484,6 +495,7 @@ func TestWALFailoverSideDiskExistingCluster(t *testing.T) {
 	testWALFailoverExistingCluster(
 		t,
 		patchHelmValues(map[string]string{
+			"operator.enabled":                           "false",
 			"conf.wal-failover.value":                    "path=cockroach-failover",
 			"conf.wal-failover.persistentVolume.enabled": "true",
 			"conf.wal-failover.persistentVolume.size":    "1Gi",
@@ -495,6 +507,7 @@ func TestWALFailoverAmongStoresExistingCluster(t *testing.T) {
 	testWALFailoverExistingCluster(
 		t,
 		patchHelmValues(map[string]string{
+			"operator.enabled":        "false",
 			"conf.wal-failover.value": "among-stores",
 			"conf.store.count":        "2",
 		}),
@@ -518,7 +531,7 @@ func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]st
 	}
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
-	defer testutil.DeleteNamespace(t, k8sClient, namespaceName)
+	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	// Print the debug logs in case of test failure.
 	defer func() {
@@ -529,6 +542,7 @@ func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]st
 
 	// Configure options for the initial deployment.
 	initialValues := patchHelmValues(map[string]string{
+		"operator.enabled":     "false",
 		"conf.cluster-name":    "test",
 		"conf.store.enabled":   "true",
 		"statefulset.replicas": strconv.Itoa(numReplicas),
@@ -632,5 +646,22 @@ func cleanupResources(
 		_, err = k8s.GetSecretE(t, kubectlOptions, danglingSecrets[i])
 		require.Equal(t, true, kube.IsNotFound(err))
 		t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
+	}
+
+	crb := &v1.ClusterRoleBinding{}
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: role}, crb); err != nil {
+		t.Logf("Error getting ClusterRoleBinding %s: %v", role, err)
+	}
+
+	if err := k8sClient.Delete(context.Background(), crb); err != nil {
+		t.Logf("Error deleting ClusterRoleBinding %s: %v", role, err)
+	}
+	cr := &v1.ClusterRole{}
+	if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: role}, cr); err != nil {
+		t.Logf("Error getting ClusterRole %s: %v", role, err)
+	}
+
+	if err := k8sClient.Delete(context.Background(), cr); err != nil {
+		t.Logf("Error deleting ClusterRole %s: %v", role, err)
 	}
 }
