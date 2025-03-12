@@ -54,6 +54,11 @@ spec:
         {{- with .Values.operator.podLabels }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
+      podAnnotations:
+        helm.sh/restartedAt: {{ .Values.timestamp  | quote }}
+        {{- with .Values.operator.podAnnotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
       {{- with .Values.operator.resources }}
       resourceRequirements: {{- toYaml . | nindent 8 }}
       {{- end }}
