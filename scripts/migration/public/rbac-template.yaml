@@ -2,8 +2,12 @@
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
+  annotations:
+    meta.helm.sh/release-name: ${CRDBCLUSTER}
+    meta.helm.sh/release-namespace: ${NAMESPACE}
   labels:
     app: cockroachdb
+    app.kubernetes.io/managed-by: Helm
   name: cockroachdb
 rules:
 - apiGroups:
@@ -24,6 +28,9 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
+  annotations:
+    meta.helm.sh/release-name: ${CRDBCLUSTER}
+    meta.helm.sh/release-namespace: ${NAMESPACE}
   labels:
     app: cockroachdb
   name: cockroachdb
@@ -39,8 +46,12 @@ subjects:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: Role
 metadata:
+  annotations:
+    meta.helm.sh/release-name: ${CRDBCLUSTER}
+    meta.helm.sh/release-namespace: ${NAMESPACE}
   labels:
     app: cockroachdb
+    app.kubernetes.io/managed-by: Helm
   name: cockroachdb
   namespace: ${NAMESPACE}
 rules:
@@ -55,8 +66,12 @@ rules:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: RoleBinding
 metadata:
+  annotations:
+    meta.helm.sh/release-name: ${CRDBCLUSTER}
+    meta.helm.sh/release-namespace: ${NAMESPACE}
   labels:
     app: cockroachdb
+    app.kubernetes.io/managed-by: Helm
   name: cockroachdb
   namespace: ${NAMESPACE}
 roleRef:
@@ -71,7 +86,11 @@ subjects:
 apiVersion: v1
 kind: ServiceAccount
 metadata:
+  annotations:
+    meta.helm.sh/release-name: ${CRDBCLUSTER}
+    meta.helm.sh/release-namespace: ${NAMESPACE}
   labels:
     app: cockroachdb
+    app.kubernetes.io/managed-by: Helm
   name: cockroachdb
   namespace: ${NAMESPACE}

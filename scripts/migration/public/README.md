@@ -36,6 +36,7 @@ Next, we need to re-map and generate tls certs. The crdb cloud operator uses sli
 Next, generate manifests for each crdbnode and the crdbcluster based on the state of the statefulset. We generate a manifest for each crdbnode because we want the crdb pods and their associated pvcs to have the same names as the original statefulset-managed pods and pvcs. This means that the new operator-managed pods will use the original pvcs, and won't have to replicate data into empty nodes.
 
 ```
+mkdir -p manifests
 ./generate-manifests.sh
 
 The public operator and cloud operator use custom resource definitions with the same names, so we have to remove the public operator before installing the cloud operator. Uninstall the public operator, without deleting its managed pods, pvc, etc.:
@@ -90,8 +91,15 @@ The public operator creates a pod disruption budget that conflicts with a pod di
 kubectl delete poddisruptionbudget $CRDBCLUSTER
 ```
 
-Finally, apply the crdbcluster manifest:
+Add following annotations and labels to the public service to make it part of the helm chart:
+```
+kubectl annotate service $CRDBCLUSTER-public meta.helm.sh/release-name="$CRDBCLUSTER"
+kubectl annotate service $CRDBCLUSTER-public meta.helm.sh/release-namespace="$NAMESPACE"
+kubectl label service $CRDBCLUSTER-public app.kubernetes.io/managed-by=Helm
+```
+
+Finally, install the CockroachDB helm chart::
 
 ```
-kubectl apply -f manifests/crdbcluster-$CRDBCLUSTER.yaml
+helm install $CRDBCLUSTER ./cockroachdb -f manifests/custom_values.yaml
 ```
