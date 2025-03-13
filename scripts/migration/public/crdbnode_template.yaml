@@ -1,0 +1,28 @@
+---
+apiVersion: crdb.cockroachlabs.com/v1alpha1
+kind: CrdbNode
+metadata:
+  annotations:
+    crdb.cockroachlabs.com/cloudProvider: ${CLOUD_PROVIDER}
+  finalizers:
+    - crdbnode.crdb.cockroachlabs.com/finalizer
+  generateName: ''
+  name: ${crdb_node_name}
+  labels:
+    app: cockroachdb
+    crdb.cockroachlabs.com/cluster: ${CRDBCLUSTER}
+    svc: cockroachdb
+  namespace: ${NAMESPACE}
+spec:
+  serviceAccountName: ${CRDBCLUSTER}
+  # datadir is hardcoded in public operator and the same name PVC should be generated in SHCM operator.
+  dataStore:
+    volumeClaimTemplate:
+      metadata:
+        name: datadir
+  env:
+  - name: "HOST_IP"
+    valueFrom:
+      fieldRef:
+        apiVersion: "v1"
+        fieldPath: "status.hostIP"

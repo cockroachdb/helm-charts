@@ -1,0 +1,6 @@
+operator:
+  enabled: true
+  dataStore:
+    volumeClaimTemplate:
+      metadata:
+        name: datadir
