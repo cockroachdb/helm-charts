@@ -50,7 +50,7 @@ spec:
   {{- if ne ($ports.grpc.internal.port | int64) ($ports.grpc.external.port | int64) }}
     - name: {{ $ports.grpc.internal.name | quote }}
       port: {{ $ports.grpc.internal.port | int64 }}
-      targetPort: grpc
+      targetPort: sql
   {{- end }}
     # The secondary port serves the UI as well as health and debug endpoints.
     - name: {{ $ports.http.name | quote }}
