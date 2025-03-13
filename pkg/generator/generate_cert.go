@@ -581,7 +581,7 @@ func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) erro
 	// If we are using the operator to manage secrets then we need to store the CA cert in a
 	// ConfigMap.
 	if rc.CaSecret != "" && rc.OperatorManaged {
-		cm := resource.CreateConfigMap(namespace, rc.CaSecret, secret.CA(),
+		cm := resource.CreateConfigMap(namespace, rc.getCASecretName(), secret.CA(),
 			resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
 		if err = cm.Update(); err != nil {
 			return errors.Wrap(err, "failed to update CA cert in ConfigMap")
