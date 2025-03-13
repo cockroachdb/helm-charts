@@ -380,3 +380,16 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/name: {{ include "cockroachdb.clusterfullname" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+    It provides all external certificates are empty or not
+*/}}
+{{- define "externalCertificates.isEmpty" -}}
+  {{- $isEmpty := true }}
+  {{- range $key, $value := .Values.operator.certificates.externalCertificates }}
+    {{- if not (empty $value) }}
+      {{- $isEmpty = false }}
+    {{- end }}
+  {{- end }}
+  {{- print $isEmpty }}
+{{- end }}
