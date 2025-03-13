@@ -100,6 +100,7 @@ func getInitialConfig(caDuration, caExpiry, nodeDuration, nodeExpiry, clientDura
 	}
 
 	if !clientOnly {
+		// STATEFULSET_NAME is derived from {{ template "cockroachdb.fullname" . }} in helm chart.
 		stsName, exists := os.LookupEnv("STATEFULSET_NAME")
 		if !exists {
 			return genCert, errors.New("Required STATEFULSET_NAME env not found")
