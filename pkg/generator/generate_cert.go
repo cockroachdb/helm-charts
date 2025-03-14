@@ -26,6 +26,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	corev1 "k8s.io/api/core/v1"
+	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/cockroachdb/helm-charts/pkg/kube"
@@ -52,6 +53,7 @@ func init() {
 // GenerateCert is the structure containing all the certificate related info
 type GenerateCert struct {
 	client                    client.Client
+	restConfig                *rest.Config
 	CertsDir                  string
 	CaSecret                  string
 	CAKey                     string
@@ -94,9 +96,10 @@ func (c *certConfig) SetConfig(duration, expiryWindow string) error {
 	return nil
 }
 
-func NewGenerateCert(cl client.Client) GenerateCert {
+func NewGenerateCert(config *rest.Config, cl client.Client) GenerateCert {
 	return GenerateCert{
 		client:           cl,
+		restConfig:       config,
 		CaCertConfig:     &certConfig{},
 		NodeCertConfig:   &certConfig{},
 		ClientCertConfig: &certConfig{},
@@ -392,7 +395,7 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 					return err
 				}
 
-				if err = kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait, rc.PodUpdateTimeout); err != nil {
+				if err = kube.SighupSignalToPods(ctx, rc.restConfig, rc.client, rc.DiscoveryServiceName, namespace); err != nil {
 					return
 				}
 				return nil
