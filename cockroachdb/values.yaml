@@ -780,13 +780,7 @@ operator:
     # validForDays: 3650
 
     # External certificates for the CockroachDB cluster.
-    externalCertificates:
-      clientCaConfigMapName: ""
-      nodeCaConfigMapName: ""
-      httpSecretName: ""
-      nodeClientSecretName: ""
-      nodeSecretName: ""
-      rootSqlClientSecretName: ""
+    externalCertificates: {}
 
   # RBAC settings for CockroachDB nodes
   rbac:
