@@ -860,7 +860,7 @@ operator:
           # CockroachDB's port to listen to inter-communications and client connections.
           port: 26257
           # If using Istio set it to `cockroach`.
-          name: grpc-internal
+          name: sql
       http:
         # CockroachDB's port to listen to HTTP requests.
         port: 8080
