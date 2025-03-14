@@ -725,10 +725,8 @@ operator:
   enabled: false
   # Default values for the cluster chart.
   image:
-    repository: cockroachdb/cockroach
+    name: cockroachdb/cockroach:v25.1.0
     pullPolicy: IfNotPresent
-    # Overrides the image tag whose default is the cluster chart's appVersion.
-    tag: ""
 
   nameOverride: ""
   fullnameOverride: ""
@@ -744,6 +742,10 @@ operator:
       # stderr:
         # channels: [health, dev]
         # filter: INFO
+
+  # loggingConfigMapName define the config map which contains log configuration used to send the logs through the
+  # proper channels in the cockroachdb.
+  loggingConfigMapName: ""
 
   # We usually recommend not to specify default resources and to leave this as a conscious
   # choice for the user. This also increases chances charts run on environments with little
@@ -833,6 +835,12 @@ operator:
 
   # Environment variables set on CockroachDB pods.
   env: []
+  # - name: APP_NAME
+  #   value: "CRDB"
+  # - name: POD_NAME
+  #   valueFrom:
+  #     fieldRef:
+  #       fieldPath: metadata.name
 
   # Delay between CockroachDB pod restarts. Wait 3m by default to avoid
   # unavailability during restarts.
@@ -879,3 +887,37 @@ operator:
   extras:
     # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
     dnsutils: false
+
+  # NodeSelector is the set of nodeSelector labels to apply to a node.
+  nodeSelector: {}
+
+  # affinity controls the cockroachdb pods are distributed over k8s nodes.
+  affinity: {}
+  #  nodeAffinity:
+  #    requiredDuringSchedulingIgnoredDuringExecution:
+  #      nodeSelectorTerms:
+  #        - matchExpressions:
+  #            - key: kubernetes.io/os
+  #              operator: In
+  #              values:
+  #                - linux
+  #  podAffinity:
+  #    requiredDuringSchedulingIgnoredDuringExecution:
+  #      - labelSelector:
+  #          matchExpressions:
+  #              - key: security
+  #                operator: In
+  #                values:
+  #                  - S1
+  #          topologyKey: topology.kubernetes.io/zone
+  #      podAntiAffinity:
+  #        preferredDuringSchedulingIgnoredDuringExecution:
+  #          - weight: 100
+  #            podAffinityTerm:
+  #              labelSelector:
+  #                matchExpressions:
+  #                  - key: security
+  #                    operator: In
+  #                    values:
+  #                      - S2
+  #              topologyKey: topology.kubernetes.io/zone
