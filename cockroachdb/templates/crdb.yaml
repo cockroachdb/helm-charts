@@ -14,6 +14,9 @@ metadata:
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
+  {{- if .Values.operator.tlsEnabled }}
+  tlsEnabled: {{ .Values.operator.tlsEnabled }}
+  {{- end }}
   {{- with .Values.operator.clusterSettings }}
   clusterSettings: {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -29,16 +32,21 @@ spec:
   rollingRestartDelay: {{ .Values.operator.rollingRestartDelay }}
   template:
     spec:
-      image: "{{ .Values.image.repository }}:{{ default .Chart.AppVersion .Values.image.tag }}"
+      image: "{{ .Values.operator.image.name }}"
       certificates:
         externalCertificates:
           {{- /* Note: defaults should match secrets and configmaps created by the self-signer job. */}}
-          clientCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.clientCaConfigMapName | default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
-          nodeCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.nodeCaConfigMapName | default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
+          caConfigMapName: {{ .Values.operator.certificates.externalCertificates.caConfigMapName | default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
           httpSecretName: {{ .Values.operator.certificates.externalCertificates.httpSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
           nodeClientSecretName: {{ .Values.operator.certificates.externalCertificates.nodeClientSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
           nodeSecretName: {{ .Values.operator.certificates.externalCertificates.nodeSecretName | default (printf "%s-node-secret" (include "cockroachdb.fullname" .)) }}
           rootSqlClientSecretName: {{ .Values.operator.certificates.externalCertificates.rootSqlClientSecretName | default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+          {{- if .Values.operator.certificates.externalCertificates.nodeCaConfigMapName }}
+          nodeCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.nodeCaConfigMapName }}
+          {{- end }}
+          {{- if .Values.operator.certificates.externalCertificates.clientCaConfigMapName }}
+          clientCaConfigMapName: {{ .Values.operator.certificates.externalCertificates.clientCaConfigMapName }}
+          {{- end }}
       {{- with .Values.operator.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -62,18 +70,28 @@ spec:
       {{- with .Values.operator.resources }}
       resourceRequirements: {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.operator.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
       serviceAccountName: {{ .Values.operator.rbac.serviceAccountName | default (include "cockroachdb.serviceAccount.name" .) }}
+      {{- if .Values.operator.loggingConfigMapName }}
+      loggingConfigMapName: { { .Values.operator.loggingConfigMapName } }
+      {{- else }}
       {{- if .Values.operator.loggingConf }}
       loggingConfigMapName: {{ .Release.Name }}-logging
       {{- end }}
+      {{- end }}
       {{- if .Values.operator.service.ports.grpc.external.port }}
-      gRPCPort: {{ .Values.operator.service.ports.grpc.external.port }}
+      grpcPort: {{ .Values.operator.service.ports.grpc.external.port }}
       {{- end }}
       {{- if .Values.operator.service.ports.grpc.internal.port }}
-      sQLPort: {{ .Values.operator.service.ports.grpc.internal.port }}
+      sqlPort: {{ .Values.operator.service.ports.grpc.internal.port }}
       {{- end }}
       {{- if .Values.operator.service.ports.http.port }}
-      hTTPPort: {{ .Values.operator.service.ports.http.port }}
+      httpPort: {{ .Values.operator.service.ports.http.port }}
       {{- end }}
   dataStore: {}
 {{- end }}
