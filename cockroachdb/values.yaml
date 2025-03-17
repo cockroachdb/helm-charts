@@ -880,7 +880,7 @@ operator:
       # in a multi-region setup, where CrdbCluster objects are potentially
       # in different namespaces.
       # It will also not work if the k8s cluster has a custom domain.
-      # Domain: ""
+      # domain: ""
 
       # EncryptionAtRest contains all secret names and keys for EAR encryption.
       # encryptionAtRest:
