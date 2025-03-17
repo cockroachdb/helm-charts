@@ -4,8 +4,6 @@ import (
 	"context"
 	"fmt"
 	"io/fs"
-	v1 "k8s.io/api/rbac/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"log"
 	"os"
 	"path/filepath"
@@ -14,6 +12,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	v1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/types"
 
 	"github.com/cockroachdb/cockroach-operator/pkg/kube"
 	"github.com/cockroachdb/helm-charts/pkg/security"
