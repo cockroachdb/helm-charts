@@ -858,10 +858,67 @@ operator:
 
   # Regions controls the number of CockroachDB nodes that are deployed per region.
   regions:
+      # Code corresponds to the cloud provider's identifier of this region (e.g.
+      # "us-east-1" for AWS, "us-east1" for GCP). This value is used to detect
+      # which CrdbClusterRegion will be reconciled and must match the
+      # "topology.kubernetes.io/region" label on Kubernetes Nodes in this
+      # cluster.
     - code: us-east-1
+      # Nodes is the number of CRDB nodes that are in the region.
       nodes: 3
+      # CloudProvider sets the cloud provider for this region.
       cloudProvider: k3d
+      # Namespace is the name of the Kubernetes namespace that this
+      # CrdbClusterRegion is deployed within. It is used to compute the --join
+      # flag for this region. Defaults to the .Code of this region and then the
+      # Namespace of this CrdbCluster, if not provided.
       namespace: default
+      # Domain is the domain of the CrdbClusterRegion.
+      # Other regions need to reach this region by connecting to
+      # <cluster-name>.<namespace>.svc.<domain>.
+      # It defaults an empty string, but this will not work
+      # in a multi-region setup, where CrdbCluster objects are potentially
+      # in different namespaces.
+      # It will also not work if the k8s cluster has a custom domain.
+      # Domain: ""
+
+      # EncryptionAtRest contains all secret names and keys for EAR encryption.
+      # encryptionAtRest:
+        # keySecretName is the name of the k8s secret containing the (new)
+        # store key. If nil, this will be interpreted as "plain" i.e.
+        # unencrypted.
+        # keySecretName: ""
+
+        # Platform is the cloud platform whose KMS is used to gate the
+        # new Customer-Managed Encryption Key (CMEK). This string value can
+        # be mapped to CMEKKeyType with the CMEKKeyType_value map.
+        # platform: ""
+
+        # CMEKCredentialsSecretName is the name of the k8s secret containing
+        # our credentials that are needed to authenticate into the customer's
+        # KMS. This value is required if Platform is non-zero.
+        # cmekCredentialsSecretName: ""
+
+        # OldKeySecretName is the name of the k8s secret containing the old
+        # store key. If nil, this will be interpreted as "plain" i.e. unencrypted.
+        # oldKeySecretName: ""
+
+  # WALFailover indicates whether we are attaching a new PVC to the node to be used
+  # for WAL writes while the data dir disk encounters a stall or increased latency
+  walFailoverSpec: {}
+    # status determines the possible values to WAL failover configuration.
+    # It has 3 possible values: "", "enable" and "disable"
+    # status: ""
+
+    # If enabled, then a PersistentVolumeClaim will be created of the size
+    # and used for WAL failover as a side disk.
+    # size: "25Gi"
+
+    # If defined, then `storageClassName: <storageClass>`.
+    # If undefined or empty (default), then no `storageClassName` spec is
+    # set, so the default provisioner will be chosen (gp2 on AWS, standard
+    # on GKE, AWS).
+    # storageClassName: ""
 
   # PodLabels are the labels that should be applied to the underlying CockroachDB pod
   podLabels:
@@ -927,6 +984,11 @@ operator:
     # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
     dnsutils: false
 
+  # TerminationGracePeriodSeconds determines the time available to CRDB for
+  # graceful drain. Input Type is metav1.Duration, so user has to provide input
+  # as "300s", "5m" or "1h"
+  # terminationGracePeriod: "300s"
+
   # NodeSelector is the set of nodeSelector labels to apply to a node.
   nodeSelector: {}
 
@@ -960,3 +1022,14 @@ operator:
   #                    values:
   #                      - S2
   #              topologyKey: topology.kubernetes.io/zone
+
+  # SideCars will be run in the same pod as the crdb process.
+  sideCars:
+    # InitContainers will be run as init containers for the crdb pod.
+    initContainers: []
+
+    # Containers will be run in the same pod as the crdb container.
+    containers: []
+
+    # Volumes will be requested in addition to the crdb volumes.
+    volumes: []

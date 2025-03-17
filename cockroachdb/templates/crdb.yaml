@@ -30,6 +30,9 @@ spec:
   flags: {{- toYaml . | nindent 4 }}
   {{- end }}
   rollingRestartDelay: {{ .Values.operator.rollingRestartDelay }}
+  {{- with .Values.operator.walFailoverSpec }}
+  walFailoverSpec: {{- toYaml . | nindent 4 }}
+  {{- end }}
   template:
     spec:
       image: "{{ .Values.operator.image.name }}"
@@ -56,6 +59,9 @@ spec:
       {{- with .Values.operator.topologySpreadConstraints }}
       topologySpreadConstraints: {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.operator.terminationGracePeriod }}
+      terminationGracePeriod: {{ .Values.operator.terminationGracePeriod }}
+      {{- end }}
       podLabels:
         app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name | quote }}
@@ -70,6 +76,9 @@ spec:
       {{- with .Values.operator.resources }}
       resourceRequirements: {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.operator.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.operator.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -83,6 +92,9 @@ spec:
       {{- if .Values.operator.loggingConf }}
       loggingConfigMapName: {{ .Release.Name }}-logging
       {{- end }}
+      {{- end }}
+      {{- with .Values.operator.sideCars }}
+      sideCars: {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- if .Values.operator.service.ports.grpc.external.port }}
       grpcPort: {{ .Values.operator.service.ports.grpc.external.port }}
