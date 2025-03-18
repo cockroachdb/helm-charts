@@ -34,7 +34,7 @@ $ helm install $CRDBOPERATOR ./operator -n $NAMESPACE
 
 ### Install CockroachDB
 
-- Modify the `regions` config under the `operator` section of [`cockroachdb/values.yaml`](/cockroachdb/values.yaml).
+- Modify the `regions` configuration under the `operator` section of [`cockroachdb/values.yaml`](/cockroachdb/values.yaml). The default `regions` configuration uses k3d, so update it as per your cloud provider (e.g. `gcp`, `aws`, etc.)
 
 ```
   regions:
@@ -44,23 +44,15 @@ $ helm install $CRDBOPERATOR ./operator -n $NAMESPACE
       namespace: cockroach-ns
 ```
 
-- Modify the other relevant config like `topologySpreadConstraints`, `service.ports`, etc. under the `operator` section, as required.
-- By default, the certs are created by the self-signer utility. In case of custom certs, modify the config under the `tls` section.
-- If self-signer config is enabled, self-signed certificates are created by self-signed utility for the nodes and root client and are stored in a secret.
-- For multi-region Cluster, Create same CA secret in each region and update the config as shown below under self-signer section of [`cockroachdb/values.yaml`](/cockroachdb/values.yaml) before deploying CockroachDB charts.
+- Modify the other relevant configuration like `topologySpreadConstraints`, `service.ports`, etc. under the `operator` section, as required.
+- By default, the certs are created by the self-signer utility. In case of a custom CA cert, modify the configuration under the `tls` section:
+
 ```
+tls:
+  certs:
+    selfSigner:
       caProvided: true
       caSecret: <ca-secret-name>
-```
-  
-You can look for the certificates created:
-
-```shell
-$ kubectl get secrets
-
-crdb-cockroachdb-ca-secret                 Opaque                                2      23s
-crdb-cockroachdb-client-secret             kubernetes.io/tls                     3      22s
-crdb-cockroachdb-node-secret               kubernetes.io/tls                     3      23s
 ```
 
 Install the cockroachdb chart:
@@ -71,16 +63,16 @@ $ helm install $CRDBCLUSTER ./cockroachdb -n $NAMESPACE
 
 ### Multi Region Deployments
 
-For multi-region cluster deployments, ensure the required networking is setup which allows for service discovery across regions.
+For multi-region cluster deployments, ensure the required networking is setup which allows for service discovery across regions. Also, ensure that the same CA cert is used across all the regions.
 
-For each region, modify the `regions` config under the `operator` section of [`cockroachdb/values.yaml`](/cockroachdb/values.yaml) and perform `helm install` as above against the respective Kubernetes cluster.
-The default regions config uses k3d, so please update it as per your cloud provider (e.g. `gcp`, `aws`, etc.)
+For each region, modify the `regions` configuration under the `operator` section of [`cockroachdb/values.yaml`](/cockroachdb/values.yaml) and perform `helm install` as above against the respective Kubernetes cluster.
 
 While applying `helm install` in a given region:
 - Verify that the domain matches the `clusterDomain` in `values.yaml` for the corresponding region
 - Ensure `regions` captures the information for regions that have already been deployed, including the current region. This enables CockroachDB in the current region to connect to CockroachDB deployed in the existing regions.
 
 For example, if `us-central1` has already been deployed, and `us-east1` is being deployed to:
+
 ```
 clusterDomain: cluster.gke.gcp-us-east1
 operator:
@@ -99,10 +91,10 @@ operator:
 
 ## Upgrade CockroachDB cluster
 
-Modify the required config in [`cockroachdb/values.yaml`](/cockroachdb/values.yaml) and perform an upgrade through Helm:
+Modify the required configuration in [`cockroachdb/values.yaml`](/cockroachdb/values.yaml) and perform an upgrade through Helm:
 
 ```shell
-$ helm upgrade --reuse-values $CRDBCLUSTER ./cockroachdb --values values.yaml -n $NAMESPACE
+$ helm upgrade --reuse-values $CRDBCLUSTER ./cockroachdb --values ./cockroachdb/values.yaml -n $NAMESPACE
 ```
 
 ## Scale Up/Down CockroachDB cluster
@@ -119,7 +111,7 @@ Update the nodes accordingly under `regions` section and perform the helm upgrad
 ```
 
 ```shell
-$ helm upgrade --reuse-values $CRDBCLUSTER ./cockroachdb --values values.yaml -n $NAMESPACE
+$ helm upgrade --reuse-values $CRDBCLUSTER ./cockroachdb --values ./cockroachdb/values.yaml -n $NAMESPACE
 ```
 
 ## Rolling Restart of CockroachDB Cluster
