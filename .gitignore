@@ -2,3 +2,4 @@
 bin/
 build/artifacts
 bazel-*
+/vendor/
