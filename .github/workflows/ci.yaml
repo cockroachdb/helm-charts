@@ -25,9 +25,9 @@ jobs:
         id: filter
         with:
           filters: |
-              certUtility: &certUtility
-              - 'pkg/**'
-              - 'cmd/**'
+            certUtility: &certUtility
+            - 'pkg/**'
+            - 'cmd/**'
 
   # pre job run golangci-lint
   go-lint:
@@ -53,6 +53,14 @@ jobs:
           version: v1.64
           working-directory: .
           args: --timeout=5m
+
+      - name: Clean up Docker resources
+        shell: bash
+        run: |
+          docker container prune -f
+          docker image prune -a -f
+          docker volume prune -f
+
 
   # pre job to run helm lint
   helm:
@@ -91,6 +99,15 @@ jobs:
       - name: Unit
         run: make test/units
 
+      - name: Clean up Docker resources
+        shell: bash
+        run: |
+          docker container prune -f
+          docker image prune -a -f
+          docker volume prune -f
+
+
+
   self-signer-tag-change:
     name: Tag Change
     runs-on: ubuntu-latest
@@ -117,7 +134,7 @@ jobs:
   # pre job to run helm e2e tests
   helm-install-e2e:
     name: Helm-E2E-Test
-    runs-on: ubuntu-latest-4-core
+    runs-on: ubuntu-latest
     steps:
       - name: Checkout sources
         uses: actions/checkout@v3
@@ -132,6 +149,14 @@ jobs:
 
       - name: Run E2E Test
         run: make test/e2e/install
+
+      - name: Clean up Docker resources
+        shell: bash
+        run: |
+          docker container prune -f
+          docker image prune -a -f
+          docker volume prune -f
+
 
   helm-rotate-cert-e2e:
     name: Helm-rotate-cert-Test
@@ -150,6 +175,65 @@ jobs:
 
       - name: Run E2E Test
         run: make test/e2e/rotate
+
+      - name: Clean up Docker resources
+        shell: bash
+        run: |
+          docker container prune -f
+          docker image prune -a -f
+          docker volume prune -f
+
+
+  helm-single-region-e2e:
+    name: Helm-single-region-Test
+    runs-on: ubuntu-latest-4-core
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.22
+
+      - name: Run E2E Test
+        run: make test/e2e/single-region
+
+      - name: Clean up Docker resources
+        shell: bash
+        run: |
+          docker container prune -f
+          docker image prune -a -f
+          docker volume prune -f
+
+
+  helm-multi-region-e2e:
+    name: Helm-multi-region-Test
+    runs-on: ubuntu-latest-4-core
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v3
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Setup Go
+        uses: actions/setup-go@v3
+        with:
+          go-version: 1.22
+
+      - name: Run E2E Test
+        run: make test/e2e/multi-region
+
+      - name: Clean up Docker resources
+        shell: bash
+        run: |
+          docker container prune -f
+          docker image prune -a -f
+          docker volume prune -f
 
   lint-templates:
     name: Lint release templates
