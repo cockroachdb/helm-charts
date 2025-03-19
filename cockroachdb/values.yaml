@@ -771,6 +771,9 @@ operator:
           requests:
             storage: 10Gi
         volumeMode: Filesystem
+        # storageClassName is the name of the StorageClass required by the claim.
+        # If not provided, it will use the default storage class of the cluster.
+        # storageClassName: ""
 
   certificates:
     # Any extra alt names that should be added to the node certs.
