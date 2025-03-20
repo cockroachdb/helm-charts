@@ -7,7 +7,7 @@ toolchain go1.23.7
 require (
 	github.com/Masterminds/semver/v3 v3.2.1
 	github.com/cenkalti/backoff v2.2.1+incompatible
-	github.com/cockroachdb/cockroach-operator v0.0.0-20230531051823-2cb3e2e676f4
+	github.com/cockroachdb/cockroach-operator v0.0.0-20250205123916-58abbe6772fc
 	github.com/cockroachdb/errors v1.8.0
 	github.com/google/martian v2.1.1-0.20190517191504-25dcb96d9e51+incompatible
 	github.com/gruntwork-io/terratest v0.41.26

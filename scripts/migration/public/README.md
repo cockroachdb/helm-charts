@@ -111,3 +111,8 @@ Finally, apply the crdbcluster manifest:
 ```
 helm install $CRDBCLUSTER ./cockroachdb -f manifests/values.yaml
 ```
+
+One the migration is successful, now delete the statefulset created by public operator:
+```
+kubectl delete statefulset $CRDBCLUSTER 
+```
