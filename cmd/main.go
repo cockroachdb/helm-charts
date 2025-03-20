@@ -16,9 +16,7 @@ limitations under the License.
 
 package main
 
-import (
-	cmd "github.com/cockroachdb/helm-charts/cmd/self-signer"
-)
+import cmd "github.com/cockroachdb/helm-charts/cmd/self-signer"
 
 func main() {
 	cmd.Execute()
