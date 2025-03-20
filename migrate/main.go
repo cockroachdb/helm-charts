@@ -104,7 +104,7 @@ func manifestsCmd() *cobra.Command {
 
 			grpcPort := publicCluster.Spec.GRPCPort
 			joinAddrs := []string{}
-			for nodeIdx := range publicCluster.Spec.Nodes {
+			for nodeIdx := int32(0); nodeIdx < publicCluster.Spec.Nodes; nodeIdx++ {
 				joinAddrs = append(joinAddrs, fmt.Sprintf("%s-%d.%s.%s:%d", crdbCluster, nodeIdx, crdbCluster, namespace, grpcPort))
 			}
 			joinString := strings.Join(joinAddrs, ",")
@@ -117,7 +117,7 @@ func manifestsCmd() *cobra.Command {
 				flags["--max-sql-memory"] = publicCluster.Spec.MaxSQLMemory
 			}
 
-			for nodeIdx := range publicCluster.Spec.Nodes {
+			for nodeIdx := int32(0); nodeIdx < publicCluster.Spec.Nodes; nodeIdx++ {
 				podName := fmt.Sprintf("%s-%d", crdbCluster, nodeIdx)
 				pod, err := clientset.CoreV1().Pods(namespace).Get(ctx, podName, metav1.GetOptions{})
 				if err != nil {

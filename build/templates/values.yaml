@@ -781,36 +781,36 @@ operator:
     # validForDays: 3650
 
     # External certificates for the CockroachDB cluster.
-    externalCertificates:
+    externalCertificates: {}
       # CAConfigMapName is the name of a Kubernetes ConfigMap containing a ca.crt
       # entry that was used to sign other external certificates. This is used to
       # validate the node and client certificates.
       # https://www.cockroachlabs.com/docs/stable/authentication.html#client-authentication
-      caConfigMapName: ""
+      # caConfigMapName: ""
 
       # NodeClientSecretName is the name of a Kubernetes TLS secret holding
       # client certificates used when establishing connections to other nodes
       # in the cluster (e.g. joining an existing cluster).
       # The certificate must be signed with the CA identified by CAConfigMapName
       # or ClientCASecretName if using split CA certificates.
-      nodeClientSecretName: ""
+      # nodeClientSecretName: ""
 
       # NodeSecretName is the name of a Kubernetes TLS Secret that will be used
       # when receiving incoming connections from other nodes for RPC and SQL calls.
       # The certificate must be signed with the CA identified by CAConfigMapName,
       # or NodeCASecretName if using split CA certificates.
-      nodeSecretName: ""
+      # nodeSecretName: ""
 
       # HTTPSecretName is the name of a Kubernetes TLS Secret that will be used
       # for the HTTP service.
-      httpSecretName: ""
+      # httpSecretName: ""
 
       # RootSQLClientSecretName is the name of a Kubernetes TLS secret holding
       # SQL client certificates for the root SQL user. It allows the operator to
       # perform various administrative actions (e.g. set cluster settings).
       # The certificate must be signed with the CA identified by CAConfigMapName
       # or ClientCASecretName if using split CA certificates.
-      rootSqlClientSecretName: ""
+      # rootSqlClientSecretName: ""
 
       # NodeCAConfigMapName is the name of a Kubernetes ConfigMap containing a
       # ca.crt entry that will be used as the CA for node authentication. Only
