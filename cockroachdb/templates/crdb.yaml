@@ -30,9 +30,6 @@ spec:
   flags: {{- toYaml . | nindent 4 }}
   {{- end }}
   rollingRestartDelay: {{ .Values.operator.rollingRestartDelay }}
-  {{- with .Values.operator.walFailoverSpec }}
-  walFailoverSpec: {{- toYaml . | nindent 4 }}
-  {{- end }}
   template:
     spec:
       image: "{{ .Values.operator.image.name }}"
@@ -52,6 +49,9 @@ spec:
           {{- end }}
       {{- with .Values.operator.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.operator.walFailoverSpec }}
+      walFailoverSpec: {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.operator.env }}
       env: {{- toYaml . | nindent 8 }}
