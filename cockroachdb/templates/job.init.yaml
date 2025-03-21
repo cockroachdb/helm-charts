@@ -50,14 +50,9 @@ spec:
     {{- end }}
       restartPolicy: OnFailure
       terminationGracePeriodSeconds: {{ .Values.init.terminationGracePeriodSeconds }}
-    {{- if or .Values.image.credentials (and .Values.tls.enabled .Values.tls.selfSigner.image.credentials (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager)) }}
+    {{- if .Values.image.credentials }}
       imagePullSecrets:
-      {{- if .Values.image.credentials }}
         - name: {{ template "cockroachdb.fullname" . }}.db.registry
-      {{- end }}
-      {{- if and .Values.tls.enabled .Values.tls.selfSigner.image.credentials (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager) }}
-        - name: {{ template "cockroachdb.fullname" . }}.self-signed-certs.registry
-      {{- end }}
     {{- end }}
       serviceAccountName: {{ template "cockroachdb.serviceAccount.name" . }}
     {{- if .Values.tls.enabled }}

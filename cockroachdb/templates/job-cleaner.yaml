@@ -40,6 +40,10 @@ spec:
         fsGroup: 1000
         runAsNonRoot: true
     {{- end }}
+    {{- if and .Values.tls.enabled .Values.tls.selfSigner.image.credentials }}
+      imagePullSecrets:
+      - name: {{ template "cockroachdb.fullname" . }}.init-certs.registry
+    {{- end }}
       restartPolicy: Never
     {{- with .Values.tls.selfSigner.affinity }}
       affinity: {{- toYaml . | nindent 8 }}
