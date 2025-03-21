@@ -1,6 +1,8 @@
 package template
 
 import (
+	"bytes"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -11,6 +13,7 @@ import (
 	corev1 "k8s.io/api/core/v1"
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/util/yaml"
 
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
@@ -1850,6 +1853,120 @@ func TestHelmWALFailoverConfiguration(t *testing.T) {
 				testCase.expect.persistentVolumeNames,
 				actualPersistentVolumeNames,
 			)
+		})
+	}
+}
+
+func TestHelmPrivateRepoUsingImagePullSecrets(t *testing.T) {
+	testCases := []struct {
+		name   string
+		values map[string]string
+	}{
+		{
+			name: "Add the credentials for cockroachdb image",
+			values: map[string]string{
+				"image.credentials.registry":                "docker.io",
+				"image.credentials.username":                "john_doe",
+				"image.credentials.password":                "changeme",
+				"tls.selfSigner.image.credentials.registry": "docker.io",
+				"tls.selfSigner.image.credentials.username": "john_doe",
+				"tls.selfSigner.image.credentials.password": "changeme",
+				"tls.enabled": "true",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		var statefulset appsv1.StatefulSet
+		var secrets []corev1.Secret
+		var jobs []batchv1.Job
+		var cronjobs []batchv1.CronJob
+
+		// Here, we capture the range variable and force it into the scope of this block.
+		// If we don't do this, when the subtest switches contexts (because of t.Parallel),
+		// the testCase value will have been updated by the for loop and will be the next testCase.
+		testCase := testCase
+
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			stsOutput, err := helm.RenderTemplateE(
+				subT, options, helmChartPath, releaseName, []string{
+					"templates/statefulset.yaml",
+				},
+			)
+			require.NoError(subT, err)
+			helm.UnmarshalK8SYaml(t, stsOutput, &statefulset)
+
+			secretOutput, err := helm.RenderTemplateE(
+				subT, options, helmChartPath, releaseName, []string{"templates/secret.registry.yaml"},
+			)
+			require.NoError(subT, err)
+
+			decoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader([]byte(secretOutput)), 4096)
+			for {
+				var secret corev1.Secret
+				if err := decoder.Decode(&secret); err != nil {
+					break // Stop when all documents are parsed
+				}
+				secrets = append(secrets, secret)
+			}
+
+			// Ensure we got exactly 2 Secrets
+			require.Equal(subT, 2, len(secrets), "Expected 2 secrets to be created")
+
+			require.Equal(subT, secrets[0].Name,
+				statefulset.Spec.Template.Spec.ImagePullSecrets[0].Name)
+
+			jobOutput, err := helm.RenderTemplateE(
+				subT, options, helmChartPath, releaseName, []string{
+					"templates/job-certSelfSigner.yaml",
+					"templates/job-cleaner.yaml",
+					"templates/job.init.yaml",
+				})
+			require.NoError(subT, err)
+
+			decoder = yaml.NewYAMLOrJSONDecoder(bytes.NewReader([]byte(jobOutput)), 4096)
+			for {
+				var job batchv1.Job
+				if err := decoder.Decode(&job); err != nil {
+					break // Stop when all documents are parsed
+				}
+				jobs = append(jobs, job)
+			}
+
+			for _, job := range jobs {
+				if job.Name == fmt.Sprintf("%s-cockroachdb-init", releaseName) {
+					require.Equal(subT, secrets[0].Name, job.Spec.Template.Spec.ImagePullSecrets[0].Name)
+				} else {
+					require.Equal(subT, secrets[1].Name, job.Spec.Template.Spec.ImagePullSecrets[0].Name)
+				}
+			}
+
+			cronJobOutput, err := helm.RenderTemplateE(
+				subT, options, helmChartPath, releaseName, []string{
+					"templates/cronjob-ca-certSelfSigner.yaml",
+					"templates/cronjob-client-node-certSelfSigner.yaml",
+				})
+			require.NoError(subT, err)
+
+			decoder = yaml.NewYAMLOrJSONDecoder(bytes.NewReader([]byte(cronJobOutput)), 4096)
+			for {
+				var cronJob batchv1.CronJob
+				if err := decoder.Decode(&cronJob); err != nil {
+					break // Stop when all documents are parsed
+				}
+				cronjobs = append(cronjobs, cronJob)
+			}
+
+			for _, cronJob := range cronjobs {
+				require.Equal(subT, secrets[1].Name, cronJob.Spec.JobTemplate.Spec.Template.Spec.ImagePullSecrets[0].Name)
+			}
 		})
 	}
 }

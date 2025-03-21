@@ -28,6 +28,10 @@ spec:
           annotations: {{- toYaml . | nindent 12 }}
         {{- end }}
         spec:
+        {{- if and .Values.tls.enabled .Values.tls.selfSigner.image.credentials }}
+          imagePullSecrets:
+            - name: {{ template "cockroachdb.fullname" . }}.init-certs.registry
+        {{- end }}
           restartPolicy: Never
         {{- with .Values.tls.selfSigner.affinity }}
           affinity: {{- toYaml . | nindent 12 }}

@@ -31,6 +31,10 @@ spec:
       annotations: {{- toYaml . | nindent 8 }}
     {{- end }}
     spec:
+    {{- if and .Values.tls.enabled .Values.tls.selfSigner.image.credentials }}
+      imagePullSecrets:
+      - name: {{ template "cockroachdb.fullname" . }}.init-certs.registry
+    {{- end }}
     {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
       securityContext:
         seccompProfile:

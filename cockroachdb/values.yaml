@@ -681,10 +681,11 @@ tls:
       repository: cockroachlabs-helm-charts/cockroach-self-signer-cert
       tag: "1.6"
       pullPolicy: IfNotPresent
-      credentials: {}
       registry: gcr.io
-      # username: john_doe
-      # password: changeme
+      credentials: {}
+        # registry: gcr.io
+        # username: john_doe
+        # password: changeme
 
 networkPolicy:
   enabled: false
