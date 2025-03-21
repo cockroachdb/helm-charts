@@ -1,0 +1,37 @@
+{{/*apiVersion: batch/v1*/}}
+{{/*kind: Job*/}}
+{{/*metadata:*/}}
+{{/*  name: "{{ .Release.Name }}-cockroachdb-pre-install"*/}}
+{{/*  annotations:*/}}
+{{/*    "helm.sh/hook": pre-install*/}}
+{{/*    "helm.sh/hook-weight": "0"*/}}
+{{/*    "helm.sh/hook-delete-policy": hook-succeeded*/}}
+{{/*spec:*/}}
+{{/*  template:*/}}
+{{/*    metadata:*/}}
+{{/*      name: "{{ .Release.Name }}-cockroachdb-pre-install"*/}}
+{{/*    spec:*/}}
+{{/*      restartPolicy: Never*/}}
+{{/*      containers:*/}}
+{{/*      - name: pre-install-job*/}}
+{{/*        image: "bitnami/kubectl:latest"*/}}
+{{/*        command:*/}}
+{{/*        - /bin/bash*/}}
+{{/*        - -c*/}}
+{{/*        - |*/}}
+{{/*          # Check if operator deployment exists and is ready*/}}
+{{/*          if ! kubectl get deployment {{ .Release.Name }}-operator &> /dev/null; then*/}}
+{{/*            echo "Operator deployment not found. Aborting CockroachDB installation."*/}}
+{{/*            exit 1*/}}
+{{/*          fi*/}}
+{{/*          */}}
+{{/*          # Wait for operator to be ready*/}}
+{{/*          echo "Waiting for operator to be ready..."*/}}
+{{/*          kubectl wait --for=condition=Available deployment/{{ .Release.Name }}-operator --timeout=300s*/}}
+{{/*          */}}
+{{/*          if [ $? -ne 0 ]; then*/}}
+{{/*            echo "Operator is not ready, aborting CockroachDB installation."*/}}
+{{/*            exit 1*/}}
+{{/*          fi*/}}
+{{/*          */}}
+{{/*          echo "Operator is ready, proceeding with CockroachDB installation."*/}}

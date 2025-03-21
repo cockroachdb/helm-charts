@@ -1,0 +1,90 @@
+{{- if .Values.ingress.enabled -}}
+{{- $paths := .Values.ingress.paths -}}
+{{- $ports := .Values.service.ports -}}
+{{- $fullName := include "cockroachdb.fullname" . -}}
+{{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
+apiVersion: networking.k8s.io/v1
+{{- else if $.Capabilities.APIVersions.Has "networking.k8s.io/v1beta1/Ingress" }}
+apiVersion: networking.k8s.io/v1beta1
+{{- else -}}
+apiVersion: extensions/v1beta1
+{{- end }}
+kind: Ingress
+metadata:
+{{- if or .Values.ingress.annotations .Values.iap.enabled }}
+  annotations:
+  {{- range $key, $value := .Values.ingress.annotations }}
+    {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- if .Values.iap.enabled }}
+    kubernetes.io/ingress.class: "gce"
+    kubernetes.io/ingress.allow-http: "false"
+  {{- end }}
+{{- end }}
+  name: {{ $fullName }}-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ $.Release.Service | quote }}
+{{- if .Values.ingress.labels }}
+{{- toYaml .Values.ingress.labels | nindent 4 }}
+{{- end }}
+spec:
+  rules:
+  {{- if .Values.ingress.hosts }}
+  {{- range $host := .Values.ingress.hosts }}
+    - host: {{ $host }}
+      http:
+        paths:
+  {{- range $path := $paths }}
+          - path: {{ $path | quote }}
+            {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
+            {{- if $.Values.iap.enabled }}
+            pathType: ImplementationSpecific
+            {{- else }}
+            pathType: Prefix
+            {{- end }}
+            {{- end }}
+            backend:
+              {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
+              service:
+                name: {{ $fullName }}-public
+                port:
+                  name: {{ $ports.http.name | quote }}
+              {{- else }}
+              serviceName: {{ $fullName }}-public
+              servicePort: {{ $ports.http.name | quote }}
+              {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- else }}
+    - http:
+        paths:
+  {{- range $path := $paths }}
+          - path: {{ $path | quote }}
+            {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
+            {{- if $.Values.iap.enabled }}
+            pathType: ImplementationSpecific
+            {{- else }}
+            pathType: Prefix
+            {{- end }}
+            {{- end }}
+            backend:
+              {{- if $.Capabilities.APIVersions.Has "networking.k8s.io/v1/Ingress" }}
+              service:
+                name: {{ $fullName }}-public
+                port:
+                  name: {{ $ports.http.name | quote }}
+              {{- else }}
+              serviceName: {{ $fullName }}-public
+              servicePort: {{ $ports.http.name | quote }}
+              {{- end }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.ingress.tls }}
+  tls:
+{{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+{{- end }}

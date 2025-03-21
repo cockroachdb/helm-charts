@@ -1,0 +1,77 @@
+# This Service is meant to be used by clients of the database.
+# It exposes a ClusterIP that will automatically load balance connections
+# to the different database Pods.
+kind: Service
+apiVersion: v1
+metadata:
+  name: {{ template "cockroachdb.fullname" . }}-public
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+  {{- with .Values.service.public.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if or .Values.service.public.annotations .Values.tls.enabled .Values.iap.enabled }}
+  annotations:
+  {{- with .Values.service.public.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- if .Values.tls.enabled }}
+    service.alpha.kubernetes.io/app-protocols: '{"http":"HTTPS"}'
+  {{- end }}
+  {{- if .Values.iap.enabled }}
+    beta.cloud.google.com/backend-config: '{"default": "{{ template "cockroachdb.fullname" . }}"}'
+  {{- end }}
+  {{- end }}
+spec:
+  selector:
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+{{- if .Values.operator.enabled }}
+  {{- with .Values.operator.podLabels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  # Cockroach Cloud operator doesn't provide a way to change the sql,grpc and http ports for the pods. Hence, making these
+  # ports static here.
+  type: ClusterIP
+  ports:
+  - name: sql
+    port: 26257
+    protocol: TCP
+    targetPort: 26257
+  - name: grpc
+    port: 26258
+    protocol: TCP
+    targetPort: 26258
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: 8080
+{{- else }}
+  {{- with .Values.statefulset.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  type: {{ .Values.service.public.type | quote }}
+  ports:
+  {{- $ports := .Values.service.ports }}
+    # The main port, served by gRPC, serves Postgres-flavor SQL, inter-node
+    # traffic and the CLI.
+    - name: {{ $ports.grpc.external.name | quote }}
+      port: {{ $ports.grpc.external.port | int64 }}
+      targetPort: grpc
+  {{- if ne ($ports.grpc.internal.port | int64) ($ports.grpc.external.port | int64) }}
+    - name: {{ $ports.grpc.internal.name | quote }}
+      port: {{ $ports.grpc.internal.port | int64 }}
+      targetPort: grpc
+  {{- end }}
+    # The secondary port serves the UI as well as health and debug endpoints.
+    - name: {{ $ports.http.name | quote }}
+      port: {{ $ports.http.port | int64 }}
+      targetPort: http
+{{- end }}
