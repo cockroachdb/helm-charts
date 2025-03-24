@@ -34,6 +34,11 @@ $ helm install $CRDBOPERATOR ./operator -n $NAMESPACE
 
 ### Install CockroachDB
 
+- Update `operator.enabled` to `true` in [`cockroachdb/values.yaml`](/cockroachdb/values.yaml).
+```
+  operator:
+    enabled: true
+```
 - Modify the `regions` configuration under the `operator` section of [`cockroachdb/values.yaml`](/cockroachdb/values.yaml). The default `regions` configuration uses k3d, so update it as per your cloud provider (e.g. `gcp`, `aws`, etc.)
 
 ```
