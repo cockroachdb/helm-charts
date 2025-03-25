@@ -21,14 +21,14 @@ export PATH=$PATH:$(pwd)/bin
 Set environment variables as per your setup:
 
 ```
-# CRDBCLUSTER refers to your crdbcluster CR in public operator
+# CRDBCLUSTER refers to your crdbcluster CR in public operator.
 export CRDBCLUSTER=cockroachdb
 
-# NAMESPACE refers to the namesapce where crdbcluster CR is installed
+# NAMESPACE refers to the namespace where crdbcluster CR is installed.
 export NAMESPACE=default
 
 # CLOUD_PROVIDER is the cloud vendor where k8s cluster is residing. 
-# Right now we suppor all 3 major cloud providers (gcp,aws,azure)
+# Right now, we support all the major cloud providers (gcp,aws,azure)
 export CLOUD_PROVIDER=gcp
 
 # REGION corresponds to the cloud provider's identifier of this region.
@@ -106,7 +106,7 @@ kubectl apply -f manifests/crdbnode-2.yaml
 
 Wait until the new pod is ready. If it fails to become ready, check the Cloud Operator logs for errors.
 
-RRepeat this process for each CRDB node until the StatefulSet reaches zero replicas.
+Repeat this process for each CRDB node until the StatefulSet reaches zero replicas.
 
 The public operator creates a pod disruption budget that conflicts with a pod disruption budget managed by the cloud operator. Before applying the crdbcluster manifest, delete the existing pod disruption budget:
 
