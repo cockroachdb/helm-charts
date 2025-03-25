@@ -453,6 +453,8 @@ spec:
             # field below even in the event of a change to the default value.
             - "-metrics-addr=0.0.0.0:8080"
             - "-rpc-addr=0.0.0.0:9070"
+            - "-skip-tenant-controller=true"
+            - "-disable-tenant-finalization=true"
           ports:
             # Expose port under specific name so that performance metrics can
             # more easily be scraped from container.
