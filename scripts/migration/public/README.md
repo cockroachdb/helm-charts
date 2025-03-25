@@ -18,12 +18,22 @@ make bin/migration-helper
 export PATH=$PATH:$(pwd)/bin
 ```
 
-Set environment variables:
+Set environment variables as per your setup:
 
 ```
+# CRDBCLUSTER refers to your crdbcluster CR in public operator.
 export CRDBCLUSTER=cockroachdb
+
+# NAMESPACE refers to the namespace where crdbcluster CR is installed.
 export NAMESPACE=default
+
+# CLOUD_PROVIDER is the cloud vendor where k8s cluster is residing. 
+# Right now, we support all the major cloud providers (gcp,aws,azure)
 export CLOUD_PROVIDER=gcp
+
+# REGION corresponds to the cloud provider's identifier of this region.
+# It must match the "topology.kubernetes.io/region" label on Kubernetes 
+# Nodes in this cluster.
 export REGION=us-central1
 ```
 
@@ -58,7 +68,13 @@ kubectl delete crdbcluster $CRDBCLUSTER --cascade=orphan
 
 # Delete public operator resources and crd.
 kubectl delete -f https://raw.githubusercontent.com/cockroachdb/cockroach-operator/v2.17.0/install/crds.yaml
-kubectl delete -f https://raw.githubusercontent.com/cockroachdb/cockroach-operator/v2.17.0/install/operator.yaml
+kubectl delete serviceaccount cockroach-operator-sa -n cockroach-operator-system
+kubectl delete clusterrole cockroach-operator-role
+kubectl delete clusterrolebinding cockroach-operator-rolebinding
+kubectl delete service cockroach-operator-webhook-service -n cockroach-operator-system
+kubectl delete deployment cockroach-operator-manager -n cockroach-operator-system
+kubectl delete mutatingwebhookconfigurations cockroach-operator-mutating-webhook-configuration
+kubectl delete validatingwebhookconfigurations cockroach-operator-validating-webhook-configuration
 ```
 
 Install the cloud operator and wait for it to become ready:
@@ -76,21 +92,21 @@ yq '(.. | select(tag == "!!str")) |= envsubst' scripts/migration/public/rbac-tem
 kubectl apply -f manifests/rbac.yaml
 ```
 
-For each crdb pod, scale the statefulset down by one replica. For example, for a three-node cluster, first scale the statefulset down to two replicas:
-
+For each CRDB pod, gradually scale down the StatefulSet by reducing its replica count one at a time. 
+For example, in a three-node cluster, first scale the StatefulSet down to two replicas:
 ```
 kubectl scale statefulset/$CRDBCLUSTER --replicas=2
 ```
 
-Then create the crdbnode corresponding to the statefulset pod you just scaled down:
+Next, create the CRDB node corresponding to the pod that was scaled down:
 
 ```
 kubectl apply -f manifests/crdbnode-2.yaml
 ```
 
-Wait for the new pod to become ready. If it doesn't, check the cloud operator logs for errors.
+Wait until the new pod is ready. If it fails to become ready, check the Cloud Operator logs for errors.
 
-Repeat this process for each crdb node until the statefulset has zero replicas.
+Repeat this process for each CRDB node until the StatefulSet reaches zero replicas.
 
 The public operator creates a pod disruption budget that conflicts with a pod disruption budget managed by the cloud operator. Before applying the crdbcluster manifest, delete the existing pod disruption budget:
 
