@@ -34,8 +34,18 @@ spec:
     spec:
       image: "{{ .Values.operator.image.name }}"
       certificates:
-        {{- with .Values.operator.certificates.externalCertificates }}
-        externalCertificates: {{- toYaml . | nindent 10 }}
+        {{- if .Values.operator.certificates.externalCertificates }}
+        externalCertificates: {{- toYaml .Values.operator.certificates.externalCertificates | nindent 10 }}
+        {{- else }}
+        {{- if .Values.tls.certs.selfSigner.enabled }}
+        externalCertificates:
+          {{- /* Note: defaults should match secrets and configmaps created by the self-signer job. */}}
+          caConfigMapName: {{ default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
+          httpSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+          nodeClientSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+          nodeSecretName: {{ default (printf "%s-node-secret" (include "cockroachdb.fullname" .)) }}
+          rootSqlClientSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+        {{- end }}
         {{- end }}
       {{- with .Values.operator.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
