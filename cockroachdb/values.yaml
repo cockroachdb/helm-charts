@@ -349,6 +349,8 @@ statefulset:
 
   securityContext:
     enabled: true
+    runAsNonRootUser:
+      enabled: false
 
   serviceAccount:
     # Specifies whether this ServiceAccount should be created.

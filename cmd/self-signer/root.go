@@ -26,6 +26,7 @@ import (
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
@@ -33,8 +34,9 @@ import (
 )
 
 var (
-	cl  client.Client
-	ctx context.Context
+	cl     client.Client
+	config *rest.Config
+	ctx    context.Context
 )
 
 // rootCmd represents the base command when called without any subcommands
@@ -71,7 +73,7 @@ func init() {
 	runtimeScheme := runtime.NewScheme()
 
 	_ = clientgoscheme.AddToScheme(runtimeScheme)
-	config := controllerruntime.GetConfigOrDie()
+	config = controllerruntime.GetConfigOrDie()
 
 	cl, err = client.New(config, client.Options{
 		Scheme: runtimeScheme,
@@ -85,7 +87,7 @@ func init() {
 func getInitialConfig(caDuration, caExpiry, nodeDuration, nodeExpiry, clientDuration,
 	clientExpiry string) (generator.GenerateCert, error) {
 
-	genCert := generator.NewGenerateCert(cl)
+	genCert := generator.NewGenerateCert(config, cl)
 
 	if err := genCert.CaCertConfig.SetConfig(caDuration, caExpiry); err != nil {
 		return genCert, err
