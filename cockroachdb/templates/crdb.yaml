@@ -26,9 +26,6 @@ spec:
   features:
     - reconcile
     - reconcile-beta
-  {{- with .Values.operator.flags }}
-  flags: {{- toYaml . | nindent 4 }}
-  {{- end }}
   rollingRestartDelay: {{ .Values.operator.rollingRestartDelay }}
   template:
     spec:
@@ -105,5 +102,7 @@ spec:
       {{- if .Values.operator.service.ports.http.port }}
       httpPort: {{ .Values.operator.service.ports.http.port }}
       {{- end }}
-  dataStore: {}
+      {{- with .Values.operator.flags }}
+      flags: {{- toYaml . | nindent 8 }}
+      {{- end }}
 {{- end }}
