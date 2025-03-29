@@ -20,7 +20,6 @@ CLUSTER_CIDRS=(10.0.0.0/17 10.1.0.0/17 10.2.0.0/17)
 
 # Binary paths
 K3D_PATH="./bin/k3d"
-CILIUM_PATH="./bin/cilium"  # Path to Cilium binary
 
 # Registry configuration
 REGISTRY="gcr.io"
@@ -35,7 +34,11 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-controller:v1.11.0"
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
     "coredns/coredns:1.9.2"
-    "cockroachdb/cockroach:v25.1.0"
+    "$(bin/yq '.operator.image.name' ./cockroachdb/values.yaml)"
+    "us.gcr.io/cockroach-cloud-images/inotifywait:20200513"
+    "bash:latest"
+    "busybox"
+    "us-docker.pkg.dev/cockroach-cloud-images/data-plane/init-container:f21cb0727676a48d0000bc3f32108ce59d51c3e7"
     "${REGISTRY}/${REPOSITORY}:$(bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
 )
 
