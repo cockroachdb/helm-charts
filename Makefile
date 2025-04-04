@@ -132,7 +132,7 @@ test/single-cluster/up: bin/k3d
 	 ./tests/k3d/dev-multi-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters 1
 
 test/multi-cluster/down: bin/k3d
-	./tests/k3d/dev-multi-cluster.sh down --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters $(REGIONS)
+	 ./tests/k3d/dev-multi-cluster.sh down --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters $(REGIONS)
 
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && bin/helm lint cockroachdb

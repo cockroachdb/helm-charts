@@ -35,13 +35,13 @@ type CockroachCluster struct {
 	ClientSecret, NodeSecret   string
 	CaSecret                   string
 	IsCaUserProvided           bool
+	DesiredNodes               int
+	Context                    string
 }
 
 // RequireClusterToBeReadyEventuallyTimeout waits for all the CRDB pods to come into running state.
 func RequireClusterToBeReadyEventuallyTimeout(t *testing.T, crdbCluster CockroachCluster, timeout time.Duration) {
-
 	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
-
 		ss, err := fetchStatefulSet(crdbCluster.K8sClient, crdbCluster.StatefulSetName, crdbCluster.Namespace)
 		if err != nil {
 			t.Logf("error fetching stateful set")
@@ -63,20 +63,42 @@ func RequireClusterToBeReadyEventuallyTimeout(t *testing.T, crdbCluster Cockroac
 	require.NoError(t, err)
 }
 
+// RequireCRDBClusterToBeReadyEventuallyTimeout waits for all the CockroachDB pods to come into running state.
+func RequireCRDBClusterToBeReadyEventuallyTimeout(t *testing.T, opts *k8s.KubectlOptions, crdbCluster CockroachCluster, timeout time.Duration) {
+	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
+		pods, err := k8s.ListPodsE(t, opts, metav1.ListOptions{
+			LabelSelector: "app=cockroachdb",
+		})
+		if len(pods) != crdbCluster.DesiredNodes {
+			t.Logf("expected %d crdb pods; found %d", crdbCluster.DesiredNodes, len(pods))
+			return false, nil
+		}
+		for _, pod := range pods {
+			if !k8s.IsPodAvailable(&pod) {
+				t.Logf("pod %s not ready", pod.Name)
+				return false, nil
+			}
+		}
+		if err != nil {
+			return false, err
+		}
+		require.True(t, len(pods) == crdbCluster.DesiredNodes)
+		return true, nil
+	})
+	require.NoError(t, err)
+}
+
 func logPods(ctx context.Context, sts *appsv1.StatefulSet, cfg *rest.Config, t *testing.T) {
-	// create a new clientset to talk to k8s
+	// create a new clientset to talk to k8s.
 	clientset, err := kubernetes.NewForConfig(cfg)
 	if err != nil {
 		t.Log("could not able to create kubernetes clientset, will not able to print logs")
 	}
 
-	// the LableSelector I thought worked did not
-	// so I just get all of the Pods in a NS
-	options := metav1.ListOptions{
-		//LabelSelector: "app=" + cluster.StatefulSetName(),
-	}
+	// Fetching all the pods in a namespace.
+	options := metav1.ListOptions{}
 
-	// Get all pods
+	// Get all pods.
 	podList, err := clientset.CoreV1().Pods(sts.Namespace).List(ctx, options)
 	if err != nil {
 		t.Log("could not able to get the pods, will not able to print logs")
@@ -116,9 +138,14 @@ func statefulSetIsReady(ss *appsv1.StatefulSet) bool {
 	return ss.Status.ReadyReplicas == ss.Status.Replicas
 }
 
-func getDBConn(t *testing.T, crdbCluster CockroachCluster, dbName string) *sql.DB {
+func getDBConn(t *testing.T, crdbCluster CockroachCluster, dbName string, podName string) *sql.DB {
 	isSecure := crdbCluster.CaSecret != ""
 	sqlPort := int32(26257)
+
+	serviceName := podName
+	if serviceName == "" {
+		serviceName = fmt.Sprintf("%s-0.%s", crdbCluster.StatefulSetName, crdbCluster.StatefulSetName)
+	}
 	conn := &database.DBConnection{
 		Ctx:    context.TODO(),
 		Client: crdbCluster.K8sClient,
@@ -126,7 +153,7 @@ func getDBConn(t *testing.T, crdbCluster CockroachCluster, dbName string) *sql.D
 		UseSSL: isSecure,
 
 		RestConfig:   crdbCluster.Cfg,
-		ServiceName:  fmt.Sprintf("%s-0.%s", crdbCluster.StatefulSetName, crdbCluster.StatefulSetName),
+		ServiceName:  serviceName,
 		Namespace:    crdbCluster.Namespace,
 		DatabaseName: dbName,
 
@@ -146,7 +173,7 @@ func getDBConn(t *testing.T, crdbCluster CockroachCluster, dbName string) *sql.D
 
 // RequireDatabaseToFunction creates a table and insert two rows.
 func RequireDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, dbName string) {
-	db := getDBConn(t, crdbCluster, dbName)
+	db := getDBConn(t, crdbCluster, dbName, "")
 	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"); err != nil {
 		t.Fatal(err)
 	}
@@ -158,10 +185,31 @@ func RequireDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, dbNam
 	}
 }
 
-// RequireCRDBToFunction creates a database, a table and insert two rows if it is a fresh install of the cluster.
+// RequireCRDBDatabaseToFunction creates a database, a table and insert two rows.
+func RequireCRDBDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, dbName string, podName string) {
+	systemDB := getDBConn(t, crdbCluster, "system", podName)
+	if _, err := systemDB.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", dbName)); err != nil {
+		t.Fatal(err)
+	}
+
+	db := getDBConn(t, crdbCluster, dbName, podName)
+	if _, err := db.Exec("CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Insert two rows into the "accounts" table,
+	// This won't error out if the records are already present,
+	// as in some tests we verify CockroachDB cluster multiple times.
+	if _, err := db.Exec(
+		"INSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250) ON CONFLICT DO NOTHING"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// RequireCRDBToFunction creates a database, a table and insert two rows if it is a fresh installation of the cluster.
 // If certificate is rotated and cluster rolling restart has happened, this will check that existing two rows are present.
 func RequireCRDBToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bool) {
-	db := getDBConn(t, crdbCluster, "system")
+	db := getDBConn(t, crdbCluster, "system", "")
 
 	if rotate {
 		t.Log("Verifying the existing data in the database after certificate rotation")
@@ -169,7 +217,7 @@ func RequireCRDBToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bo
 
 	// Create database only if we are testing crdb install
 	if !rotate {
-		if _, err := db.Exec("CREATE DATABASE test_db"); err != nil {
+		if _, err := db.Exec("CREATE DATABASE IF NOT EXISTS test_db"); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -220,6 +268,66 @@ func RequireCRDBToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bo
 	t.Log("finished testing database")
 }
 
+func RequireCRDBClusterToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bool, podName string) {
+	db := getDBConn(t, crdbCluster, "system", podName)
+
+	if rotate {
+		t.Log("Verifying the existing data in the database after certificate rotation")
+	}
+
+	// Create database only if we are testing crdb install
+	if !rotate {
+		if _, err := db.Exec("CREATE DATABASE IF NOT EXISTS test_db"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if _, err := db.Exec("USE test_db"); err != nil {
+		t.Fatal(err)
+	}
+
+	// Create and insert into table only for the crdb install
+	if !rotate {
+		// Create the "accounts" table.
+		if _, err := db.Exec("CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"); err != nil {
+			t.Fatal(err)
+		}
+
+		// Insert two rows into the "accounts" table.
+		if _, err := db.Exec(
+			"INSERT INTO accounts (id, balance) VALUES (1, 1000), (2, 250) ON CONFLICT DO NOTHING"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	// Print out the balances.
+	rows, err := db.Query("SELECT id, balance FROM accounts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rows.Close()
+	t.Log("Initial balances:")
+	for rows.Next() {
+		var id, balance int
+		if err := rows.Scan(&id, &balance); err != nil {
+			t.Fatal(err)
+		}
+		t.Log("balances", id, balance)
+	}
+
+	countRows, err := db.Query("SELECT COUNT(*) as count FROM accounts")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer countRows.Close()
+	count := getCount(t, countRows)
+	if count != 2 {
+		t.Fatal(fmt.Errorf("found incorrect number of rows.  Expected 2 got %v", count))
+	}
+
+	t.Log("finished testing database")
+}
+
 func getCount(t *testing.T, rows *sql.Rows) (count int) {
 	for rows.Next() {
 		err := rows.Scan(&count)
@@ -234,7 +342,10 @@ func getCount(t *testing.T, rows *sql.Rows) (count int) {
 // Also, it verifies that node certificates are signed by the CA certificates used in the cluster.
 func RequireCertificatesToBeValid(t *testing.T, crdbCluster CockroachCluster) {
 	t.Log("Verifying the Certificates")
-	kubectlOptions := k8s.NewKubectlOptions("", "", crdbCluster.Namespace)
+
+	kubeConfig, err := k8s.GetKubeConfigPathE(t)
+	require.NoError(t, err)
+	kubectlOptions := k8s.NewKubectlOptions(crdbCluster.Context, kubeConfig, crdbCluster.Namespace)
 
 	// Get the CA certificate secret and load the ca cert
 	caSecret := k8s.GetSecret(t, kubectlOptions, crdbCluster.CaSecret)
@@ -314,7 +425,8 @@ func PrintDebugLogs(t *testing.T, options *k8s.KubectlOptions) {
 
 // RequireToRunRotateJob triggers the client/node or CA certificate rotation job based on next cron schedule.
 func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values map[string]string,
-	scheduleToTriggerRotation string, caRotate bool) {
+	scheduleToTriggerRotation string, caRotate bool,
+) {
 	var args []string
 	var jobName string
 	imageName := fmt.Sprintf("gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert:%s", values["tls.selfSigner.image.tag"])

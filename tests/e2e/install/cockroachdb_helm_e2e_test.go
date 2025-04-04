@@ -13,9 +13,6 @@ import (
 	"testing"
 	"time"
 
-	v1 "k8s.io/api/rbac/v1"
-	"k8s.io/apimachinery/pkg/types"
-
 	"github.com/cockroachdb/cockroach-operator/pkg/kube"
 	"github.com/cockroachdb/helm-charts/pkg/security"
 	util "github.com/cockroachdb/helm-charts/pkg/utils"
@@ -25,6 +22,8 @@ import (
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/rbac/v1"
+	"k8s.io/apimachinery/pkg/types"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -36,6 +35,7 @@ var (
 	releaseName      = "crdb-test"
 	customCASecret   = "custom-ca-secret"
 	helmChartPath, _ = filepath.Abs("../../../cockroachdb")
+	k3dClusterName   = "k3d-chart-testing-cluster"
 )
 
 const role = "crdb-test-cockroachdb-node-reader"
@@ -53,6 +53,7 @@ func TestCockroachDbHelmInstall(t *testing.T) {
 		NodeSecret:       fmt.Sprintf("%s-cockroachdb-node-secret", releaseName),
 		CaSecret:         fmt.Sprintf("%s-cockroachdb-ca-secret", releaseName),
 		IsCaUserProvided: false,
+		Context:          k3dClusterName,
 	}
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
@@ -118,6 +119,7 @@ func TestCockroachDbHelmInstallWithCAProvided(t *testing.T) {
 		NodeSecret:       fmt.Sprintf("%s-cockroachdb-node-secret", releaseName),
 		CaSecret:         customCASecret,
 		IsCaUserProvided: true,
+		Context:          k3dClusterName,
 	}
 
 	cmd := shell.Command{
@@ -210,6 +212,7 @@ func TestCockroachDbHelmMigration(t *testing.T) {
 		NodeSecret:       fmt.Sprintf("%s-cockroachdb-node", releaseName),
 		CaSecret:         customCASecret,
 		IsCaUserProvided: false,
+		Context:          k3dClusterName,
 	}
 
 	certsDir, cleanup := util.CreateTempDir("certsDir")
@@ -362,6 +365,7 @@ func TestCockroachDbWithInsecureMode(t *testing.T) {
 		K8sClient:       k8sClient,
 		StatefulSetName: fmt.Sprintf("%s-cockroachdb", releaseName),
 		Namespace:       namespaceName,
+		Context:         k3dClusterName,
 	}
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)
@@ -457,6 +461,7 @@ spec:
 		NodeSecret:       "cockroachdb-node",
 		CaSecret:         "cockroachdb-ca",
 		IsCaUserProvided: false,
+		Context:          k3dClusterName,
 	}
 
 	// Setup the args. For this test, we will set the following input values:
@@ -529,6 +534,7 @@ func testWALFailoverExistingCluster(t *testing.T, additionalValues map[string]st
 		NodeSecret:       fmt.Sprintf("%s-cockroachdb-node-secret", releaseName),
 		CaSecret:         fmt.Sprintf("%s-cockroachdb-ca-secret", releaseName),
 		IsCaUserProvided: false,
+		Context:          k3dClusterName,
 	}
 
 	k8s.CreateNamespace(t, kubectlOptions, namespaceName)

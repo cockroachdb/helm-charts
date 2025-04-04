@@ -26,7 +26,7 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-webhook:v1.11.0"
     "quay.io/jetstack/cert-manager-controller:v1.11.0"
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
-    "cockroachdb/cockroach:v25.1.0"
+    "cockroachdb/cockroach:v25.1.2"
     "${REGISTRY}/${REPOSITORY}:$(bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
 )
 
