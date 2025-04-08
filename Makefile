@@ -148,7 +148,7 @@ bin: bin/cockroach bin/helm bin/k3d bin/kubectl bin/yq ## install all binaries
 
 .PHONY: bin/migration-helper
 bin/migration-helper:
-	go build -o $(PWD)/bin/migration-helper migrate/main.go
+	go build -o $(PWD)/bin/migration-helper cmd/migrate/main.go
 
 bin/cockroach: ## install cockroach
 	@mkdir -p bin
