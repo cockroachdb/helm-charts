@@ -169,7 +169,7 @@ spec:
                       {{- range $user := .Values.init.provisioning.users }}
                         CREATE USER IF NOT EXISTS {{ $user.name }} WITH
                         {{- if $user.password }}
-                          PASSWORD '${{ $user.name }}_PASSWORD'
+                          PASSWORD '${{ $user.password }}_PASSWORD'
                         {{- else }}
                           PASSWORD null
                         {{- end }}
