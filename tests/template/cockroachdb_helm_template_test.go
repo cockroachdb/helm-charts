@@ -807,7 +807,7 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 					"before-hook-creation",
 					true,
 					true,
-					"CREATE USER IF NOT EXISTS testUser WITH PASSWORD '$testUser_PASSWORD' CREATEROLE;",
+					"CREATE USER IF NOT EXISTS testUser WITH PASSWORD '$testPassword_PASSWORD' CREATEROLE;",
 				},
 				struct {
 					exists          bool
@@ -902,7 +902,7 @@ func TestHelmDatabaseProvisioning(t *testing.T) {
 					"before-hook-creation",
 					true,
 					true,
-					"CREATE USER IF NOT EXISTS testUser WITH PASSWORD '$testUser_PASSWORD';" +
+					"CREATE USER IF NOT EXISTS testUser WITH PASSWORD '$testPassword_PASSWORD';" +
 						"CREATE DATABASE IF NOT EXISTS testDatabase;" +
 						"GRANT ALL ON DATABASE testDatabase TO testUser;",
 				},
