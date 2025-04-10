@@ -441,7 +441,10 @@ ingress:
   annotations: {}
   #   kubernetes.io/ingress.class: nginx
   #   cert-manager.io/cluster-issuer: letsencrypt
-  paths: [/]
+  paths:
+    - /
+  # or alternatively:
+  # - {path: /, pathType: Prefix}
   hosts: []
   # - cockroachlabs.com
   tls: []
