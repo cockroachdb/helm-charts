@@ -441,6 +441,7 @@ ingress:
   annotations: {}
   #   kubernetes.io/ingress.class: nginx
   #   cert-manager.io/cluster-issuer: letsencrypt
+  className: ""
   paths: [/]
   hosts: []
   # - cockroachlabs.com
