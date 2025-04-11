@@ -1,0 +1,565 @@
+{{- if not .Values.operator.enabled }}
+{{ template "cockroachdb.conf.log.validation" . }}
+{{ template "cockroachdb.conf.store.validation" . }}
+kind: StatefulSet
+apiVersion: {{ template "cockroachdb.statefulset.apiVersion" . }}
+metadata:
+  name: {{ template "cockroachdb.fullname" . }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+  {{- with .Values.statefulset.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  serviceName: {{ template "cockroachdb.fullname" . }}
+  replicas: {{ .Values.statefulset.replicas | int64 }}
+  updateStrategy: {{- toYaml .Values.statefulset.updateStrategy | nindent 4 }}
+  podManagementPolicy: {{ .Values.statefulset.podManagementPolicy | quote }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+      app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    {{- with .Values.statefulset.labels }}
+      {{- toYaml . | nindent 6 }}
+    {{- end }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+      {{- with .Values.statefulset.labels }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.labels }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+    {{- with .Values.statefulset.annotations }}
+      annotations: {{- toYaml . | nindent 8 }}
+    {{- end }}
+    spec:
+    {{- if or .Values.image.credentials (and .Values.tls.enabled .Values.tls.selfSigner.image.credentials (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager)) }}
+      imagePullSecrets:
+      {{- if .Values.image.credentials }}
+        - name: {{ template "cockroachdb.fullname" . }}.db.registry
+      {{- end }}
+      {{- if and .Values.tls.enabled .Values.tls.selfSigner.image.credentials (not .Values.tls.certs.provided) (not .Values.tls.certs.certManager) }}
+        - name: {{ template "cockroachdb.fullname" . }}.self-signed-certs.registry
+      {{- end }}
+    {{- end }}
+      serviceAccountName: {{ template "cockroachdb.serviceAccount.name" . }}
+      {{- if .Values.tls.enabled }}
+      initContainers:
+        - name: copy-certs
+          image: {{ .Values.tls.copyCerts.image | quote }}
+          imagePullPolicy: {{ .Values.tls.selfSigner.image.pullPolicy | quote }}
+          command:
+            - /bin/sh
+            - -c
+            - "cp -f /certs/* /cockroach-certs/; chmod 0400 /cockroach-certs/*.key"
+          env:
+            - name: POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+        {{- if .Values.statefulset.securityContext.enabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+        {{- end }}
+          volumeMounts:
+            - name: certs
+              mountPath: /cockroach-certs/
+            - name: certs-secret
+              mountPath: /certs/
+        {{- with .Values.tls.copyCerts.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- range $ic := .Values.statefulset.initContainers }}
+        - {{- toYaml $ic | nindent 10 }}
+          {{ with $.Values.statefulset.volumeMounts}}
+          volumeMounts:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
+      {{- end }}
+    {{- if or .Values.statefulset.nodeAffinity .Values.statefulset.podAffinity .Values.statefulset.podAntiAffinity }}
+      affinity:
+      {{- with .Values.statefulset.nodeAffinity }}
+        nodeAffinity: {{- toYaml . | nindent 10 }}
+      {{- end }}
+      {{- with .Values.statefulset.podAffinity }}
+        podAffinity: {{- toYaml . | nindent 10 }}
+      {{- end }}
+      {{- if .Values.statefulset.podAntiAffinity }}
+        podAntiAffinity:
+        {{- if .Values.statefulset.podAntiAffinity.type }}
+        {{- if eq .Values.statefulset.podAntiAffinity.type "hard" }}
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - topologyKey: {{ .Values.statefulset.podAntiAffinity.topologyKey }}
+              labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+                  app.kubernetes.io/instance: {{ .Release.Name | quote }}
+                {{- with .Values.statefulset.labels }}
+                  {{- toYaml . | nindent 18 }}
+                {{- end }}
+        {{- else if eq .Values.statefulset.podAntiAffinity.type "soft" }}
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: {{ .Values.statefulset.podAntiAffinity.weight | int64 }}
+              podAffinityTerm:
+                topologyKey: {{ .Values.statefulset.podAntiAffinity.topologyKey }}
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+                    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+                  {{- with .Values.statefulset.labels }}
+                    {{- toYaml . | nindent 20 }}
+                  {{- end }}
+        {{- end }}
+        {{- else }}
+          {{- toYaml .Values.statefulset.podAntiAffinity | nindent 10 }}
+        {{- end }}
+      {{- end }}
+    {{- end }}
+    {{- if semverCompare ">=1.16-0" .Capabilities.KubeVersion.Version }}
+      topologySpreadConstraints:
+      - labelSelector:
+          matchLabels:
+            app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+            app.kubernetes.io/instance: {{ .Release.Name | quote }}
+          {{- with .Values.statefulset.labels }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.statefulset.topologySpreadConstraints }}
+        maxSkew: {{ .maxSkew }}
+        topologyKey: {{ .topologyKey }}
+        whenUnsatisfiable: {{ .whenUnsatisfiable }}
+      {{- end }}
+    {{- end }}
+    {{- with .Values.statefulset.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+    {{- end }}
+    {{- if .Values.statefulset.priorityClassName }}
+      priorityClassName: {{ .Values.statefulset.priorityClassName }}
+    {{- end }}
+    {{- with .Values.statefulset.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+    {{- end }}
+      # No pre-stop hook is required, a SIGTERM plus some time is all that's
+      # needed for graceful shutdown of a node.
+      terminationGracePeriodSeconds: {{ .Values.init.terminationGracePeriodSeconds }}
+      containers:
+        - name: db
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
+          args:
+            - shell
+            - -ecx
+            # The use of qualified `hostname -f` is crucial:
+            # Other nodes aren't able to look up the unqualified hostname.
+            #
+            # `--join` CLI flag is hardcoded to exactly 3 Pods, because:
+            # 1. Having `--join` value depending on `statefulset.replicas`
+            #    will trigger undesired restart of existing Pods when
+            #    StatefulSet is scaled up/down. We want to scale without
+            #    restarting existing Pods.
+            # 2. At least one Pod in `--join` is enough to successfully
+            #    join CockroachDB cluster and gossip with all other existing
+            #    Pods, even if there are 3 or more Pods.
+            # 3. It's harmless for `--join` to have 3 Pods even for 1-Pod
+            #    clusters, while it gives us opportunity to scale up even if
+            #    some Pods of existing cluster are down (for whatever reason).
+            # See details explained here:
+            # https://github.com/helm/charts/pull/18993#issuecomment-558795102
+            - >-
+              exec /cockroach/cockroach
+            {{- if index .Values.conf `single-node` }}
+              start-single-node
+            {{- else }}
+              start --join=
+              {{- if .Values.conf.join }}
+                {{- join `,` .Values.conf.join -}}
+              {{- else }}
+                {{- range $i, $_ := until 3 -}}
+                  {{- if gt $i 0 -}},{{- end -}}
+                  ${STATEFULSET_NAME}-{{ $i }}.${STATEFULSET_FQDN}:{{ $.Values.service.ports.grpc.internal.port | int64 -}}
+                {{- end -}}
+              {{- end }}
+            {{- with index .Values.conf `cluster-name` }}
+              --cluster-name={{ . }}
+            {{- if index $.Values.conf `disable-cluster-name-verification` }}
+              --disable-cluster-name-verification
+            {{- end }}
+            {{- end }}
+            {{- end }}
+              --advertise-host=$(hostname).${STATEFULSET_FQDN}
+            {{- if .Values.tls.enabled }}
+              --certs-dir=/cockroach/cockroach-certs/
+            {{- else }}
+              --insecure
+            {{- end }}
+            {{- with .Values.conf.attrs }}
+              --attrs={{ join `:` . }}
+            {{- end }}
+            {{- if index .Values.conf `http-port` }}
+              --http-port={{ index .Values.conf `http-port` | int64 }}
+            {{- else }}
+              --http-port={{ index .Values.service.ports.http.port | int64 }}
+            {{- end }}
+            {{- if .Values.conf.port }}
+              --port={{ .Values.conf.port | int64 }}
+            {{- else }}
+              --port={{ .Values.service.ports.grpc.internal.port | int64 }}
+            {{- end }}
+              --cache={{ .Values.conf.cache }}
+            {{- with index .Values.conf `max-disk-temp-storage` }}
+              --max-disk-temp-storage={{ . }}
+            {{- end }}
+            {{- with index .Values.conf `max-offset` }}
+              --max-offset={{ . }}
+            {{- end }}
+              --max-sql-memory={{ index .Values.conf `max-sql-memory` }}
+            {{- with .Values.conf.locality }}
+              --locality={{ . }}
+            {{- end }}
+            {{- with index .Values.conf `sql-audit-dir` }}
+              --sql-audit-dir={{ . }}
+            {{- end }}
+            {{- if .Values.conf.store.enabled }}
+              {{- range $idx := until (int .Values.conf.store.count) }}
+              {{- $_ := set $ "Args" (dict "idx" $idx) }}
+              --store={{ include "cockroachdb.conf.store" $ }}
+              {{- end }}
+            {{- end }}
+            {{- with index .Values.conf `wal-failover` `value` }}
+              {{- template "cockroachdb.conf.wal-failover.validation" $ }}
+              --wal-failover={{ . }}
+            {{- end }}
+            {{- if .Values.conf.log.enabled }}
+              --log-config-file=/cockroach/log-config/log-config.yaml
+            {{- else }}
+              --logtostderr={{ .Values.conf.logtostderr }}
+            {{- end }}
+            {{- range .Values.statefulset.args }}
+              {{ . }}
+            {{- end }}
+          env:
+            - name: STATEFULSET_NAME
+              value: {{ template "cockroachdb.fullname" . }}
+            - name: STATEFULSET_FQDN
+              value: {{ template "cockroachdb.fullname" . }}.{{ .Release.Namespace }}.svc.{{ .Values.clusterDomain }}
+            - name: COCKROACH_CHANNEL
+              value: kubernetes-helm
+          {{- with .Values.statefulset.env }}
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+          ports:
+            - name: grpc
+              {{- if .Values.conf.port }}
+              containerPort: {{ .Values.conf.port | int64 }}
+              {{- else }}
+              containerPort: {{ .Values.service.ports.grpc.internal.port | int64 }}
+              {{- end }}
+              protocol: TCP
+            - name: http
+              {{- if index .Values.conf `http-port` }}
+              containerPort: {{ index .Values.conf `http-port` | int64 }}
+              {{- else }}
+              containerPort: {{ index .Values.service.ports.http.port | int64 }}
+              {{- end }}
+              protocol: TCP
+          volumeMounts:
+          {{- range $i := until (int .Values.conf.store.count) }}
+            {{- if eq $i 0 }}
+            - name: datadir
+              mountPath: /cockroach/{{ $.Values.conf.path }}/
+            {{- else }}
+            - name: datadir-{{ add1 $i }}
+              mountPath: /cockroach/{{ $.Values.conf.path }}-{{ add1 $i }}/
+            {{- end }}
+          {{- end }}
+          {{- with index .Values.conf `wal-failover` `persistentVolume` }}
+            {{- if .enabled }}
+            - name: failoverdir
+              mountPath: /cockroach/{{ .path }}/
+            {{- end }}
+          {{- end }}
+          {{- if .Values.tls.enabled }}
+            - name: certs
+              mountPath: /cockroach/cockroach-certs/
+              {{- if .Values.tls.certs.provided }}
+            - name: certs-secret
+              mountPath: /cockroach/certs/
+              {{- end }}
+          {{- end }}
+          {{- range .Values.statefulset.secretMounts }}
+            - name: {{ printf "secret-%s" . | quote }}
+              mountPath: {{ printf "/etc/cockroach/secrets/%s" . | quote }}
+              readOnly: true
+          {{- end }}
+          {{- if .Values.conf.log.enabled }}
+            - name: log-config
+              mountPath: /cockroach/log-config
+              readOnly: true
+          {{- end }}
+          {{- if .Values.conf.log.persistentVolume.enabled }}
+            - name: logsdir
+              mountPath: /cockroach/{{ .Values.conf.log.persistentVolume.path }}/
+          {{- end }}
+          {{- with .Values.statefulset.volumeMounts }}
+            {{ toYaml . | nindent 12 }}
+          {{- end }}
+          {{- if .Values.statefulset.customStartupProbe }}
+          startupProbe:
+            {{ toYaml .Values.statefulset.customStartupProbe | nindent 12 }}
+          {{- end }}
+          livenessProbe:
+          {{- if .Values.statefulset.customLivenessProbe }}
+            {{ toYaml .Values.statefulset.customLivenessProbe | nindent 12 }}
+          {{- else }}
+            httpGet:
+              path: /health
+              port: http
+            {{- if .Values.tls.enabled }}
+              scheme: HTTPS
+            {{- end }}
+            initialDelaySeconds: 30
+            periodSeconds: 5
+          {{- end }}
+          readinessProbe:
+          {{- if .Values.statefulset.customReadinessProbe }}
+            {{ toYaml .Values.statefulset.customReadinessProbe | nindent 12 }}
+          {{- else }}
+            httpGet:
+              path: /health?ready=1
+              port: http
+            {{- if .Values.tls.enabled }}
+              scheme: HTTPS
+            {{- end }}
+            initialDelaySeconds: 10
+            periodSeconds: 5
+            failureThreshold: 2
+          {{- end }}
+        {{- if eq (include "cockroachdb.securityContext.versionValidation" .) "true" }}
+        {{- if .Values.statefulset.securityContext.enabled }}
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
+            privileged: false
+            readOnlyRootFilesystem: true
+        {{- end }}
+        {{- end }}
+        {{- with .Values.statefulset.resources }}
+          resources: {{- toYaml . | nindent 12 }}
+        {{- end }}
+      volumes:
+      {{- range $i := until (int .Values.conf.store.count) }}
+      {{- if eq $i 0 }}
+        - name: datadir
+        {{- if $.Values.storage.persistentVolume.enabled }}
+          persistentVolumeClaim:
+            claimName: datadir
+        {{- else if $.Values.storage.hostPath }}
+          hostPath:
+            path: {{ $.Values.storage.hostPath | quote }}
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+      {{- else }}
+        - name: datadir-{{ add1 $i }}
+        {{- if $.Values.storage.persistentVolume.enabled }}
+          persistentVolumeClaim:
+            claimName: datadir-{{ add1 $i }}
+        {{- else if $.Values.storage.hostPath }}
+          {{- $_ := set $ "Args" (dict "idx" $i) }}
+          hostPath:
+            path: {{ include "cockroachdb.storage.hostPath.computation" $ }}
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+      {{- end }}
+      {{- end }}
+      {{- with index .Values.conf `wal-failover` }}
+      {{- if .value }}
+        - name: failoverdir
+        {{- if .persistentVolume.enabled }}
+          persistentVolumeClaim:
+            claimName: failoverdir
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+      {{- end }}
+      {{- end }}
+        {{- with .Values.statefulset.volumes }}
+          {{ toYaml . | nindent 8 }}
+        {{- end }}
+      {{- if .Values.tls.enabled }}
+        - name: certs
+          emptyDir: {}
+          {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager  .Values.tls.certs.selfSigner.enabled }}
+        - name: certs-secret
+          {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
+          projected:
+            sources:
+            - secret:
+                {{- if .Values.tls.certs.selfSigner.enabled }}
+                name: {{ template "cockroachdb.fullname" . }}-node-secret
+                {{ else }}
+                name: {{ .Values.tls.certs.nodeSecret }}
+                {{ end -}}
+                items:
+                - key: ca.crt
+                  path: ca.crt
+                  mode: 256
+                - key: tls.crt
+                  path: node.crt
+                  mode: 256
+                - key: tls.key
+                  path: node.key
+                  mode: 256
+          {{- else }}
+          secret:
+            secretName: {{ .Values.tls.certs.nodeSecret }}
+            defaultMode: 256
+          {{- end }}
+          {{- end }}
+      {{- end }}
+      {{- range .Values.statefulset.secretMounts }}
+        - name: {{ printf "secret-%s" . | quote }}
+          secret:
+            secretName: {{ . | quote }}
+      {{- end }}
+      {{- if .Values.conf.log.enabled }}
+        - name: log-config
+          secret:
+            secretName: {{ template "cockroachdb.fullname" . }}-log-config
+      {{- end }}
+      {{- if .Values.conf.log.enabled }}
+        - name: logsdir
+        {{- if .Values.conf.log.persistentVolume.enabled }}
+          persistentVolumeClaim:
+            claimName: logsdir
+        {{- else }}
+          emptyDir: {}
+        {{- end }}
+      {{- end }}
+      {{- if eq (include "cockroachdb.securityContext.versionValidation" .) "true" }}
+      {{- if and .Values.securityContext.enabled }}
+      securityContext:
+        seccompProfile:
+          type: "RuntimeDefault"
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsUser: 1000
+        runAsNonRoot: true
+      {{- end }}
+      {{- end }}
+{{- if or .Values.storage.persistentVolume.enabled (index .Values.conf `wal-failover` `persistentVolume` `enabled`) .Values.conf.log.persistentVolume.enabled }}
+  volumeClaimTemplates:
+  {{- if .Values.storage.persistentVolume.enabled }}
+  {{- range $i := until (int .Values.conf.store.count) }}
+    - metadata:
+    {{- if eq $i 0 }}
+        name: datadir
+    {{- else }}
+        name: datadir-{{ add1 $i }}
+    {{- end }}
+        labels:
+          app.kubernetes.io/name: {{ template "cockroachdb.name" $ }}
+          app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+        {{- with $.Values.storage.persistentVolume.labels }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $.Values.labels }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- with $.Values.storage.persistentVolume.annotations }}
+        annotations: {{- toYaml . | nindent 10 }}
+      {{- end }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+      {{- if $.Values.storage.persistentVolume.storageClass }}
+      {{- if (eq "-" $.Values.storage.persistentVolume.storageClass) }}
+        storageClassName: ""
+      {{- else }}
+        storageClassName: {{ $.Values.storage.persistentVolume.storageClass | quote}}
+      {{- end }}
+      {{- end }}
+        resources:
+          requests:
+            storage: {{ $.Values.storage.persistentVolume.size | quote }}
+  {{- end }}
+  {{- end }}
+  {{- with index .Values.conf `wal-failover` }}
+  {{- if .persistentVolume.enabled }}
+    - metadata:
+        name: failoverdir
+        labels:
+          app.kubernetes.io/name: {{ template "cockroachdb.name" $ }}
+          app.kubernetes.io/instance: {{ $.Release.Name | quote }}
+        {{- with .persistentVolume.labels }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with $.Values.labels }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- with .persistentVolume.annotations }}
+        annotations: {{- toYaml . | nindent 10 }}
+      {{- end }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+      {{- with .persistentVolume.storageClass }}
+      {{- if eq "-" . }}
+        storageClassName: ""
+      {{- else }}
+        storageClassName: {{ . | quote}}
+      {{- end }}
+      {{- end }}
+        resources:
+          requests:
+            storage: {{ .persistentVolume.size | quote }}
+  {{- end }}
+  {{- end }}
+  {{- if .Values.conf.log.persistentVolume.enabled }}
+    - metadata:
+        name: logsdir
+        labels:
+          app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+          app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        {{- with .Values.conf.log.persistentVolume.labels }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+        {{- with .Values.labels }}
+          {{- toYaml . | nindent 10 }}
+        {{- end }}
+      {{- with .Values.conf.log.persistentVolume.annotations }}
+        annotations: {{- toYaml . | nindent 10 }}
+      {{- end }}
+      spec:
+        accessModes: ["ReadWriteOnce"]
+      {{- if .Values.conf.log.persistentVolume.storageClass }}
+      {{- if (eq "-" .Values.conf.log.persistentVolume.storageClass) }}
+        storageClassName: ""
+      {{- else }}
+        storageClassName: {{ .Values.conf.log.persistentVolume.storageClass | quote}}
+      {{- end }}
+      {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.conf.log.persistentVolume.size | quote }}
+  {{- end }}
+{{- end }}
+{{- end }}

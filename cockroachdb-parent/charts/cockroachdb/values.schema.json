@@ -1,0 +1,97 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "properties": {
+    "tls": {
+      "type": "object",
+      "properties": {
+        "certs": {
+          "type": "object",
+          "properties": {
+            "selfSigner": {
+              "type": "object",
+              "required": ["enabled", "caProvided"],
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "caProvided": {
+                  "type": "boolean"
+                }
+              },
+              "if": {
+                "properties": {
+                  "enabled": {
+                    "const": true
+                  }
+                }
+              },
+              "then": {
+                "if": {
+                  "properties": {
+                    "caProvided": {
+                      "const": false
+                    }
+                  }
+                },
+                "then": {
+                  "properties": {
+                    "caCertDuration" : {
+                      "type": "string",
+                      "pattern": "^[0-9]*h$"
+                    },
+                    "caCertExpiryWindow": {
+                      "type": "string",
+                      "pattern": "^[0-9]*h$"
+                    }
+                  }
+                },
+                "properties": {
+                  "clientCertDuration": {
+                    "type": "string",
+                    "pattern": "^[0-9]*h$"
+                  },
+                  "clientCertExpiryWindow": {
+                    "type": "string",
+                    "pattern": "^[0-9]*h$"
+                  },
+                  "nodeCertDuration": {
+                    "type": "string",
+                    "pattern": "^[0-9]*h$"
+                  },
+                  "nodeCertExpiryWindow": {
+                    "type": "string",
+                    "pattern": "^[0-9]*h$"
+                  },
+                  "rotateCerts": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "selfSigner": {
+          "type": "object",
+          "properties": {
+            "image": {
+              "type": "object",
+              "required": ["repository", "tag", "pullPolicy"],
+              "properties": {
+                "repository": {
+                  "type": "string"
+                },
+                "tag": {
+                  "type": "string"
+                },
+                "pullPolicy": {
+                  "type": "string",
+                  "pattern": "^(Always|Never|IfNotPresent)$"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
