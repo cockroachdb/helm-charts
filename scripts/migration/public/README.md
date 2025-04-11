@@ -54,7 +54,7 @@ Next, generate manifests for each crdbnode and the crdbcluster based on the stat
 
 ```
 mkdir -p manifests
-migration-helper build-manifests --crdb-cluster $CRDBCLUSTER --namespace $NAMESPACE --cloud-provider $CLOUD_PROVIDER --cloud-region $REGION --output-dir ./manifests
+migration-helper build-manifests operator --crdb-cluster $CRDBCLUSTER --namespace $NAMESPACE --cloud-provider $CLOUD_PROVIDER --cloud-region $REGION --output-dir ./manifests
 ```
 
 The public operator and cloud operator use custom resource definitions with the same names, so we have to remove the public operator before installing the cloud operator. Uninstall the public operator, without deleting its managed pods, pvc, etc.:
