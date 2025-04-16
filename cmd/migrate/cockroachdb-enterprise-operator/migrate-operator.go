@@ -1,42 +1,44 @@
 package cockroachdb_enterprise_operator
 
 import (
+	"fmt"
 	"github.com/cockroachdb/helm-charts/pkg/migrate"
 	"github.com/spf13/cobra"
 )
 
 var (
-	statefulset string
-	namespace   string
-	stsManifest string
+	crdbClusterName string
+	namespace       string
 )
 
 var buildManifestFromOperator = &cobra.Command{
 	Use:   "operator",
-	Short: "Generate migration manifests from cockroachdb-enterprise-operator from operator",
-	Long:  "Generate manifests for migrating from the public cockroachdb operator to the cloud operator.",
-	RunE:  buildManifestFromCockroachDBOperator,
+	Short: "Generate migration manifests for cockroach-enterprise-operator from cockroach-operator(https://github.com/cockroachdb/cockroach-operator)",
+	Long: `Generate the required Kubernetes manifests to assist in migrating from the CockroachDB Operator 
+to the CockroachDB Enterprise Operator.
+
+This command is designed to simplify the migration process by generating manifests that are compatible 
+with the Cockroach Enterprise Operator, including resources such as CRDBNode and values.yaml
+
+It is intended for users who initially deployed CockroachDB via the Cockroach Operator(https://github.com/cockroachdb/cockroach-operator) 
+and now wish to take advantage of the additional capabilities and lifecycle management features offered 
+by the Cockroach Enterprise Operator.
+
+Always review the generated manifests thoroughly and test in a staging environment before applying changes 
+to a production cluster.
+`,
+	RunE: buildManifestFromCockroachDBOperator,
 }
 
 func init() {
-	buildManifestFromOperator.PersistentFlags().StringVar(&statefulset, "crdb-cluster", "", "name of crdbcluster resource")
+	buildManifestFromOperator.PersistentFlags().StringVar(&crdbClusterName, "crdb-cluster", "", "name of crdbcluster resource")
 	buildManifestFromOperator.PersistentFlags().StringVar(&namespace, "namespace", "default", "namespace of crdbcluster resource")
-	buildManifestFromOperator.PersistentFlags().StringVar(&stsManifest, "cluster-manifest", "", "path to public manifest backup")
 	_ = buildManifestFromOperator.MarkPersistentFlagRequired("crdb-cluster")
 	buildManifestCmd.AddCommand(buildManifestFromOperator)
 }
 
 func buildManifestFromCockroachDBOperator(cmd *cobra.Command, args []string) error {
-	var options []migrate.Option
-
-	if stsManifest != "" {
-		options = append(options, migrate.WithObjectManifest(stsManifest))
-	}
-	if statefulset != "" {
-		options = append(options, migrate.WithObject(statefulset))
-	}
-
-	migration, err := migrate.NewMigration(cloudProvider, cloudRegion, kubeconfig, namespace, outputDir, options...)
+	migration, err := migrate.NewManifest(cloudProvider, cloudRegion, kubeconfig, crdbClusterName, namespace, outputDir)
 	if err != nil {
 		return err
 	}
@@ -44,6 +46,17 @@ func buildManifestFromCockroachDBOperator(cmd *cobra.Command, args []string) err
 	if err := migration.FromPublicOperator(); err != nil {
 		return err
 	}
+
+	fmt.Println("✅ Migration manifests successfully generated.")
+	fmt.Printf("📁 Output directory: %s\n", outputDir)
+	fmt.Println("📌 Next steps:")
+	fmt.Printf("   1. Review the generated YAML files under the '%s' directory.\n", outputDir)
+	fmt.Println("   2. Follow the README.md under scripts/migration/operator directory")
+	fmt.Println("   3. Monitor the cluster to ensure a smooth transition.")
+	fmt.Printf("\n⚠️ WARNING:\n")
+	fmt.Println("   Always review the generated manifests thoroughly and test in staging environment")
+	fmt.Println("   before applying it to the production cluster.")
+	fmt.Println("   Do not generate the manifests once you scaled down statefulset.")
 
 	return nil
 }

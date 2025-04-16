@@ -39,30 +39,6 @@ func TestParseInt32(t *testing.T) {
 	}
 }
 
-func TestReplaceEnvVars(t *testing.T) {
-	envVars := map[string]string{
-		"VAR1": "value1",
-		"VAR2": "value2",
-	}
-
-	tests := []struct {
-		input    string
-		expected string
-	}{
-		{"$VAR1", "value1"},
-		{"${VAR2}", "value2"},
-		{"${VAR3}", "${VAR3}"}, // No replacement found
-		{"text $VAR1 text", "text value1 text"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.input, func(t *testing.T) {
-			result := replaceEnvVars(tt.input, envVars)
-			assert.Equal(t, tt.expected, result)
-		})
-	}
-}
-
 func TestConvertSecretToConfigMap(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	ctx := context.TODO()
@@ -109,9 +85,9 @@ func TestExtractJoinStringAndFlags(t *testing.T) {
 		"--logtostderr=INFO",
 	}
 
-	expectedJoinString := "cockroachdb-0.cockroachdb.default.svc.cluster.local:26257,cockroachdb-1.cockroachdb.default.svc.cluster.local:26257"
+	expectedJoinString := "${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257"
 	expectedFlags := map[string]string{
-		"--advertise-host": "$(hostname).cockroachdb.default.svc.cluster.local",
+		"--advertise-host": "$(hostname).${STATEFULSET_FQDN}",
 		"--cache":          "25%",
 		"--max-sql-memory": "25%",
 	}
@@ -155,7 +131,7 @@ func TestGenerateParsedMigrationInput(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the parsed input
-	assert.Equal(t, "cockroachdb-0.cockroachdb.default.svc.cluster.local:26257,cockroachdb-1.cockroachdb.default.svc.cluster.local:26257,cockroachdb-2.cockroachdb.default.svc.cluster.local:26257", input.joinCmd)
+	assert.Equal(t, "${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257", input.joinCmd)
 	assert.Equal(t, int32(26258), input.grpcPort)
 	assert.Equal(t, int32(26257), input.sqlPort)
 	assert.Equal(t, int32(8080), input.httpPort)
@@ -180,10 +156,16 @@ func TestUpdatePublicService(t *testing.T) {
 	_, err = clientset.CoreV1().Services(namespace).Create(ctx, svc, metav1.CreateOptions{})
 	require.NoError(t, err)
 
-	err = updatePublicService(ctx, clientset, namespace, serviceName)
+	err = generateUpdatedPublicServiceConfig(ctx, clientset, namespace, serviceName, ".")
 	require.NoError(t, err)
 
-	svc, err = clientset.CoreV1().Services(namespace).Get(ctx, serviceName, metav1.GetOptions{})
+	svcBytes, err := os.ReadFile(publicSvcYaml)
+	require.NoError(t, err)
+
+	// remove the public-service.yaml file generated as a part of this test.
+	defer os.Remove(publicSvcYaml)
+
+	err = yaml.Unmarshal(svcBytes, svc)
 	require.NoError(t, err)
 
 	for i := range svc.Spec.Ports {

@@ -3,9 +3,7 @@ package migrate
 import (
 	"context"
 	"fmt"
-	"os"
 	"path/filepath"
-	"sigs.k8s.io/yaml"
 	"strings"
 
 	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
@@ -21,57 +19,29 @@ import (
 )
 
 type Manifest struct {
-	cloudProvider  string
-	cloudRegion    string
-	object         string
-	namespace      string
-	kubeconfig     string
-	outputDir      string
-	objectManifest string
+	cloudProvider string
+	cloudRegion   string
+	objectName    string
+	namespace     string
+	kubeconfig    string
+	outputDir     string
 }
 
-// Option represents a functional option for configuring Manifest
-type Option func(*Manifest) error
-
-// NewMigration constructs a Manifest with required fields and functional options
-func NewMigration(cloudProvider, cloudRegion, kubeconfig, namespace, outputDir string, opts ...Option) (*Manifest, error) {
+// NewManifest constructs a Manifest with required fields and functional options
+func NewManifest(cloudProvider, cloudRegion, kubeconfig, objectName, namespace, outputDir string) (*Manifest, error) {
 	// Ensure required fields are set
 	if cloudProvider == "" || cloudRegion == "" {
 		return nil, errors.New("cloudProvider and cloudRegion are required")
 	}
 
-	m := &Manifest{
+	return &Manifest{
 		cloudProvider: cloudProvider,
 		cloudRegion:   cloudRegion,
 		kubeconfig:    kubeconfig,
 		namespace:     namespace,
+		objectName:    objectName,
 		outputDir:     outputDir,
-	}
-
-	// Apply functional options
-	for _, opt := range opts {
-		if err := opt(m); err != nil {
-			return nil, err
-		}
-	}
-
-	return m, nil
-}
-
-// Functional options
-
-func WithObject(cluster string) Option {
-	return func(m *Manifest) error {
-		m.object = cluster
-		return nil
-	}
-}
-
-func WithObjectManifest(manifest string) Option {
-	return func(m *Manifest) error {
-		m.objectManifest = manifest
-		return nil
-	}
+	}, nil
 }
 
 func (m *Manifest) FromPublicOperator() error {
@@ -92,27 +62,17 @@ func (m *Manifest) FromPublicOperator() error {
 	}
 
 	publicCluster := publicv1.CrdbCluster{}
-	if m.objectManifest != "" {
-		manifestBytes, err := os.ReadFile(m.objectManifest)
-		if err != nil {
-			return errors.Wrap(err, "reading backup manifest")
-		}
-		if err := yaml.Unmarshal(manifestBytes, &publicCluster); err != nil {
-			return errors.Wrap(err, "unmarshaling backup manifest")
-		}
-	} else {
-		gvr := schema.GroupVersionResource{
-			Group:    "crdb.cockroachlabs.com",
-			Version:  "v1alpha1",
-			Resource: "crdbclusters",
-		}
-		cr, err := dynamicClient.Resource(gvr).Namespace(m.namespace).Get(ctx, m.object, metav1.GetOptions{})
-		if err != nil {
-			return errors.Wrap(err, "fetching public crdbcluster object")
-		}
-		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(cr.Object, &publicCluster); err != nil {
-			return errors.Wrap(err, "unmarshalling public crdbcluster object")
-		}
+	gvr := schema.GroupVersionResource{
+		Group:    "crdb.cockroachlabs.com",
+		Version:  "v1alpha1",
+		Resource: "crdbclusters",
+	}
+	cr, err := dynamicClient.Resource(gvr).Namespace(m.namespace).Get(ctx, m.objectName, metav1.GetOptions{})
+	if err != nil {
+		return errors.Wrap(err, "fetching public crdbcluster objectName")
+	}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(cr.Object, &publicCluster); err != nil {
+		return errors.Wrap(err, "unmarshalling public crdbcluster objectName")
 	}
 
 	crdbCluster = publicCluster.Name
@@ -195,19 +155,9 @@ func (m *Manifest) FromHelmChart() error {
 	}
 
 	var sts = &appsv1.StatefulSet{}
-	if m.objectManifest != "" {
-		manifestBytes, err := os.ReadFile(m.objectManifest)
-		if err != nil {
-			return errors.Wrap(err, "reading backup manifest")
-		}
-		if err := yaml.Unmarshal(manifestBytes, sts); err != nil {
-			return errors.Wrap(err, "unmarshaling backup manifest")
-		}
-	} else {
-		sts, err = clientset.AppsV1().StatefulSets(m.namespace).Get(ctx, m.object, metav1.GetOptions{})
-		if err != nil {
-			return errors.Wrap(err, "fetching statefulset")
-		}
+	sts, err = clientset.AppsV1().StatefulSets(m.namespace).Get(ctx, m.objectName, metav1.GetOptions{})
+	if err != nil {
+		return errors.Wrap(err, "fetching statefulset")
 	}
 
 	input, err := generateParsedMigrationInput(ctx, clientset, sts)
@@ -215,7 +165,7 @@ func (m *Manifest) FromHelmChart() error {
 		return err
 	}
 
-	if err := updatePublicService(ctx, clientset, sts.Namespace, fmt.Sprintf("%s-public", sts.Name)); err != nil {
+	if err := generateUpdatedPublicServiceConfig(ctx, clientset, sts.Namespace, fmt.Sprintf("%s-public", sts.Name), m.outputDir); err != nil {
 		return err
 	}
 

@@ -3,9 +3,8 @@ package migrate
 import (
 	"context"
 	"fmt"
-	"k8s.io/apimachinery/pkg/util/intstr"
-	"k8s.io/client-go/kubernetes"
 	"os"
+	"path/filepath"
 	"regexp"
 	"sigs.k8s.io/yaml"
 	"strconv"
@@ -18,6 +17,24 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/kubernetes"
+)
+
+const (
+	logConfigVolumeName = "log-config"
+	crdbContainerName   = "db"
+	joinStrPrefix       = "--join="
+	portPrefix          = "--port="
+	httpPortPrefix      = "--http-port="
+	insecureFlag        = "--insecure"
+	logtostderrFlag     = "--logtostderr"
+	grpcName            = "grpc"
+	grpcPort            = 26258
+	sqlName             = "sql"
+	sqlPort             = 26257
+	ProtocolName        = "TCP"
+	publicSvcYaml       = "public-service.yaml"
 )
 
 type parsedMigrationInput struct {
@@ -266,7 +283,7 @@ func generateParsedMigrationInput(
 	// In the public Helm chart, logging configuration is provided as a secret to the StatefulSet.
 	// However, in the Cockroach Enterprise Operator, it is supplied as a ConfigMap.
 	for _, vol := range sts.Spec.Template.Spec.Volumes {
-		if vol.Name == "log-config" {
+		if vol.Name == logConfigVolumeName {
 			if vol.Secret != nil {
 				parsedInput.loggingConfigMap = vol.Secret.SecretName
 				if err := ConvertSecretToConfigMap(ctx, clientset, sts.Namespace, parsedInput.loggingConfigMap); err != nil {
@@ -277,7 +294,7 @@ func generateParsedMigrationInput(
 	}
 
 	for _, c := range sts.Spec.Template.Spec.Containers {
-		if c.Name == "db" {
+		if c.Name == crdbContainerName {
 			startCmd = c.Args[2]
 			for i := range c.Env {
 				envVars[c.Env[i].Name] = c.Env[i].Value
@@ -303,31 +320,29 @@ func extractJoinStringAndFlags(
 	flagRegex := regexp.MustCompile(`--([\w-]+)=(.*)`)
 
 	for _, arg := range args {
-		arg = replaceEnvVars(arg, envVars) // Replace env variables
-
 		switch {
-		case strings.HasPrefix(arg, "--join="):
-			parsedInput.joinCmd = strings.TrimPrefix(arg, "--join=")
+		case strings.HasPrefix(arg, joinStrPrefix):
+			parsedInput.joinCmd = strings.TrimPrefix(arg, joinStrPrefix)
 
-		case strings.HasPrefix(arg, "--port="):
-			num, err := parseInt32(strings.TrimPrefix(arg, "--port="))
+		case strings.HasPrefix(arg, portPrefix):
+			num, err := parseInt32(strings.TrimPrefix(arg, portPrefix))
 			if err != nil {
 				return fmt.Errorf("invalid --port value: %w", err)
 			}
 			parsedInput.sqlPort = num
 
-		case strings.HasPrefix(arg, "--http-port="):
-			num, err := parseInt32(strings.TrimPrefix(arg, "--http-port="))
+		case strings.HasPrefix(arg, httpPortPrefix):
+			num, err := parseInt32(strings.TrimPrefix(arg, httpPortPrefix))
 			if err != nil {
 				return fmt.Errorf("invalid --http-port value: %w", err)
 			}
 			parsedInput.httpPort = num
 
-		case strings.HasPrefix(arg, "--insecure"):
+		case strings.HasPrefix(arg, insecureFlag):
 			parsedInput.tlsEnabled = false
 
-		// CockroachDB Enterprise Operator automatically adds "--logs" flag if it is not present. "--logtostderr" just
-		case strings.HasPrefix(arg, "--logtostderr"):
+		// CockroachDB Enterprise Operator automatically adds "--logs" flag if it is not present.
+		case strings.HasPrefix(arg, logtostderrFlag):
 			continue
 
 		default:
@@ -353,21 +368,6 @@ func parseInt32(value string) (int32, error) {
 		return 0, err
 	}
 	return int32(num), nil
-}
-
-// replaceEnvVars replaces ${VAR} or $VAR with actual values from the envVars map.
-func replaceEnvVars(input string, envVars map[string]string) string {
-	// Match both ${VAR} and $VAR patterns
-	envRegex := regexp.MustCompile(`\$\{?([\w]+)\}?`)
-
-	return envRegex.ReplaceAllStringFunc(input, func(match string) string {
-		// Extract variable name (handles both ${VAR} and $VAR)
-		varName := strings.Trim(match, "${}")
-		if val, ok := envVars[varName]; ok {
-			return val
-		}
-		return match // Return original if no replacement found
-	})
 }
 
 // ConvertSecretToConfigMap retrieves a secret and creates a ConfigMap with the same data.
@@ -403,8 +403,8 @@ func ConvertSecretToConfigMap(ctx context.Context, clientset kubernetes.Interfac
 	return nil
 }
 
-// updatePublicService updates the "cockroachdb-public" service with separate sql and grpc ports.
-func updatePublicService(ctx context.Context, clientset kubernetes.Interface, namespace, name string) error {
+// generateUpdatedPublicServiceConfig updates the "cockroachdb-public" service with separate sql and grpc ports.
+func generateUpdatedPublicServiceConfig(ctx context.Context, clientset kubernetes.Interface, namespace, name, outputDir string) error {
 	var (
 		grpcFound, sqlFound bool
 	)
@@ -414,25 +414,24 @@ func updatePublicService(ctx context.Context, clientset kubernetes.Interface, na
 		return fmt.Errorf("failed to get service %s: %w", name, err)
 	}
 	grpcSvcPort := corev1.ServicePort{
-		Name:       "grpc",
-		Protocol:   "TCP",
-		Port:       26258,
-		TargetPort: intstr.IntOrString{StrVal: "grpc"},
+		Name:       grpcName,
+		Protocol:   ProtocolName,
+		Port:       grpcPort,
+		TargetPort: intstr.IntOrString{Type: 1, StrVal: grpcName},
 	}
 
 	sqlSvcPort := corev1.ServicePort{
-		Name:        "sql",
-		Protocol:    "TCP",
-		AppProtocol: nil,
-		Port:        26257,
-		TargetPort:  intstr.IntOrString{StrVal: "sql"},
+		Name:       sqlName,
+		Protocol:   ProtocolName,
+		Port:       sqlPort,
+		TargetPort: intstr.IntOrString{Type: 1, StrVal: sqlName},
 	}
 
 	for i := range svc.Spec.Ports {
-		if svc.Spec.Ports[i].Name == "grpc" {
+		if svc.Spec.Ports[i].Name == grpcName {
 			grpcFound = true
 			svc.Spec.Ports[i] = grpcSvcPort
-		} else if svc.Spec.Ports[i].Name == "sql" {
+		} else if svc.Spec.Ports[i].Name == sqlName {
 			sqlFound = true
 			svc.Spec.Ports[i] = sqlSvcPort
 		}
@@ -446,8 +445,14 @@ func updatePublicService(ctx context.Context, clientset kubernetes.Interface, na
 		svc.Spec.Ports = append(svc.Spec.Ports, sqlSvcPort)
 	}
 
-	if _, err := clientset.CoreV1().Services(namespace).Update(ctx, svc, metav1.UpdateOptions{}); err != nil {
-		return err
+	svc.TypeMeta = metav1.TypeMeta{
+		APIVersion: "v1",
+		Kind:       "Service",
+	}
+
+	err = yamlToDisk(filepath.Join(outputDir, publicSvcYaml), svc)
+	if err != nil {
+		panic(err)
 	}
 
 	return nil
