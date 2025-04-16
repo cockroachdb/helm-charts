@@ -26,8 +26,12 @@ jobs:
         with:
           filters: |
             certUtility: &certUtility
-            - 'pkg/**'
-            - 'cmd/**'
+            - 'pkg/generator/**'
+            - 'pkg/kube/**'
+            - 'pkg/resource/**'
+            - 'pkg/security/**'
+            - 'pkg/utils/**'
+            - 'cmd/self-signer/**'
 
   # pre job run golangci-lint
   go-lint:
