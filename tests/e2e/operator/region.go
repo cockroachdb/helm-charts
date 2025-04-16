@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -43,7 +44,7 @@ var (
 		"k3d-chart-testing-cluster-1": "cluster2.local",
 	}
 
-	operatorReleaseName = "cockroachdb-operator"
+	operatorReleaseName = "operator"
 	customCASecret      = "cockroachdb-ca-secret"
 	ReleaseName         = "cockroachdb"
 )
@@ -277,7 +278,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
 	// Get helm chart paths.
-	helmChartPath, operatorChartPath, err := HelmChartPaths()
+	helmChartPath, err := HelmParentChartPath()
 	require.NoError(t, err)
 
 	// Verify if cluster exists in the contexts.
@@ -300,18 +301,27 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	extraArgs := map[string][]string{
-		"install": {
-			"--wait",
+		"spray": {
 			"--debug",
 		},
 	}
-	operatorOpts := &helm.Options{
+
+	// Helm install cockroach CR with operator region config.
+	crdbOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
-		ExtraArgs:      extraArgs,
+		SetValues: patchHelmValues(map[string]string{
+			"cockroachdb.clusterDomain":                   CustomDomains[cluster],
+			"cockroachdb.rollingRestartDelay":             "30s",
+			"cockroachdb.tls.certs.selfSigner.caProvided": "true",
+			"cockroachdb.tls.certs.selfSigner.caSecret":   customCASecret,
+		}),
+		SetJsonValues: map[string]string{
+			"cockroachdb.regions": MustMarshalJSON(r.OperatorRegions(index, r.NodeCount)),
+		},
+		ExtraArgs: extraArgs,
 	}
 
-	// Install Operator on the cluster.
-	helm.Install(t, operatorOpts, operatorChartPath, operatorReleaseName)
+	HelmSpray(t, crdbOptions, helmChartPath)
 
 	// Wait for operator and webhook service to be available with endpoints.
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator", 30, 2*time.Second)
@@ -319,27 +329,8 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 
 	// Wait for crd to be installed.
 	_, _ = retry.DoWithRetryE(t, "wait-for-crd", 60, time.Second*5, func() (string, error) {
-		return k8s.RunKubectlAndGetOutputE(t, operatorOpts.KubectlOptions, "get", "crd", "crdbclusters.crdb.cockroachlabs.com")
+		return k8s.RunKubectlAndGetOutputE(t, crdbOptions.KubectlOptions, "get", "crd", "crdbclusters.crdb.cockroachlabs.com")
 	})
-
-	// Helm install cockroach CR with operator region config.
-	crdbOptions := &helm.Options{
-		KubectlOptions: kubectlOptions,
-		SetValues: patchHelmValues(map[string]string{
-			"clusterDomain":                   CustomDomains[cluster],
-			"operator.enabled":                "true",
-			"operator.rollingRestartDelay":    "30s",
-			"tls.certs.selfSigner.caProvided": "true",
-			"tls.certs.selfSigner.caSecret":   customCASecret,
-			"operator.dataStore.volumeClaimTemplate.spec.resources.requests.storage": "1Gi",
-		}),
-		SetJsonValues: map[string]string{
-			"operator.regions": MustMarshalJSON(r.OperatorRegions(index, r.NodeCount)),
-		},
-		ExtraArgs: extraArgs,
-	}
-
-	helm.Install(t, crdbOptions, helmChartPath, ReleaseName)
 
 	serviceName := "cockroachdb-public"
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 5*time.Second)
@@ -554,18 +545,100 @@ func (r *Region) OperatorRegions(index int, nodes int) []map[string]interface{} 
 	return r.createOperatorRegions(index, nodes, CustomDomains, Clusters, RegionCodes)
 }
 
-func HelmChartPaths() (string, string, error) {
-	helmChartPath, err := filepath.Abs("../../../../cockroachdb")
+// HelmParentChartPath returns the path to the parent chart.
+func HelmParentChartPath() (string, error) {
+	helmParentChartPath, err := filepath.Abs("../../../../cockroachdb-parent")
 	if err != nil {
-		return "", "", err
+		return "", err
+	}
+	return helmParentChartPath, nil
+}
+
+// HelmSpray installs the sub charts using helm spray plugin.
+func HelmSpray(t *testing.T, options *helm.Options, chartDir string) {
+	// Construct the basic helm command
+	var args []string
+
+	args = append(args, "spray")
+
+	// Add namespace flag.
+	if options.KubectlOptions.Namespace != "" {
+		args = append(args, "--namespace", options.KubectlOptions.Namespace)
 	}
 
-	operatorChartPath, err := filepath.Abs("../../../../operator")
-	if err != nil {
-		return "", "", err
+	// Add --kube-context flag.
+	if options.KubectlOptions.ContextName != "" {
+		args = append(args, "--kube-context", options.KubectlOptions.ContextName)
 	}
 
-	return helmChartPath, operatorChartPath, nil
+	// Add values from SetValues as key/value pairs.
+	for key, val := range options.SetValues {
+		args = append(args, "--set", fmt.Sprintf("%s=%s", key, val))
+	}
+
+	// Handle JSON values using a temporary file (Helm spray plugin doesn't support JSON directly)
+	if len(options.SetJsonValues) > 0 {
+		// Create temporary values file.
+		tempFile, err := os.CreateTemp("", "helm-values-*.json")
+		require.NoError(t, err)
+		// Clean up when done.
+		defer os.Remove(tempFile.Name())
+
+		// Create values map for JSON content.
+		valuesMap := make(map[string]interface{})
+
+		// Parse each JSON value and add to the map.
+		for key, jsonVal := range options.SetJsonValues {
+			var parsed interface{}
+			err := json.Unmarshal([]byte(jsonVal), &parsed)
+			require.NoError(t, err)
+
+			// Build nested structure for dotted keys.
+			parts := strings.Split(key, ".")
+			currentMap := valuesMap
+
+			for i, part := range parts {
+				if i == len(parts)-1 {
+					// Set the parsed json value for the last part of the key
+					currentMap[part] = parsed
+				} else {
+					// Create nested map if it doesn't exist.
+					if _, exists := currentMap[part]; !exists {
+						currentMap[part] = make(map[string]interface{})
+					}
+					nestedMap, ok := currentMap[part].(map[string]interface{})
+					if !ok {
+						require.FailNow(t, fmt.Sprintf("Invalid nested structure for key: %s", key))
+					}
+					currentMap = nestedMap
+				}
+			}
+		}
+
+		// Marshal the final values map to JSON.
+		jsonData, err := json.MarshalIndent(valuesMap, "", "  ")
+		require.NoError(t, err)
+
+		// Write to the temporary file.
+		err = os.WriteFile(tempFile.Name(), jsonData, 0644)
+		require.NoError(t, err)
+
+		// Add the values file to arguments
+		args = append(args, "--values", tempFile.Name())
+	}
+
+	// Add extra args
+	if extraArgs, ok := options.ExtraArgs["spray"]; ok {
+		args = append(args, extraArgs...)
+	}
+	args = append(args, chartDir)
+	cmd := shell.Command{
+		Command:    "helm",
+		Args:       args,
+		WorkingDir: ".",
+	}
+	_, err := shell.RunCommandAndGetOutputE(t, cmd)
+	require.NoError(t, err)
 }
 
 // createK3DCluster creates a new k3d cluster
@@ -630,7 +703,7 @@ func patchHelmValues(inputValues map[string]string) map[string]string {
 	}
 
 	overrides := map[string]string{
-		"storage.persistentVolume.size": "1Gi",
+		"cockroachdb.dataStore.volumeClaimTemplate.spec.resources.requests.storage": "1Gi",
 	}
 
 	for k, v := range overrides {

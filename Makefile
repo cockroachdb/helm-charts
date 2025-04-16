@@ -113,17 +113,17 @@ test/cluster/down: bin/k3d
 	./tests/k3d/dev-cluster.sh down --name "$(K3D_CLUSTER)"
 
 test/e2e/%: PKG=$*
-test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/cluster ## run e2e tests for package (e.g. install or rotate)
+test/e2e/%: bin/cockroach bin/kubectl bin/helm bin/helmspray build/self-signer test/cluster ## run e2e tests for package (e.g. install or rotate)
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/${PKG}/... || EXIT_CODE=$$?; \
 	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
 
-test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer test/single-cluster/up
+test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm bin/helmspray build/self-signer test/single-cluster/up
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || EXIT_CODE=$$?; \
 	$(MAKE) test/multi-cluster/down; \
 	exit $${EXIT_CODE:-0}
 
-test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer test/single-cluster/up
+test/e2e/single-region: bin/cockroach bin/kubectl bin/helm bin/helmspray build/self-signer test/single-cluster/up
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || EXIT_CODE=$$?; \
 	$(MAKE) test/multi-cluster/down; \
 	exit $${EXIT_CODE:-0}
@@ -144,11 +144,19 @@ test/units: bin/cockroach ## Run unit tests in ./pkg/...
 	@PATH="$(PWD)/bin:${PATH}" go test -v ./pkg/...
 
 ##@ Binaries
-bin: bin/cockroach bin/helm bin/k3d bin/kubectl bin/yq ## install all binaries
+bin: bin/cockroach bin/helm bin/k3d bin/kubectl bin/yq bin/helmspray ## install all binaries
 
 .PHONY: bin/migration-helper
 bin/migration-helper:
 	go build -o $(PWD)/bin/migration-helper cmd/migrate/main.go
+
+bin/helmspray: bin/helm ## install helm spray plugin
+	@if bin/helm plugin list | grep -q spray; then \
+		echo "Helm spray plugin already installed"; \
+	else \
+		echo "Installing helm spray plugin..."; \
+		bin/helm plugin install https://github.com/ThalesGroup/helm-spray || true; \
+	fi
 
 bin/cockroach: ## install cockroach
 	@mkdir -p bin

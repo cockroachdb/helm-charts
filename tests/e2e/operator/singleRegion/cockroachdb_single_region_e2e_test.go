@@ -2,6 +2,7 @@ package singleRegion
 
 import (
 	"fmt"
+	"k8s.io/client-go/tools/clientcmd"
 	"strings"
 	"testing"
 	"time"
@@ -65,12 +66,15 @@ func (r *singleRegion) TestHelmInstall(t *testing.T) {
 	r.InstallCharts(t, cluster, 0)
 
 	// Get current context name.
-	_, rawConfig := r.GetCurrentContext(t)
-
+	kubeConfig, rawConfig := r.GetCurrentContext(t)
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
 		t.Fatal()
 	}
 	rawConfig.CurrentContext = cluster
+
+	err = clientcmd.WriteToFile(rawConfig, kubeConfig)
+	require.NoError(t, err)
+
 	r.ValidateCRDB(t, cluster)
 }
 
@@ -104,21 +108,24 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 	}
 	rawConfig.CurrentContext = cluster
 
+	err = clientcmd.WriteToFile(rawConfig, kubeConfig)
+	require.NoError(t, err)
+
 	// Validate CockroachDB cluster.
 	r.ValidateCRDB(t, cluster)
 
 	// Get helm chart paths.
-	helmChartPath, _, err := operator.HelmChartPaths()
+	helmChartPath, err := operator.HelmParentChartPath()
 	require.NoError(t, err)
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	options := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ExtraArgs: map[string][]string{
-			"upgrade": {"--reuse-values", "--set", fmt.Sprintf("operator.resources.requests.cpu=%s", "100m")},
+			"spray": {"--reuse-values", "--set", fmt.Sprintf("cockroachdb.resources.requests.cpu=%s", "100m")},
 		},
 	}
 	// Apply Helm upgrade with updated values.
-	helm.Upgrade(t, options, helmChartPath, operator.ReleaseName)
+	operator.HelmSpray(t, options, helmChartPath)
 
 	// Get the initial timestamp of the pods before the upgrade.
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
@@ -175,11 +182,14 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 	}
 	rawConfig.CurrentContext = cluster
 
+	err = clientcmd.WriteToFile(rawConfig, kubeConfig)
+	require.NoError(t, err)
+
 	// Validate CockroachDB cluster.
 	r.ValidateCRDB(t, cluster)
 
 	// Get helm chart paths.
-	helmChartPath, _, err := operator.HelmChartPaths()
+	helmChartPath, err := operator.HelmParentChartPath()
 	require.NoError(t, err)
 
 	var upgradeTime time.Time
@@ -191,10 +201,10 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ExtraArgs: map[string][]string{
-			"upgrade": {"--reuse-values", "--set", fmt.Sprintf("timestamp=%s", upgradeTime.Format(time.RFC3339))},
+			"spray": {"--reuse-values", "--set", fmt.Sprintf("cockroachdb.timestamp=%s", upgradeTime.Format(time.RFC3339))},
 		},
 	}
-	helm.Upgrade(t, options, helmChartPath, operator.ReleaseName)
+	operator.HelmSpray(t, options, helmChartPath)
 
 	// Get the initial timestamp of the pods before the upgrade.
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
@@ -256,6 +266,9 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 	}
 	rawConfig.CurrentContext = cluster
 
+	err = clientcmd.WriteToFile(rawConfig, kubeConfig)
+	require.NoError(t, err)
+
 	// Validate CockroachDB cluster.
 	r.ValidateCRDB(t, cluster)
 
@@ -313,24 +326,27 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T) {
 	}
 	rawConfig.CurrentContext = cluster
 
+	err = clientcmd.WriteToFile(rawConfig, kubeConfig)
+	require.NoError(t, err)
+
 	// Validate CockroachDB cluster.
 	r.ValidateCRDB(t, cluster)
 
 	// Get helm chart paths.
-	helmChartPath, _, err := operator.HelmChartPaths()
+	helmChartPath, err := operator.HelmParentChartPath()
 	require.NoError(t, err)
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	r.NodeCount = 4
 	options := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		SetJsonValues: map[string]string{
-			"operator.regions": operator.MustMarshalJSON(r.OperatorRegions(0, r.NodeCount)),
+			"cockroachdb.regions": operator.MustMarshalJSON(r.OperatorRegions(0, r.NodeCount)),
 		},
 		ExtraArgs: map[string][]string{
-			"upgrade": {"--reuse-values", "--wait"},
+			"spray": {"--reuse-values"},
 		},
 	}
-	helm.Upgrade(t, options, helmChartPath, operator.ReleaseName)
+	operator.HelmSpray(t, options, helmChartPath)
 
 	crdbCluster := testutil.CockroachCluster{
 		DesiredNodes: r.NodeCount,

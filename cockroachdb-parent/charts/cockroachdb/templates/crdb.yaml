@@ -1,0 +1,108 @@
+apiVersion: crdb.cockroachlabs.com/v1alpha1
+kind: CrdbCluster
+metadata:
+  name: {{ template "cockroachdb.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cluster.labels" . | nindent 4 }}
+    {{- with .Values.podLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+    {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  {{- if .Values.tlsEnabled }}
+  tlsEnabled: {{ .Values.tlsEnabled }}
+  {{- end }}
+  {{- with .Values.clusterSettings }}
+  clusterSettings: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.regions }}
+  regions: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  features:
+    - reconcile
+    - reconcile-beta
+  rollingRestartDelay: {{ .Values.rollingRestartDelay }}
+  template:
+    spec:
+      image: "{{ .Values.image.name }}"
+      certificates:
+        {{- if .Values.certificates.externalCertificates }}
+        externalCertificates: {{- toYaml .Values.certificates.externalCertificates | nindent 10 }}
+        {{- else }}
+        {{- if .Values.tls.certs.selfSigner.enabled }}
+        externalCertificates:
+          {{- /* Note: defaults should match secrets and configmaps created by the self-signer job. */}}
+          caConfigMapName: {{ default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
+          httpSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+          nodeClientSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+          nodeSecretName: {{ default (printf "%s-node-secret" (include "cockroachdb.fullname" .)) }}
+          rootSqlClientSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
+        {{- end }}
+        {{- end }}
+      {{- with .Values.dataStore }}
+      dataStore: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.walFailoverSpec }}
+      walFailoverSpec: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      env:
+        - name: GODEBUG
+          value: {{ include "godebugList" . }}
+      {{- with .Values.env }}
+        {{- toYaml . | nindent 12 }}
+      {{- end }}
+      {{- with .Values.topologySpreadConstraints }}
+      topologySpreadConstraints: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.terminationGracePeriod }}
+      terminationGracePeriod: {{ .Values.terminationGracePeriod }}
+      {{- end }}
+      podLabels:
+        app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+        app.kubernetes.io/instance: {{ .Release.Name | quote }}
+        {{- with .Values.podLabels }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      podAnnotations:
+        helm.sh/restartedAt: {{ .Values.timestamp  | quote }}
+        {{- with .Values.podAnnotations }}
+          {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.resources }}
+      resourceRequirements: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ .Values.rbac.serviceAccountName | default (include "cockroachdb.serviceAccount.name" .) }}
+      {{- if .Values.loggingConfigMapName }}
+      loggingConfigMapName: { { .Values.operator.loggingConfigMapName } }
+      {{- else }}
+      {{- if .Values.loggingConf }}
+      loggingConfigMapName: {{ .Release.Name }}-logging
+      {{- end }}
+      {{- end }}
+      {{- with .Values.sideCars }}
+      sideCars: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.service.ports.grpc.external.port }}
+      grpcPort: {{ .Values.service.ports.grpc.external.port }}
+      {{- end }}
+      {{- if .Values.service.ports.grpc.internal.port }}
+      sqlPort: {{ .Values.service.ports.grpc.internal.port }}
+      {{- end }}
+      {{- if .Values.service.ports.http.port }}
+      httpPort: {{ .Values.service.ports.http.port }}
+      {{- end }}
+      {{- with .Values.flags }}
+      flags: {{- toYaml . | nindent 8 }}
+      {{- end }}

@@ -1,0 +1,73 @@
+{{- if and .Values.tls.certs.selfSigner.enabled .Values.tls.certs.selfSigner.rotateCerts }}
+  {{- if .Capabilities.APIVersions.Has "batch/v1/CronJob" }}
+apiVersion: batch/v1
+  {{- else }}
+apiVersion: batch/v1beta1
+  {{- end }}
+kind: CronJob
+metadata:
+  name: {{ template "rotatecerts.fullname" . }}-client
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+spec:
+  schedule: {{ template "selfcerts.clientRotateSchedule" . }}
+  jobTemplate:
+    spec:
+      backoffLimit: 1
+      template:
+        metadata:
+        {{- with .Values.tls.selfSigner.labels }}
+          labels: {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- with .Values.tls.selfSigner.annotations }}
+          annotations: {{- toYaml . | nindent 12 }}
+        {{- end }}
+        spec:
+        {{- if and .Values.tls.enabled .Values.tls.selfSigner.image.credentials }}
+          imagePullSecrets:
+            - name: {{ template "cockroachdb.fullname" . }}.init-certs.registry
+          {{- end }}
+          restartPolicy: Never
+        {{- with .Values.tls.selfSigner.affinity }}
+          affinity: {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- with .Values.tls.selfSigner.nodeSelector }}
+          nodeSelector: {{- toYaml . | nindent 12 }}
+        {{- end }}
+        {{- with .Values.tls.selfSigner.tolerations }}
+          tolerations: {{- toYaml . | nindent 12 }}
+        {{- end }}
+          containers:
+            - name: cert-rotate-job
+              image: "{{ .Values.tls.selfSigner.image.registry }}/{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
+              imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
+              args:
+                - rotate
+            {{- if .Values.tls.certs.selfSigner.caProvided }}
+                - --ca-secret={{ .Values.tls.certs.selfSigner.caSecret }}
+            {{- else }}
+                - --ca-duration={{ .Values.tls.certs.selfSigner.caCertDuration }}
+                - --ca-expiry={{ .Values.tls.certs.selfSigner.caCertExpiryWindow }}
+            {{- end }}
+                - --client
+                - --client-duration={{ .Values.tls.certs.selfSigner.clientCertDuration }}
+                - --client-expiry={{ .Values.tls.certs.selfSigner.clientCertExpiryWindow }}
+                - --node
+                - --node-duration={{ .Values.tls.certs.selfSigner.nodeCertDuration }}
+                - --node-expiry={{ .Values.tls.certs.selfSigner.nodeCertExpiryWindow }}
+                - --node-client-cron={{ template "selfcerts.clientRotateSchedule" . }}
+                - --readiness-wait={{ .Values.tls.certs.selfSigner.readinessWait }}
+                - --pod-update-timeout={{ .Values.tls.certs.selfSigner.podUpdateTimeout }}
+              env:
+                - name: STATEFULSET_NAME
+                  value: {{ template "cockroachdb.fullname" . }}
+                - name: NAMESPACE
+                  value: {{ .Release.Namespace }}
+                - name: CLUSTER_DOMAIN
+                  value: {{ .Values.clusterDomain}}
+          serviceAccountName: {{ template "rotatecerts.fullname" . }}
+  {{- end}}

@@ -6,7 +6,7 @@
 set -euo pipefail
 
 # Default configuration
-DEFAULT_REGION="us-east-1"
+DEFAULT_REGION="us-east1"
 DEFAULT_ZONES=3
 DEFAULT_NODES=1
 DEFAULT_K8S_VERSION="1.30.6"
@@ -26,7 +26,7 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-webhook:v1.11.0"
     "quay.io/jetstack/cert-manager-controller:v1.11.0"
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
-    "cockroachdb/cockroach:v25.1.2"
+    "$(bin/yq '.cockroachdb.image.name' ./cockroachdb-parent/values.yaml)"
     "${REGISTRY}/${REPOSITORY}:$(bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
 )
 
