@@ -1,14 +1,17 @@
 package migrate
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"testing"
 
+	publicv1alpha1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
@@ -51,8 +54,7 @@ func TestConvertSecretToConfigMap(t *testing.T) {
 			Namespace: namespace,
 		},
 		Data: map[string][]byte{
-			"key1": []byte("value1"),
-			"key2": []byte("value2"),
+			helmLogConfigKey: []byte("value1"),
 		},
 	}
 
@@ -64,16 +66,38 @@ func TestConvertSecretToConfigMap(t *testing.T) {
 
 	configMap, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, "value1", configMap.Data["key1"])
-	assert.Equal(t, "value2", configMap.Data["key2"])
+	assert.Equal(t, "value1", configMap.Data[enterpriseOperatorLogConfigKey])
+}
+
+func TestMoveLoggingConfig(t *testing.T) {
+	clientset := fake.NewSimpleClientset()
+	ctx := context.TODO()
+	namespace := "default"
+	configMapName := "cockroachdb-log-config"
+
+	logConfigMap := &corev1.ConfigMap{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      configMapName,
+			Namespace: namespace,
+		},
+		Data: map[string]string{
+			"logging.yaml": "value1",
+		},
+	}
+	_, err := clientset.CoreV1().ConfigMaps(namespace).Create(ctx, logConfigMap, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	err = moveConfigMapKey(ctx, clientset, namespace, configMapName)
+	require.NoError(t, err)
+
+	updateLogCM, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
+	require.NoError(t, err)
+	assert.Equal(t, "value1", updateLogCM.Data[enterpriseOperatorLogConfigKey])
+
 }
 
 func TestExtractJoinStringAndFlags(t *testing.T) {
 	input := parsedMigrationInput{tlsEnabled: true}
-	envVars := map[string]string{
-		"STATEFULSET_NAME": "cockroachdb",
-		"STATEFULSET_FQDN": "cockroachdb.default.svc.cluster.local",
-	}
 
 	args := []string{
 		"--join=${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257",
@@ -92,7 +116,7 @@ func TestExtractJoinStringAndFlags(t *testing.T) {
 		"--max-sql-memory": "25%",
 	}
 
-	err := extractJoinStringAndFlags(&input, args, envVars)
+	err := extractJoinStringAndFlags(&input, args)
 
 	assert.NoError(t, err)
 	assert.Equal(t, int32(26257), input.sqlPort)
@@ -180,4 +204,62 @@ func TestUpdatePublicService(t *testing.T) {
 	if !grpcFound || !sqlFound {
 		t.FailNow()
 	}
+}
+
+func TestBuildRBACFromPublicOperator(t *testing.T) {
+	cluster := publicv1alpha1.CrdbCluster{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "crdb-cluster",
+			Namespace: "test-ns",
+		},
+	}
+
+	err := buildRBACFromPublicOperator(cluster, ".")
+	require.NoError(t, err)
+
+	// Read and parse the generated RBAC yaml file
+	manifestBytes, err := os.ReadFile("rbac.yaml")
+	require.NoError(t, err)
+	defer os.Remove("rbac.yaml")
+
+	// Split the yaml into separate documents
+	docs := bytes.Split(manifestBytes, []byte("---\n"))
+
+	// Parse and validate ClusterRole
+	var clusterRole rbacv1.ClusterRole
+	err = yaml.Unmarshal(docs[0], &clusterRole)
+	require.NoError(t, err)
+
+	assert.Equal(t, "crdb-cluster", clusterRole.Name)
+	assert.Equal(t, "crdb-cluster", clusterRole.Annotations["meta.helm.sh/release-name"])
+	assert.Equal(t, "test-ns", clusterRole.Annotations["meta.helm.sh/release-namespace"])
+	assert.Equal(t, "Helm", clusterRole.Labels["app.kubernetes.io/managed-by"])
+
+	// Verify rules
+	require.Len(t, clusterRole.Rules, 2)
+
+	// Check nodes rule
+	assert.Equal(t, []string{""}, clusterRole.Rules[0].APIGroups)
+	assert.Equal(t, []string{"nodes"}, clusterRole.Rules[0].Resources)
+	assert.Equal(t, []string{"get"}, clusterRole.Rules[0].Verbs)
+
+	// Check CSR rule
+	assert.Equal(t, []string{"certificates.k8s.io"}, clusterRole.Rules[1].APIGroups)
+	assert.Equal(t, []string{"certificatesigningrequests"}, clusterRole.Rules[1].Resources)
+	assert.Equal(t, []string{"create", "get", "watch"}, clusterRole.Rules[1].Verbs)
+
+	// Parse and validate ClusterRoleBinding
+	var clusterRoleBinding rbacv1.ClusterRoleBinding
+	err = yaml.Unmarshal(docs[1], &clusterRoleBinding)
+	require.NoError(t, err)
+
+	assert.Equal(t, "crdb-cluster", clusterRoleBinding.Name)
+	assert.Equal(t, "crdb-cluster", clusterRoleBinding.Annotations["meta.helm.sh/release-name"])
+	assert.Equal(t, "test-ns", clusterRoleBinding.Annotations["meta.helm.sh/release-namespace"])
+	assert.Equal(t, "Helm", clusterRoleBinding.Labels["app.kubernetes.io/managed-by"])
+
+	// Verify RoleRef
+	assert.Equal(t, "rbac.authorization.k8s.io", clusterRoleBinding.RoleRef.APIGroup)
+	assert.Equal(t, "ClusterRole", clusterRoleBinding.RoleRef.Kind)
+	assert.Equal(t, "crdb-cluster", clusterRoleBinding.RoleRef.Name)
 }

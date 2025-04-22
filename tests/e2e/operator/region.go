@@ -10,10 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/errors"
-	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
@@ -26,6 +22,11 @@ import (
 	"k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	"github.com/cockroachdb/errors"
+	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 const (
@@ -46,9 +47,16 @@ var (
 	operatorReleaseName = "cockroachdb-operator"
 	customCASecret      = "cockroachdb-ca-secret"
 	ReleaseName         = "cockroachdb"
+
+	helmExtraArgs = map[string][]string{
+		"install": {
+			"--wait",
+			"--debug",
+		},
+	}
 )
 
-type operator interface {
+type cockroachEnterpriseOperator interface {
 	setUpInfra(t *testing.T, corednsClusterOptions map[string]coredns.CoreDNSClusterOption) map[string]client.Client
 	installCharts(t *testing.T, cluster string, index int)
 	validateCRDB(t *testing.T, cluster string, clients map[string]client.Client)
@@ -73,7 +81,7 @@ type Region struct {
 	// Clients store the k8s client for each cluster
 	// needed for performing k8s operations on k8s objects.
 	Clients map[string]client.Client
-	operator
+	cockroachEnterpriseOperator
 }
 
 // SetUpInfra Creates K3d clusters, deploy calico CNI, deploy coredns in each cluster.
@@ -277,8 +285,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
 	// Get helm chart paths.
-	helmChartPath, operatorChartPath, err := HelmChartPaths()
-	require.NoError(t, err)
+	helmChartPath, _ := HelmChartPaths()
 
 	// Verify if cluster exists in the contexts.
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
@@ -293,39 +300,18 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
 
 	// create CA Secret.
-	err = k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
+	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
 		"--from-file=ca.key")
 	require.NoError(t, err)
 
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-	extraArgs := map[string][]string{
-		"install": {
-			"--wait",
-			"--debug",
-		},
-	}
-	operatorOpts := &helm.Options{
-		KubectlOptions: kubectlOptions,
-		ExtraArgs:      extraArgs,
-	}
-
-	// Install Operator on the cluster.
-	helm.Install(t, operatorOpts, operatorChartPath, operatorReleaseName)
-
-	// Wait for operator and webhook service to be available with endpoints.
-	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator", 30, 2*time.Second)
-	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-webhook-service", 30, 2*time.Second)
-
-	// Wait for crd to be installed.
-	_, _ = retry.DoWithRetryE(t, "wait-for-crd", 60, time.Second*5, func() (string, error) {
-		return k8s.RunKubectlAndGetOutputE(t, operatorOpts.KubectlOptions, "get", "crd", "crdbclusters.crdb.cockroachlabs.com")
-	})
+	InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
 
 	// Helm install cockroach CR with operator region config.
 	crdbOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
-		SetValues: patchHelmValues(map[string]string{
+		SetValues: testutil.PatchHelmValues(map[string]string{
 			"clusterDomain":                   CustomDomains[cluster],
 			"operator.enabled":                "true",
 			"operator.rollingRestartDelay":    "30s",
@@ -336,7 +322,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 		SetJsonValues: map[string]string{
 			"operator.regions": MustMarshalJSON(r.OperatorRegions(index, r.NodeCount)),
 		},
-		ExtraArgs: extraArgs,
+		ExtraArgs: helmExtraArgs,
 	}
 
 	helm.Install(t, crdbOptions, helmChartPath, ReleaseName)
@@ -554,18 +540,12 @@ func (r *Region) OperatorRegions(index int, nodes int) []map[string]interface{} 
 	return r.createOperatorRegions(index, nodes, CustomDomains, Clusters, RegionCodes)
 }
 
-func HelmChartPaths() (string, string, error) {
-	helmChartPath, err := filepath.Abs("../../../../cockroachdb")
-	if err != nil {
-		return "", "", err
-	}
+func HelmChartPaths() (string, string) {
+	rootPath := testutil.GetGitRoot()
+	helmChartPath := filepath.Join(rootPath, "cockroachdb")
+	operatorChartPath := filepath.Join(rootPath, "operator")
 
-	operatorChartPath, err := filepath.Abs("../../../../operator")
-	if err != nil {
-		return "", "", err
-	}
-
-	return helmChartPath, operatorChartPath, nil
+	return helmChartPath, operatorChartPath
 }
 
 // createK3DCluster creates a new k3d cluster
@@ -616,26 +596,41 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[s
 	return regions
 }
 
+func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+	_, operatorChartPath := HelmChartPaths()
+
+	operatorOpts := &helm.Options{
+		KubectlOptions: kubectlOptions,
+		ExtraArgs:      helmExtraArgs,
+	}
+
+	// Install Operator on the cluster.
+	helm.Install(t, operatorOpts, operatorChartPath, operatorReleaseName)
+
+	// Wait for operator and webhook service to be available with endpoints.
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator", 30, 2*time.Second)
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-webhook-service", 30, 2*time.Second)
+
+	// Wait for crd to be installed.
+	_, _ = retry.DoWithRetryE(t, "wait-for-crd", 60, time.Second*5, func() (string, error) {
+		return k8s.RunKubectlAndGetOutputE(t, operatorOpts.KubectlOptions, "get", "crd", "crdbclusters.crdb.cockroachlabs.com")
+	})
+}
+
+func UninstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+	operatorOpts := &helm.Options{
+		KubectlOptions: kubectlOptions,
+	}
+	helm.Delete(t, operatorOpts, operatorReleaseName, true)
+	k8s.RunKubectl(t, kubectlOptions, "delete", "service", "cockroach-webhook-service")
+	k8s.RunKubectl(t, kubectlOptions, "delete", "validatingwebhookconfiguration", "cockroach-webhook-config")
+	k8s.DeleteNamespace(t, kubectlOptions, kubectlOptions.Namespace)
+}
+
 func MustMarshalJSON(value interface{}) string {
 	bytes, err := json.Marshal(value)
 	if err != nil {
 		panic(fmt.Sprintf("Failed to marshal JSON: %v", err))
 	}
 	return string(bytes)
-}
-
-func patchHelmValues(inputValues map[string]string) map[string]string {
-	if inputValues == nil {
-		inputValues = make(map[string]string)
-	}
-
-	overrides := map[string]string{
-		"storage.persistentVolume.size": "1Gi",
-	}
-
-	for k, v := range overrides {
-		inputValues[k] = v
-	}
-
-	return inputValues
 }

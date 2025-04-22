@@ -130,8 +130,7 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 	}
 
 	// Get helm chart paths.
-	helmChartPath, _, err := operator.HelmChartPaths()
-	require.NoError(t, err)
+	helmChartPath, _ := operator.HelmChartPaths()
 	for _, cluster := range clusters {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 		options := &helm.Options{
@@ -212,8 +211,7 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 	}
 
 	// Get helm chart paths.
-	helmChartPath, _, err := operator.HelmChartPaths()
-	require.NoError(t, err)
+	helmChartPath, _ := operator.HelmChartPaths()
 
 	// Modify the timestamp value and apply helm upgrade.
 	var upgradeTime time.Time
@@ -369,8 +367,7 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T) {
 		r.ValidateCRDB(t, cluster)
 	}
 	// Get helm chart paths.
-	helmChartPath, _, err := operator.HelmChartPaths()
-	require.NoError(t, err)
+	helmChartPath, _ := operator.HelmChartPaths()
 
 	// Modify the nodes in each region and apply helm upgrade.
 	for i, cluster := range clusters {

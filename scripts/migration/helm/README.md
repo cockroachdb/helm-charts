@@ -35,10 +35,10 @@ export CLOUD_PROVIDER=gcp
 export REGION=us-central1
 ```
 
-Next, we need to re-map and generate tls certs. The crdb cloud operator uses slightly different certs than the cockroachdb helm chart and mounts them in configmaps and secrets with different names. Run the `generate-certs.sh` script to generate and upload certs to your cluster.
+Next, we need to re-map and generate tls certs. The crdb cloud operator uses slightly different certs than the cockroachdb helm chart and mounts them in configmaps and secrets with different names. Run the `migration-helper` utility with `migrate-certs` option to generate and upload certs to your cluster.
 
 ```
-./scripts/migration/helm/generate-certs.sh
+bin/migration-helper migrate-certs --statefulset-name $STS_NAME --namespace $NAMESPACE
 ```
 
 Next, generate manifests for each crdbnode and the crdbcluster based on the state of the statefulset. We generate a manifest for each crdbnode because we want the crdb pods and their associated pvcs to have the same names as the original statefulset-managed pods and pvcs. This means that the new operator-managed pods will use the original pvcs, and won't have to replicate data into empty nodes.
@@ -52,11 +52,7 @@ To migrate seamlessly from the cockroachdb helm chart to the cloud operator, we'
 
 ```
 kubectl create priorityclass crdb-critical --value 500000000
-
-yq '(.. | select(tag == "!!str")) |= envsubst' scripts/migration/helm/rbac-template.yaml > manifests/rbac.yaml
-kubectl apply -f manifests/rbac.yaml
 ```
-
 
 Next, install the cloud operator:
 

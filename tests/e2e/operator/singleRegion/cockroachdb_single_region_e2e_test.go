@@ -108,8 +108,7 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 	r.ValidateCRDB(t, cluster)
 
 	// Get helm chart paths.
-	helmChartPath, _, err := operator.HelmChartPaths()
-	require.NoError(t, err)
+	helmChartPath, _ := operator.HelmChartPaths()
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	options := &helm.Options{
 		KubectlOptions: kubectlOptions,
@@ -179,8 +178,7 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 	r.ValidateCRDB(t, cluster)
 
 	// Get helm chart paths.
-	helmChartPath, _, err := operator.HelmChartPaths()
-	require.NoError(t, err)
+	helmChartPath, _ := operator.HelmChartPaths()
 
 	var upgradeTime time.Time
 
@@ -317,8 +315,7 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T) {
 	r.ValidateCRDB(t, cluster)
 
 	// Get helm chart paths.
-	helmChartPath, _, err := operator.HelmChartPaths()
-	require.NoError(t, err)
+	helmChartPath, _ := operator.HelmChartPaths()
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	r.NodeCount = 4
 	options := &helm.Options{

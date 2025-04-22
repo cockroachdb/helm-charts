@@ -84,7 +84,7 @@ spec:
       {{- end }}
       serviceAccountName: {{ .Values.operator.rbac.serviceAccountName | default (include "cockroachdb.serviceAccount.name" .) }}
       {{- if .Values.operator.loggingConfigMapName }}
-      loggingConfigMapName: { { .Values.operator.loggingConfigMapName } }
+      loggingConfigMapName: {{ .Values.operator.loggingConfigMapName }}
       {{- else }}
       {{- if .Values.operator.loggingConf }}
       loggingConfigMapName: {{ .Release.Name }}-logging

@@ -26,7 +26,6 @@ REGISTRY ?= gcr.io
 REPOSITORY ?= cockroachlabs-helm-charts/cockroach-self-signer-cert
 DOCKER_NETWORK_NAME ?= "k3d-${K3D_CLUSTER}"
 LOCAL_REGISTRY ?= "localhost:5000"
-CLUSTER_SIZE ?= 1
 MULTI_REGION_NODE_SIZE ?= 3
 REGIONS ?= 3
 
@@ -102,18 +101,19 @@ dev/push/local: dev/registries/up
 	@docker push "${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
 
 ##@ Test
-test/cluster: bin/k3d test/cluster/up ## start a local k3d cluster for testing
-
 test/cluster/bounce: bin/k3d test/cluster/down test/cluster/up ## restart a local k3d cluster for testing
 
-test/cluster/up: bin/k3d
-	@bin/k3d cluster list | grep $(K3D_CLUSTER) || ./tests/k3d/dev-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $(CLUSTER_SIZE)
+test/cluster/up: bin/k3d test/cluster/up/1
+
+test/cluster/up/%: bin/k3d
+	@bin/k3d cluster list | grep $(K3D_CLUSTER) || ./tests/k3d/dev-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $*
+
 
 test/cluster/down: bin/k3d
 	./tests/k3d/dev-cluster.sh down --name "$(K3D_CLUSTER)"
 
 test/e2e/%: PKG=$*
-test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/cluster ## run e2e tests for package (e.g. install or rotate)
+test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/cluster/up ## run e2e tests for package (e.g. install or rotate)
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/${PKG}/... || EXIT_CODE=$$?; \
 	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
@@ -125,6 +125,11 @@ test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer tes
 
 test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer test/single-cluster/up
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || EXIT_CODE=$$?; \
+	$(MAKE) test/multi-cluster/down; \
+	exit $${EXIT_CODE:-0}
+
+test/e2e/migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/self-signer test/cluster/up/3
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
 	$(MAKE) test/multi-cluster/down; \
 	exit $${EXIT_CODE:-0}
 
