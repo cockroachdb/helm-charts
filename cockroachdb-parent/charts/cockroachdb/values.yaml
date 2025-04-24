@@ -15,198 +15,6 @@ labels: {}
 # otherwise CockroachDB nodes discovery won't work.
 clusterDomain: cluster.local
 
-
-conf:
-  # An ordered list of CockroachDB node attributes.
-  # Attributes are arbitrary strings specifying machine capabilities.
-  # Machine capabilities might include specialized hardware or number of cores
-  # (e.g. "gpu", "x16c").
-  attrs: []
-    # - x16c
-    # - gpu
-
-  # Total size in bytes for caches, shared evenly if there are multiple
-  # storage devices. Size suffixes are supported (e.g. `1GB` and `1GiB`).
-  # A percentage of physical memory can also be specified (e.g. `.25`).
-  cache: 25%
-
-  # Sets a name to verify the identity of a cluster.
-  # The value must match between all nodes specified via `conf.join`.
-  # This can be used as an additional verification when either the node or
-  # cluster, or both, have not yet been initialized and do not yet know their
-  # cluster ID.
-  # To introduce a cluster name into an already-initialized cluster, pair this
-  # option with `conf.disable-cluster-name-verification: yes`.
-  cluster-name: ""
-
-  # Tell the server to ignore `conf.cluster-name` mismatches.
-  # This is meant for use when opting an existing cluster into starting to use
-  # cluster name verification, or when changing the cluster name.
-  # The cluster should be restarted once with `conf.cluster-name` and
-  # `conf.disable-cluster-name-verification: yes` combined, and once all nodes
-  # have been updated to know the new cluster name, the cluster can be restarted
-  # again with `conf.disable-cluster-name-verification: no`.
-  # This option has no effect if `conf.cluster-name` is not specified.
-  disable-cluster-name-verification: false
-
-  # The addresses for connecting a CockroachDB nodes to an existing cluster.
-  # If you are deploying a second CockroachDB instance that should join a first
-  # one, use the below list to join to the existing instance.
-  # Each item in the array should be a FQDN (and port if needed) resolvable by
-  # new Pods.
-  join: []
-
-  # New logging configuration.
-  log:
-    enabled: false
-    # https://www.cockroachlabs.com/docs/v21.1/configure-logs
-    config:
-      # file-defaults:
-      #   dir: /cockroach/cockroach-logs
-      # fluent-defaults:
-      #   format: json-fluent
-      # sinks:
-      #   stderr:
-      #     channels: [DEV]
-    persistentVolume:
-      # If enabled, then a PersistentVolumeClaim will be created and
-      # used to store CockroachDB's logs.
-      enabled: false
-      # CockroachDB's logs volume mount path. This gets prepended with
-      # `/cockroach/` in the stateful set. The `conf.log.config` should have
-      # `file-defaults.dir` to specify the log path and should reference the
-      # mounted volume.
-      path: cockroach-logs
-      size: 10Gi
-      # If defined, then `storageClassName: <storageClass>`.
-      # If set to "-", then `storageClassName: ""`, which disables dynamic
-      # provisioning.
-      # If undefined or empty (default), then no `storageClassName` spec is
-      # set, so the default provisioner will be chosen (gp2 on AWS, standard
-      # on GKE, AWS & OpenStack).
-      storageClass: ""
-      # Additional labels to apply to the created PersistentVolumeClaims.
-      labels: {}
-      # Additional annotations to apply to the created PersistentVolumeClaims.
-      annotations: {}
-
-  # Logs at or above this threshold to STDERR. Ignored when "log" is enabled
-  logtostderr: INFO
-
-  # Maximum storage capacity available to store temporary disk-based data for
-  # SQL queries that exceed the memory budget (e.g. join, sorts, etc are
-  # sometimes able to spill intermediate results to disk).
-  # Accepts numbers interpreted as bytes, size suffixes (e.g. `32GB` and
-  # `32GiB`) or a percentage of disk size (e.g. `10%`).
-  # The location of the temporary files is within the first store dir.
-  # If expressed as a percentage, `max-disk-temp-storage` is interpreted
-  # relative to the size of the storage device on which the first store is
-  # placed. The temp space usage is never counted towards any store usage
-  # (although it does share the device with the first store) so, when
-  # configuring this, make sure that the size of this temp storage plus the size
-  # of the first store don't exceed the capacity of the storage device.
-  # If the first store is an in-memory one (i.e. `type=mem`), then this
-  # temporary "disk" data is also kept in-memory.
-  # A percentage value is interpreted as a percentage of the available internal
-  # memory.
-  # max-disk-temp-storage: 0GB
-
-  # Maximum allowed clock offset for the cluster. If observed clock offsets
-  # exceed this limit, servers will crash to minimize the likelihood of
-  # reading inconsistent data. Increasing this value will increase the time
-  # to recovery of failures as well as the frequency of uncertainty-based
-  # read restarts.
-  # Note, that this value must be the same on all nodes in the cluster.
-  # In order to change it, all nodes in the cluster must be stopped
-  # simultaneously and restarted with the new value.
-  # max-offset: 500ms
-
-  # Maximum memory capacity available to store temporary data for SQL clients,
-  # including prepared queries and intermediate data rows during query
-  # execution. Accepts numbers interpreted as bytes, size suffixes
-  # (e.g. `1GB` and `1GiB`) or a percentage of physical memory (e.g. `.25`).
-  max-sql-memory: 25%
-
-  # Run CockroachDB instances in standalone mode with replication disabled
-  # (replication factor = 1).
-  # Enabling this option makes the following values to be ignored:
-  # - `conf.cluster-name`
-  # - `conf.disable-cluster-name-verification`
-  # - `conf.join`
-  #
-  # WARNING: Enabling this option makes each deployed Pod as a STANDALONE
-  #          CockroachDB instance, so the StatefulSet does NOT FORM A CLUSTER.
-  #          Don't use this option for production deployments unless you clearly
-  #          understand what you're doing.
-  #          Usually, this option is intended to be used in conjunction with
-  #          `statefulset.replicas: 1` for temporary one-time deployments (like
-  #          running E2E tests, for example).
-  single-node: false
-
-  # If non-empty, create a SQL audit log in the specified directory.
-  sql-audit-dir: ""
-
-  # WARNING this parameter is deprecated and will be removed in a future version. Use `.service.ports.grpc.internal.port` instead
-  port: ""
-
-  # WARNING this parameter is deprecated and will be removed in a future version. Use `.service.ports.http.port` instead
-  http-port: ""
-
-  # CockroachDB's data mount path.
-  # For multi-store configuration, the path for each store is evaluated as:
-  # Store 1: cockroach-data
-  # Store 2: cockroach-data-2
-  # Store N: cockroach-data-N
-  path: cockroach-data
-
-  # CockroachDB's storage configuration https://www.cockroachlabs.com/docs/v21.1/cockroach-start.html#storage
-  # Uses --store flag
-  store:
-    enabled: false
-    # Number of data stores per node.
-    # For multi-store configuration, set this to a value greater than 1.
-    count: 1
-    # Should be empty or 'mem'
-    type:
-    # Required for type=mem. If type and size is empty - storage.persistentVolume.size is used
-    size:
-    # Arbitrary strings, separated by colons, specifying disk type or capability
-    attrs:
-
-  # CockroachDB's WAL failover configuration:
-  # https://www.cockroachlabs.com/docs/stable/cockroach-start#write-ahead-log-wal-failover
-  # Uses `--wal-failover` flag
-  wal-failover:
-    # The value to be passed to the `--wal-failover` flag.
-    # Possible configurations:
-    # 1. ``: If empty, `--wal-failover` is not passed to cockroach start.
-    # 2. `disabled`: Disables WAL failover.
-    # 3. `among-stores`: Enables WAL failover among multiple stores. This requires
-    # `conf.store.count` to be greater than 1.
-    # 4. `path=<path-to-side-disk>`: Enables WAL failover to a side disk. This requires
-    # a persistent volume should be mounted at this path (e.g. `path=/cockroach/cockroach-failover`).
-    value:
-
-    persistentVolume:
-      # If enabled, then a PersistentVolumeClaim will be created and
-      # used for WAL failover as a side disk.
-      # https://www.cockroachlabs.com/docs/v24.3/wal-failover#provision-a-single-store-cluster-and-side-disk-for-wal-failover
-      enabled: false
-      # Mount path for the side disk. This gets prepended with `/cockroach/` in the stateful set.
-      path: cockroach-failover
-      size: 25Gi
-      # If defined, then `storageClassName: <storageClass>`.
-      # If set to "-", then `storageClassName: ""`, which disables dynamic
-      # provisioning.
-      # If undefined or empty (default), then no `storageClassName` spec is
-      # set, so the default provisioner will be chosen (gp2 on AWS, standard
-      # on GKE, AWS & OpenStack).
-      storageClass: ""
-      # Additional labels to apply to the created PersistentVolumeClaims.
-      labels: {}
-      # Additional annotations to apply to the created PersistentVolumeClaims.
-      annotations: {}
-
 replicas: 3
 
 serviceAccount:
@@ -230,45 +38,6 @@ serviceAccount:
     # Additional annotations to apply to this Service.
     annotations: {}
 
-  # This service only exists to create DNS entries for each pod in
-  # the StatefulSet such that they can resolve each other's IP addresses.
-  # It does not create a load-balanced ClusterIP and should not be used directly
-  # by clients in most circumstances.
-  discovery:
-    # Additional labels to apply to this Service.
-    labels:
-      app.kubernetes.io/component: cockroachdb
-    # Additional annotations to apply to this Service.
-    annotations: {}
-
-# CockroachDB's ingress for web ui.
-ingress:
-  enabled: false
-  labels: {}
-  annotations: {}
-  #   kubernetes.io/ingress.class: nginx
-  #   cert-manager.io/cluster-issuer: letsencrypt
-  className: ""
-  paths: [/]
-  hosts: []
-  # - cockroachlabs.com
-  tls: []
-  # - hosts: [cockroachlabs.com]
-  #   secretName: cockroachlabs-tls
-
-# CockroachDB's Prometheus operator ServiceMonitor support
-serviceMonitor:
-  enabled: false
-  labels: {}
-  annotations: {}
-  interval: 10s
-  # scrapeTimeout: 10s
-  # Limits the ServiceMonitor to the current namespace if set to `true`.
-  namespaced: false
-
-  # tlsConfig: TLS configuration to use when scraping the endpoint.
-  # Of type: https://github.com/coreos/prometheus-operator/blob/main/Documentation/api.md#tlsconfig
-  tlsConfig: {}
 
 # Whether to run securely using TLS certificates.
 tls:
@@ -374,27 +143,6 @@ tls:
       # username: john_doe
       # password: changeme
 
-networkPolicy:
-  enabled: false
-
-  ingress:
-    # List of sources which should be able to access the CockroachDB Pods via
-    # gRPC port. Items in this list are combined using a logical OR operation.
-    # Rules for allowing inter-communication are applied automatically.
-    # If empty, then connections from any Pod is allowed.
-    grpc: []
-      # - podSelector:
-      #     matchLabels:
-      #       app.kubernetes.io/name: my-app-django
-      #       app.kubernetes.io/instance: my-app
-
-    # List of sources which should be able to access the CockroachDB Pods via
-    # HTTP port. Items in this list are combined using a logical OR operation.
-    # If empty, then connections from any Pod is allowed.
-    http: []
-      # - namespaceSelector:
-      #     matchLabels:
-      #       project: my-project
 
 # To put the admin interface behind Identity Aware Proxy (IAP) on Google Cloud Platform
 # make sure to set ingress.paths: ['/*']
@@ -667,8 +415,8 @@ service:
   # to the different database Pods.
   public:
     type: ClusterIP
-  # Additional annotations to apply to this Service.
-  annotations: { }
+    # Additional annotations to apply to this Service.
+    annotations: { }
 
 # PodAnnotations are the annotations that should be applied to the
 # underlying CockroachDB pod.
