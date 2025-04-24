@@ -6,35 +6,40 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"sigs.k8s.io/yaml"
 	"strconv"
 	"strings"
 	"time"
 
-	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
-	"github.com/cockroachdb/errors"
-	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/kubernetes"
+	"sigs.k8s.io/yaml"
+
+	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
+	"github.com/cockroachdb/errors"
+	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
 )
 
 const (
-	logConfigVolumeName = "log-config"
-	crdbContainerName   = "db"
-	joinStrPrefix       = "--join="
-	portPrefix          = "--port="
-	httpPortPrefix      = "--http-port="
-	insecureFlag        = "--insecure"
-	logtostderrFlag     = "--logtostderr"
-	grpcName            = "grpc"
-	grpcPort            = 26258
-	sqlName             = "sql"
-	sqlPort             = 26257
-	ProtocolName        = "TCP"
-	publicSvcYaml       = "public-service.yaml"
+	logConfigVolumeName            = "log-config"
+	crdbContainerName              = "db"
+	joinStrPrefix                  = "--join="
+	portPrefix                     = "--port="
+	httpPortPrefix                 = "--http-port="
+	insecureFlag                   = "--insecure"
+	logtostderrFlag                = "--logtostderr"
+	grpcName                       = "grpc"
+	grpcPort                       = 26258
+	sqlName                        = "sql"
+	sqlPort                        = 26257
+	ProtocolName                   = "TCP"
+	publicSvcYaml                  = "public-service.yaml"
+	helmLogConfigKey               = "log-config.yaml"
+	publicOperatorLogConfigKey     = "logging.yaml"
+	enterpriseOperatorLogConfigKey = "logs.yaml"
 )
 
 type parsedMigrationInput struct {
@@ -51,32 +56,40 @@ func To[T any](v T) *T {
 	return &v
 }
 
-func yamlToDisk(path string, data any) error {
+func yamlToDisk(path string, data []any) error {
 	file, err := os.Create(path)
 	if err != nil {
 		return errors.Wrap(err, "creating file")
 	}
-	bytes, err := yaml.Marshal(data)
-	if err != nil {
-		return errors.Wrap(err, "marshalling yaml")
-	}
-	// Hack: drop creationTimestamp: null lines. See
-	// https://github.com/kubernetes/kubernetes/issues/67610 for details.
-	lines := strings.Split(string(bytes), "\n")
-	filteredLines := []string{}
-	timestampRE := regexp.MustCompile(`\s*creationTimestamp: null`)
-	for _, line := range lines {
-		if !timestampRE.MatchString(line) {
-			filteredLines = append(filteredLines, line)
+
+	for i := range data {
+		bytes, err := yaml.Marshal(data[i])
+		if err != nil {
+			return errors.Wrap(err, "marshalling yaml")
+		}
+		// Hack: drop creationTimestamp: null lines. See
+		// https://github.com/kubernetes/kubernetes/issues/67610 for details.
+		lines := strings.Split(string(bytes), "\n")
+		filteredLines := []string{}
+		timestampRE := regexp.MustCompile(`\s*creationTimestamp: null`)
+		for _, line := range lines {
+			if !timestampRE.MatchString(line) {
+				filteredLines = append(filteredLines, line)
+			}
+		}
+		if i > 0 {
+			_, _ = file.WriteString("---\n")
+		}
+		if _, err := file.Write([]byte(strings.Join(filteredLines, "\n"))); err != nil {
+			return errors.Wrap(err, "writing yaml")
 		}
 	}
-	if _, err := file.Write([]byte(strings.Join(filteredLines, "\n"))); err != nil {
-		return errors.Wrap(err, "writing yaml")
-	}
+
 	return nil
 }
 
 func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, joinString string, flags map[string]string) v1alpha1.CrdbNodeSpec {
+
 	return v1alpha1.CrdbNodeSpec{
 		NodeName:  nodeName,
 		Join:      joinString,
@@ -94,7 +107,7 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 		LoggingConfigMapName: cluster.Spec.LogConfigMap,
 		Env: append(cluster.Spec.PodEnvVariables, []corev1.EnvVar{
 			{
-				Name: "HostIP",
+				Name: "HOST_IP",
 				ValueFrom: &corev1.EnvVarSource{
 					FieldRef: &corev1.ObjectFieldSelector{
 						APIVersion: "v1",
@@ -105,15 +118,15 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 		}...),
 		ResourceRequirements: sts.Spec.Template.Spec.Containers[0].Resources,
 		Image:                sts.Spec.Template.Spec.Containers[0].Image,
-		ServiceAccountName:   "cockroachdb",
+		ServiceAccountName:   cluster.Name,
 		GRPCPort:             cluster.Spec.GRPCPort,
 		SQLPort:              cluster.Spec.SQLPort,
 		HTTPPort:             cluster.Spec.HTTPPort,
 		Certificates: v1alpha1.Certificates{
 			ExternalCertificates: &v1alpha1.ExternalCertificates{
-				CAConfigMapName:         cluster.Name + "-ca",
-				NodeSecretName:          cluster.Name + "-node-certs",
-				RootSQLClientSecretName: cluster.Name + "-client-certs",
+				CAConfigMapName:         cluster.Name + "-ca-crt",
+				NodeSecretName:          cluster.Name + "-node-secret",
+				RootSQLClientSecretName: cluster.Name + "-client-secret",
 			},
 		},
 		Affinity:               cluster.Spec.Affinity,
@@ -125,6 +138,7 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 
 func buildHelmValuesFromOperator(cluster publicv1.CrdbCluster, cloudProvider string, cloudRegion string, namespace string, flags map[string]string) map[string]interface{} {
 	return map[string]interface{}{
+		"fullnameOverride": cluster.Name,
 		"operator": map[string]interface{}{
 			"enabled":        true,
 			"tlsEnabled":     cluster.Spec.TLSEnabled,
@@ -155,9 +169,9 @@ func buildHelmValuesFromOperator(cluster publicv1.CrdbCluster, cloudProvider str
 			},
 			"certificates": map[string]interface{}{
 				"externalCertificates": map[string]interface{}{
-					"caConfigMapName":         cluster.Name + "-ca",
-					"nodeSecretName":          cluster.Name + "-node-certs",
-					"rootSqlClientSecretName": cluster.Name + "-client-certs",
+					"caConfigMapName":         cluster.Name + "-ca-crt",
+					"nodeSecretName":          cluster.Name + "-node-secret",
+					"rootSqlClientSecretName": cluster.Name + "-client-secret",
 				},
 			},
 			"affinity":                      cluster.Spec.Affinity,
@@ -188,7 +202,7 @@ func buildNodeSpecFromHelm(sts *appsv1.StatefulSet, nodeName string, input parse
 		LoggingConfigMapName: input.loggingConfigMap,
 		Env: append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
 			{
-				Name: "HostIP",
+				Name: "HOST_IP",
 				ValueFrom: &corev1.EnvVarSource{
 					FieldRef: &corev1.ObjectFieldSelector{
 						APIVersion: "v1",
@@ -199,15 +213,15 @@ func buildNodeSpecFromHelm(sts *appsv1.StatefulSet, nodeName string, input parse
 		}...),
 		ResourceRequirements: sts.Spec.Template.Spec.Containers[0].Resources,
 		Image:                sts.Spec.Template.Spec.Containers[0].Image,
-		ServiceAccountName:   "cockroachdb",
+		ServiceAccountName:   sts.Name,
 		GRPCPort:             &input.grpcPort,
 		SQLPort:              &input.sqlPort,
 		HTTPPort:             &input.httpPort,
 		Certificates: v1alpha1.Certificates{
 			ExternalCertificates: &v1alpha1.ExternalCertificates{
-				CAConfigMapName:         sts.Name + "-ca",
-				NodeSecretName:          sts.Name + "-node-certs",
-				RootSQLClientSecretName: sts.Name + "-client-certs",
+				CAConfigMapName:         sts.Name + "-ca-secret-crt",
+				NodeSecretName:          sts.Name + "-node-secret",
+				RootSQLClientSecretName: sts.Name + "-client-secret",
 			},
 		},
 		Affinity:               sts.Spec.Template.Spec.Affinity,
@@ -255,9 +269,9 @@ func buildHelmValuesFromHelm(
 			},
 			"certificates": map[string]interface{}{
 				"externalCertificates": map[string]interface{}{
-					"caConfigMapName":         sts.Name + "-ca",
-					"nodeSecretName":          sts.Name + "-node-certs",
-					"rootSqlClientSecretName": sts.Name + "-client-certs",
+					"caConfigMapName":         sts.Name + "-ca-secret-crt",
+					"nodeSecretName":          sts.Name + "-node-secret",
+					"rootSqlClientSecretName": sts.Name + "-client-secret",
 				},
 			},
 			"affinity":                      sts.Spec.Template.Spec.Affinity,
@@ -275,7 +289,6 @@ func generateParsedMigrationInput(
 	clientset kubernetes.Interface,
 	sts *appsv1.StatefulSet) (parsedMigrationInput, error) {
 	var startCmd string
-	var envVars = make(map[string]string)
 	var parsedInput = parsedMigrationInput{
 		tlsEnabled: true,
 	}
@@ -296,13 +309,10 @@ func generateParsedMigrationInput(
 	for _, c := range sts.Spec.Template.Spec.Containers {
 		if c.Name == crdbContainerName {
 			startCmd = c.Args[2]
-			for i := range c.Env {
-				envVars[c.Env[i].Name] = c.Env[i].Value
-			}
 		}
 	}
 
-	if err := extractJoinStringAndFlags(&parsedInput, strings.Fields(startCmd), envVars); err != nil {
+	if err := extractJoinStringAndFlags(&parsedInput, strings.Fields(startCmd)); err != nil {
 		return parsedInput, err
 	}
 
@@ -312,8 +322,7 @@ func generateParsedMigrationInput(
 // extractJoinStringAndFlags parses the command arguments, extracts the --join string, and replaces env variables.
 func extractJoinStringAndFlags(
 	parsedInput *parsedMigrationInput,
-	args []string,
-	envVars map[string]string) error {
+	args []string) error {
 
 	flags := make(map[string]string)
 	// Regular expression to match flags (e.g., --advertise-host=something)
@@ -381,7 +390,9 @@ func ConvertSecretToConfigMap(ctx context.Context, clientset kubernetes.Interfac
 	// Convert Secret data to ConfigMap data
 	configMapData := make(map[string]string)
 	for key, value := range secret.Data {
-		configMapData[key] = string(value) // If encoding needed
+		if key == helmLogConfigKey {
+			configMapData[enterpriseOperatorLogConfigKey] = string(value)
+		}
 	}
 
 	// Create a new ConfigMap
@@ -400,6 +411,30 @@ func ConvertSecretToConfigMap(ctx context.Context, clientset kubernetes.Interfac
 	}
 
 	fmt.Println("ConfigMap created successfully:", secretName)
+	return nil
+}
+
+// moveConfigMapKey moves the "logging.yaml" key to "logs.yaml" in the ConfigMap.
+// This is a solution to support the migration from the public operator to the Cockroach Enterprise Operator.
+// The public operator uses "logging.yaml" and the Cockroach Enterprise Operator uses "logs.yaml".
+func moveConfigMapKey(ctx context.Context, clientset kubernetes.Interface, namespace, configMapName string) error {
+	configMap, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to get ConfigMap %s: %w", configMapName, err)
+	}
+
+	for key, val := range configMap.Data {
+		if key == publicOperatorLogConfigKey {
+			configMap.Data[enterpriseOperatorLogConfigKey] = val
+		}
+	}
+
+	// Update the ConfigMap
+	_, err = clientset.CoreV1().ConfigMaps(namespace).Update(ctx, configMap, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("failed to update ConfigMap %s: %w", configMapName, err)
+	}
+
 	return nil
 }
 
@@ -450,10 +485,146 @@ func generateUpdatedPublicServiceConfig(ctx context.Context, clientset kubernete
 		Kind:       "Service",
 	}
 
-	err = yamlToDisk(filepath.Join(outputDir, publicSvcYaml), svc)
+	err = yamlToDisk(filepath.Join(outputDir, publicSvcYaml), []any{svc})
 	if err != nil {
 		panic(err)
 	}
 
 	return nil
+}
+
+// buildRBACFromPublicOperator builds the RBAC resources from the public operator which is used by the cockroachdb enterprise operator.
+func buildRBACFromPublicOperator(cluster publicv1.CrdbCluster, outputDir string) error {
+	clusterRole := &rbacv1.ClusterRole{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "rbac.authorization.k8s.io/v1",
+			Kind:       "ClusterRole",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: cluster.Name,
+			Annotations: map[string]string{
+				"meta.helm.sh/release-name":      cluster.Name,
+				"meta.helm.sh/release-namespace": cluster.Namespace,
+			},
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "Helm",
+			},
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"nodes"},
+				Verbs:     []string{"get"},
+			},
+			{
+				APIGroups: []string{"certificates.k8s.io"},
+				Resources: []string{"certificatesigningrequests"},
+				Verbs:     []string{"create", "get", "watch"},
+			},
+		},
+	}
+
+	clusterRoleBinding := &rbacv1.ClusterRoleBinding{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "rbac.authorization.k8s.io/v1",
+			Kind:       "ClusterRoleBinding",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: cluster.Name,
+			Annotations: map[string]string{
+				"meta.helm.sh/release-name":      cluster.Name,
+				"meta.helm.sh/release-namespace": cluster.Namespace,
+			},
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "Helm",
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     cluster.Name,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      cluster.Name,
+				Namespace: cluster.Namespace,
+			},
+		},
+	}
+
+	role := &rbacv1.Role{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "rbac.authorization.k8s.io/v1",
+			Kind:       "Role",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cluster.Name,
+			Namespace: cluster.Namespace,
+			Annotations: map[string]string{
+				"meta.helm.sh/release-name":      cluster.Name,
+				"meta.helm.sh/release-namespace": cluster.Namespace,
+			},
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "Helm",
+			},
+		},
+		Rules: []rbacv1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"secrets"},
+				Verbs:     []string{"create", "get"},
+			},
+		},
+	}
+
+	roleBinding := &rbacv1.RoleBinding{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "rbac.authorization.k8s.io/v1",
+			Kind:       "RoleBinding",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cluster.Name,
+			Namespace: cluster.Namespace,
+			Annotations: map[string]string{
+				"meta.helm.sh/release-name":      cluster.Name,
+				"meta.helm.sh/release-namespace": cluster.Namespace,
+			},
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "Helm",
+			},
+		},
+		RoleRef: rbacv1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "Role",
+			Name:     cluster.Name,
+		},
+		Subjects: []rbacv1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      cluster.Name,
+				Namespace: cluster.Namespace,
+			},
+		},
+	}
+
+	serviceAccount := &corev1.ServiceAccount{
+		TypeMeta: metav1.TypeMeta{
+			APIVersion: "v1",
+			Kind:       "ServiceAccount",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      cluster.Name,
+			Namespace: cluster.Namespace,
+			Annotations: map[string]string{
+				"meta.helm.sh/release-name":      cluster.Name,
+				"meta.helm.sh/release-namespace": cluster.Namespace,
+			},
+			Labels: map[string]string{
+				"app.kubernetes.io/managed-by": "Helm",
+			},
+		},
+	}
+
+	return yamlToDisk(filepath.Join(outputDir, "rbac.yaml"), []any{clusterRole, clusterRoleBinding, role, roleBinding, serviceAccount})
 }

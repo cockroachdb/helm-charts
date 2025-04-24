@@ -27,6 +27,8 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-controller:v1.11.0"
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
     "cockroachdb/cockroach:v25.1.2"
+    "cockroachdb/cockroach-operator:v2.18.1"
+    "bash:latest"
     "${REGISTRY}/${REPOSITORY}:$(bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
 )
 
@@ -71,7 +73,7 @@ done
 # Set defaults if not provided
 name=${name:-$DEFAULT_CLUSTER_NAME}
 network_name=${network_name:-"k3d-${name}"}
-nodes=${cluster_size:-$DEFAULT_NODES}  
+nodes=${nodes:-$DEFAULT_NODES}
 version=${version:-$DEFAULT_K8S_VERSION}
 region=${region:-$DEFAULT_REGION}
 zones=${zones:-$DEFAULT_ZONES}
@@ -106,7 +108,7 @@ create_cluster() {
 #       --agents-memory 2GB
         --network "${network_name}"                      # Use the same network name for pulling images from local registries
 #       --registry-config "$SCRIPT_DIR/registries.yaml"  # Use this flag if k3s containers need access to local registries
-#       --agents ${nodes} # Number of agent nodes        # Use this Add more worker nodes
+        --agents ${nodes} # Number of agent nodes        # Use this Add more worker nodes
     )
 
     if ! "${k3d_args[@]}"; then

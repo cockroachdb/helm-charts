@@ -44,10 +44,10 @@ mkdir -p backup
 kubectl get crdbcluster -o yaml $CRDBCLUSTER > backup/crdbcluster-$CRDBCLUSTER.yaml
 ```
 
-Next, we need to re-map and generate tls certs. The crdb cloud operator uses slightly different certs than the public operator and mounts them in configmaps and secrets with different names. Run the `generate-certs.sh` script to generate and upload certs to your cluster.
+Next, we need to re-map and generate tls certs. The crdb cloud operator uses slightly different certs than the public operator and mounts them in configmaps and secrets with different names. Run the `migration-helper` utility with `migrate-certs` option to generate and upload certs to your cluster.
 
 ```
-./scripts/migration/public/generate-certs.sh
+bin/migration-helper migrate-certs --statefulset-name $STS_NAME --namespace $NAMESPACE
 ```
 
 Next, generate manifests for each crdbnode and the crdbcluster based on the state of the statefulset. We generate a manifest for each crdbnode because we want the crdb pods and their associated pvcs to use the same names as the original statefulset-managed pods and pvcs. This means that the new operator-managed pods will use the original pvcs, and won't have to replicate data into empty nodes.
@@ -88,7 +88,6 @@ To migrate seamlessly from the statefulset to the cloud operator, we'll scale do
 
 ```
 kubectl create priorityclass crdb-critical --value 500000000
-yq '(.. | select(tag == "!!str")) |= envsubst' scripts/migration/public/rbac-template.yaml > manifests/rbac.yaml
 kubectl apply -f manifests/rbac.yaml
 ```
 

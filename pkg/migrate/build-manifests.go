@@ -6,16 +6,16 @@ import (
 	"path/filepath"
 	"strings"
 
-	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
-	"github.com/cockroachdb/errors"
-	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
-	appsv1 "k8s.io/api/apps/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
+
+	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
+	"github.com/cockroachdb/errors"
+	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
 )
 
 type Manifest struct {
@@ -95,7 +95,11 @@ func (m *Manifest) FromPublicOperator() error {
 	if publicCluster.Spec.MaxSQLMemory != "" {
 		flags["--max-sql-memory"] = publicCluster.Spec.MaxSQLMemory
 	}
-
+	if publicCluster.Spec.LogConfigMap != "" {
+		if err := moveConfigMapKey(ctx, clientset, m.namespace, publicCluster.Spec.LogConfigMap); err != nil {
+			return errors.Wrap(err, "moving config map key")
+		}
+	}
 	for nodeIdx := int32(0); nodeIdx < publicCluster.Spec.Nodes; nodeIdx++ {
 		podName := fmt.Sprintf("%s-%d", crdbCluster, nodeIdx)
 		pod, err := clientset.CoreV1().Pods(m.namespace).Get(ctx, podName, metav1.GetOptions{})
@@ -129,15 +133,19 @@ func (m *Manifest) FromPublicOperator() error {
 			},
 			Spec: nodeSpec,
 		}
-		if err := yamlToDisk(filepath.Join(m.outputDir, fmt.Sprintf("crdbnode-%d.yaml", nodeIdx)), crdbNode); err != nil {
+		if err := yamlToDisk(filepath.Join(m.outputDir, fmt.Sprintf("crdbnode-%d.yaml", nodeIdx)), []any{crdbNode}); err != nil {
 			return errors.Wrap(err, "writing crdbnode manifest to disk")
 		}
 	}
 
 	helmValues := buildHelmValuesFromOperator(publicCluster, m.cloudProvider, m.cloudRegion, m.namespace, flags)
 
-	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), helmValues); err != nil {
+	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{helmValues}); err != nil {
 		return errors.Wrap(err, "writing helm values to disk")
+	}
+
+	if err := buildRBACFromPublicOperator(publicCluster, m.outputDir); err != nil {
+		return errors.Wrap(err, "building rbac from public operator")
 	}
 
 	return nil
@@ -154,8 +162,7 @@ func (m *Manifest) FromHelmChart() error {
 		return errors.Wrap(err, "building k8s clientset")
 	}
 
-	var sts = &appsv1.StatefulSet{}
-	sts, err = clientset.AppsV1().StatefulSets(m.namespace).Get(ctx, m.objectName, metav1.GetOptions{})
+	sts, err := clientset.AppsV1().StatefulSets(m.namespace).Get(ctx, m.objectName, metav1.GetOptions{})
 	if err != nil {
 		return errors.Wrap(err, "fetching statefulset")
 	}
@@ -202,14 +209,14 @@ func (m *Manifest) FromHelmChart() error {
 			},
 			Spec: nodeSpec,
 		}
-		if err := yamlToDisk(filepath.Join(m.outputDir, fmt.Sprintf("crdbnode-%d.yaml", nodeIdx)), crdbNode); err != nil {
+		if err := yamlToDisk(filepath.Join(m.outputDir, fmt.Sprintf("crdbnode-%d.yaml", nodeIdx)), []any{crdbNode}); err != nil {
 			return errors.Wrap(err, "writing crdbnode manifest to disk")
 		}
 	}
 
 	helmValues := buildHelmValuesFromHelm(sts, m.cloudProvider, m.cloudRegion, m.namespace, input)
 
-	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), helmValues); err != nil {
+	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{helmValues}); err != nil {
 		return errors.Wrap(err, "writing helm values to disk")
 	}
 

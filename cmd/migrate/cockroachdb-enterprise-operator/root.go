@@ -47,4 +47,5 @@ func init() {
 	_ = buildManifestCmd.MarkPersistentFlagRequired("cloud-provider")
 	_ = buildManifestCmd.MarkPersistentFlagRequired("cloud-region")
 	rootCmd.AddCommand(buildManifestCmd)
+	rootCmd.AddCommand(migrateCertsCmd)
 }

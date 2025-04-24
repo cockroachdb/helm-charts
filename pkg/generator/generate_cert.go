@@ -131,7 +131,7 @@ func (rc *GenerateCert) Do(ctx context.Context, namespace string) error {
 	}
 
 	// generate the client certificates for the database to use
-	if err := rc.generateClientCert(ctx, rc.getClientSecretName(), namespace); err != nil {
+	if err := rc.GenerateClientCert(ctx, rc.getClientSecretName(), namespace); err != nil {
 		msg := " error Generating Client Certificate"
 		logrus.Error(err, msg)
 		return errors.Wrap(err, msg)
@@ -172,7 +172,7 @@ func (rc *GenerateCert) ClientCertGenerate(ctx context.Context, namespace string
 	}
 
 	// generate the client certificates for the database to use
-	if err := rc.generateClientCert(ctx, rc.getClientSecretName(), namespace); err != nil {
+	if err := rc.GenerateClientCert(ctx, rc.getClientSecretName(), namespace); err != nil {
 		msg := " error Generating Client Certificate"
 		logrus.Error(err, msg)
 		return errors.Wrap(err, msg)
@@ -302,84 +302,6 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 		return errors.Wrap(err, "failed to get node TLS secret")
 	}
 
-	// inline func used to generate node cert and key
-	generate := func(rc *GenerateCert, nodeSecretName, namespace string) error {
-		logrus.Info("Generating node certificate")
-
-		// hosts are the various DNS names and IP address that have to exist in the Node certificates
-		// for the database to function
-		hosts := []string{
-			"localhost",
-			"127.0.0.1",
-			rc.PublicServiceName,
-			fmt.Sprintf("%s.%s", rc.PublicServiceName, namespace),
-			fmt.Sprintf("%s.%s.svc.%s", rc.PublicServiceName, namespace, rc.ClusterDomain),
-			fmt.Sprintf("*.%s", rc.DiscoveryServiceName),
-			fmt.Sprintf("*.%s.%s", rc.DiscoveryServiceName, namespace),
-			fmt.Sprintf("*.%s.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
-		}
-
-		if rc.OperatorManaged {
-			operatorJoinServiceHosts := []string{
-				fmt.Sprintf("%s-join", rc.DiscoveryServiceName),
-				fmt.Sprintf("%s-join.%s", rc.DiscoveryServiceName, namespace),
-				fmt.Sprintf("%s-join.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
-			}
-
-			hosts = append(hosts, operatorJoinServiceHosts...)
-		}
-
-		// create the Node Pair certificates
-		if err = errors.Wrap(
-			security.CreateNodePair(
-				rc.CertsDir,
-				rc.CAKey,
-				keySize,
-				rc.NodeCertConfig.Duration,
-				overwriteFiles,
-				hosts),
-			"failed to generate node certificate and key"); err != nil {
-			return err
-		}
-
-		// Read the CA certificate into memory
-		ca, err := os.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
-		if err != nil {
-			return errors.Wrap(err, "unable to read ca.crt")
-		}
-
-		// Read the node certificate into memory
-		pemCert, err := os.ReadFile(filepath.Join(rc.CertsDir, "node.crt"))
-		if err != nil {
-			return errors.Wrap(err, "unable to read node.crt")
-		}
-
-		validFrom, validUpto, err := rc.getCertLife(pemCert)
-		if err != nil {
-			return err
-		}
-
-		// Read the node key into memory
-		pemKey, err := os.ReadFile(filepath.Join(rc.CertsDir, "node.key"))
-		if err != nil {
-			return errors.Wrap(err, "unable to ready node.key")
-		}
-
-		// add certificate info in the secret annotations
-		annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.NodeCertConfig.Duration.String())
-
-		// create and save the TLS certificates into a secret
-		secret = resource.CreateTLSSecret(nodeSecretName, corev1.SecretTypeTLS,
-			resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-
-		if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
-			return errors.Wrap(err, "failed to update node TLS secret certs")
-		}
-
-		logrus.Infof("Generated and saved node key and certificate in secret [%s]", nodeSecretName)
-
-		return nil
-	}
 	// check if the existing secret is ready to be consumed. If found ready, skip cert generation
 	if secret.Ready() && secret.ValidateAnnotations() {
 
@@ -388,7 +310,7 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 			if isRequired {
 				logrus.Infof("Node Certificate: %s", reason)
 
-				if err = generate(rc, nodeSecretName, namespace); err != nil {
+				if err = rc.GenerateNodeCert(ctx, nodeSecretName, namespace); err != nil {
 					return err
 				}
 
@@ -403,12 +325,11 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 		return nil
 	}
 
-	return generate(rc, nodeSecretName, namespace)
-
+	return rc.GenerateNodeCert(ctx, nodeSecretName, namespace)
 }
 
-// generateClientCert generates the Client key and certificate and stores them in a secret.
-func (rc *GenerateCert) generateClientCert(ctx context.Context, clientSecretName string, namespace string) error {
+// GenerateClientCert generates the Client key and certificate and stores them in a secret.
+func (rc *GenerateCert) GenerateClientCert(ctx context.Context, clientSecretName string, namespace string) error {
 
 	user, userExist := os.LookupEnv("USER_NAME")
 	if !userExist {
@@ -596,6 +517,85 @@ func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) erro
 	if err := os.WriteFile(rc.CAKey, secret.CAKey(), security.KeyFileMode); err != nil {
 		return errors.Wrap(err, "failed to write CA key")
 	}
+
+	return nil
+}
+
+// GenerateNodeCert generates the Node key and certificate and stores them in a secret.
+func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, namespace string) error {
+	logrus.Info("Generating node certificate")
+
+	// hosts are the various DNS names and IP address that have to exist in the Node certificates
+	// for the database to function
+	hosts := []string{
+		"localhost",
+		"127.0.0.1",
+		rc.PublicServiceName,
+		fmt.Sprintf("%s.%s", rc.PublicServiceName, namespace),
+		fmt.Sprintf("%s.%s.svc.%s", rc.PublicServiceName, namespace, rc.ClusterDomain),
+		fmt.Sprintf("*.%s", rc.DiscoveryServiceName),
+		fmt.Sprintf("*.%s.%s", rc.DiscoveryServiceName, namespace),
+		fmt.Sprintf("*.%s.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
+	}
+
+	if rc.OperatorManaged {
+		operatorJoinServiceHosts := []string{
+			fmt.Sprintf("%s-join", rc.DiscoveryServiceName),
+			fmt.Sprintf("%s-join.%s", rc.DiscoveryServiceName, namespace),
+			fmt.Sprintf("%s-join.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
+		}
+
+		hosts = append(hosts, operatorJoinServiceHosts...)
+	}
+
+	// create the Node Pair certificates
+	if err := errors.Wrap(
+		security.CreateNodePair(
+			rc.CertsDir,
+			rc.CAKey,
+			keySize,
+			rc.NodeCertConfig.Duration,
+			overwriteFiles,
+			hosts),
+		"failed to generate node certificate and key"); err != nil {
+		return err
+	}
+
+	// Read the CA certificate into memory
+	ca, err := os.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+	if err != nil {
+		return errors.Wrap(err, "unable to read ca.crt")
+	}
+
+	// Read the node certificate into memory
+	pemCert, err := os.ReadFile(filepath.Join(rc.CertsDir, "node.crt"))
+	if err != nil {
+		return errors.Wrap(err, "unable to read node.crt")
+	}
+
+	validFrom, validUpto, err := rc.getCertLife(pemCert)
+	if err != nil {
+		return err
+	}
+
+	// Read the node key into memory
+	pemKey, err := os.ReadFile(filepath.Join(rc.CertsDir, "node.key"))
+	if err != nil {
+		return errors.Wrap(err, "unable to ready node.key")
+	}
+
+	// add certificate info in the secret annotations
+	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.NodeCertConfig.Duration.String())
+
+	// create and save the TLS certificates into a secret
+	secret := resource.CreateTLSSecret(nodeSecretName, corev1.SecretTypeTLS,
+		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+
+	if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
+		return errors.Wrap(err, "failed to update node TLS secret certs")
+	}
+
+	logrus.Infof("Generated and saved node key and certificate in secret [%s]", nodeSecretName)
 
 	return nil
 }

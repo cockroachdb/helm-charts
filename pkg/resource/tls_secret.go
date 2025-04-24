@@ -94,6 +94,26 @@ func (s *TLSSecret) ReadyCA() bool {
 	return true
 }
 
+func (s *TLSSecret) IsCAKeyPresent() bool {
+	data := s.secret.Data
+
+	if _, ok := data[CaKey]; !ok {
+		return false
+	}
+
+	return true
+}
+
+func (s *TLSSecret) IsCACertPresent() bool {
+	data := s.secret.Data
+
+	if _, ok := data[CaCert]; !ok {
+		return false
+	}
+
+	return true
+}
+
 // ValidateAnnotations validates if all the required annotations are present
 func (s *TLSSecret) ValidateAnnotations() bool {
 	annotations := s.secret.Annotations
