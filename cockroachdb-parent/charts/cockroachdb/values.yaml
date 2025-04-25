@@ -71,7 +71,7 @@ cockroachdb:
         pullPolicy: IfNotPresent
         # registry defines the container registry host (e.g., gcr.io, docker.io).
         registry: gcr.io
-        # credentials captures the image pull credentials private registries.
+        # credentials captures the image pull credentials for private registries.
         credentials: {}
           # registry defines the image registry for pulling images.
           # registry: gcr.io
@@ -100,15 +100,15 @@ cockroachdb:
         name: cockroachdb
         # isSelfSignedIssuer indicates whether the Issuer is self-signed.
         isSelfSignedIssuer: true
-        # caCertDuration specifies the duration of CA certificates in hours.
+        # caCertDuration specifies the duration for the CA certificate.
         caCertDuration: 43800h
         # caCertExpiryWindow specifies the rotation window before CA certificate expiry.
         caCertExpiryWindow: 648h
-        # clientCertDuration specifies the duration of client certificates in hours.
+        # clientCertDuration specifies the duration of client certificates.
         clientCertDuration: 672h
         # clientCertExpiryWindow specifies the rotation window before client certificate expiry.
         clientCertExpiryWindow: 48h
-        # nodeCertDuration specifies the duration of node certificates in hours.
+        # nodeCertDuration specifies the duration for node certificates.
         nodeCertDuration: 8760h
         # nodeCertExpiryWindow specifies the rotation window before node certificate expiry.
         nodeCertExpiryWindow: 168h
@@ -153,7 +153,7 @@ cockroachdb:
         # httpSecretName defines the name of a Kubernetes TLS Secret used for the HTTP service.
         # httpSecretName: ""
         #
-  # crdbCluster captures the configuration for the CockroachDB cluster custom resource.
+  # crdbCluster captures the configuration for the CrdbCluster custom resource.
   crdbCluster:
     # image captures the container image settings for CockroachDB nodes.
     image:
@@ -163,7 +163,7 @@ cockroachdb:
       pullPolicy: IfNotPresent
       # registry defines the container registry host (e.g., gcr.io, docker.io).
       # registry: docker.io
-      # credentials captures the image pull credentials private registries.
+      # credentials captures the image pull credentials for private registries.
       credentials: {}
         # registry defines the image registry for pulling images.
         # registry: gcr.io
@@ -221,7 +221,7 @@ cockroachdb:
       # rules captures the namespaced RBAC rules bound to the ServiceAccount.
       # For example:
       #
-      # permissions:
+      # rules:
       #   - apiGroup: [""]
       #     resources: ["secrets"]
       #     verbs: ["create", "get"]
@@ -267,7 +267,7 @@ cockroachdb:
     # walFailoverSpec captures the configuration for WAL Failover.
     walFailoverSpec: {}
       # status determines the possible values to WAL Failover configuration.
-      # It has 3 possible values: "", "enable" and "disable"
+      # It has 3 possible values: "", "enable" and "disable".
       # status: ""
       #
       # size is side disk size to be used for WAL Failover.
@@ -282,7 +282,7 @@ cockroachdb:
       app.kubernetes.io/component: cockroachdb
     # flags captures flags passed to the CockroachDB container.
     flags:
-      # Disable backup/restore to local disk by default.
+      # Disables backup/restore to local disk by default.
       --external-io-dir: disabled
     # env captures environment variables set on CockroachDB pods.
     env: []

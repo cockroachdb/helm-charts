@@ -12,7 +12,7 @@ image:
   pullPolicy: IfNotPresent
   # tag is the image tag.
   tag: "ccfba5cf5cde9ae612de9de2cef8080b4dd216f3"
-# certificate settings for the Operator.
+# certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.
   validForDays: ""
