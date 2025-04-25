@@ -540,10 +540,10 @@ func (r *Region) OperatorRegions(index int, nodes int) []map[string]interface{} 
 	return r.createOperatorRegions(index, nodes, CustomDomains, Clusters, RegionCodes)
 }
 
-func HelmChartPaths() (string, string) {
+func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 	rootPath := testutil.GetGitRoot()
-	helmChartPath := filepath.Join(rootPath, "cockroachdb-parent/charts/cockroachdb")
-	operatorChartPath := filepath.Join(rootPath, "cockroachdb-parent/charts/operator")
+	helmChartPath = filepath.Join(rootPath, "cockroachdb-parent/charts/cockroachdb")
+	operatorChartPath = filepath.Join(rootPath, "cockroachdb-parent/charts/operator")
 
 	return helmChartPath, operatorChartPath
 }

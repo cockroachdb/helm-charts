@@ -111,7 +111,8 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 		SetValues:      map[string]string{},
 	}
 	t.Log("helm install the cockroach enterprise operator")
-	helm.Install(t, o.HelmOptions, filepath.Join(testutil.GetGitRoot(), "cockroachdb"), crdbClusterName)
+	helmPath, _ := operator.HelmChartPaths()
+	helm.Install(t, o.HelmOptions, helmPath, crdbClusterName)
 	defer func() {
 		t.Log("helm uninstall the cockroach enterprise operator")
 		o.Uninstall(t)

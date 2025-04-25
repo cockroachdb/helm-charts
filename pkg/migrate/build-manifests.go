@@ -138,7 +138,7 @@ func (m *Manifest) FromPublicOperator() error {
 		}
 	}
 
-	helmValues := buildHelmValuesFromOperator(publicCluster, m.cloudProvider, m.cloudRegion, m.namespace, flags)
+	helmValues := buildHelmValuesFromOperator(publicCluster, m.cloudProvider, m.cloudRegion, m.namespace, joinString, flags)
 
 	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{helmValues}); err != nil {
 		return errors.Wrap(err, "writing helm values to disk")
