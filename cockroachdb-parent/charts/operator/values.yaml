@@ -1,11 +1,22 @@
+# Generated file, DO NOT EDIT. Source: build/templates/values.yaml
+
 # Default values for the operator chart.
+
+# image captures the container image settings for Operator pods.
 image:
+  # registry is the container registry where the image is stored.
   registry: "us-docker.pkg.dev/cockroach-cloud-images/data-plane"
+  # repository defines the image repository.
   repository: "cockroach-operator"
+  # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the cluster chart's appVersion.
+  # tag is the image tag.
   tag: "ccfba5cf5cde9ae612de9de2cef8080b4dd216f3"
+# certificate settings for the Operator.
 certificate:
+  # validForDays specifies the number of days the certificate is valid for.
   validForDays: ""
+# numReplicas specifies the number of replicas for the Operator.
 numReplicas: 1
+# cloudRegion specifies the cloud region for the Operator.
 cloudRegion: ""

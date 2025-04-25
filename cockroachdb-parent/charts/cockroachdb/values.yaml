@@ -1,459 +1,416 @@
 # Generated file, DO NOT EDIT. Source: build/templates/values.yaml
 
-# Default values for the cluster chart.
+# Default values for the cockroachdb chart.
 
+# cockroachdb encapsulates the configuration for the CockroachDB cluster.
 cockroachdb:
-  # clusterDomain is the Cluster's default DNS domain.
-  # You should overwrite it if you're using a different one,
-  # otherwise CockroachDB nodes discovery won't work.
+  # clusterDomain specifies the default DNS domain for the cluster.
+  # This value should be updated if a different DNS domain is used for CockroachDB node discovery to work.
   clusterDomain: cluster.local
-
-  # tls config specifies whether to run securely using TLS certificates.
+  # tls captures the security configuration for the CockroachDB cluster.
   tls:
+    # enabled determines whether TLS is enabled for the CockroachDB cluster.
     enabled: true
-    # Enable if you want cockroach db to create its own certificates
+    # selfSigner captures the configuration for generating self-signed certificates for the CockroachDB cluster.
     selfSigner:
-      # If set, the cockroach db will generate its own certificates
+      # enabled determines whether self-signed certificates are generated for the CockroachDB cluster.
       enabled: true
-      # Run selfSigner as non-root
+      # securityContext captures the pod-level security settings for the self-signer job.
       securityContext:
+        # enabled determines whether the security context is applied to self-signer pods.
         enabled: true
-      # If set, the user should provide the CA certificate to sign other certificates.
+      # caProvided indicates whether the user provides the CA certificate.
       caProvided: false
-      # It holds the name of the secret with caCerts. If caProvided is set, this can not be empty.
+      # caSecret defines the name of the secret that contains the CA certificate.
+      # If caProvided is true, this cannot be empty.
       caSecret: ""
-      # Minimum Certificate duration for all the certificates, all certs duration will be validated against this.
+      # minimumCertDuration specifies the minimum duration for all certificates.
       minimumCertDuration: 624h
-      # Duration of CA certificates in hour
+      # caCertDuration specifies the duration for the CA certificate.
       caCertDuration: 43800h
-      # Expiry window of CA certificates means a window before actual expiry in which CA certs should be rotated.
+      # caCertExpiryWindow specifies the rotation window before CA certificate expiry.
       caCertExpiryWindow: 648h
-      # Duration of Client certificates in hour
+      # clientCertDuration specifies the duration for client certificates.
       clientCertDuration: 672h
-      # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.
+      # clientCertExpiryWindow specifies the rotation window before client certificate expiry.
       clientCertExpiryWindow: 48h
-      # Duration of node certificates in hour
+      # nodeCertDuration specifies the duration for node certificates.
       nodeCertDuration: 8760h
-      # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
+      # nodeCertExpiryWindow specifies the rotation window before node certificate expiry.
       nodeCertExpiryWindow: 168h
-      # If set, the cockroachdb cert selfSigner will rotate the certificates before expiry.
+      # rotateCerts determines whether certificates are rotated before expiry.
       rotateCerts: true
-      # Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true
+      # readinessWait specifies the wait time for each replica to become ready after starting.
+      # Only considered when rotateCerts is true.
       readinessWait: 30s
-      # Wait time for each cockroachdb replica to get to running state. Only considered when rotateCerts is set to true
+      # podUpdateTimeout specifies the timeout for pods to reach the running state.
+      # Only considered when rotateCerts is true.
       podUpdateTimeout: 2m
-      # ServiceAccount annotations for selfSigner jobs (e.g. for attaching AWS IAM roles to pods)
+      # svcAccountAnnotations defines annotations for the ServiceAccount used by the self-signer job.
       svcAccountAnnotations: {}
-
-      # Additional labels to apply to the Pod of this Job.
+      # labels defines additional labels for pods of the self-signer job.
       labels: {}
-
-      # Additional annotations to apply to the Pod of this Job.
+      # annotations defines additional annotations for pods of the self-signer job.
       annotations: {}
-
-      # Affinity rules for scheduling the Pod of this Job.
+      # affinity captures the pod scheduling affinity rules for the self-signer job.
       # https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#node-affinity
       affinity: {}
-
-      # Node selection constraints for scheduling the Pod of this Job.
+      # nodeSelector captures the node selector rules for pods of the self-signer job.
       # https://kubernetes.io/docs/concepts/configuration/assign-pod-node/#nodeselector
       nodeSelector: {}
-
-      # Taints to be tolerated by the Pod of this Job.
+      # tolerations captures the tolerations for pods of the self-signer job.
       # https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
       tolerations: []
-
-      # Image Placeholder for the selfSigner utility. This will be changed once the CI workflows for the image is in place.
+      # image captures the container image settings for the self-signer job.
       image:
+        # repository defines the image repository for the self-signer container.
         repository: cockroachlabs-helm-charts/cockroach-self-signer-cert
+        # tag defines the image tag for the self-signer container.
         tag: "1.8"
+        # pullPolicy defines the image pull policy for the self-signer container.
         pullPolicy: IfNotPresent
-        credentials: { }
+        # registry defines the container registry host (e.g., gcr.io, docker.io).
         registry: gcr.io
-        # username: john_doe
-        # password: changeme
-
-    # Use cert-manager to issue certificates for mTLS.
+        # credentials captures the image pull credentials private registries.
+        credentials: {}
+          # registry defines the image registry for pulling images.
+          # registry: gcr.io
+          # username defines the username for accessing the image registry.
+          # username: john_doe
+          # password defines the password for accessing the image registry.
+          # password: changeme
+    # certManager uses cert-manager to manage certificate issuance for the CockroachDB cluster.
     certManager:
+      # enabled determines whether cert-manager is used to issue certificates.
       enabled: false
-      # Specify an Issuer or a ClusterIssuer to use, when issuing
-      # node and client certificates. The values correspond to the
-      # issuerRef specified in the certificate.
-
-      # Secret name for CA cert
+      # caSecret defines the secret name that contains the CA certificate.
       caSecret: cockroach-ca
-
-      # Secret name for node cert.
+      # nodeSecret defines the secret name that contains the node certificate.
       nodeSecret: cockroachdb-node
-
-      # Secret name for the client root cert.
+      # clientRootSecret defines the secret name that contains the root client certificate.
       clientRootSecret: cockroachdb-root
-
+      # issuer specifies the Issuer or ClusterIssuer resource to use for issuing node and client certificates.
+      # The values correspond to the issuerRef in the certificate.
       issuer:
+        # group specifies the API group of the Issuer resource.
         group: cert-manager.io
+        # kind specifies the kind of the Issuer resource.
         kind: Issuer
+        # name specifies the name of the Issuer resource.
         name: cockroachdb
-        # Make it false when you are providing your own CA issuer
+        # isSelfSignedIssuer indicates whether the Issuer is self-signed.
         isSelfSignedIssuer: true
-        # Duration of CA certificates in hour
+        # caCertDuration specifies the duration of CA certificates in hours.
         caCertDuration: 43800h
-        # Expiry window of CA certificates means a window before actual expiry in which CA certs should be rotated.
+        # caCertExpiryWindow specifies the rotation window before CA certificate expiry.
         caCertExpiryWindow: 648h
-        # Duration of Client certificates in hours
+        # clientCertDuration specifies the duration of client certificates in hours.
         clientCertDuration: 672h
-        # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.
+        # clientCertExpiryWindow specifies the rotation window before client certificate expiry.
         clientCertExpiryWindow: 48h
-        # Duration of node certificates in hours
+        # nodeCertDuration specifies the duration of node certificates in hours.
         nodeCertDuration: 8760h
-        # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
+        # nodeCertExpiryWindow specifies the rotation window before node certificate expiry.
         nodeCertExpiryWindow: 168h
-
+    # externalCertificates captures the configuration for using external certificates.
     externalCertificates:
-      # Bring your own certs scenario. If provided, tls.init section will be ignored.
+      # enabled determines whether external certificates are used.
       enabled: false
-      # External certificates for the CockroachDB cluster.
-      certificates: { }
-        # CAConfigMapName is the name of a Kubernetes ConfigMap containing a ca.crt
-        # entry that was used to sign other external certificates. This is used to
-        # validate the node and client certificates.
-        # https://www.cockroachlabs.com/docs/stable/authentication.html#client-authentication
-        # caConfigMapName: ""
-
-        # NodeClientSecretName is the name of a Kubernetes TLS secret holding
-        # client certificates used when establishing connections to other nodes
-        # in the cluster (e.g. joining an existing cluster).
-        # The certificate must be signed with the CA identified by CAConfigMapName
-        # or ClientCASecretName if using split CA certificates.
-        # nodeClientSecretName: ""
-
-        # NodeSecretName is the name of a Kubernetes TLS Secret that will be used
-        # when receiving incoming connections from other nodes for RPC and SQL calls.
-        # The certificate must be signed with the CA identified by CAConfigMapName,
-        # or NodeCASecretName if using split CA certificates.
-        # nodeSecretName: ""
-
-        # HTTPSecretName is the name of a Kubernetes TLS Secret that will be used
-        # for the HTTP service.
-        # httpSecretName: ""
-
-        # RootSQLClientSecretName is the name of a Kubernetes TLS secret holding
-        # SQL client certificates for the root SQL user. It allows the operator to
-        # perform various administrative actions (e.g. set cluster settings).
-        # The certificate must be signed with the CA identified by CAConfigMapName
-        # or ClientCASecretName if using split CA certificates.
-        # rootSqlClientSecretName: ""
-
-        # NodeCAConfigMapName is the name of a Kubernetes ConfigMap containing a
-        # ca.crt entry that will be used as the CA for node authentication. Only
-        # set if using split CA certificates, which is not recommended:
-        # https://www.cockroachlabs.com/docs/stable/authentication.html#using-split-ca-certificates.
-        # Exactly one of CAConfigMapName and NodeCAConfigMapName must be set.
-        # nodeCaConfigMapName: ""
-
-        # ClientCAConfigMapName is the name of a Kubernetes ConfigMap containing a
-        # ca.crt entry that will be used as the CA for client authentication. This
-      # is used to validate the client certificates. Only set if using split
-      # CA certificates, which is not recommended:
-      # https://www.cockroachlabs.com/docs/stable/authentication.html#using-split-ca-certificates.
+      # certificates captures the map of external certificates for the CockroachDB cluster.
       # https://www.cockroachlabs.com/docs/stable/authentication.html#client-authentication
-      # clientCaConfigMapName: ""
-
+      certificates: {}
+        # caConfigMapName defines the name of a Kubernetes ConfigMap containing a ca.crt entry used to sign other external certificates.
+        # This is used to validate the node and client certificates.
+        # caConfigMapName: ""
+        #
+        # nodeCaConfigMapName defines the name of a Kubernetes ConfigMap containing a ca.crt entry used as the CA for node authentication.
+        # If caConfigMapName is set, this should not be set.
+        # This should only be set if using split CA certificates, which is not recommended:
+        # https://www.cockroachlabs.com/docs/stable/authentication.html#using-split-ca-certificates.
+        # If set, then clientCaConfigMapName must also be set.
+        # nodeCaConfigMapName: ""
+        #
+        # clientCaConfigMapName defines the name of a Kubernetes ConfigMap containing a ca.crt entry used as the CA for client authentication.
+        # If caConfigMapName is set, this should not be set.
+        # This should only be set if using split CA certificates, which is not recommended:
+        # https://www.cockroachlabs.com/docs/stable/authentication.html#using-split-ca-certificates.
+        # If set, then nodeCaConfigMapName must also be set.
+        # clientCaConfigMapName: ""
+        #
+        # nodeClientSecretName defines the name of a Kubernetes TLS secret holding client certificates used when establishing connections to other nodes in the cluster.
+        # The certificate must be signed with the CA identified by caConfigMapName, or clientCaConfigMapName if using split CA certificates.
+        # nodeClientSecretName: ""
+        #
+        # nodeSecretName defines the name of a Kubernetes TLS Secret holding node certificates used for receiving incoming node connections.
+        # The certificate must be signed with the CA identified by caConfigMapName, or nodeCaConfigMapName if using split CA certificates.
+        # nodeSecretName: ""
+        #
+        # rootSqlClientSecretName defines the name of the TLS secret holding client certificates for the root SQL user.
+        # It allows the operator to perform various administrative actions (e.g., set cluster settings).
+        # The certificate must be signed with the CA identified by caConfigMapName, or clientCaConfigMapName if using split CA certificates.
+        # rootSqlClientSecretName: ""
+        #
+        # httpSecretName defines the name of a Kubernetes TLS Secret used for the HTTP service.
+        # httpSecretName: ""
+        #
+  # crdbCluster captures the configuration for the CockroachDB cluster custom resource.
   crdbCluster:
+    # image captures the container image settings for CockroachDB nodes.
     image:
+      # name defines the CockroachDB container image.
       name: cockroachdb/cockroach:v25.1.0
+      # pullPolicy defines the image pull policy for CockroachDB.
       pullPolicy: IfNotPresent
-      credentials: {}
+      # registry defines the container registry host (e.g., gcr.io, docker.io).
       # registry: docker.io
-      # username: john_doe
-      # password: changeme
-
-    # A map of CockroachDB cluster settings.
-    # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
+      # credentials captures the image pull credentials private registries.
+      credentials: {}
+        # registry defines the image registry for pulling images.
+        # registry: gcr.io
+        # username defines the username for accessing the image registry.
+        # username: john_doe
+        # password defines the password for accessing the image registry.
+        # password: changeme
+    # clusterSettings captures the map of cluster settings to apply to the CockroachDB cluster.
+    # https://www.cockroachlabs.com/docs/stable/cluster-settings.html
     clusterSettings: ~
-
-    # Sets timestamp annotation for CockroachDB pods,
-    # This is added for the purpose of rolling restarts with helm upgrade without any other configuration changes.
+    # timestamp captures the annotation timestamp used for rolling restarts.
     timestamp: "2021-10-18T00:00:00Z"
-
-    # The addresses for connecting a CockroachDB nodes to an existing cluster.
-    # If you are deploying a second CockroachDB instance that should join a first
-    # one, use the below list to join to the existing instance.
-    # Each item in the array should be a FQDN (and port if needed) resolvable by
-    # new Pods.
-    join: []
-
-    # We usually recommend not to specify default resources and to leave this as a conscious
-    # choice for the user. This also increases chances charts run on environments with little
-    # resources, such as K3D. If you do want to specify resources, uncomment the following
-    # lines, adjust them as necessary, and remove the tilde after 'resources:'.
+    # join captures the list of comma-separated addresses for joining an existing cluster.
+    # Each item should be a resolvable FQDN (with port if needed).
+    join: ""
+    # resources captures the resource requests and limits for CockroachDB pods.
     resources: ~
       # limits:
-      # cpu: 100m
-      # memory: 128Mi
+      #   cpu: 100m
+      #   memory: 128Mi
       # requests:
-    # cpu: 100m
-    # memory: 128Mi
-
-    # dataStore specifies the disk configuration for the CockroachDB Node.
+      #   cpu: 100m
+      #   memory: 128Mi
+    # dataStore captures the disk configuration for CockroachDB storage.
     dataStore:
+      # volumeClaimTemplate captures the PVC template for storage.
       volumeClaimTemplate:
-        metadata: { }
+        metadata: {}
         spec:
+          # accessModes defines the access modes for the PVC.
           accessModes:
             - ReadWriteOnce
+          # resources captures resource requests for the PVC.
           resources:
             requests:
+              # storage defines the storage request size.
               storage: 10Gi
+          # volumeMode specifies the volume mode for the PVC.
           volumeMode: Filesystem
-          # storageClassName is the name of the StorageClass required by the claim.
-          # If not provided, it will use the default storage class of the cluster.
+          # storageClassName defines the StorageClass for the PVC.
+          # If not set, the default provisioner will be chosen (gp2 on AWS, standard on GKE).
           # storageClassName: ""
-
-    # RBAC settings for CockroachDB nodes
+    # rbac captures the RBAC settings for CockroachDB pods.
     rbac:
-      # By default, the service account will be the resource name. It will
-      # be created during the installation along with a namespaced role and
-      # a cluster role with the policy rules below.
-      #
-      # Uncomment the line below to use a custom SA. If a custom SA is used,
-      # no roles or bindings will be created.
-      # serviceAccountName: ~
+      # serviceAccount captures settings for the CockroachDB ServiceAccount.
       serviceAccount:
-        # Specifies whether this ServiceAccount should be created.
+        # create determines whether a new ServiceAccount is created.
+        # By default, the ServiceAccount name will be the fully qualified app name.
         create: true
-        # The name of this ServiceAccount to use.
-        # If not set and `create` is `true`, then service account is auto-generated.
-        # If not set and `create` is `false`, then it uses default service account.
+        # name defines the name of the ServiceAccount.
+        # If create is false, this value is used as the name of the ServiceAccount.
         name: ""
-        # Additional serviceAccount annotations (e.g. for attaching AWS IAM roles to pods)
+        # annotations captures additional annotations for the ServiceAccount.
         annotations: {}
-
-      # Rules for the namespaced role bound to the service account.
+      # rules captures the namespaced RBAC rules bound to the ServiceAccount.
+      # For example:
       #
-      # E.g.
       # permissions:
       #   - apiGroup: [""]
       #     resources: ["secrets"]
       #     verbs: ["create", "get"]
       rules: []
-
-      # Rules for the cluster role bound to the service account.
+      # clusterRules captures the cluster-level RBAC rules for the ServiceAccount.
       clusterRules:
-        # Get nodes allows the locality container to work as expected. It pulls the
-        # failure-domain.beta.kubernetes.io/zone label to determine node locality.
+        # Get nodes allows to pull the labels to determine node locality.
         - apiGroups: [ "" ]
           resources: [ "nodes" ]
           verbs: [ "get" ]
-
-    # Regions controls the number of CockroachDB nodes that are deployed per region.
+    # regions captures the configuration of CockroachDB nodes per region.
     regions:
-      # Code corresponds to the cloud provider's identifier of this region (e.g.
-      # "us-east-1" for AWS, "us-east1" for GCP). This value is used to detect
-      # which CrdbClusterRegion will be reconciled and must match the
-      # "topology.kubernetes.io/region" label on Kubernetes Nodes in this
-      # cluster.
+        # code corresponds to the cloud provider's identifier for this region (e.g., "us-east-1" for AWS, "us-east1" for GCP).
+        # This value is used to detect the region to be reconciled and must match the "topology.kubernetes.io/region" label on Kubernetes Nodes in this cluster.
       - code: us-east1
-        # Nodes is the number of CRDB nodes that are in the region.
+        # nodes defines the number of CockroachDB nodes in this region.
         nodes: 3
-        # CloudProvider sets the cloud provider for this region.
+        # cloudProvider specifies the cloud platform identifier.
         cloudProvider: k3d
-        # Namespace is the name of the Kubernetes namespace that this
-        # CrdbClusterRegion is deployed within. It is used to compute the --join
-        # flag for this region. Defaults to the .Code of this region and then the
-        # Namespace of this CrdbCluster, if not provided.
+        # namespace defines the Kubernetes namespace for this region used to compute the --join flag.
         namespace: default
-        # Domain is the domain of the CrdbClusterRegion.
-        # Other regions need to reach this region by connecting to
-        # <cluster-name>.<namespace>.svc.<domain>.
-        # It defaults an empty string, but this will not work
-        # in a multi-region setup, where CrdbCluster objects are potentially
-        # in different namespaces.
-        # It will also not work if the k8s cluster has a custom domain.
+        # domain is the DNS domain of the region used for cross-region communication.
+        # Other regions need to reach this region by connecting to <cluster-name>.<namespace>.svc.<domain>.
         # domain: ""
-
-        # EncryptionAtRest contains all secret names and keys for EAR encryption.
+        #
+        # encryptionAtRest contains all secret names and keys for Encryption At Rest.
         # encryptionAtRest:
-        # keySecretName is the name of the k8s secret containing the (new)
-        # store key. If nil, this will be interpreted as "plain" i.e.
-        # unencrypted.
-        # keySecretName: ""
-
-        # Platform is the cloud platform whose KMS is used to gate the
-        # new Customer-Managed Encryption Key (CMEK). This string value can
-        # be mapped to CMEKKeyType with the CMEKKeyType_value map.
-        # platform: ""
-
-        # CMEKCredentialsSecretName is the name of the k8s secret containing
-        # our credentials that are needed to authenticate into the customer's
-        # KMS. This value is required if Platform is non-zero.
-        # cmekCredentialsSecretName: ""
-
-        # OldKeySecretName is the name of the k8s secret containing the old
-        # store key. If nil, this will be interpreted as "plain" i.e. unencrypted.
-        # oldKeySecretName: ""
-
-    # walFailover indicates whether we are attaching a new PVC to the node to be used
-    # for WAL writes while the data dir disk encounters a stall or increased latency
+          # keySecretName is the name of the Kubernetes Secret containing the (new) store key.
+          # If not set, this will be interpreted as "plain", i.e., unencrypted.
+          # keySecretName: ""
+          #
+          # platform is the cloud platform whose KMS is used to gate the new Customer-Managed Encryption Key (CMEK).
+          # platform: ""
+          #
+          # cmekCredentialsSecretName is the name of the Kubernetes Secret containing credentials that are needed to authenticate into the customer's KMS.
+          # This value is required if platform is not empty.
+          # cmekCredentialsSecretName: ""
+          #
+          # oldKeySecretName is the name of the Kubernetes Secret containing the old store key.
+          # If not set, this will be interpreted as "plain", i.e., unencrypted.
+          # oldKeySecretName: ""
+          #
+    # walFailoverSpec captures the configuration for WAL Failover.
     walFailoverSpec: {}
-      # status determines the possible values to WAL failover configuration.
+      # status determines the possible values to WAL Failover configuration.
       # It has 3 possible values: "", "enable" and "disable"
       # status: ""
-
-      # If enabled, then a PersistentVolumeClaim will be created of the size
-      # and used for WAL failover as a side disk.
+      #
+      # size is side disk size to be used for WAL Failover.
       # size: "25Gi"
-
-      # If defined, then `storageClassName: <storageClass>`.
-      # If undefined or empty (default), then no `storageClassName` spec is
-      # set, so the default provisioner will be chosen (gp2 on AWS, standard
-    # on GKE, AWS).
-    # storageClassName: ""
-
-    # PodLabels are the labels that should be applied to the underlying CockroachDB pod
+      #
+      # storageClassName defines the StorageClass for the PVC.
+      # If not set, the default provisioner will be chosen (gp2 on AWS, standard on GKE).
+      # storageClassName: ""
+      #
+    # podLabels captures additional labels to apply to CockroachDB pods.
     podLabels:
       app.kubernetes.io/component: cockroachdb
-
-    # Flags passed to the CockroachDB container.
+    # flags captures flags passed to the CockroachDB container.
     flags:
       # Disable backup/restore to local disk by default.
       --external-io-dir: disabled
-
-    # Environment variables set on CockroachDB pods.
+    # env captures environment variables set on CockroachDB pods.
     env: []
-    # - name: APP_NAME
-    #   value: "CRDB"
-    # - name: POD_NAME
-    #   valueFrom:
-    #     fieldRef:
-    #       fieldPath: metadata.name
-
-    # Delay between CockroachDB pod restarts. Wait 3m by default to avoid
-    # unavailability during restarts.
+      # - name: APP_NAME
+      #   value: "CRDB"
+      # - name: POD_NAME
+      #   valueFrom:
+      #     fieldRef:
+      #       fieldPath: metadata.name
+    # rollingRestartDelay specifies the delay between rolling restarts of CockroachDB pods.
     rollingRestartDelay: 30s
-
-    # Topology spread constraints set on CockroachDB pods. Spread CockroachDB
-    # pods across zones by default.
+    # topologySpreadConstraints captures pod topology spread constraints.
+    # It is recommended to spread CockroachDB pods across zones to ensure high availability.
     topologySpreadConstraints:
+        # maxSkew defines the degree to which the pods can be unevenly distributed.
       - maxSkew: 1
+        # topologyKey defines the key for topology spread.
         topologyKey: topology.kubernetes.io/zone
+        # whenUnsatisfiable defines the behavior when constraints cannot be met.
         whenUnsatisfiable: DoNotSchedule
-
-    # Service Ports for configuring non-standard ports
-    # for grpc, sql, http services.
+    # service captures the Kubernetes Service configurations for CockroachDB pods.
     service:
+      # ports captures the service port definitions.
       ports:
-        # You can set a different external and internal gRPC ports and their name.
+        # grpc captures the gRPC service port configuration.
         grpc:
+          # port defines the gRPC port number.
           port: 26258
+          # name defines the gRPC service name.
           name: grpc
+        # sql captures the SQL service port configuration.
         sql:
-          # CockroachDB's port to listen to inter-communications and client connections.
+          # port defines the SQL port number.
           port: 26257
+          # name defines the SQL service name.
           name: sql
+        # http captures the HTTP service port configuration.
         http:
-          # CockroachDB's port to listen to HTTP requests.
+          # port defines the HTTP port number.
           port: 8080
+          # name defines the HTTP service name.
           name: http
-
-      # This Service is meant to be used by clients of the database.
-      # It exposes a ClusterIP that will automatically load balance connections
-      # to the different database Pods.
+      # public captures the public service configuration for client access.
+      # It exposes a ClusterIP that will automatically load balance connections to the different database Pods.
       public:
+        # type defines the service type for external access.
         type: ClusterIP
-        # Additional annotations to apply to this Service.
+        # annotations captures additional annotations for the public service.
         annotations: {}
-        # Additional labels to apply to this Service.
+        # labels captures additional labels for the public service.
         labels:
+          # app.kubernetes.io/component defines the component label for the public service.
           app.kubernetes.io/component: cockroachdb
-
-    # PodAnnotations are the annotations that should be applied to the
-    # underlying CockroachDB pod.
+    # podAnnotations captures annotations to apply to CockroachDB pods.
     podAnnotations: {}
-
-    # TerminationGracePeriodSeconds determines the time available to CockroachDB for
-    # graceful drain. Input Type is metav1.Duration, so user has to provide input
-    # as "300s", "5m" or "1h"
+    # terminationGracePeriod determines the time available to CockroachDB for graceful drain.
+    # It follows the metav1.Duration format, e.g., "300s", "5m" or "1h".
     # terminationGracePeriod: "300s"
-
-    # NodeSelector is the set of nodeSelector labels to apply to a node.
-    nodeSelector: { }
-
-    # affinity controls the cockroachdb pods are distributed over k8s nodes.
-    affinity: { }
-    #  nodeAffinity:
-    #    requiredDuringSchedulingIgnoredDuringExecution:
-    #      nodeSelectorTerms:
-    #        - matchExpressions:
-    #            - key: kubernetes.io/os
-    #              operator: In
-    #              values:
-    #                - linux
-    #  podAffinity:
-    #    requiredDuringSchedulingIgnoredDuringExecution:
-    #      - labelSelector:
-    #          matchExpressions:
-    #              - key: security
-    #                operator: In
-    #                values:
-    #                  - S1
-    #          topologyKey: topology.kubernetes.io/zone
-    #   podAntiAffinity:
-    #     preferredDuringSchedulingIgnoredDuringExecution:
-    #        - weight: 100
-    #          podAffinityTerm:
-    #            labelSelector:
-    #              matchExpressions:
-    #                - key: security
-    #                  operator: In
-    #                  values:
-    #                    - S2
-    #            topologyKey: topology.kubernetes.io/zone
-
-    # SideCars will be run in the same pod as the crdb process.
+    # nodeSelector captures the node selector labels for scheduling pods.
+    nodeSelector: {}
+    # affinity captures scheduling affinity rules for CockroachDB pods.
+    affinity:
+      # nodeAffinity:
+      #   requiredDuringSchedulingIgnoredDuringExecution:
+      #     nodeSelectorTerms:
+      #       - matchExpressions:
+      #           - key: kubernetes.io/os
+      #             operator: In
+      #             values:
+      #               - linux
+      # podAffinity:
+      #   requiredDuringSchedulingIgnoredDuringExecution:
+      #     - labelSelector:
+      #         matchExpressions:
+      #           - key: security
+      #             operator: In
+      #             values:
+      #               - S1
+      #       topologyKey: topology.kubernetes.io/zone
+      # podAntiAffinity:
+      #   preferredDuringSchedulingIgnoredDuringExecution:
+      #     - weight: 100
+      #       podAffinityTerm:
+      #         labelSelector:
+      #           matchExpressions:
+      #             - key: security
+      #               operator: In
+      #               values:
+      #                 - S2
+      #         topologyKey: topology.kubernetes.io/zone
+      #
+    # sideCars captures the configuration for sidecar containers.
     sideCars:
-      # InitContainers will be run as init containers for the crdb pod.
+      # initContainers captures init containers for CockroachDB pods.
       initContainers: []
-
-      # Containers will be run in the same pod as the crdb container.
+      # containers captures additional containers for CockroachDB pods.
       containers: []
-
-      # Volumes will be requested in addition to the crdb volumes.
+      # volumes captures additional volumes for CockroachDB pods.
       volumes: []
-
+    # tolerations captures the tolerations for scheduling CockroachDB pods.
     tolerations: []
-
-    # An ordered, comma-separated list of keys that which must be present as labels on the nodes.
-    # These labels along with their values are used to determine the locality of the node.
+    # localityLabels captures labels used to determine node locality.
+    # It is an ordered, comma-separated list of keys that which must be present as labels on the nodes.
     # For example:
+    #
     # locality: country=us,region=us-west,datacenter=us-west-1b,rack=12
     # locality: country=ca,region=ca-east,datacenter=ca-east-2,rack=4
     # locality: planet=earth,province=manitoba,colo=secondary,power=3
     localityLabels: []
-
-    # loggingConfigMapName define the config map which contains log configuration used to send the logs through the
-    # proper channels in the cockroachdb.
+    # loggingConfigMapName defines the ConfigMap which contains log configuration used to send the logs through the
+    # proper channels within CockroachDB.
     # The value of the ConfigMap should be specified under the key logs.yaml.
     loggingConfigMapName: ""
-
-    # godebug sets the GODEBUG env var for the Go runtime. By default, disable Transparent Huge Pages,
-    # which cause memory inefficiency for CockroachDB.
+    # godebug captures Go runtime debug settings for CockroachDB pods.
     godebug:
+      # disablethp determines whether Transparent Huge Pages are disabled.
+      # By default, disables THP, which can cause memory inefficiency for CockroachDB.
       disablethp: "1"
-
 k8s:
   # nameOverride overrides the name of the chart. If not set, the chart name will be used.
-  # Example: chart name is "cockroachdb" and nameOverride is "crdb",
-  # the generated name would be "release-name-crdb" instead of "release-name-cockroachdb"
+  # For example, if the chart name is "cockroachdb" and nameOverride is set to "crdb",
+  # the generated name would be "{release-name}-crdb" instead of "{release-name}-cockroachdb".
   nameOverride: ""
-
   # fullnameOverride overrides the name of the chart completely. If not set, the chart name will be used.
-  # Example: If chart name is "cockroachdb" and fullnameOverride is "crdb",
-  # the generated name would be "crdb" instead of "release-name"
-  # Create a default fully qualified app name.
-  # We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
+  # For example, if the chart name is "cockroachdb" and fullnameOverride is set to "crdb",
+  # the generated name would be "crdb" instead of "{release-name}".
+  # We truncate at 63 chars to adhere to Kubernetes naming conventions for some resources.
   fullnameOverride: ""
-
-  # Additional labels to apply to all Kubernetes resources created by this chart.
+  # labels captures additional labels for all Kubernetes resources created by this chart.
   labels: {}
-  #   app.kubernetes.io/part-of: my-app
-
+    # app.kubernetes.io/part-of: my-app
