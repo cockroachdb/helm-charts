@@ -1,4 +1,4 @@
-{{- if and .Values.tls.certs.selfSigner.enabled .Values.tls.certs.selfSigner.rotateCerts }}
+{{- if and .Values.tls.selfSigner.enabled .Values.tls.selfSigner.rotateCerts }}
   {{- if .Capabilities.APIVersions.Has "batch/v1/CronJob" }}
 apiVersion: batch/v1
   {{- else }}
@@ -47,21 +47,21 @@ spec:
               imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
               args:
                 - rotate
-            {{- if .Values.tls.certs.selfSigner.caProvided }}
-                - --ca-secret={{ .Values.tls.certs.selfSigner.caSecret }}
+            {{- if .Values.tls.selfSigner.caProvided }}
+                - --ca-secret={{ .Values.tls.selfSigner.caSecret }}
             {{- else }}
-                - --ca-duration={{ .Values.tls.certs.selfSigner.caCertDuration }}
-                - --ca-expiry={{ .Values.tls.certs.selfSigner.caCertExpiryWindow }}
+                - --ca-duration={{ .Values.tls.selfSigner.caCertDuration }}
+                - --ca-expiry={{ .Values.tls.selfSigner.caCertExpiryWindow }}
             {{- end }}
                 - --client
-                - --client-duration={{ .Values.tls.certs.selfSigner.clientCertDuration }}
-                - --client-expiry={{ .Values.tls.certs.selfSigner.clientCertExpiryWindow }}
+                - --client-duration={{ .Values.tls.selfSigner.clientCertDuration }}
+                - --client-expiry={{ .Values.tls.selfSigner.clientCertExpiryWindow }}
                 - --node
-                - --node-duration={{ .Values.tls.certs.selfSigner.nodeCertDuration }}
-                - --node-expiry={{ .Values.tls.certs.selfSigner.nodeCertExpiryWindow }}
+                - --node-duration={{ .Values.tls.selfSigner.nodeCertDuration }}
+                - --node-expiry={{ .Values.tls.selfSigner.nodeCertExpiryWindow }}
                 - --node-client-cron={{ template "selfcerts.clientRotateSchedule" . }}
-                - --readiness-wait={{ .Values.tls.certs.selfSigner.readinessWait }}
-                - --pod-update-timeout={{ .Values.tls.certs.selfSigner.podUpdateTimeout }}
+                - --readiness-wait={{ .Values.tls.selfSigner.readinessWait }}
+                - --pod-update-timeout={{ .Values.tls.selfSigner.podUpdateTimeout }}
               env:
                 - name: STATEFULSET_NAME
                   value: {{ template "cockroachdb.fullname" . }}

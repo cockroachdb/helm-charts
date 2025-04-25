@@ -1,5 +1,20 @@
 # Generated file, DO NOT EDIT. Source: build/templates/values.yaml
 
+# Default values for the cluster chart.
+image:
+  name: cockroachdb/cockroach:v25.1.0
+  pullPolicy: IfNotPresent
+  credentials: { }
+  # registry: docker.io
+  # username: john_doe
+  # password: changeme
+
+nameOverride: ""
+fullnameOverride: ""
+
+# A map of CockroachDB cluster settings.
+# See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
+clusterSettings: ~
 
 # Sets timestamp annotation for CockroachDB pods,
 # This is added for the purpose of rolling restarts with helm upgrade without any other configuration changes.
@@ -15,7 +30,12 @@ labels: {}
 # otherwise CockroachDB nodes discovery won't work.
 clusterDomain: cluster.local
 
-replicas: 3
+# The addresses for connecting a CockroachDB nodes to an existing cluster.
+# If you are deploying a second CockroachDB instance that should join a first
+# one, use the below list to join to the existing instance.
+# Each item in the array should be a FQDN (and port if needed) resolvable by
+# new Pods.
+join: []
 
 serviceAccount:
   # Specifies whether this ServiceAccount should be created.
@@ -27,94 +47,44 @@ serviceAccount:
   # Additional serviceAccount annotations (e.g. for attaching AWS IAM roles to pods)
   annotations: {}
 
-  # This Service is meant to be used by clients of the database.
-  # It exposes a ClusterIP that will automatically load balance connections
-  # to the different database Pods.
-  public:
-    type: ClusterIP
-    # Additional labels to apply to this Service.
-    labels:
-      app.kubernetes.io/component: cockroachdb
-    # Additional annotations to apply to this Service.
-    annotations: {}
-
 
 # Whether to run securely using TLS certificates.
 tls:
   enabled: true
-  copyCerts:
-    image: busybox
-  certs:
-    # Bring your own certs scenario. If provided, tls.init section will be ignored.
-    provided: false
-    # Secret name for the client root cert.
-    clientRootSecret: cockroachdb-root
-    # Secret name for node cert.
-    nodeSecret: cockroachdb-node
-    # Secret name for CA cert
-    caSecret: cockroach-ca
-    # Enable if the secret is a dedicated TLS.
-    # TLS secrets are created by cert-manager, for example.
-    tlsSecret: false
-    # Enable if you want cockroach db to create its own certificates
-    selfSigner:
-      # If set, the cockroach db will generate its own certificates
-      enabled: true
-      # Run selfSigner as non-root
-      securityContext:
-        enabled: true
-      # If set, the user should provide the CA certificate to sign other certificates.
-      caProvided: false
-      # It holds the name of the secret with caCerts. If caProvided is set, this can not be empty.
-      caSecret: ""
-      # Minimum Certificate duration for all the certificates, all certs duration will be validated against this.
-      minimumCertDuration: 624h
-      # Duration of CA certificates in hour
-      caCertDuration: 43800h
-      # Expiry window of CA certificates means a window before actual expiry in which CA certs should be rotated.
-      caCertExpiryWindow: 648h
-      # Duration of Client certificates in hour
-      clientCertDuration: 672h
-      # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.
-      clientCertExpiryWindow: 48h
-      # Duration of node certificates in hour
-      nodeCertDuration: 8760h
-      # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
-      nodeCertExpiryWindow: 168h
-      # If set, the cockroachdb cert selfSigner will rotate the certificates before expiry.
-      rotateCerts: true
-      # Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true
-      readinessWait: 30s
-      # Wait time for each cockroachdb replica to get to running state. Only considered when rotateCerts is set to true
-      podUpdateTimeout: 2m
-      # ServiceAccount annotations for selfSigner jobs (e.g. for attaching AWS IAM roles to pods)
-      svcAccountAnnotations: {}
-
-    # Use cert-manager to issue certificates for mTLS.
-    certManager: false
-    # Specify an Issuer or a ClusterIssuer to use, when issuing
-    # node and client certificates. The values correspond to the
-    # issuerRef specified in the certificate.
-    certManagerIssuer:
-      group: cert-manager.io
-      kind: Issuer
-      name: cockroachdb
-      # Make it false when you are providing your own CA issuer
-      isSelfSignedIssuer: true
-      # Duration of CA certificates in hour
-      caCertDuration: 43800h
-      # Expiry window of CA certificates means a window before actual expiry in which CA certs should be rotated.
-      caCertExpiryWindow: 648h
-      # Duration of Client certificates in hours
-      clientCertDuration: 672h
-      # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.
-      clientCertExpiryWindow: 48h
-      # Duration of node certificates in hours
-      nodeCertDuration: 8760h
-      # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
-      nodeCertExpiryWindow: 168h
-
+  # Enable if you want cockroach db to create its own certificates
   selfSigner:
+    # If set, the cockroach db will generate its own certificates
+    enabled: true
+    # Run selfSigner as non-root
+    securityContext:
+      enabled: true
+    # If set, the user should provide the CA certificate to sign other certificates.
+    caProvided: false
+    # It holds the name of the secret with caCerts. If caProvided is set, this can not be empty.
+    caSecret: ""
+    # Minimum Certificate duration for all the certificates, all certs duration will be validated against this.
+    minimumCertDuration: 624h
+    # Duration of CA certificates in hour
+    caCertDuration: 43800h
+    # Expiry window of CA certificates means a window before actual expiry in which CA certs should be rotated.
+    caCertExpiryWindow: 648h
+    # Duration of Client certificates in hour
+    clientCertDuration: 672h
+    # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.
+    clientCertExpiryWindow: 48h
+    # Duration of node certificates in hour
+    nodeCertDuration: 8760h
+    # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
+    nodeCertExpiryWindow: 168h
+    # If set, the cockroachdb cert selfSigner will rotate the certificates before expiry.
+    rotateCerts: true
+    # Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true
+    readinessWait: 30s
+    # Wait time for each cockroachdb replica to get to running state. Only considered when rotateCerts is set to true
+    podUpdateTimeout: 2m
+    # ServiceAccount annotations for selfSigner jobs (e.g. for attaching AWS IAM roles to pods)
+    svcAccountAnnotations: {}
+
     # Additional labels to apply to the Pod of this Job.
     labels: {}
 
@@ -143,35 +113,93 @@ tls:
       # username: john_doe
       # password: changeme
 
+  # Use cert-manager to issue certificates for mTLS.
+  certManager:
+    enabled : false
+    # Specify an Issuer or a ClusterIssuer to use, when issuing
+    # node and client certificates. The values correspond to the
+    # issuerRef specified in the certificate.
 
-# To put the admin interface behind Identity Aware Proxy (IAP) on Google Cloud Platform
-# make sure to set ingress.paths: ['/*']
-iap:
-  enabled: false
-  # Create Google Cloud OAuth credentials and set client id and secret
-  # clientId:
-  # clientSecret:
+    # Secret name for CA cert
+    caSecret: cockroach-ca
+
+    # Secret name for the client root cert.
+    clientRootSecret: cockroachdb-root
+
+    certManagerIssuer:
+      group: cert-manager.io
+      kind: Issuer
+      name: cockroachdb
+      # Make it false when you are providing your own CA issuer
+      isSelfSignedIssuer: true
+      # Duration of CA certificates in hour
+      caCertDuration: 43800h
+      # Expiry window of CA certificates means a window before actual expiry in which CA certs should be rotated.
+      caCertExpiryWindow: 648h
+      # Duration of Client certificates in hours
+      clientCertDuration: 672h
+      # Expiry window of client certificates means a window before actual expiry in which client certs should be rotated.
+      clientCertExpiryWindow: 48h
+      # Duration of node certificates in hours
+      nodeCertDuration: 8760h
+      # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
+      nodeCertExpiryWindow: 168h
+
+  certificates:
+    # Bring your own certs scenario. If provided, tls.init section will be ignored.
+    provided: false
+    # External certificates for the CockroachDB cluster.
+    externalCertificates: {}
+      # CAConfigMapName is the name of a Kubernetes ConfigMap containing a ca.crt
+      # entry that was used to sign other external certificates. This is used to
+      # validate the node and client certificates.
+      # https://www.cockroachlabs.com/docs/stable/authentication.html#client-authentication
+      # caConfigMapName: ""
+
+      # NodeClientSecretName is the name of a Kubernetes TLS secret holding
+      # client certificates used when establishing connections to other nodes
+      # in the cluster (e.g. joining an existing cluster).
+      # The certificate must be signed with the CA identified by CAConfigMapName
+      # or ClientCASecretName if using split CA certificates.
+      # nodeClientSecretName: ""
+
+      # NodeSecretName is the name of a Kubernetes TLS Secret that will be used
+      # when receiving incoming connections from other nodes for RPC and SQL calls.
+      # The certificate must be signed with the CA identified by CAConfigMapName,
+      # or NodeCASecretName if using split CA certificates.
+      # nodeSecretName: ""
+
+      # HTTPSecretName is the name of a Kubernetes TLS Secret that will be used
+      # for the HTTP service.
+      # httpSecretName: ""
+
+      # RootSQLClientSecretName is the name of a Kubernetes TLS secret holding
+      # SQL client certificates for the root SQL user. It allows the operator to
+      # perform various administrative actions (e.g. set cluster settings).
+      # The certificate must be signed with the CA identified by CAConfigMapName
+      # or ClientCASecretName if using split CA certificates.
+      # rootSqlClientSecretName: ""
+
+      # NodeCAConfigMapName is the name of a Kubernetes ConfigMap containing a
+      # ca.crt entry that will be used as the CA for node authentication. Only
+      # set if using split CA certificates, which is not recommended:
+      # https://www.cockroachlabs.com/docs/stable/authentication.html#using-split-ca-certificates.
+      # Exactly one of CAConfigMapName and NodeCAConfigMapName must be set.
+      # nodeCaConfigMapName: ""
+
+      # ClientCAConfigMapName is the name of a Kubernetes ConfigMap containing a
+      # ca.crt entry that will be used as the CA for client authentication. This
+      # is used to validate the client certificates. Only set if using split
+      # CA certificates, which is not recommended:
+    # https://www.cockroachlabs.com/docs/stable/authentication.html#using-split-ca-certificates.
+    # https://www.cockroachlabs.com/docs/stable/authentication.html#client-authentication
+    # clientCaConfigMapName: ""
+
 
 # Set the GODEBUG env var for the Go runtime. By default, disable Transparent Huge Pages,
 # which cause memory inefficiency for CockroachDB.
 godebug:
   disablethp: "1"
-
-# Default values for the cluster chart.
-image:
-  name: cockroachdb/cockroach:v25.1.0
-  pullPolicy: IfNotPresent
-  credentials: { }
-  # registry: docker.io
-  # username: john_doe
-  # password: changeme
-
-nameOverride: ""
-fullnameOverride: ""
-
-# A map of CockroachDB cluster settings.
-# See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
-clusterSettings: ~
 
 # loggingConf is the logging configuration used by cockroach.
 # More details: https://www.cockroachlabs.com/docs/stable/logging-overview.html
@@ -211,62 +239,6 @@ dataStore:
       # storageClassName is the name of the StorageClass required by the claim.
       # If not provided, it will use the default storage class of the cluster.
       # storageClassName: ""
-
-certificates:
-  # Any extra alt names that should be added to the node certs.
-  extraNodeAltNames: []
-    # - somevalue
-    # - somevalue.default
-  # - somevalue.default.svc.local
-  # the number of days generated certs are valid for
-  # validForDays: 3650
-
-  # External certificates for the CockroachDB cluster.
-  externalCertificates: {}
-    # CAConfigMapName is the name of a Kubernetes ConfigMap containing a ca.crt
-    # entry that was used to sign other external certificates. This is used to
-    # validate the node and client certificates.
-    # https://www.cockroachlabs.com/docs/stable/authentication.html#client-authentication
-    # caConfigMapName: ""
-
-    # NodeClientSecretName is the name of a Kubernetes TLS secret holding
-    # client certificates used when establishing connections to other nodes
-    # in the cluster (e.g. joining an existing cluster).
-    # The certificate must be signed with the CA identified by CAConfigMapName
-    # or ClientCASecretName if using split CA certificates.
-    # nodeClientSecretName: ""
-
-    # NodeSecretName is the name of a Kubernetes TLS Secret that will be used
-    # when receiving incoming connections from other nodes for RPC and SQL calls.
-    # The certificate must be signed with the CA identified by CAConfigMapName,
-    # or NodeCASecretName if using split CA certificates.
-    # nodeSecretName: ""
-
-    # HTTPSecretName is the name of a Kubernetes TLS Secret that will be used
-    # for the HTTP service.
-    # httpSecretName: ""
-
-    # RootSQLClientSecretName is the name of a Kubernetes TLS secret holding
-    # SQL client certificates for the root SQL user. It allows the operator to
-    # perform various administrative actions (e.g. set cluster settings).
-    # The certificate must be signed with the CA identified by CAConfigMapName
-    # or ClientCASecretName if using split CA certificates.
-    # rootSqlClientSecretName: ""
-
-    # NodeCAConfigMapName is the name of a Kubernetes ConfigMap containing a
-    # ca.crt entry that will be used as the CA for node authentication. Only
-    # set if using split CA certificates, which is not recommended:
-    # https://www.cockroachlabs.com/docs/stable/authentication.html#using-split-ca-certificates.
-    # Exactly one of CAConfigMapName and NodeCAConfigMapName must be set.
-    # nodeCaConfigMapName: ""
-
-    # ClientCAConfigMapName is the name of a Kubernetes ConfigMap containing a
-    # ca.crt entry that will be used as the CA for client authentication. This
-    # is used to validate the client certificates. Only set if using split
-    # CA certificates, which is not recommended:
-    # https://www.cockroachlabs.com/docs/stable/authentication.html#using-split-ca-certificates.
-    # https://www.cockroachlabs.com/docs/stable/authentication.html#client-authentication
-  # clientCaConfigMapName: ""
 
 # RBAC settings for CockroachDB nodes
 rbac:
@@ -416,8 +388,10 @@ service:
   public:
     type: ClusterIP
     # Additional annotations to apply to this Service.
-    annotations: { }
-
+    annotations: {}
+    # Additional labels to apply to this Service.
+    labels:
+      app.kubernetes.io/component: cockroachdb
 # PodAnnotations are the annotations that should be applied to the
 # underlying CockroachDB pod.
 podAnnotations: {}

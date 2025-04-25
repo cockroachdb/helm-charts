@@ -12,7 +12,6 @@ value: 500000000
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: cockroach-operator-role
 rules:
   # Namespace permissions should be dropped once this K8s bug is fixed.
@@ -474,7 +473,7 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
             - name: CLOUD_REGION
-              value: "random-region"
+              value: {{ .Values.cloudRegion }}
           resources:
             requests:
               cpu: 500m

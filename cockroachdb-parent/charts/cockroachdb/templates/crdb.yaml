@@ -28,11 +28,14 @@ spec:
   template:
     spec:
       image: "{{ .Values.image.name }}"
+      {{- if .Values.join }}
+      join: {{ .Values.join }}
+      {{- end }}
       certificates:
         {{- if .Values.certificates.externalCertificates }}
         externalCertificates: {{- toYaml .Values.certificates.externalCertificates | nindent 10 }}
         {{- else }}
-        {{- if .Values.tls.certs.selfSigner.enabled }}
+        {{- if .Values.tls.selfSigner.enabled }}
         externalCertificates:
           {{- /* Note: defaults should match secrets and configmaps created by the self-signer job. */}}
           caConfigMapName: {{ default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}

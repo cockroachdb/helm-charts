@@ -8,3 +8,4 @@ image:
 certificate:
   validForDays: ""
 numReplicas: 1
+cloudRegion: ""

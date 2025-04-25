@@ -1,4 +1,4 @@
-{{- if and .Values.tls.enabled .Values.tls.certs.certManager }}
+{{- if and .Values.tls.enabled .Values.tls.certManager.enabled }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -13,8 +13,8 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  duration: {{ .Values.tls.certs.certManagerIssuer.nodeCertDuration }}
-  renewBefore: {{ .Values.tls.certs.certManagerIssuer.nodeCertExpiryWindow }}
+  duration: {{ .Values.tls.certManager.certManagerIssuer.nodeCertDuration }}
+  renewBefore: {{ .Values.tls.certManager.certManagerIssuer.nodeCertExpiryWindow }}
   usages:
     - digital signature
     - key encipherment
@@ -38,13 +38,13 @@ spec:
     - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
   secretName: {{ .Values.tls.certs.nodeSecret }}
   issuerRef:
-  {{- if .Values.tls.certs.certManagerIssuer.isSelfSignedIssuer }}
+  {{- if .Values.tls.certManager.certManagerIssuer.isSelfSignedIssuer }}
     name: {{ template "cockroachdb.fullname" . }}-ca-issuer
     kind: Issuer
     group: cert-manager.io
   {{- else }}
-    name: {{ .Values.tls.certs.certManagerIssuer.name }}
-    kind: {{ .Values.tls.certs.certManagerIssuer.kind }}
-    group: {{ .Values.tls.certs.certManagerIssuer.group }}
+    name: {{ .Values.tls.certManager.certManagerIssuer.name }}
+    kind: {{ .Values.tls.certManager.certManagerIssuer.kind }}
+    group: {{ .Values.tls.certManager.certManagerIssuer.group }}
   {{- end }}
 {{- end }}

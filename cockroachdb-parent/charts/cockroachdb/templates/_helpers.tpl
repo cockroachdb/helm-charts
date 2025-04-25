@@ -59,36 +59,6 @@ Create the name of the ServiceAccount to use.
 {{- end -}}
 {{- end -}}
 
-{{/*
-Return the appropriate apiVersion for NetworkPolicy.
-*/}}
-{{- define "cockroachdb.networkPolicy.apiVersion" -}}
-{{- if semverCompare ">=1.4-0, <=1.7-0" .Capabilities.KubeVersion.Version -}}
-    {{- print "extensions/v1beta1" -}}
-{{- else if semverCompare "^1.7-0" .Capabilities.KubeVersion.Version -}}
-    {{- print "networking.k8s.io/v1" -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-Return CockroachDB store expression
-*/}}
-{{- define "cockroachdb.conf.store" -}}
-  {{- $isInMemory := eq (.Values.conf.store.type | toString) "mem" -}}
-  {{- $persistentSize := empty .Values.conf.store.size | ternary .Values.storage.persistentVolume.size .Values.conf.store.size -}}
-
-  {{- $store := dict -}}
-  {{- $_ := set $store "type" ($isInMemory | ternary "type=mem" "") -}}
-  {{- if eq .Args.idx 0 -}}
-    {{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.path)) -}}
-  {{- else -}}
-    {{- $_ := set $store "path" ($isInMemory | ternary "" (print "path=" .Values.conf.path "-" (add1 .Args.idx))) -}}
-  {{- end -}}
-  {{- $_ := set $store "size" (print "size=" ($isInMemory | ternary .Values.conf.store.size $persistentSize)) -}}
-  {{- $_ := set $store "attrs" (empty .Values.conf.store.attrs | ternary "" (print "attrs=" .Values.conf.store.attrs)) -}}
-
-  {{- compact (values $store) | sortAlpha | join "," -}}
-{{- end -}}
 
 {{/*
 Define the default values for the certificate selfSigner inputs
@@ -282,37 +252,6 @@ Validate that if user enabled tls, then either self-signed certificates or certi
 {{- end }}
 {{- end }}
 {{- end }}
-
-{{/*
-Validate the log configuration.
-*/}}
-{{- define "cockroachdb.conf.log.validation" -}}
-{{- if and (not .Values.conf.log.enabled) .Values.conf.log.persistentVolume.enabled -}}
-    {{ fail "Persistent volume for logs can only be enabled if logging is enabled" }}
-{{- end -}}
-{{- if and .Values.conf.log.persistentVolume.enabled (dig "file-defaults" "dir" "" .Values.conf.log.config) -}}
-{{- if not (hasPrefix (printf "/cockroach/%s" .Values.conf.log.persistentVolume.path) (dig "file-defaults" "dir" "" .Values.conf.log.config)) }}
-    {{ fail "Log configuration should use the persistent volume if enabled" }}
-{{- end -}}
-{{- end -}}
-{{- end -}}
-
-{{- define "cockroachdb.storage.hostPath.computation" -}}
-{{- if hasSuffix "/" .Values.storage.hostPath -}}
-    {{- printf "%s-%d/" (dir .Values.storage.hostPath) (add1 .Args.idx) | quote -}}
-{{- else -}}
-    {{- printf "%s-%d" .Values.storage.hostPath (add1 .Args.idx) | quote -}}
-{{- end -}}
-{{- end -}}
-
-{{/*
-Validate the store count configuration.
-*/}}
-{{- define "cockroachdb.conf.store.validation" -}}
-  {{- if and (not .Values.conf.store.enabled) (ne (int .Values.conf.store.count) 1) -}}
-    {{ fail "Store count should be 1 when disabled" }}
-  {{- end -}}
-{{- end -}}
 
 {{/*
 Validate the WAL failover configuration.

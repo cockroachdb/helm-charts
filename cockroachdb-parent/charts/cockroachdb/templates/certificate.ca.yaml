@@ -1,5 +1,5 @@
-{{- if and .Values.tls.enabled .Values.tls.certs.certManager }}
-  {{- if .Values.tls.certs.certManagerIssuer.isSelfSignedIssuer }}
+{{- if and .Values.tls.enabled .Values.tls.certManager.enabled }}
+  {{- if .Values.tls.certManager.certManagerIssuer.isSelfSignedIssuer }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -14,10 +14,10 @@ metadata:
       {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
-  duration: {{ .Values.tls.certs.certManagerIssuer.caCertDuration }}
+  duration: {{ .Values.tls.certManager.certManagerIssuer.caCertDuration }}
   renewBefore: {{ .Values.tls.certs.certManagerIssuer.caCertExpiryWindow  }}
   isCA: true
-  secretName: {{ .Values.tls.certs.caSecret }}
+  secretName: {{ .Values.tls.certManager.caSecret }}
   privateKey:
     algorithm: ECDSA
     size: 256

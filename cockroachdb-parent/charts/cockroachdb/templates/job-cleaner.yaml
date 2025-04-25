@@ -1,4 +1,4 @@
-{{- if and .Values.tls.enabled .Values.tls.certs.selfSigner.enabled }}
+{{- if and .Values.tls.enabled .Values.tls.selfSigner.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -31,7 +31,7 @@ spec:
       annotations: {{- toYaml . | nindent 8 }}
     {{- end }}
     spec:
-    {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
+    {{- if and .Values.tls.selfSigner.securityContext.enabled }}
       securityContext:
         seccompProfile:
           type: "RuntimeDefault"
@@ -64,7 +64,7 @@ spec:
           env:
             - name: STATEFULSET_NAME
               value: {{ template "cockroachdb.fullname" . }}
-        {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
+        {{- if and .Values.tls.selfSigner.securityContext.enabled }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:
