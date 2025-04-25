@@ -130,7 +130,7 @@ test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer tes
 
 test/e2e/migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/self-signer test/cluster/up/3
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
-	$(MAKE) test/multi-cluster/down; \
+	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
 
 test/single-cluster/up: bin/k3d

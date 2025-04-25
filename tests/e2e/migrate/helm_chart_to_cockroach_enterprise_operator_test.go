@@ -119,10 +119,11 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", fmt.Sprintf("%s-budget", stsName))
 
 	t.Log("helm upgrade the cockroach enterprise operator")
+	helmPath, _ := operator.HelmChartPaths()
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
-	}, filepath.Join(testutil.GetGitRoot(), "cockroachdb"), releaseName)
+	}, helmPath, releaseName)
 
 	defer func() {
 		t.Log("helm uninstall the crdbcluster CR from the helm chart")
