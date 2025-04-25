@@ -12,7 +12,6 @@ value: 500000000
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  creationTimestamp: null
   name: cockroach-operator-role
 rules:
   # Namespace permissions should be dropped once this K8s bug is fixed.
@@ -447,7 +446,7 @@ spec:
       priorityClassName: cockroach-operator
       containers:
         - name: cockroach-operator
-          image: us-docker.pkg.dev/cockroach-cloud-images/development/cockroach-operator@sha256:022b24e4ce2bdd3298a0aa67aa0a8b7f7503de5f87e4ded82c749c3865c115be
+          image: {{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}
           args:
             # Pin metrics port so it can be properly exposed by the "ports"
             # field below even in the event of a change to the default value.

@@ -1,10 +1,10 @@
 # Default values for the operator chart.
 image:
-  registry: "us-docker.pkg.dev/cockroach-cloud-images/data-plane"
-  repository: "cockroach-operator"
+  registry: "us-docker.pkg.dev/cockroach-cloud-images/development"
+  repository: "cockroach-operator@sha256"
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the cluster chart's appVersion.
-  tag: "ccfba5cf5cde9ae612de9de2cef8080b4dd216f3"
+  tag: "022b24e4ce2bdd3298a0aa67aa0a8b7f7503de5f87e4ded82c749c3865c115be"
 certificate:
   validForDays: ""
 numReplicas: 1

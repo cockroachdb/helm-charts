@@ -1,5 +1,5 @@
 ## Operator chart values
-#operator:
+# operator:
 #  enabled: true
 #  name: operator
 #  weight: 0
@@ -13,7 +13,7 @@
 #  numReplicas: 1
 #
 ## CockroachDB chart values
-#cockroachdb:
+# cockroachdb:
 #  enabled: true
 #  weight: 1
 #

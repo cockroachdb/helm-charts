@@ -96,9 +96,6 @@ spec:
     secretName: cockroachdb-ca
 ```
 
-Note, that if you are running in secure mode (`tls.enabled` is `yes`/`true`) and increase the size of your cluster, you will also have to approve the CSR (certificate-signing request) of each new node (using `kubectl get csr` and `kubectl certificate approve`).
-
-
 # CockroachDB Helm Chart
 
 [CockroachDB](https://github.com/cockroachdb/cockroach) - the cloud-native distributed SQL database.
@@ -192,7 +189,6 @@ For example, if `us-central1` has already been deployed, and `us-east1` is being
 
 ```
 clusterDomain: cluster.gke.gcp-us-east1
-operator:
   regions:
     - code: us-central1
       nodes: 3
