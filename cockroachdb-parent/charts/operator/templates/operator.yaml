@@ -446,7 +446,7 @@ spec:
       priorityClassName: cockroach-operator
       containers:
         - name: cockroach-operator
-          image: us-docker.pkg.dev/cockroach-cloud-images/development/cockroach-operator@sha256:785e9ea1738e890d8a2a1362b1e8a29beec53ef9046da65c1cbe6e82f914dbf3
+          image: {{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}
           args:
             # Pin metrics port so it can be properly exposed by the "ports"
             # field below even in the event of a change to the default value.

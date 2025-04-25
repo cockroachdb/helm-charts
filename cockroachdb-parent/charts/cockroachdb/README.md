@@ -1,5 +1,3 @@
-<!--- Generated file, DO NOT EDIT. Source: build/templates/README.md --->
-
 ## Add the CockroachDB Repository
 
 ```shell
