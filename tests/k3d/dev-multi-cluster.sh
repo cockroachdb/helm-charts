@@ -34,12 +34,12 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-controller:v1.11.0"
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
     "coredns/coredns:1.9.2"
-    "$(bin/yq '.image.name' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
-    "us.gcr.io/cockroach-cloud-images/inotifywait:20200513"
+    "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
+    "us-docker.pkg.dev/cockroach-cloud-images/data-plane/inotifywait:87edf086db32734c7fa083a62d1055d664900840"
     "bash:latest"
     "busybox"
     "us-docker.pkg.dev/cockroach-cloud-images/data-plane/init-container:f21cb0727676a48d0000bc3f32108ce59d51c3e7"
-    "${REGISTRY}/${REPOSITORY}:$(bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
+    "${REGISTRY}/${REPOSITORY}:$(bin/yq '.cockroachdb.tls.selfSigner.image.tag' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
 )
 
 usage() {

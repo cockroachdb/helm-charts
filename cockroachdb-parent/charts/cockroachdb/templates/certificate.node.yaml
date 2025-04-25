@@ -1,4 +1,4 @@
-{{- if and .Values.tls.enabled .Values.tls.certManager.enabled }}
+{{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.certManager.enabled }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -9,12 +9,12 @@ metadata:
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-  {{- with .Values.labels }}
+  {{- with .Values.k8s.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  duration: {{ .Values.tls.certManager.certManagerIssuer.nodeCertDuration }}
-  renewBefore: {{ .Values.tls.certManager.certManagerIssuer.nodeCertExpiryWindow }}
+  duration: {{ .Values.cockroachdb.tls.certManager.issuer.nodeCertDuration }}
+  renewBefore: {{ .Values.cockroachdb.tls.certManager.issuer.nodeCertExpiryWindow }}
   usages:
     - digital signature
     - key encipherment
@@ -32,19 +32,19 @@ spec:
     - "127.0.0.1"
     - {{ printf "%s-public" (include "cockroachdb.fullname" .) | quote }}
     - {{ printf "%s-public.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
-    - {{ printf "%s-public.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
+    - {{ printf "%s-public.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.cockroachdb.clusterDomain | quote }}
     - {{ printf "*.%s" (include "cockroachdb.fullname" .) | quote }}
     - {{ printf "*.%s.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
-    - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.clusterDomain | quote }}
-  secretName: {{ .Values.tls.certs.nodeSecret }}
+    - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.cockroachdb.clusterDomain | quote }}
+  secretName: {{ .Values.cockroachdb.tls.certManager.nodeSecret }}
   issuerRef:
-  {{- if .Values.tls.certManager.certManagerIssuer.isSelfSignedIssuer }}
+  {{- if .Values.cockroachdb.tls.certManager.issuer.isSelfSignedIssuer }}
     name: {{ template "cockroachdb.fullname" . }}-ca-issuer
     kind: Issuer
     group: cert-manager.io
   {{- else }}
-    name: {{ .Values.tls.certManager.certManagerIssuer.name }}
-    kind: {{ .Values.tls.certManager.certManagerIssuer.kind }}
-    group: {{ .Values.tls.certManager.certManagerIssuer.group }}
+    name: {{ .Values.cockroachdb.tls.certManager.issuer.name }}
+    kind: {{ .Values.cockroachdb.tls.certManager.issuer.kind }}
+    group: {{ .Values.cockroachdb.tls.certManager.issuer.group }}
   {{- end }}
 {{- end }}

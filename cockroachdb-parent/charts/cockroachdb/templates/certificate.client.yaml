@@ -9,7 +9,7 @@ metadata:
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-  {{- with .Values.labels }}
+  {{- with .Values.k8s.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
@@ -28,13 +28,13 @@ spec:
       - Cockroach
   secretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
   issuerRef:
-  {{- if .Values.tls.certManager.certManagerIssuer.isSelfSignedIssuer }}
+  {{- if .Values.cockroachdb.tls.certManager.issuer.isSelfSignedIssuer }}
     name: {{ template "cockroachdb.fullname" . }}-ca-issuer
     kind: Issuer
     group: cert-manager.io
   {{- else }}
-    name: {{ .Values.tls.certManager.certManagerIssuer.name }}
-    kind: {{ .Values.tls.certManager.certManagerIssuer.kind }}
-    group: {{ .Values.tls.certManager.certManagerIssuer.group }}
+    name: {{ .Values.cockroachdb.tls.certManager.issuer.name }}
+    kind: {{ .Values.cockroachdb.tls.certManager.issuer.kind }}
+    group: {{ .Values.cockroachdb.tls.certManager.issuer.group }}
   {{- end }}
 {{- end }}

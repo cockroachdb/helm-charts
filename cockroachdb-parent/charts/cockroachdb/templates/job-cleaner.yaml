@@ -1,4 +1,4 @@
-{{- if and .Values.tls.enabled .Values.tls.selfSigner.enabled }}
+{{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.selfSigner.enabled }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -24,14 +24,14 @@ spec:
         app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
         app.kubernetes.io/instance: {{ .Release.Name | quote }}
         app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-      {{- with .Values.tls.selfSigner.labels }}
+      {{- with .Values.cockroachdb.tls.selfSigner.labels }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
-    {{- with .Values.tls.selfSigner.annotations }}
+    {{- with .Values.cockroachdb.tls.selfSigner.annotations }}
       annotations: {{- toYaml . | nindent 8 }}
     {{- end }}
     spec:
-    {{- if and .Values.tls.selfSigner.securityContext.enabled }}
+    {{- if and .Values.cockroachdb.tls.selfSigner.securityContext.enabled }}
       securityContext:
         seccompProfile:
           type: "RuntimeDefault"
@@ -40,31 +40,31 @@ spec:
         fsGroup: 1000
         runAsNonRoot: true
     {{- end }}
-    {{- if and .Values.tls.enabled .Values.tls.selfSigner.image.credentials }}
+    {{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.selfSigner.image.credentials }}
       imagePullSecrets:
         - name: {{ template "cockroachdb.fullname" . }}.init-certs.registry
     {{- end }}
       restartPolicy: Never
-    {{- with .Values.tls.selfSigner.affinity }}
+    {{- with .Values.cockroachdb.tls.selfSigner.affinity }}
       affinity: {{- toYaml . | nindent 8 }}
     {{- end }}
-    {{- with .Values.tls.selfSigner.nodeSelector }}
+    {{- with .Values.cockroachdb.tls.selfSigner.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
     {{- end }}
-    {{- with .Values.tls.selfSigner.tolerations }}
+    {{- with .Values.cockroachdb.tls.selfSigner.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
     {{- end }}
       containers:
         - name: cleaner
-          image: "{{ .Values.tls.selfSigner.image.registry }}/{{ .Values.tls.selfSigner.image.repository }}:{{ .Values.tls.selfSigner.image.tag }}"
-          imagePullPolicy: "{{ .Values.tls.selfSigner.image.pullPolicy }}"
+          image: "{{ .Values.cockroachdb.tls.selfSigner.image.registry }}/{{ .Values.cockroachdb.tls.selfSigner.image.repository }}:{{ .Values.cockroachdb.tls.selfSigner.image.tag }}"
+          imagePullPolicy: "{{ .Values.cockroachdb.tls.selfSigner.image.pullPolicy }}"
           args:
             - cleanup
             - --namespace={{ .Release.Namespace }}
           env:
             - name: STATEFULSET_NAME
               value: {{ template "cockroachdb.fullname" . }}
-        {{- if and .Values.tls.selfSigner.securityContext.enabled }}
+        {{- if and .Values.cockroachdb.tls.selfSigner.securityContext.enabled }}
           securityContext:
             allowPrivilegeEscalation: false
             capabilities:

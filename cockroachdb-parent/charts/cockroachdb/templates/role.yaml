@@ -1,4 +1,4 @@
-{{- if .Values.tls.enabled }}
+{{- if .Values.cockroachdb.tls.enabled }}
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -9,13 +9,13 @@ metadata:
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-  {{- with .Values.labels }}
+  {{- with .Values.k8s.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
 rules:
   - apiGroups: [""]
     resources: ["secrets"]
-    {{- if or .Values.tls.certificates.provided .Values.tls.certManager.enabled }}
+    {{- if or .Values.cockroachdb.tls.externalCertificates.enabled .Values.cockroachdb.tls.certManager.enabled }}
     verbs: ["get"]
     {{- else }}
     verbs: ["create", "get"]
@@ -34,7 +34,7 @@ metadata:
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-  {{- with .Values.labels }}
+  {{- with .Values.k8s.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
 rules:

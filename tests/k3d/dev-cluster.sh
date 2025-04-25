@@ -26,10 +26,10 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-webhook:v1.11.0"
     "quay.io/jetstack/cert-manager-controller:v1.11.0"
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
-    "cockroachdb/cockroach:v25.1.2"
+    "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
     "cockroachdb/cockroach-operator:v2.18.1"
     "bash:latest"
-    "${REGISTRY}/${REPOSITORY}:$(bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
+    "${REGISTRY}/${REPOSITORY}:$(bin/yq '.cockroachdb.tls.selfSigner.image.tag' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
 )
 
 usage() {

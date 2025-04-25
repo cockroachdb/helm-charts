@@ -136,7 +136,7 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 		options := &helm.Options{
 			KubectlOptions: kubectlOptions,
 			ExtraArgs: map[string][]string{
-				"upgrade": {"--reuse-values", "--set", fmt.Sprintf("operator.resources.requests.cpu=%s", "100m")},
+				"upgrade": {"--reuse-values", "--set", fmt.Sprintf("cockroachdb.crdbCluster.resources.requests.cpu=%s", "100m")},
 			},
 		}
 		// Apply Helm upgrade with updated values.
@@ -223,7 +223,7 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 		options := &helm.Options{
 			KubectlOptions: kubectlOptions,
 			ExtraArgs: map[string][]string{
-				"upgrade": {"--reuse-values", "--set", fmt.Sprintf("timestamp=%s", upgradeTime.Format(time.RFC3339))},
+				"upgrade": {"--reuse-values", "--set", fmt.Sprintf("cockroachdb.crdbCluster.timestamp=%s", upgradeTime.Format(time.RFC3339))},
 			},
 		}
 		helm.Upgrade(t, options, helmChartPath, operator.ReleaseName)
@@ -376,7 +376,7 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T) {
 		options := &helm.Options{
 			KubectlOptions: kubectlOptions,
 			SetJsonValues: map[string]string{
-				"operator.regions": operator.MustMarshalJSON(r.OperatorRegions(i, r.NodeCount)),
+				"cockroachdb.crdbCluster.regions": operator.MustMarshalJSON(r.OperatorRegions(i, r.NodeCount)),
 			},
 			ExtraArgs: map[string][]string{
 				"upgrade": {"--reuse-values", "--wait"},

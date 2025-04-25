@@ -1,4 +1,4 @@
-CockroachDB can be accessed via port {{ .Values.service.ports.grpc.external.port }} at the
+CockroachDB can be accessed via port {{ .Values.cockroachdb.crdbCluster.service.ports.grpc.port }} at the
 following DNS name from within your cluster:
 
 {{ template "cockroachdb.fullname" . }}-public.{{ .Release.Namespace }}.svc.cluster.local
@@ -6,16 +6,13 @@ following DNS name from within your cluster:
 Because CockroachDB supports the PostgreSQL wire protocol, you can connect to
 the cluster using any available PostgreSQL client.
 
-{{- if not .Values.tls.enabled }}
+{{- if not .Values.cockroachdb.tls.enabled }}
 
 For example, you can open up a SQL shell to the cluster by running:
 
     kubectl run -it --rm cockroach-client \
         --image=cockroachdb/cockroach \
         --restart=Never \
-      {{- if .Values.networkPolicy.enabled }}
-        --labels="{{ template "cockroachdb.fullname" . }}-client=true" \
-      {{- end }}
         --command -- \
         ./cockroach sql --insecure --host={{ template "cockroachdb.fullname" . }}-public.{{ .Release.Namespace }}
 
@@ -29,22 +26,13 @@ that you attempt to connect will either need to have a valid client certificate
 or a valid username and password.
 {{- end }}
 
-{{- if and (.Values.networkPolicy.enabled) (not (empty .Values.networkPolicy.ingress.grpc)) }}
-
-Note: Since NetworkPolicy is enabled, the only Pods allowed to connect to this
-CockroachDB cluster are:
-
-1. Having the label: "{{ template "cockroachdb.fullname" . }}-client=true"
-
-2. Matching the following rules: {{- toYaml .Values.networkPolicy.ingress.grpc | nindent 0 }}
-{{- end }}
 
 Finally, to open up the CockroachDB admin UI, you can port-forward from your
 local machine into one of the instances in the cluster:
 
-    kubectl port-forward -n {{ .Release.Namespace }} {{ template "cockroachdb.fullname" . }}-0 {{ index .Values.conf `http-port` | int64 }} 
+    kubectl port-forward -n {{ .Release.Namespace }} {{ template "cockroachdb.fullname" . }}-0 {{ .Values.cockroachdb.crdbCluster.service.ports.http.port | int64 }}
 
-Then you can access the admin UI at http{{ if .Values.tls.enabled }}s{{ end }}://localhost:{{ index .Values.conf `http-port` | int64 }}/ in your web browser.
+Then you can access the admin UI at http{{ if .Values.cockroachdb.tls.enabled }}s{{ end }}://localhost:{{  .Values.cockroachdb.crdbCluster.service.ports.http.port  | int64 }}/ in your web browser.
 
 For more information on using CockroachDB, please see the project's docs at:
 https://www.cockroachlabs.com/docs/

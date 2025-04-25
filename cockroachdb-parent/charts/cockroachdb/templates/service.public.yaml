@@ -11,18 +11,18 @@ metadata:
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-  {{- with .Values.crdbCluster.service.public.labels }}
+  {{- with .Values.cockroachdb.crdbCluster.service.public.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- with .Values.labels }}
+  {{- with .Values.k8s.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- if or .Values.service.public.annotations .Values.tls.enabled }}
+  {{- if or .Values.cockroachdb.crdbCluster.service.public.annotations .Values.cockroachdb.tls.enabled }}
   annotations:
-  {{- with .Values.service.public.annotations }}
+  {{- with .Values.cockroachdb.crdbCluster.service.public.annotations }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- if .Values.tls.enabled }}
+  {{- if .Values.cockroachdb.tls.enabled }}
     service.alpha.kubernetes.io/app-protocols: '{"http":"HTTPS"}'
   {{- end }}
   {{- end }}
@@ -30,14 +30,14 @@ spec:
   selector:
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
-  {{- with .Values.podLabels }}
+  {{- with .Values.cockroachdb.crdbCluster.podLabels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
   # Cockroach Cloud operator doesn't provide a way to change the sql,grpc and http ports for the pods. Hence, making these
   # ports static here.
-  type: {{ .Values.crdbCluster.service.public.type | quote }}
+  type: {{ .Values.cockroachdb.crdbCluster.service.public.type | quote }}
   ports:
-  {{- $ports := .Values.crdbCluster.service.ports }}
+  {{- $ports := .Values.cockroachdb.crdbCluster.service.ports }}
     # The main port, served by gRPC, serves Postgres-flavor SQL, inter-node
     # traffic and the CLI.
     - name: {{ $ports.grpc.name | quote }}
