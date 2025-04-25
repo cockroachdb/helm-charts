@@ -1,5 +1,5 @@
-{{- if and .Values.tls.enabled .Values.tls.certManager.enabled }}
-  {{- if .Values.tls.certManager.certManagerIssuer.isSelfSignedIssuer }}
+{{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.certManager.enabled }}
+  {{- if .Values.cockroachdb.tls.certManager.issuer.isSelfSignedIssuer }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -14,10 +14,10 @@ metadata:
       {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
-  duration: {{ .Values.tls.certManager.certManagerIssuer.caCertDuration }}
-  renewBefore: {{ .Values.tls.certs.certManagerIssuer.caCertExpiryWindow  }}
+  duration: {{ .Values.cockroachdb.tls.certManager.issuer.caCertDuration }}
+  renewBefore: {{ .Values.cockroachdb.tls.certManager.issuer.caCertExpiryWindow  }}
   isCA: true
-  secretName: {{ .Values.tls.certManager.caSecret }}
+  secretName: {{ .Values.cockroachdb.tls.certManager.caSecret }}
   privateKey:
     algorithm: ECDSA
     size: 256
@@ -26,8 +26,8 @@ spec:
     organizations:
       - Cockroach
   issuerRef:
-    name: {{ .Values.tls.certs.certManagerIssuer.name }}
-    kind: {{ .Values.tls.certs.certManagerIssuer.kind }}
-    group: {{ .Values.tls.certs.certManagerIssuer.group }}
+    name: {{ .Values.cockroachdb.tls.certManager.issuer.name }}
+    kind: {{ .Values.cockroachdb.tls.certManager.issuer.kind }}
+    group: {{ .Values.cockroachdb.tls.certManager.issuer.group }}
   {{- end }}
 {{- end }}

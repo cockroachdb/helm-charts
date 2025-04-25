@@ -48,7 +48,7 @@ spec:
       {{- with .Values.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.walFailoverSpec }}
+      {{- with .Values.crdbCluster.walFailoverSpec }}
       walFailoverSpec: {{- toYaml . | nindent 8 }}
       {{- end }}
       env:
@@ -57,10 +57,10 @@ spec:
       {{- with .Values.env }}
         {{- toYaml . | nindent 12 }}
       {{- end }}
-      {{- with .Values.topologySpreadConstraints }}
+      {{- with .Values.crdbCluster.topologySpreadConstraints }}
       topologySpreadConstraints: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.terminationGracePeriod }}
+      {{- if .Values.crdbCluster.terminationGracePeriod }}
       terminationGracePeriod: {{ .Values.terminationGracePeriod }}
       {{- end }}
       podLabels:
@@ -71,44 +71,40 @@ spec:
         {{- end }}
       podAnnotations:
         helm.sh/restartedAt: {{ .Values.timestamp  | quote }}
-        {{- with .Values.podAnnotations }}
+        {{- with .Values.crdbCluster.podAnnotations }}
           {{- toYaml . | nindent 8 }}
         {{- end }}
       {{- with .Values.resources }}
       resourceRequirements: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.localityLabels }}
+      {{- with .Values.crdbCluster.localityLabels }}
       localityLabels: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.tolerations }}
+      {{- with .Values.crdbCluster.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.nodeSelector }}
+      {{- with .Values.crdbCluster.nodeSelector }}
       nodeSelector: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- with .Values.affinity }}
+      {{- with .Values.crdbCluster.affinity }}
       affinity: {{- toYaml . | nindent 8 }}
       {{- end }}
       serviceAccountName: {{ .Values.rbac.serviceAccountName | default (include "cockroachdb.serviceAccount.name" .) }}
-      {{- if .Values.loggingConfigMapName }}
-      loggingConfigMapName: { { .Values.operator.loggingConfigMapName } }
-      {{- else }}
-      {{- if .Values.loggingConf }}
-      loggingConfigMapName: {{ .Release.Name }}-logging
+      {{- if .Values.crdbCluster.loggingConfigMapName }}
+      loggingConfigMapName: { { .Values..crdbCluster.loggingConfigMapName } }
       {{- end }}
-      {{- end }}
-      {{- with .Values.sideCars }}
+      {{- with .Values.crdbCluster.sideCars }}
       sideCars: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.service.ports.grpc.external.port }}
-      grpcPort: {{ .Values.service.ports.grpc.external.port }}
+      {{- if .Values.crdbCluster.service.ports.grpc.external.port }}
+      grpcPort: {{ .Values.crdbCluster.service.ports.grpc.external.port }}
       {{- end }}
-      {{- if .Values.service.ports.grpc.internal.port }}
-      sqlPort: {{ .Values.service.ports.grpc.internal.port }}
+      {{- if .Values.crdbCluster.service.ports.grpc.internal.port }}
+      sqlPort: {{ .Values.crdbCluster.service.ports.grpc.internal.port }}
       {{- end }}
       {{- if .Values.service.ports.http.port }}
       httpPort: {{ .Values.service.ports.http.port }}
       {{- end }}
-      {{- with .Values.flags }}
+      {{- with .Values.crdbCluster.flags }}
       flags: {{- toYaml . | nindent 8 }}
       {{- end }}

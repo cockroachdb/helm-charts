@@ -1,127 +1,127 @@
-# Operator chart values
-operator:
-  enabled: true
-  name: operator
-  weight: 0
-  image:
-    registry: "us-docker.pkg.dev/cockroach-cloud-images/data-plane"
-    repository: "cockroach-operator"
-    pullPolicy: IfNotPresent
-    tag: "ccfba5cf5cde9ae612de9de2cef8080b4dd216f3"
-  certificate:
-    validForDays: ""
-  numReplicas: 1
-
-# CockroachDB chart values
-cockroachdb:
-  enabled: true
-  weight: 1
-
-  timestamp: "2021-10-18T00:00:00Z"
-  clusterDomain: cluster.local
-  regions:
-    - code: us-east1
-      nodes: 3
-      cloudProvider: k3d
-      namespace: test-cockroach
-
-  image:
-    name: cockroachdb/cockroach:v25.1.2
-    pullPolicy: IfNotPresent
-
-  nameOverride: ""
-  fullnameOverride: ""
-
-  # A map of CRDB cluster settings.
-  # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
-  clusterSettings: ~
-
-  # loggingConf is the logging configuration used by cockroach.
-  # More details: https://www.cockroachlabs.com/docs/stable/logging-overview.html
-  loggingConf: ~
-    # sinks:
-    # stderr:
-    # channels: [health, dev]
-  # filter: INFO
-
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as K3D. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the tilde after 'resources:'.
-  resources: ~
-    # limits:
-    # cpu: 100m
-    # memory: 128Mi
-    # requests:
-    # cpu: 100m
-  # memory: 128Mi
-
-  # dataStore specifies the disk configuration for the CRDB Node.
-  dataStore:
-    volumeClaimTemplate:
-      metadata: {}
-      spec:
-        accessModes:
-          - ReadWriteOnce
-        resources:
-          requests:
-            storage: 10Gi
-        volumeMode: Filesystem
-
-  certificates:
-    # Any extra alt names that should be added to the node certs.
-    extraNodeAltNames: []
-      # - somevalue
-      # - somevalue.default
-    # - somevalue.default.svc.local
-    # the number of days generated certs are valid for
-    # validForDays: 3650
-
-    # External certificates for the CRDB cluster.
-    externalCertificates: {}
-#      clientCaConfigMapName: ""
-#      nodeCaConfigMapName: ""
-#      httpSecretName: ""
-#      nodeClientSecretName: ""
-#      nodeSecretName: ""
-#      rootSqlClientSecretName: ""
-
-  # RBAC settings for CRDB nodes
-  rbac:
-    # By default the service account will be the resource name. It will
-    # be created during the installation along with a namespaced role and
-    # a cluster role with the policy rules below.
-    #
-    # Uncomment the line below to use a custom SA. If a custom SA is used,
-    # no roles or bindings will be created.
-    # serviceAccountName: my-custom-sa
-
-    # Rules for the namespaced role bound to the service account.
-    #
-    # E.g.
-    # permissions:
-    #   - apiGroup: [""]
-    #     resources: ["secrets"]
-    #     verbs: ["create", "get"]
-    rules: []
-
-    # Rules for the cluster role bound to the service account.
-    clusterRules:
-      # Get nodes allows the locality container to work as expected. It pulls the
-      # failure-domain.beta.kubernetes.io/zone label to determine node locality.
-      - apiGroups: [""]
-        resources: ["nodes"]
-        verbs: ["get"]
-    serviceAccountName: ~
-
-  # PodLabels are the labels that should be applied to the underlying CRDB pod
-  podLabels:
-    app.kubernetes.io/component: cockroachdb
-
-  extras:
-    # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
-    dnsutils: false
-
-  localityLabels:
-    - topology.kubernetes.io/region
-    - topology.kubernetes.io/zone
+## Operator chart values
+#operator:
+#  enabled: true
+#  name: operator
+#  weight: 0
+#  image:
+#    registry: "us-docker.pkg.dev/cockroach-cloud-images/data-plane"
+#    repository: "cockroach-operator"
+#    pullPolicy: IfNotPresent
+#    tag: "ccfba5cf5cde9ae612de9de2cef8080b4dd216f3"
+#  certificate:
+#    validForDays: ""
+#  numReplicas: 1
+#
+## CockroachDB chart values
+#cockroachdb:
+#  enabled: true
+#  weight: 1
+#
+#  timestamp: "2021-10-18T00:00:00Z"
+#  clusterDomain: cluster.local
+#  regions:
+#    - code: us-east1
+#      nodes: 3
+#      cloudProvider: k3d
+#      namespace: test-cockroach
+#
+#  image:
+#    name: cockroachdb/cockroach:v25.1.2
+#    pullPolicy: IfNotPresent
+#
+#  nameOverride: ""
+#  fullnameOverride: ""
+#
+#  # A map of CRDB cluster settings.
+#  # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
+#  clusterSettings: ~
+#
+#  # loggingConf is the logging configuration used by cockroach.
+#  # More details: https://www.cockroachlabs.com/docs/stable/logging-overview.html
+#  loggingConf: ~
+#    # sinks:
+#    # stderr:
+#    # channels: [health, dev]
+#  # filter: INFO
+#
+#  # We usually recommend not to specify default resources and to leave this as a conscious
+#  # choice for the user. This also increases chances charts run on environments with little
+#  # resources, such as K3D. If you do want to specify resources, uncomment the following
+#  # lines, adjust them as necessary, and remove the tilde after 'resources:'.
+#  resources: ~
+#    # limits:
+#    # cpu: 100m
+#    # memory: 128Mi
+#    # requests:
+#    # cpu: 100m
+#  # memory: 128Mi
+#
+#  # dataStore specifies the disk configuration for the CRDB Node.
+#  dataStore:
+#    volumeClaimTemplate:
+#      metadata: {}
+#      spec:
+#        accessModes:
+#          - ReadWriteOnce
+#        resources:
+#          requests:
+#            storage: 10Gi
+#        volumeMode: Filesystem
+#
+#  certificates:
+#    # Any extra alt names that should be added to the node certs.
+#    extraNodeAltNames: []
+#      # - somevalue
+#      # - somevalue.default
+#    # - somevalue.default.svc.local
+#    # the number of days generated certs are valid for
+#    # validForDays: 3650
+#
+#    # External certificates for the CRDB cluster.
+#    externalCertificates: {}
+##      clientCaConfigMapName: ""
+##      nodeCaConfigMapName: ""
+##      httpSecretName: ""
+##      nodeClientSecretName: ""
+##      nodeSecretName: ""
+##      rootSqlClientSecretName: ""
+#
+#  # RBAC settings for CRDB nodes
+#  rbac:
+#    # By default the service account will be the resource name. It will
+#    # be created during the installation along with a namespaced role and
+#    # a cluster role with the policy rules below.
+#    #
+#    # Uncomment the line below to use a custom SA. If a custom SA is used,
+#    # no roles or bindings will be created.
+#    # serviceAccountName: my-custom-sa
+#
+#    # Rules for the namespaced role bound to the service account.
+#    #
+#    # E.g.
+#    # permissions:
+#    #   - apiGroup: [""]
+#    #     resources: ["secrets"]
+#    #     verbs: ["create", "get"]
+#    rules: []
+#
+#    # Rules for the cluster role bound to the service account.
+#    clusterRules:
+#      # Get nodes allows the locality container to work as expected. It pulls the
+#      # failure-domain.beta.kubernetes.io/zone label to determine node locality.
+#      - apiGroups: [""]
+#        resources: ["nodes"]
+#        verbs: ["get"]
+#    serviceAccountName: ~
+#
+#  # PodLabels are the labels that should be applied to the underlying CRDB pod
+#  podLabels:
+#    app.kubernetes.io/component: cockroachdb
+#
+#  extras:
+#    # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
+#    dnsutils: false
+#
+#  localityLabels:
+#    - topology.kubernetes.io/region
+#    - topology.kubernetes.io/zone

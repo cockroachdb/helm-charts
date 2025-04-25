@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-  {{- with .Values.service.public.labels }}
+  {{- with .Values.crdbCluster.service.public.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
   {{- with .Values.labels }}
@@ -35,17 +35,18 @@ spec:
   {{- end }}
   # Cockroach Cloud operator doesn't provide a way to change the sql,grpc and http ports for the pods. Hence, making these
   # ports static here.
-  type: ClusterIP
+  type: {{ .Values.crdbCluster.service.public.type | quote }}
   ports:
-  - name: sql
-    port: 26257
-    protocol: TCP
-    targetPort: 26257
-  - name: grpc
-    port: 26258
-    protocol: TCP
-    targetPort: 26258
-  - name: http
-    port: 8080
-    protocol: TCP
-    targetPort: 8080
+  {{- $ports := .Values.crdbCluster.service.ports }}
+    # The main port, served by gRPC, serves Postgres-flavor SQL, inter-node
+    # traffic and the CLI.
+    - name: {{ $ports.grpc.name | quote }}
+      port: {{ $ports.grpc.port | int64 }}
+      targetPort: grpc
+    - name: {{ $ports.sql.name | quote }}
+      port: {{ $ports.sql.port | int64 }}
+      targetPort: sql
+    # The secondary port serves the UI as well as health and debug endpoints.
+    - name: {{ $ports.http.name | quote }}
+      port: {{ $ports.http.port | int64 }}
+      targetPort: http

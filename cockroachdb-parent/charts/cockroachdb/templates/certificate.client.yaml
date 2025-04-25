@@ -1,4 +1,4 @@
-{{- if and .Values.tls.enabled .Values.tls.certManager.enabled }}
+{{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.certManager.enabled }}
 apiVersion: cert-manager.io/v1
 kind: Certificate
 metadata:
@@ -13,8 +13,8 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 spec:
-  duration: {{ .Values.tls.certManager.certManagerIssuer.clientCertDuration }}
-  renewBefore: {{ .Values.tls.certManager.certManagerIssuer.clientCertExpiryWindow }}
+  duration: {{ .Values.cockroachdb.tls.certManager.issuer.clientCertDuration }}
+  renewBefore: {{ .Values.cockroachdb.tls.certManager.issuer.clientCertExpiryWindow }}
   usages:
     - digital signature
     - key encipherment
@@ -26,7 +26,7 @@ spec:
   subject:
     organizations:
       - Cockroach
-  secretName: {{ .Values.tls.certManager.clientRootSecret }}
+  secretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
   issuerRef:
   {{- if .Values.tls.certManager.certManagerIssuer.isSelfSignedIssuer }}
     name: {{ template "cockroachdb.fullname" . }}-ca-issuer
