@@ -6,7 +6,7 @@ $ helm repo add cockroachdb https://charts.cockroachdb.com/
 
 ### Running in secure mode
 
-In order to set up a secure cockroachdb cluster set `tls.enabled` to `yes`/`true`
+In order to set up a secure cockroachdb cluster set `cockroachdb.tls.enabled` to `true`
 
 There are 3 ways to configure a secure cluster, with this chart. This all relates to how the certificates are issued:
 
@@ -32,7 +32,7 @@ crdb-cockroachdb-node-secret               kubernetes.io/tls                    
 
 #### Manual
 
-If you wish to supply the certificates to the nodes yourself set `tls.certs.provided` to `yes`/`true`. You may want to use this if you want to use a different certificate authority from the one being used by Kubernetes or if your Kubernetes cluster doesn't fully support certificate-signing requests. To use this, first set up your certificates and load them into your Kubernetes cluster as Secrets using the commands below:
+If you wish to supply the certificates to the nodes yourself set `cockroachdb.tls.externalCertificates.enabled` to `true`. You may want to use this if you want to use a different certificate authority from the one being used by Kubernetes or if your Kubernetes cluster doesn't fully support certificate-signing requests. To use this, first set up your certificates and load them into your Kubernetes cluster as Secrets using the commands below:
 
 ```shell
 $ mkdir certs
@@ -62,14 +62,13 @@ Cockroachdb, however, expects the files to be named like this:
 * `client.root.crt`
 * `client.root.key`
 
-By enabling `tls.certs.tlsSecret` the tls secrets are projected on to the correct filenames, when they are mounted to the cockroachdb pods.
 
 #### Cert-manager
 
-If you wish to supply certificates with [cert-manager][3], set
+If you wish to supply certificates with [cert-manager][1], set
 
-* `tls.certs.certManager` to `yes`/`true`
-* `tls.certs.certManagerIssuer` to an IssuerRef (as they appear in certificate resources) pointing to a clusterIssuer or issuer, you have set up in the cluster
+* `cockroachdb.tls.certManager.enabled` to `yes`/`true`
+* `cockroachdb.tls.certManager.issuer` to an IssuerRef (as they appear in certificate resources) pointing to a clusterIssuer or issuer, you have set up in the cluster
 
 Example issuer:
 
@@ -130,32 +129,29 @@ $ helm install $CRDBOPERATOR ./cockroachdb-parent/charts/operator -n $NAMESPACE
 
 ### Install CockroachDB
 
-- Update `operator.enabled` to `true` in [`cockroachdb/values.yaml`](/cockroachdb-parent/charts/cockroachdb/values.yaml).
-```
-  operator:
-    enabled: true
-```
 - Modify the `regions` configuration of [`cockroachdb/values.yaml`](/cockroachdb-parent/charts/cockroachdb/values.yaml). The default `regions` configuration uses k3d, so update it as per your cloud provider (e.g. `gcp`, `aws`, etc.)
 
 ```
-  regions:
-    - code: us-central1
-      nodes: 3
-      cloudProvider: gcp
-      namespace: cockroach-ns
+  cockroachdb:
+    crdbCluster
+      regions:
+        - code: us-central1
+          nodes: 3
+          cloudProvider: gcp
+          namespace: cockroach-ns
 ```
-
-- Modify the other relevant configuration like `topologySpreadConstraints`, `service.ports`, as required.
+- If the `cloudProvider` is `azure`, create secret named `azure-cluster-identity-credentials-secret` which contains `azure_client_id` and  `azure_client_secret`.
+- Modify the other relevant configuration like `topologySpreadConstraints`, `localityLabels`,  `service.ports`, as required.
 - By default, the certs are created by the self-signer utility. In case of a custom CA cert, modify the configuration under the `tls` section:
 
 ```
-tls:
-  certs:
-    selfSigner:
-      caProvided: true
-      caSecret: <ca-secret-name>
+  cockroachdb:
+    tls:
+      selfSigner:
+        selfSigner:
+          caProvided: true
+          caSecret: <ca-secret-name>
 ```
-
 Install the cockroachdb chart:
 
 ```shell
@@ -186,18 +182,20 @@ While applying `helm install` in a given region:
 For example, if `us-central1` has already been deployed, and `us-east1` is being deployed to:
 
 ```
-clusterDomain: cluster.gke.gcp-us-east1
-  regions:
-    - code: us-central1
-      nodes: 3
-      cloudProvider: gcp
-      domain: cluster.gke.gcp-us-central1
-      namespace: cockroach-ns
-    - code: us-east1
-      nodes: 3
-      cloudProvider: gcp
-      domain: cluster.gke.gcp-us-east1
-      namespace: cockroach-ns
+  cockroachdb:
+    clusterDomain: cluster.gke.gcp-us-east1
+    crdbCluster:
+      regions:
+        - code: us-central1
+          nodes: 3
+          cloudProvider: gcp
+          domain: cluster.gke.gcp-us-central1
+          namespace: cockroach-ns
+        - code: us-east1
+          nodes: 3
+          cloudProvider: gcp
+          domain: cluster.gke.gcp-us-east1
+          namespace: cockroach-ns
 ```
 
 ## Upgrade CockroachDB cluster
@@ -230,7 +228,7 @@ $ helm upgrade --reuse-values $CRDBCLUSTER ./cockroachdb-parent/charts/cockroach
 Update the timestamp annotation to do a rolling restart of all CockroachDB pods:
 
 ```shell
-$ helm upgrade --reuse-values $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --set-string timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")" -n $NAMESPACE
+$ helm upgrade --reuse-values $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --set-string cockroachdb.crdbCluster.timestamp="$(date -u +"%Y-%m-%dT%H:%M:%SZ")" -n $NAMESPACE
 ```
 
 ## Kill a CockroachDB Node
@@ -264,3 +262,5 @@ You could confirm the regions using a SQL command as below:
 
 In order to access the DB console, follow the steps documented in https://www.cockroachlabs.com/docs/stable/deploy-cockroachdb-with-kubernetes?filters=helm#step-4-access-the-db-console.
 Use the corresponding Service name that is suffixed by `-public` (in this case, `$CRDBCLUSTER-public`).
+
+[1]: https://cert-manager.io/
