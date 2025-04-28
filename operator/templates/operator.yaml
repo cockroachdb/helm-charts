@@ -472,8 +472,6 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
-            - name: CLOUD_REGION
-              value: "ca-central-1"
           resources:
             requests:
               cpu: 500m
