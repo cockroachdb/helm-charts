@@ -80,6 +80,42 @@ spec:
         {{- with .Values.tls.copyCerts.resources }}
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
+        {{- if .Values.visus.enabled }}
+        - name: Visus
+          image: "{{ .Values.visus.image.name }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.visus.image.pullPolicy | quote }}
+          # This is a sidecar
+          restartPolicy: Always
+          command:
+            - visus
+            - start
+            - --url
+            - {{ template "cockroachdb.pg_url" . }}
+            - --visus-metrics
+            - --bind-addr
+            - "localhost:{{ .Values.visus.bind_port | quote }}"
+            {{- if .Values.visus.insecure }}
+            - --insecure
+            {{- else }}
+            - --bind-cert
+            - /cockroach/cockroach-certs/node.crt
+            - --bind-key
+            - /cockroach/cockroach-certs/node.key
+            - --ca-cert
+            - /cockroach/cockroach-certs/ca.crt
+            {{- end }}
+            {{- range $ic := .Values.visus.args }}
+            - {{- toYaml $ic | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: visus-http
+              containerPort: { { index .Values.visus.bind_port | int64 } }
+              protocol: TCP
+          {{ with $.Values.statefulset.volumeMounts}}
+          volumeMounts:
+          {{- toYaml . | nindent 12 }}
+          {{- end }}
+        {{- end }}
         {{- range $ic := .Values.statefulset.initContainers }}
         - {{- toYaml $ic | nindent 10 }}
           {{ with $.Values.statefulset.volumeMounts}}

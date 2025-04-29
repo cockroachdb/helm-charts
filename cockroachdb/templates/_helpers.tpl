@@ -71,6 +71,19 @@ Return the appropriate apiVersion for NetworkPolicy.
 {{- end -}}
 
 {{/*
+Construct the PG_URL for this database node
+*/}}
+{{- define "cockroachdb.pg_url" -}}
+    {{- printf "postgres://root@localhost:%d/defaultdb?application_name=visus&" .Values.service.ports.grpc.internal -}}
+    {{- if .Values.tls.enabled }}
+      {{- printf "sslmode=verify-full&ssrootcert=/cockroach/cockroach-certs/ca.crt&sslcert=/cockroach/cockroach-certs/root.crt&sslkey=/cockroach/cockroach-certs/root.key" }}
+    {{- else }}
+      {{- print "sslmode=disable" }}
+    {{- end }}
+{{- end -}}
+
+
+{{/*
 Return the appropriate apiVersion for StatefulSets
 */}}
 {{- define "cockroachdb.statefulset.apiVersion" -}}
