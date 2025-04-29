@@ -140,7 +140,10 @@ test/multi-cluster/down: bin/k3d
 	 ./tests/k3d/dev-multi-cluster.sh down --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters $(REGIONS)
 
 test/lint: bin/helm ## lint the helm chart
-	@build/lint.sh && bin/helm lint cockroachdb
+	@build/lint.sh && \
+	bin/helm lint cockroachdb && \
+	bin/helm lint cockroachdb-parent/charts/cockroachdb && \
+	bin/helm lint cockroachdb-parent/charts/operator
 
 test/template: bin/cockroach bin/helm ## Run template tests
 	@PATH="$(PWD)/bin:${PATH}" go test -v ./tests/template/...

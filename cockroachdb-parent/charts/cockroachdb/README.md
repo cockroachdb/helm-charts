@@ -1,8 +1,8 @@
-## Add the CockroachDB Repository
+# CockroachDB Helm Chart
 
-```shell
-$ helm repo add cockroachdb https://charts.cockroachdb.com/
-```
+[CockroachDB](https://github.com/cockroachdb/cockroach) - the open source, cloud-native distributed SQL database.
+
+This is a subchart for installing the CockroachDB cluster.
 
 ### Running in secure mode
 
@@ -11,8 +11,9 @@ In order to set up a secure cockroachdb cluster set `cockroachdb.tls.enabled` to
 There are 3 ways to configure a secure cluster, with this chart. This all relates to how the certificates are issued:
 
 * Self-signer (default)
-* Cert-manager
 * Manual
+* Cert-manager
+
 
 #### Self-signer
 
@@ -28,7 +29,15 @@ crdb-cockroachdb-ca-secret                 Opaque                               
 crdb-cockroachdb-client-secret             kubernetes.io/tls                     3      22s
 crdb-cockroachdb-node-secret               kubernetes.io/tls                     3      23s
 ```
+By default, the certs are created by the self-signer utility. In case of a custom CA cert, modify the configuration under the `tls` section:
 
+```
+  cockroachdb:
+    tls:
+      selfSigner:
+        caProvided: true
+        caSecret: <ca-secret-name>
+```
 
 #### Manual
 
@@ -69,7 +78,7 @@ If you wish to provision certificates using [cert-manager][1], follow the steps 
 
   * By default, cert-manager stores the CA certificate in a Secret, which is used by the Issuer.
 
-  * To provide the CA certificate in a ConfigMap (required by some applications like CockroachDB), you can use the [trust-manager][2] project.
+  * To provide the CA certificate in a ConfigMap (required by some applications like CockroachDB), you can use the [trust-manager][3] project.
 
   * The trust-manager can be configured to copy the CA cert from a Secret to a ConfigMap automatically.
 
@@ -192,25 +201,16 @@ $ helm install $CRDBOPERATOR ./cockroachdb-parent/charts/operator -n $NAMESPACE
 
 ```
   cockroachdb:
-    crdbCluster
+    crdbCluster:
       regions:
         - code: us-central1
           nodes: 3
           cloudProvider: gcp
           namespace: cockroach-ns
 ```
-- If the `cloudProvider` is `azure`, create secret named `azure-cluster-identity-credentials-secret` which contains `azure_client_id` and  `azure_client_secret`.
+- If the `cloudProvider` is `azure`, create an application in your Azure tenant and create a secret named `azure-cluster-identity-credentials-secret` which contains `azure_client_id` and  `azure_client_secret` to hold the application credentials.[2]
 - Modify the other relevant configuration like `topologySpreadConstraints`, `localityLabels`,  `service.ports`, as required.
-- By default, the certs are created by the self-signer utility. In case of a custom CA cert, modify the configuration under the `tls` section:
 
-```
-  cockroachdb:
-    tls:
-      selfSigner:
-        selfSigner:
-          caProvided: true
-          caSecret: <ca-secret-name>
-```
 Install the cockroachdb chart:
 
 ```shell
@@ -219,13 +219,13 @@ $ helm install $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb -n $NAMESPAC
 You can Override the default parameters using the `--set key=value[,key=value]` argument while installing the chart.
 
 ```shell
-helm spray -n cockroachdb-ns --create-namespace ./cockroachdb-parent/charts/cockroachdb --set clusterDomain=cluster-test.local
+helm install $CRDBCLUSTER  ./cockroachdb-parent/charts/cockroachdb --set clusterDomain=cluster-test.local -n $NAMESPACE
 ```
 
 Alternatively, a YAML file that specifies custom values for the parameters can be provided while installing the chart. For example:
 
 ```shell
-$ helm install $CRDBCLUSTER -f my-values.yaml ./cockroachdb-parent/charts/cockroachdb -n $NAMESPACE
+$ helm install $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb -f my-values.yaml -n $NAMESPACE
 ```
 
 ### Multi Region Deployments
@@ -323,4 +323,5 @@ In order to access the DB console, follow the steps documented in https://www.co
 Use the corresponding Service name that is suffixed by `-public` (in this case, `$CRDBCLUSTER-public`).
 
 [1]: https://cert-manager.io/
-[2]: https://cert-manager.io/docs/trust/trust-manager/
+[2]: https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet
+[3]: https://cert-manager.io/docs/trust/trust-manager/
