@@ -36,15 +36,12 @@ spec:
     - {{ printf "*.%s" (include "cockroachdb.fullname" .) | quote }}
     - {{ printf "*.%s.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
     - {{ printf "*.%s.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.cockroachdb.clusterDomain | quote }}
+    - {{ printf "%s-join" (include "cockroachdb.fullname" .) | quote }}
+    - {{ printf "%s-join.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
+    - {{ printf "%s-join.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.cockroachdb.clusterDomain | quote }}
   secretName: {{ .Values.cockroachdb.tls.certManager.nodeSecret }}
   issuerRef:
-  {{- if .Values.cockroachdb.tls.certManager.issuer.isSelfSignedIssuer }}
-    name: {{ template "cockroachdb.fullname" . }}-ca-issuer
-    kind: Issuer
-    group: cert-manager.io
-  {{- else }}
     name: {{ .Values.cockroachdb.tls.certManager.issuer.name }}
     kind: {{ .Values.cockroachdb.tls.certManager.issuer.kind }}
     group: {{ .Values.cockroachdb.tls.certManager.issuer.group }}
-  {{- end }}
 {{- end }}

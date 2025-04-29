@@ -1,3 +1,4 @@
+{{ template "cockroachdb.tlsValidation" . }}
 apiVersion: crdb.cockroachlabs.com/v1alpha1
 kind: CrdbCluster
 metadata:
@@ -31,10 +32,11 @@ spec:
       {{- if .Values.cockroachdb.crdbCluster.join }}
       join: {{ .Values.cockroachdb.crdbCluster.join }}
       {{- end }}
+      {{- if .Values.cockroachdb.tls.enabled }}
       certificates:
-        {{- if .Values.cockroachdb.tls.externalCertificates.certificates }}
+        {{- if .Values.cockroachdb.tls.externalCertificates.enabled }}
         externalCertificates: {{- toYaml .Values.cockroachdb.tls.externalCertificates.certificates | nindent 10 }}
-        {{- else }}
+        {{- end }}
         {{- if .Values.cockroachdb.tls.selfSigner.enabled }}
         externalCertificates:
           {{- /* Note: defaults should match secrets and configmaps created by the self-signer job. */}}
@@ -44,7 +46,15 @@ spec:
           nodeSecretName: {{ default (printf "%s-node-secret" (include "cockroachdb.fullname" .)) }}
           rootSqlClientSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
         {{- end }}
+        {{- if .Values.cockroachdb.tls.certManager.enabled }}
+        externalCertificates:
+          caConfigMapName: {{ .Values.cockroachdb.tls.certManager.caConfigMap }}
+          nodeSecretName: {{ .Values.cockroachdb.tls.certManager.nodeSecret }}
+          nodeClientSecretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
+          httpSecretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
+          rootSqlClientSecretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
         {{- end }}
+      {{- end }}
       {{- with .Values.cockroachdb.crdbCluster.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
       {{- end }}
