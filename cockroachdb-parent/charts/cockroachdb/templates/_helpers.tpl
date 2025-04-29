@@ -225,7 +225,7 @@ Validate that if user enabled tls, then only one of self-signed certificates, ce
 {{- if $certManager }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
 {{- if $userProvided }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
 {{- if ne $enabledCount 1 }}
-    {{ fail "Exactly one of self-signed certificates, certificate manager, or user provided certificates must be enabled when TLS is enabled" }}
+    {{ fail "Exactly one of self-signed certificates, certificate manager, or external certificates must be enabled when TLS is enabled" }}
 {{- end }}
 {{- end -}}
 {{- end -}}

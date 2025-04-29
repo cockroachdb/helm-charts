@@ -40,6 +40,7 @@ func TestOperatorInSingleRegion(t *testing.T) {
 	t.Run("TestClusterRollingRestart", r.TestClusterRollingRestart)
 	t.Run("TestKillingCockroachNode", r.TestKillingCockroachNode)
 	t.Run("TestClusterScaleUp", r.TestClusterScaleUp)
+	t.Run("TestInstallWithCertManager", r.TestInstallWithCertManager)
 }
 
 // TestHelmInstall will install Operator and CockroachDB charts
@@ -62,7 +63,7 @@ func (r *singleRegion) TestHelmInstall(t *testing.T) {
 	r.SetUpInfra(t, corednsClusterOptions)
 
 	// Install Operator and CockroachDB charts.
-	r.InstallCharts(t, cluster, 0)
+	r.InstallCharts(t, cluster, 0, nil)
 
 	// Get current context name.
 	_, rawConfig := r.GetCurrentContext(t)
@@ -94,7 +95,7 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 	r.SetUpInfra(t, corednsClusterOptions)
 
 	// Install Operator and CockroachDB charts.
-	r.InstallCharts(t, cluster, 0)
+	r.InstallCharts(t, cluster, 0, nil)
 
 	// Get current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
@@ -164,7 +165,7 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 	r.SetUpInfra(t, corednsClusterOptions)
 
 	// Install Operator and CRDB charts.
-	r.InstallCharts(t, cluster, 0)
+	r.InstallCharts(t, cluster, 0, nil)
 
 	// Get current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
@@ -243,7 +244,7 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 	defer r.CleanUpCACertificate(t)
 
 	// Install Operator and CRDB charts.
-	r.InstallCharts(t, cluster, 0)
+	r.InstallCharts(t, cluster, 0, nil)
 
 	// Get current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
@@ -302,7 +303,7 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T) {
 	defer r.CleanUpCACertificate(t)
 
 	// Install Operator and CockroachDB charts.
-	r.InstallCharts(t, cluster, 0)
+	r.InstallCharts(t, cluster, 0, nil)
 
 	// Get current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
@@ -334,4 +335,52 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T) {
 	}
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
 	r.ValidateCRDB(t, cluster)
+}
+
+func (r *singleRegion) TestInstallWithCertManager(t *testing.T) {
+	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
+	cluster := operator.Clusters[0]
+	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
+
+	// Cleanup resources.
+	defer r.CleanupResources(t)
+
+	r.SetUpInfra(t, corednsClusterOptions)
+
+	testutil.InstallCertManager(t)
+	testutil.InstallTrustManager(t, r.Namespace[cluster])
+	testutil.CreateSelfSignedIssuer(t, r.Namespace[cluster])
+	testutil.CreateSelfSignedCertificate(t, r.Namespace[cluster])
+	testutil.CreateCAIssuer(t, r.Namespace[cluster])
+	testutil.CreateBundle(t, r.Namespace[cluster])
+	defer func() {
+		testutil.DeleteBundle(t, r.Namespace[cluster])
+		testutil.DeleteCAIssuer(t, r.Namespace[cluster])
+		testutil.DeleteSelfSignedCertificate(t, r.Namespace[cluster])
+		testutil.DeleteSelfSignedIssuer(t, r.Namespace[cluster])
+		testutil.DeleteTrustManager(t)
+		testutil.DeleteCertManager(t)
+	}()
+
+	setValues := map[string]string{
+		"cockroachdb.clusterDomain": operator.CustomDomains[cluster],
+		"cockroachdb.tls.enabled": "true",
+		"cockroachdb.tls.selfSigner.enabled": "false",
+		"cockroachdb.tls.certManager.enabled": "true",
+		"cockroachdb.tls.certManager.issuer.name": testutil.CAIssuerName,
+		"cockroachdb.tls.certManager.caConfigMap": testutil.CAConfigMapName,
+	}
+	
+	// Install Operator and CockroachDB charts.
+	r.InstallCharts(t, cluster, 0, setValues)
+
+	// Get current context name.
+	_, rawConfig := r.GetCurrentContext(t)
+
+	if _, ok := rawConfig.Contexts[cluster]; !ok {
+		t.Fatal()
+	}
+	rawConfig.CurrentContext = cluster
+	r.ValidateCRDB(t, cluster)
+
 }

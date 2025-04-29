@@ -2,9 +2,7 @@ package install
 
 import (
 	"fmt"
-	"io/fs"
 	"log"
-	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -317,51 +315,18 @@ func (h *CockroachDBHelm) TestHelmWithInsecureMode(t *testing.T) {
 
 func (h *CockroachDBHelm) TestWithCertManager(t *testing.T) {
 	h.Namespace = "cockroach" + strings.ToLower(random.UniqueId())
-	certManagerHelmOptions := &helm.Options{
-		KubectlOptions: k8s.NewKubectlOptions("", "", "cert-manager"),
-	}
 
 	k8sOptions := k8s.NewKubectlOptions("", "", h.Namespace)
 	k8s.CreateNamespace(t, k8sOptions, h.Namespace)
-	jetStackRepoAdd := []string{"add", "jetstack", "https://charts.jetstack.io", "--force-update"}
-	_, err := helm.RunHelmCommandAndGetOutputE(t, &helm.Options{}, "repo", jetStackRepoAdd...)
-	require.NoError(t, err)
-
-	certManagerInstall := []string{"cert-manager", "jetstack/cert-manager", "--create-namespace", "--set", "installCRDs=true"}
-	output, err := helm.RunHelmCommandAndGetOutputE(t, certManagerHelmOptions, "install", certManagerInstall...)
-
-	require.NoError(t, err)
-
+	testutil.InstallCertManager(t)
 	//... and make sure to delete the helm release at the end of the test.
 	defer func() {
-		if t.Failed() {
-			t.Log(output)
-		}
-		helm.Delete(t, certManagerHelmOptions, "cert-manager", true)
+		testutil.DeleteCertManager(t)
 		k8s.DeleteNamespace(t, &k8s.KubectlOptions{}, "cert-manager")
 	}()
 
-	issuerFile := "ca-issuer.yaml"
-	issuerCreateData := fmt.Sprintf(`
-apiVersion: cert-manager.io/v1
-kind: Issuer
-metadata:
-  name: cockroachdb
-  namespace: %s
-spec:
-  selfSigned: {}
-`, h.Namespace)
-
-	err = os.WriteFile(issuerFile, []byte(issuerCreateData), fs.ModePerm)
-	require.NoError(t, err)
-
-	defer func() {
-		_ = os.Remove(issuerFile)
-	}()
-
-	err = k8s.KubectlApplyE(t, &k8s.KubectlOptions{}, issuerFile)
-	require.NoError(t, err)
-
+	testutil.CreateSelfSignedIssuer(t, h.Namespace)
+	
 	h.CrdbCluster = testutil.CockroachCluster{
 		Cfg:              cfg,
 		K8sClient:        k8sClient,
@@ -383,7 +348,7 @@ spec:
 			"tls.certs.selfSigner.enabled":     "false",
 			"tls.certs.certManager":            "true",
 			"tls.certs.certManagerIssuer.kind": "Issuer",
-			"tls.certs.certManagerIssuer.name": "cockroachdb",
+			"tls.certs.certManagerIssuer.name": testutil.SelfSignedIssuerName,
 		}),
 	}
 

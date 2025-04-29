@@ -68,7 +68,7 @@ func (r *multiRegion) TestHelmInstall(t *testing.T) {
 
 	// Apply operator, CockroachDB charts on each cluster.
 	for i, cluster := range clusters {
-		r.InstallCharts(t, cluster, i)
+		r.InstallCharts(t, cluster, i, nil)
 	}
 
 	// Get current context name.
@@ -113,7 +113,7 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 
 	// Apply operator, CockroachDB charts on each cluster.
 	for i, cluster := range clusters {
-		r.InstallCharts(t, cluster, i)
+		r.InstallCharts(t, cluster, i, nil)
 	}
 
 	// Get current context name.
@@ -195,7 +195,7 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 
 	// Apply operator, CockroachDB charts on each cluster.
 	for i, cluster := range clusters {
-		r.InstallCharts(t, cluster, i)
+		r.InstallCharts(t, cluster, i, nil)
 	}
 
 	// Get current context name.
@@ -284,7 +284,7 @@ func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
 
 	// Apply operator, CockroachDB charts on each cluster.
 	for i, cluster := range clusters {
-		r.InstallCharts(t, cluster, i)
+		r.InstallCharts(t, cluster, i, nil)
 	}
 
 	// Get current context name.
@@ -351,7 +351,7 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T) {
 
 	// Apply Operator, CockroachDB charts on each cluster.
 	for i, cluster := range clusters {
-		r.InstallCharts(t, cluster, i)
+		r.InstallCharts(t, cluster, i, nil)
 	}
 
 	// Get current context name.

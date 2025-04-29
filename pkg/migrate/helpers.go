@@ -151,6 +151,9 @@ func buildHelmValuesFromOperator(
 		"cockroachdb": map[string]interface{}{
 			"tls": map[string]interface{}{
 				"enabled": cluster.Spec.TLSEnabled,
+				"selfSigner": map[string]interface{}{
+					"enabled": false,
+				},
 				"externalCertificates": map[string]interface{}{
 					"enabled": true,
 					"certificates": map[string]interface{}{
@@ -272,6 +275,9 @@ func buildHelmValuesFromHelm(
 	return map[string]interface{}{
 		"tls": map[string]interface{}{
 			"enabled": input.tlsEnabled,
+			"selfSigner": map[string]interface{}{
+				"enabled": false,
+			},
 			"externalCertificates": map[string]interface{}{
 				"enabled": true,
 				"certificates": map[string]interface{}{

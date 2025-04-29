@@ -69,6 +69,7 @@ type OperatorUseCases interface {
 	TestClusterScaleUp(t *testing.T)
 	TestClusterRollingRestart(t *testing.T)
 	TestKillingCockroachNode(t *testing.T)
+	TestInstallWithCertManager(t *testing.T)
 }
 
 type Region struct {
@@ -280,7 +281,7 @@ func (r *Region) setupNetworking(t *testing.T, ctx context.Context, region strin
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
 // which is generated through cockroach binary, It also
 // verifies whether relevant services are up and running.
-func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
+func (r *Region) InstallCharts(t *testing.T, cluster string, index int, crdbOp map[string]string) {
 	// Get current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
@@ -308,16 +309,17 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
 
+	if crdbOp == nil {
+		crdbOp = PatchHelmValues(map[string]string{
+			"cockroachdb.clusterDomain":                                                             CustomDomains[cluster],
+			"cockroachdb.tls.selfSigner.caProvided":                                                 "true",
+			"cockroachdb.tls.selfSigner.caSecret":                                                   customCASecret,
+		})
+	}
 	// Helm install cockroach CR with operator region config.
 	crdbOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
-		SetValues: testutil.PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain":                                                             CustomDomains[cluster],
-			"cockroachdb.crdbCluster.rollingRestartDelay":                                           "30s",
-			"cockroachdb.tls.selfSigner.caProvided":                                                 "true",
-			"cockroachdb.tls.selfSigner.caSecret":                                                   customCASecret,
-			"cockroachdb.crdbCluster.dataStore.volumeClaimTemplate.spec.resources.requests.storage": "1Gi",
-		}),
+		SetValues:      crdbOp,
 		SetJsonValues: map[string]string{
 			"cockroachdb.crdbCluster.regions":        MustMarshalJSON(r.OperatorRegions(index, r.NodeCount)),
 			"cockroachdb.crdbCluster.localityLabels": MustMarshalJSON([]string{"topology.kubernetes.io/region", "topology.kubernetes.io/zone"}),
@@ -633,4 +635,21 @@ func MustMarshalJSON(value interface{}) string {
 		panic(fmt.Sprintf("Failed to marshal JSON: %v", err))
 	}
 	return string(bytes)
+}
+
+func PatchHelmValues(inputValues map[string]string) map[string]string {
+	overrides := map[string]string{
+		// Override the persistent storage size to 1Gi so that we do not run out of space.
+		"cockroachdb.crdbCluster.dataStore.volumeClaimTemplate.spec.resources.requests.storage": "1Gi",
+		// Override the terminationGracePeriodSeconds from 300s to 30 as it makes pod delete take longer.
+		"cockroachdb.crdbCluster.terminationGracePeriod": "30s",
+		// Override the rolling restart delay 30s as it makes pod delete take longer.
+		"cockroachdb.crdbCluster.rollingRestartDelay": "30s",
+	}
+
+	for k, v := range overrides {
+		inputValues[k] = v
+	}
+
+	return inputValues
 }
