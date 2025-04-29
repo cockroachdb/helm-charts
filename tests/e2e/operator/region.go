@@ -73,6 +73,9 @@ type OperatorUseCases interface {
 }
 
 type Region struct {
+	// IsCertManager is true if the cockroachdb cluster is using cert-manager.
+	IsCertManager bool
+	// IsMultiRegion is true if the region is multi-region.
 	IsMultiRegion bool
 	// NodeCount is the desired CockroachDB nodes in the region.
 	NodeCount int
@@ -281,7 +284,8 @@ func (r *Region) setupNetworking(t *testing.T, ctx context.Context, region strin
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
 // which is generated through cockroach binary, It also
 // verifies whether relevant services are up and running.
-func (r *Region) InstallCharts(t *testing.T, cluster string, index int, crdbOp map[string]string) {
+func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
+	var crdbOp map[string]string
 	// Get current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
@@ -300,16 +304,35 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int, crdbOp m
 	// Create namespace.
 	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
 
-	// create CA Secret.
-	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
+	if r.IsCertManager {
+		testutil.InstallCertManager(t)
+		testutil.InstallTrustManager(t, r.Namespace[cluster])
+		testutil.CreateSelfSignedIssuer(t, r.Namespace[cluster])
+		testutil.CreateSelfSignedCertificate(t, r.Namespace[cluster])
+		testutil.CreateCAIssuer(t, r.Namespace[cluster])
+		testutil.CreateBundle(t, r.Namespace[cluster])
+	} else {
+		// create CA Secret.
+		err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
 		"--from-file=ca.key")
-	require.NoError(t, err)
+		require.NoError(t, err)
+	}
+	
 
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
 
-	if crdbOp == nil {
+	if r.IsCertManager {
+		crdbOp = PatchHelmValues(map[string]string{
+			"cockroachdb.clusterDomain": CustomDomains[cluster],
+			"cockroachdb.tls.enabled": "true",
+			"cockroachdb.tls.selfSigner.enabled": "false",
+			"cockroachdb.tls.certManager.enabled": "true",
+			"cockroachdb.tls.certManager.issuer.name": testutil.CAIssuerName,
+			"cockroachdb.tls.certManager.caConfigMap": testutil.CAConfigMapName,
+		})
+	} else {
 		crdbOp = PatchHelmValues(map[string]string{
 			"cockroachdb.clusterDomain":                                                             CustomDomains[cluster],
 			"cockroachdb.tls.selfSigner.caProvided":                                                 "true",
@@ -532,6 +555,14 @@ func (r *Region) CleanupResources(t *testing.T) {
 		require.NoError(t, err)
 		err = helm.DeleteE(t, helmOptions, operatorReleaseName, true)
 		require.NoError(t, err)
+		if r.IsCertManager {
+			testutil.DeleteBundle(t, namespace)
+			testutil.DeleteCAIssuer(t, namespace)
+			testutil.DeleteSelfSignedCertificate(t, namespace)
+			testutil.DeleteSelfSignedIssuer(t, namespace)
+			testutil.DeleteTrustManager(t)
+			testutil.DeleteCertManager(t)
+		}
 		k8s.DeleteNamespace(t, kubectlOptions, namespace)
 	}
 }
@@ -637,13 +668,15 @@ func MustMarshalJSON(value interface{}) string {
 	return string(bytes)
 }
 
+// PatchHelmValues adds and overrides few default values for the helm charts for testing purposes.
+// It sets the persistent storage size to 1Gi, terminationGracePeriod to 30s and rolling restart delay to 30s.
 func PatchHelmValues(inputValues map[string]string) map[string]string {
 	overrides := map[string]string{
 		// Override the persistent storage size to 1Gi so that we do not run out of space.
 		"cockroachdb.crdbCluster.dataStore.volumeClaimTemplate.spec.resources.requests.storage": "1Gi",
 		// Override the terminationGracePeriodSeconds from 300s to 30 as it makes pod delete take longer.
 		"cockroachdb.crdbCluster.terminationGracePeriod": "30s",
-		// Override the rolling restart delay 30s as it makes pod delete take longer.
+		// Override the rolling restart delay 30s as few times cockroachdb takes few seconds to come up.
 		"cockroachdb.crdbCluster.rollingRestartDelay": "30s",
 	}
 
