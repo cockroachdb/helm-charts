@@ -19,6 +19,7 @@ import (
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
+	v1 "k8s.io/api/core/v1"
 	_ "k8s.io/client-go/plugin/pkg/client/auth"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
@@ -46,7 +47,8 @@ func newCockroachDBHelm() *CockroachDBHelm {
 
 func TestHelmChartInstall(t *testing.T) {
 	h := newCockroachDBHelm()
-	t.Run("CockroachDB Helm Installl", h.TestHelmInstall)
+	t.Run("CockroachDB Helm Install", h.TestHelmInstall)
+	t.Run("CockroachDB Helm Install with Visus", h.TestHelmInstallWithVisus)
 	t.Run("CockroachDB Helm Install with user provided CA", h.TestHelmInstallWithCAProvided)
 	t.Run("CockroachDB Helm Chart with cert migration", h.TestHelmMigration)
 	t.Run("CockroachDB Helm Chart with insecure mode", h.TestHelmWithInsecureMode)
@@ -86,6 +88,47 @@ func (h *CockroachDBHelm) TestHelmInstall(t *testing.T) {
 		k8s.DeleteNamespace(t, k8s.NewKubectlOptions("", "", h.Namespace), h.Namespace)
 	}()
 	h.ValidateCRDB(t)
+}
+
+func (h *CockroachDBHelm) TestHelmInstallWithVisus(t *testing.T) {
+	isCaUserProvided := false
+	h.Namespace = "cockroach" + strings.ToLower(random.UniqueId())
+	h.CrdbCluster = testutil.CockroachCluster{
+		Cfg:              cfg,
+		K8sClient:        k8sClient,
+		StatefulSetName:  fmt.Sprintf("%s-cockroachdb", releaseName),
+		Namespace:        h.Namespace,
+		ClientSecret:     ClientSecret,
+		NodeSecret:       NodeSecret,
+		CaSecret:         CASecret,
+		IsCaUserProvided: isCaUserProvided,
+		Context:          k3dClusterName,
+		DesiredNodes:     3,
+	}
+	h.HelmOptions = &helm.Options{
+		SetValues: testutil.PatchHelmValues(map[string]string{
+			"operator.enabled":                         "false",
+			"conf.cluster-name":                        "test",
+			"init.provisioning.enabled":                "true",
+			"init.provisioning.databases[0].name":      migration.TestDBName,
+			"init.provisioning.databases[0].owners[0]": "root",
+			"visus.enabled":                            "true",
+		}),
+	}
+
+	h.InstallHelm(t)
+	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	defer func() {
+		h.Uninstall(t)
+		k8s.DeleteNamespace(t, kubectlOptions, h.Namespace)
+	}()
+	h.ValidateCRDB(t)
+
+	visusServiceName := fmt.Sprintf("%s-visus", h.CrdbCluster.StatefulSetName)
+	visusService := k8s.GetService(t, kubectlOptions, visusServiceName)
+	require.Equal(t, v1.ServiceTypeClusterIP, visusService.Spec.Type, "unexpected service type in service: %#v", visusService.Spec)
+	// visus is headless, as it doesn't make sense to proxy it
+	require.Equal(t, "None", visusService.Spec.ClusterIP)
 }
 
 func (h *CockroachDBHelm) TestHelmInstallWithCAProvided(t *testing.T) {

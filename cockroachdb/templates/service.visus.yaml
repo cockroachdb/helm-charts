@@ -1,0 +1,50 @@
+# This service only exists to create DNS entries for each pod in
+# the StatefulSet such that they can resolve each other's IP addresses.
+# It does not create a load-balanced ClusterIP and should not be used directly
+# by clients in most circumstances.
+{{- if .Values.visus.enabled }}
+kind: Service
+apiVersion: v1
+metadata:
+  name: "{{ template "cockroachdb.fullname" . }}-visus"
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: "{{ template "cockroachdb.name" . }}-visus"
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+  {{- with .Values.service.discovery.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  annotations:
+    # Use this annotation in addition to the actual field below because the
+    # annotation will stop being respected soon, but the field is broken in
+    # some versions of Kubernetes:
+    # https://github.com/kubernetes/kubernetes/issues/58662
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+    # Enable automatic monitoring of all instances when Prometheus is running
+    # in the cluster.
+    prometheus.io/scrape: "true"
+    prometheus.io/path: _status/vars
+    prometheus.io/port: {{ .Values.visus.bind_port | quote }}
+  {{- with .Values.service.discovery.annotations }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  clusterIP: None
+  ports:
+    {{- if .Values.visus.enabled }}
+    - name: visus-http
+      port: {{ .Values.visus.bind_port | int64 }}
+      targetPort: visus-http
+    {{- end }}
+  selector:
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+  {{- with .Values.statefulset.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
