@@ -56,6 +56,9 @@ spec:
       {{- with .Values.operator.topologySpreadConstraints }}
       topologySpreadConstraints: {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.operator.localityLabels }}
+      localityLabels: {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- if .Values.operator.terminationGracePeriod }}
       terminationGracePeriod: {{ .Values.operator.terminationGracePeriod }}
       {{- end }}

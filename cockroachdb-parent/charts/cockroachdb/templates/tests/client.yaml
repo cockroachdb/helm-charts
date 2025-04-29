@@ -1,0 +1,44 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  name: {{ template "cockroachdb.fullname" . }}-test
+  namespace: {{ .Release.Namespace | quote }}
+  annotations:
+    helm.sh/hook: test-success
+spec:
+  restartPolicy: Never
+{{- if .Values.cockroachdb.crdbCluster.image.credentials }}
+  imagePullSecrets:
+    - name: {{ template "cockroachdb.fullname" . }}.db.registry
+{{- end }}
+  {{- if .Values.cockroachdb.tls.enabled }}
+  volumes:
+    - name: client-certs
+      secret:
+        secretName: cockroachdb-root
+        defaultMode: 0400
+  {{- end }}
+  containers:
+    - name: client-test
+      image: "{{ .Values.cockroachdb.crdbCluster.image.name }}"
+      imagePullPolicy: {{ .Values.cockroachdb.crdbCluster.image.pullPolicy | quote }}
+      {{- if .Values.cockroachdb.tls.enabled }}
+      volumeMounts:
+      - name: client-certs
+        mountPath: /cockroach-certs
+      {{- end }}
+      command:
+        - /cockroach/cockroach
+        - sql
+        {{- if .Values.cockroachdb.tls.enabled }}
+        - --certs-dir
+        - /cockroach-certs
+        {{- else }}
+        - --insecure
+        {{- end}}
+        - --host
+        - {{ template "cockroachdb.fullname" . }}-public.{{ .Release.Namespace }}
+        - --port
+        - {{ .Values.cockroachdb.crdbCluster.service.ports.grpc.port | quote }}
+        - -e
+        - SHOW DATABASES;

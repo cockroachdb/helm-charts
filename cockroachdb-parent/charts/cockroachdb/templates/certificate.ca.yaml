@@ -1,0 +1,33 @@
+{{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.certManager.enabled }}
+  {{- if .Values.cockroachdb.tls.certManager.issuer.isSelfSignedIssuer }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ template "cockroachdb.fullname" . }}-ca-cert
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+    {{- with .Values.labels }}
+      {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  duration: {{ .Values.cockroachdb.tls.certManager.issuer.caCertDuration }}
+  renewBefore: {{ .Values.cockroachdb.tls.certManager.issuer.caCertExpiryWindow  }}
+  isCA: true
+  secretName: {{ .Values.cockroachdb.tls.certManager.caSecret }}
+  privateKey:
+    algorithm: ECDSA
+    size: 256
+  commonName: root
+  subject:
+    organizations:
+      - Cockroach
+  issuerRef:
+    name: {{ .Values.cockroachdb.tls.certManager.issuer.name }}
+    kind: {{ .Values.cockroachdb.tls.certManager.issuer.kind }}
+    group: {{ .Values.cockroachdb.tls.certManager.issuer.group }}
+  {{- end }}
+{{- end }}

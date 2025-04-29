@@ -56,6 +56,7 @@ func To[T any](v T) *T {
 	return &v
 }
 
+// yamlToDisk marshals the given data to YAML and writes it to the given path.
 func yamlToDisk(path string, data []any) error {
 	file, err := os.Create(path)
 	if err != nil {
@@ -88,6 +89,7 @@ func yamlToDisk(path string, data []any) error {
 	return nil
 }
 
+// buildNodeSpecFromOperator builds a CrdbNodeSpec from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
 func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, joinString string, flags map[string]string) v1alpha1.CrdbNodeSpec {
 
 	return v1alpha1.CrdbNodeSpec{
@@ -136,55 +138,83 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 	}
 }
 
-func buildHelmValuesFromOperator(cluster publicv1.CrdbCluster, cloudProvider string, cloudRegion string, namespace string, flags map[string]string) map[string]interface{} {
+// buildHelmValuesFromOperator builds a map of values for the CockroachDB Helm chart from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
+func buildHelmValuesFromOperator(
+	cluster publicv1.CrdbCluster, 
+	cloudProvider string, 
+	cloudRegion string, 
+	namespace string, 
+	joinStr string, 
+	flags map[string]string) map[string]interface{} {
+	
 	return map[string]interface{}{
-		"fullnameOverride": cluster.Name,
-		"operator": map[string]interface{}{
-			"enabled":        true,
-			"tlsEnabled":     cluster.Spec.TLSEnabled,
-			"podLabels":      cluster.Spec.AdditionalLabels,
-			"podAnnotations": cluster.Spec.AdditionalAnnotations,
-			"resources":      cluster.Spec.Resources,
-			"flags":          flags,
-			"regions": []map[string]interface{}{
-				{
-					"namespace":     namespace,
-					"cloudProvider": cloudProvider,
-					"code":          cloudRegion,
-					"nodes":         cluster.Spec.Nodes,
-					"domain":        "",
-				},
-			},
-			"dataStore": map[string]interface{}{
-				"volumeClaimTemplate": map[string]interface{}{
-					"metadata": map[string]interface{}{
-						"name": "datadir",
+		"cockroachdb": map[string]interface{}{
+			"tls": map[string]interface{}{
+				"enabled": cluster.Spec.TLSEnabled,
+				"externalCertificates": map[string]interface{}{
+					"enabled": true,
+					"certificates": map[string]interface{}{
+						"caConfigMapName":         cluster.Name + "-ca-crt",
+						"nodeSecretName":          cluster.Name + "-node-secret",
+						"rootSqlClientSecretName": cluster.Name + "-client-secret",
 					},
 				},
 			},
-			"ports": map[string]interface{}{
-				"grpcPort": cluster.Spec.GRPCPort,
-				"httpPort": cluster.Spec.HTTPPort,
-				"sqlPort":  cluster.Spec.SQLPort,
-			},
-			"certificates": map[string]interface{}{
-				"externalCertificates": map[string]interface{}{
-					"caConfigMapName":         cluster.Name + "-ca-crt",
-					"nodeSecretName":          cluster.Name + "-node-secret",
-					"rootSqlClientSecretName": cluster.Name + "-client-secret",
+			"crdbCluster": map[string]interface{}{
+				"podLabels":      cluster.Spec.AdditionalLabels,
+				"podAnnotations": cluster.Spec.AdditionalAnnotations,
+				"resources":      cluster.Spec.Resources,
+				"flags":          flags,
+				"regions": []map[string]interface{}{
+					{
+						"namespace":     namespace,
+						"cloudProvider": cloudProvider,
+						"code":          cloudRegion,
+						"nodes":         cluster.Spec.Nodes,
+						"domain":        "",
+					},
 				},
+				"dataStore": map[string]interface{}{
+					"volumeClaimTemplate": map[string]interface{}{
+						"metadata": map[string]interface{}{
+							"name": "datadir",
+						},
+					},
+				},
+				"service": map[string]interface{}{
+					"ports": map[string]interface{}{
+						"grpc": map[string]interface{}{
+							"port": cluster.Spec.GRPCPort,
+						},
+						"http": map[string]interface{}{
+							"port": cluster.Spec.HTTPPort,
+						},
+						"sql": map[string]interface{}{
+							"port": cluster.Spec.SQLPort,
+						},
+					},
+				},
+				"affinity":                      cluster.Spec.Affinity,
+				"nodeSelector":                  cluster.Spec.NodeSelector,
+				"tolerations":                   cluster.Spec.Tolerations,
+				"terminationGracePeriod": 		 fmt.Sprintf("%ds", cluster.Spec.TerminationGracePeriodSecs),
+				"loggingConfigMapName":          cluster.Spec.LogConfigMap,
+				"env":                           cluster.Spec.PodEnvVariables,
+				"join":                          joinStr,
 			},
-			"affinity":                      cluster.Spec.Affinity,
-			"nodeSelector":                  cluster.Spec.NodeSelector,
-			"tolerations":                   cluster.Spec.Tolerations,
-			"terminationGracePeriodSeconds": cluster.Spec.TerminationGracePeriodSecs,
-			"loggingConfigMapName":          cluster.Spec.LogConfigMap,
-			"env":                           cluster.Spec.PodEnvVariables,
+		},
+		"k8s": map[string]interface{}{
+			"fullnameOverride": cluster.Name,
 		},
 	}
 }
 
-func buildNodeSpecFromHelm(sts *appsv1.StatefulSet, nodeName string, input parsedMigrationInput) v1alpha1.CrdbNodeSpec {
+// buildNodeSpecFromHelm builds a CrdbNodeSpec from a StatefulSet created by the CockroachDB Helm chart.
+func buildNodeSpecFromHelm(
+	sts *appsv1.StatefulSet, 
+	nodeName string, 
+	input parsedMigrationInput) v1alpha1.CrdbNodeSpec {
+	
 	return v1alpha1.CrdbNodeSpec{
 		NodeName:  nodeName,
 		Join:      input.joinCmd,
@@ -231,6 +261,7 @@ func buildNodeSpecFromHelm(sts *appsv1.StatefulSet, nodeName string, input parse
 	}
 }
 
+// buildHelmValuesFromHelm builds a values.yaml for the CockroachDB Enterprise Operator Helm chart from a StatefulSet created by the CockroachDB Helm chart.
 func buildHelmValuesFromHelm(
 	sts *appsv1.StatefulSet,
 	cloudProvider string,
@@ -239,51 +270,65 @@ func buildHelmValuesFromHelm(
 	input parsedMigrationInput) map[string]interface{} {
 
 	return map[string]interface{}{
-		"operator": map[string]interface{}{
-			"enabled":        true,
-			"tlsEnabled":     input.tlsEnabled,
-			"podLabels":      sts.Spec.Template.Labels,
-			"podAnnotations": sts.Spec.Template.Annotations,
-			"resources":      sts.Spec.Template.Spec.Containers[0].Resources,
-			"flags":          input.flags,
-			"regions": []map[string]interface{}{
-				{
-					"namespace":     namespace,
-					"cloudProvider": cloudProvider,
-					"code":          cloudRegion,
-					"nodes":         sts.Spec.Replicas,
-					"domain":        "",
-				},
-			},
-			"dataStore": map[string]interface{}{
-				"volumeClaimTemplate": map[string]interface{}{
-					"metadata": map[string]interface{}{
-						"name": "datadir",
-					},
-				},
-			},
-			"ports": map[string]interface{}{
-				"grpcPort": input.grpcPort,
-				"httpPort": input.httpPort,
-				"sqlPort":  input.sqlPort,
-			},
-			"certificates": map[string]interface{}{
-				"externalCertificates": map[string]interface{}{
+		"tls": map[string]interface{}{
+			"enabled": input.tlsEnabled,
+			"externalCertificates": map[string]interface{}{
+				"enabled": true,
+				"certificates": map[string]interface{}{
 					"caConfigMapName":         sts.Name + "-ca-secret-crt",
 					"nodeSecretName":          sts.Name + "-node-secret",
 					"rootSqlClientSecretName": sts.Name + "-client-secret",
-				},
+				},	
 			},
-			"affinity":                      sts.Spec.Template.Spec.Affinity,
-			"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
-			"tolerations":                   sts.Spec.Template.Spec.Tolerations,
-			"terminationGracePeriodSeconds": sts.Spec.Template.Spec.TerminationGracePeriodSeconds,
-			"loggingConfigMapName":          input.loggingConfigMap,
-			"env":                           sts.Spec.Template.Spec.Containers[0].Env,
+		},
+		"cockroachdb": map[string]interface{}{
+			"crdbCluster": map[string]interface{}{
+				"podLabels":      sts.Spec.Template.Labels,
+				"podAnnotations": sts.Spec.Template.Annotations,
+				"resources":      sts.Spec.Template.Spec.Containers[0].Resources,
+				"flags":          input.flags,
+				"regions": []map[string]interface{}{
+					{
+						"namespace":     namespace,
+						"cloudProvider": cloudProvider,
+						"code":          cloudRegion,
+						"nodes":         sts.Spec.Replicas,
+						"domain":        "",
+					},
+				},
+				"dataStore": map[string]interface{}{
+					"volumeClaimTemplate": map[string]interface{}{
+						"metadata": map[string]interface{}{
+						"name": "datadir",
+						},
+					},
+				},
+				"service": map[string]interface{}{
+					"ports": map[string]interface{}{
+						"grpc": map[string]interface{}{
+							"port": input.grpcPort,
+						},
+						"http": map[string]interface{}{
+							"port": input.httpPort,
+						},
+						"sql": map[string]interface{}{
+							"port": input.sqlPort,
+						},
+					},
+				},
+				"affinity":                      sts.Spec.Template.Spec.Affinity,
+				"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
+				"tolerations":                   sts.Spec.Template.Spec.Tolerations,
+				"terminationGracePeriod": 		 fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
+				"loggingConfigMapName":          input.loggingConfigMap,
+				"env":                           sts.Spec.Template.Spec.Containers[0].Env,
+				"join":                          input.joinCmd,
+			},
 		},
 	}
 }
 
+// generateParsedMigrationInput parses the command arguments, extracts the --join string, and replaces env variables.
 func generateParsedMigrationInput(
 	ctx context.Context,
 	clientset kubernetes.Interface,

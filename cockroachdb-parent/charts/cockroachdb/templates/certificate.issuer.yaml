@@ -1,0 +1,20 @@
+{{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.certManager.enabled }}
+  {{- if .Values.cockroachdb.tls.certManager.issuer.isSelfSignedIssuer }}
+apiVersion: cert-manager.io/v1
+kind: Issuer
+metadata:
+  name: {{ template "cockroachdb.fullname" . }}-ca-issuer
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+  {{- with .Values.k8s.labels }}
+  {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  ca:
+    secretName: {{ .Values.cockroachdb.tls.certManager.caSecret }}
+  {{- end }}
+{{- end }}

@@ -312,15 +312,15 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	crdbOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		SetValues: testutil.PatchHelmValues(map[string]string{
-			"clusterDomain":                   CustomDomains[cluster],
-			"operator.enabled":                "true",
-			"operator.rollingRestartDelay":    "30s",
-			"tls.certs.selfSigner.caProvided": "true",
-			"tls.certs.selfSigner.caSecret":   customCASecret,
-			"operator.dataStore.volumeClaimTemplate.spec.resources.requests.storage": "1Gi",
+			"cockroachdb.clusterDomain":                                                             CustomDomains[cluster],
+			"cockroachdb.crdbCluster.rollingRestartDelay":                                           "30s",
+			"cockroachdb.tls.selfSigner.caProvided":                                                 "true",
+			"cockroachdb.tls.selfSigner.caSecret":                                                   customCASecret,
+			"cockroachdb.crdbCluster.dataStore.volumeClaimTemplate.spec.resources.requests.storage": "1Gi",
 		}),
 		SetJsonValues: map[string]string{
-			"operator.regions": MustMarshalJSON(r.OperatorRegions(index, r.NodeCount)),
+			"cockroachdb.crdbCluster.regions":        MustMarshalJSON(r.OperatorRegions(index, r.NodeCount)),
+			"cockroachdb.crdbCluster.localityLabels": MustMarshalJSON([]string{"topology.kubernetes.io/region", "topology.kubernetes.io/zone"}),
 		},
 		ExtraArgs: helmExtraArgs,
 	}
@@ -540,10 +540,10 @@ func (r *Region) OperatorRegions(index int, nodes int) []map[string]interface{} 
 	return r.createOperatorRegions(index, nodes, CustomDomains, Clusters, RegionCodes)
 }
 
-func HelmChartPaths() (string, string) {
+func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 	rootPath := testutil.GetGitRoot()
-	helmChartPath := filepath.Join(rootPath, "cockroachdb")
-	operatorChartPath := filepath.Join(rootPath, "operator")
+	helmChartPath = filepath.Join(rootPath, "cockroachdb-parent/charts/cockroachdb")
+	operatorChartPath = filepath.Join(rootPath, "cockroachdb-parent/charts/operator")
 
 	return helmChartPath, operatorChartPath
 }
