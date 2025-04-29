@@ -80,7 +80,8 @@ spec:
         {{- with .Values.tls.copyCerts.resources }}
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
-        {{- if .Values.visus.enabled }}
+        {{/* Sidecar support is since k8s 1.29, which is beyond the k8s support horizon */}}
+        {{- if and .Values.visus.enabled semverCompare ">=1.29" .Capabilities.KubeVersion.Version }}
         - name: Visus
           image: "{{ .Values.visus.image.name }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.visus.image.pullPolicy | quote }}
