@@ -723,6 +723,7 @@ iap:
 godebug:
   disablethp: "1"
 
+# Visus exports additional Prometheus metrics derived from internal Cockroach DB sources (often SQL queries)
 visus:
   enabled: false
   image:
