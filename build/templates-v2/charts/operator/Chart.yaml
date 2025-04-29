@@ -2,5 +2,5 @@ apiVersion: v2
 name: operator
 description: A Helm chart for managing the CockroachDB operator.
 type: application
-appVersion: "latest"
-version: 0.1.0
+appVersion: {{ .AppVersion }}
+version: {{ .Version }}

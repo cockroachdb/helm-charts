@@ -1,4 +1,3 @@
-<!--- Generated file, DO NOT EDIT. Source: build/templates-v2/charts/cockroachdb/README.md --->
 ## Add the CockroachDB Repository
 
 ```shell

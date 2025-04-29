@@ -34,6 +34,20 @@ const (
 	chartsFileTemplate = "build/templates/Chart.yaml"
 	valuesFileTemplate = "build/templates/values.yaml"
 	readmeFileTemplate = "build/templates/README.md"
+
+	cockroachDbChartFile          = "cockroachdb-parent/charts/cockroachdb/Chart.yaml"
+	cockroachDbValuesFile         = "cockroachdb-parent/charts/cockroachdb/values.yaml"
+	cockroachDbReadmeFile         = "cockroachdb-parent/charts/cockroachdb/README.md"
+	cockroachDbChartsFileTemplate = "build/templates-v2/charts/cockroachdb/Chart.yaml"
+	cockroachDbValuesFileTemplate = "build/templates-v2/charts/cockroachdb/values.yaml"
+	cockroachDbReadmeFileTemplate = "build/templates-v2/charts/cockroachdb/README.md"
+
+	operatorChartFile          = "cockroachdb-parent/charts/operator/Chart.yaml"
+	operatorValuesFile         = "cockroachdb-parent/charts/operator/values.yaml"
+	operatorReadmeFile         = "cockroachdb-parent/charts/operator/README.md"
+	operatorChartsFileTemplate = "build/templates-v2/charts/operator/Chart.yaml"
+	operatorValuesFileTemplate = "build/templates-v2/charts/operator/values.yaml"
+	operatorReadmeFileTemplate = "build/templates-v2/charts/operator/README.md"
 )
 
 const usage = `Usage:
@@ -100,11 +114,18 @@ func main() {
 // regenerate destination files based on templates, which should
 // result in a zero diff, if template is up-to-date with destination files.
 func generate() error {
-	chart, err := getVersions(chartsFile)
-	if err != nil {
-		return fmt.Errorf("cannot get chart versions: %w", err)
+	chartPaths := []string{chartsFile, cockroachDbChartFile, operatorChartFile}
+	for _, chartPath := range chartPaths {
+		chart, err := getVersions(chartPath)
+		if err != nil {
+			return fmt.Errorf("cannot get chart versions: %w", err)
+		}
+		err = processTemplates(chart.Version.String(), chart.AppVersion.String())
+		if err != nil {
+			return err
+		}
 	}
-	return processTemplates(chart.Version.String(), chart.AppVersion.String())
+	return nil
 }
 
 func bump(version string) error {
@@ -113,16 +134,23 @@ func bump(version string) error {
 	if err != nil {
 		return fmt.Errorf("cannot parse version %s: %w", version, err)
 	}
-	chart, err := getVersions(chartsFile)
-	if err != nil {
-		return fmt.Errorf("cannot get chart versions: %w", err)
+	chartPaths := []string{chartsFile, cockroachDbChartFile, operatorChartFile}
+	for _, chartPath := range chartPaths {
+		chart, err := getVersions(chartPath)
+		if err != nil {
+			return fmt.Errorf("cannot get chart versions: %w", err)
+		}
+		// Bump the chart version to be nice to helm.
+		newChartVersion, err := bumpVersion(chart, crdbVersion)
+		if err != nil {
+			return fmt.Errorf("cannot bump chart version: %w", err)
+		}
+		err = processTemplates(newChartVersion, crdbVersion.Original())
+		if err != nil {
+			return err
+		}
 	}
-	// Bump the chart version to be nice to helm.
-	newChartVersion, err := bumpVersion(chart, crdbVersion)
-	if err != nil {
-		return fmt.Errorf("cannot bump chart version: %w", err)
-	}
-	return processTemplates(newChartVersion, crdbVersion.Original())
+	return nil
 }
 
 func processTemplates(version string, appVersion string) error {
@@ -130,30 +158,40 @@ func processTemplates(version string, appVersion string) error {
 		Version:    version,
 		AppVersion: appVersion,
 	}
-	if err := processTemplate(
-		chartsFileTemplate,
-		chartsFile,
-		args,
-		fmt.Sprintf("# Generated file, DO NOT EDIT. Source: %s\n", chartsFileTemplate),
-	); err != nil {
-		return fmt.Errorf("cannot process %s -> %s: %w", chartsFileTemplate, chartsFile, err)
+	chartFileTemplates := []string{chartsFileTemplate, cockroachDbChartsFileTemplate, operatorChartsFileTemplate}
+	chartFiles := []string{chartsFile, cockroachDbChartFile, operatorChartFile}
+	valuesFileTemplates := []string{valuesFileTemplate, cockroachDbValuesFileTemplate, operatorValuesFileTemplate}
+	valuesFiles := []string{valuesFile, cockroachDbValuesFile, operatorValuesFile}
+	readmeFileTemplates := []string{readmeFileTemplate, cockroachDbReadmeFileTemplate, operatorReadmeFileTemplate}
+	readmeFiles := []string{readmeFile, cockroachDbReadmeFile, operatorReadmeFile}
+
+	for i := 0; i < len(chartFileTemplates); i++ {
+		if err := processTemplate(
+			chartFileTemplates[i],
+			chartFiles[i],
+			args,
+			fmt.Sprintf("# Generated file, DO NOT EDIT. Source: %s\n", chartFileTemplates[i]),
+		); err != nil {
+			return fmt.Errorf("cannot process %s -> %s: %w", chartFileTemplates[i], chartFiles[i], err)
+		}
+		if err := processTemplate(
+			valuesFileTemplates[i],
+			valuesFiles[i],
+			args,
+			fmt.Sprintf("# Generated file, DO NOT EDIT. Source: %s\n", valuesFileTemplates[i]),
+		); err != nil {
+			return fmt.Errorf("cannot process %s -> %s: %w", valuesFileTemplates[i], valuesFiles[i], err)
+		}
+		if err := processTemplate(
+			readmeFileTemplates[i],
+			readmeFiles[i],
+			args,
+			fmt.Sprintf("<!--- Generated file, DO NOT EDIT. Source: %s --->\n", readmeFileTemplates[i]),
+		); err != nil {
+			return fmt.Errorf("cannot process %s -> %s: %w", readmeFileTemplates[i], readmeFiles[i], err)
+		}
 	}
-	if err := processTemplate(
-		valuesFileTemplate,
-		valuesFile,
-		args,
-		fmt.Sprintf("# Generated file, DO NOT EDIT. Source: %s\n", valuesFileTemplate),
-	); err != nil {
-		return fmt.Errorf("cannot process %s -> %s: %w", valuesFileTemplate, valuesFile, err)
-	}
-	if err := processTemplate(
-		readmeFileTemplate,
-		readmeFile,
-		args,
-		fmt.Sprintf("<!--- Generated file, DO NOT EDIT. Source: %s --->\n", readmeFileTemplate),
-	); err != nil {
-		return fmt.Errorf("cannot process %s -> %s: %w", readmeFileTemplate, readmeFile, err)
-	}
+
 	return nil
 }
 

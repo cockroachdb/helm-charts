@@ -1,9 +1,8 @@
-# Generated file, DO NOT EDIT. Source: build/templates-v2/charts/cockroachdb/Chart.yaml
 apiVersion: v1
 name: cockroachdb
 home: https://www.cockroachlabs.com
-version: 16.0.6
-appVersion: 25.1.4
+version: {{ .Version }}
+appVersion: {{ .AppVersion }}
 description: CockroachDB is a scalable, survivable, strongly-consistent SQL database.
 icon: https://raw.githubusercontent.com/cockroachdb/cockroach/master/docs/media/cockroach_db.png
 sources:
