@@ -27,8 +27,10 @@ var (
 )
 
 const (
-	role       = "crdb-test-cockroachdb-node-reader"
-	TestDBName = "testdb"
+	role          = "crdb-test-cockroachdb-node-reader"
+	TestDBName    = "testdb"
+	selfSignerKey = "tls.certs.selfSigner.enabled"
+	tlsKey        = "tls.enabled"
 )
 
 type cockroachHelmChart interface {
@@ -74,8 +76,8 @@ func (h *HelmInstall) InstallHelm(t *testing.T) {
 
 func (h *HelmInstall) ValidateCRDB(t *testing.T) {
 	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
-	tlsEnabled := h.HelmOptions.SetValues["tls.enabled"]
-	selfSignerEnabled := h.HelmOptions.SetValues["tls.certs.selfSigner.enabled"]
+	tlsEnabled := h.HelmOptions.SetValues[tlsKey]
+	selfSignerEnabled := h.HelmOptions.SetValues[selfSignerKey]
 	if (tlsEnabled == "" || tlsEnabled == "true") && (selfSignerEnabled == "" || selfSignerEnabled == "true") {
 		// Verify certificates only if they are created by the self-signer utility
 		testutil.RequireCertificatesToBeValid(t, h.CrdbCluster)
@@ -89,8 +91,8 @@ func (h *HelmInstall) ValidateCRDB(t *testing.T) {
 func (h *HelmInstall) Uninstall(t *testing.T) {
 	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
 	danglingSecret := []string{}
-	tlsEnabled := h.HelmOptions.SetValues["tls.enabled"]
-	selfSignerEnabled := h.HelmOptions.SetValues["tls.certs.selfSigner.enabled"]
+	tlsEnabled := h.HelmOptions.SetValues[tlsKey]
+	selfSignerEnabled := h.HelmOptions.SetValues[selfSignerKey]
 	if (tlsEnabled == "" || tlsEnabled == "true") && (selfSignerEnabled == "" || selfSignerEnabled == "true") {
 		// Verify cleanup of secret only if they are created by self-signer utility.
 		danglingSecret = append(danglingSecret, h.CrdbCluster.ClientSecret)
@@ -134,8 +136,12 @@ func cleanupResources(
 
 	for i := range danglingSecrets {
 		_, err = k8s.GetSecretE(t, kubectlOptions, danglingSecrets[i])
-		require.Equal(t, true, kube.IsNotFound(err))
-		t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
+		if err != nil && !kube.IsNotFound(err) {
+			t.Fatalf("Error getting secret %s: %v", danglingSecrets[i], err)
+			t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
+		} else if err == nil {
+			k8s.RunKubectlE(t, kubectlOptions, "delete", "secret", danglingSecrets[i])
+		}
 	}
 
 	crb := &rbacv1.ClusterRoleBinding{}

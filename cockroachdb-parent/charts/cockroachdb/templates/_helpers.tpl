@@ -213,18 +213,20 @@ Validate that nodeCertDuration must not be empty and nodeCertDuration minus node
 {{- end -}}
 
 {{/*
-Validate that if user enabled tls, then either self-signed certificates or certificate manager is enabled
+Validate that if user enabled tls, then only one of self-signed certificates, certificate manager, or user provided certificates is enabled
 */}}
 {{- define "cockroachdb.tlsValidation" -}}
 {{- if .Values.cockroachdb.tls.enabled -}}
-{{- if and .Values.cockroachdb.tls.selfSigner.enabled .Values.cockroachdb.tls.certManager.enabled -}}
-    {{ fail "Can not enable the self signed certificates and certificate manager at the same time" }}
-{{- end -}}
-{{- if and (not .Values.cockroachdb.tls.selfSigner.enabled) (not .Values.cockroachdb.tls.certManager.enabled) -}}
-    {{- if not .Values.cockroachdb.tls.externalCertificates.enabled -}}
-        {{ fail "You have to enable either self signed certificates or certificate manager, if you have enabled tls" }}
-    {{- end -}}
-{{- end -}}
+{{- $selfSigner := .Values.cockroachdb.tls.selfSigner.enabled }}
+{{- $certManager := .Values.cockroachdb.tls.certManager.enabled }}
+{{- $userProvided := .Values.cockroachdb.tls.externalCertificates.enabled }}
+{{- $enabledCount := 0 }}
+{{- if $selfSigner }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
+{{- if $certManager }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
+{{- if $userProvided }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
+{{- if ne $enabledCount 1 }}
+    {{ fail "Exactly one of self-signed certificates, certificate manager, or external certificates must be enabled when TLS is enabled" }}
+{{- end }}
 {{- end -}}
 {{- end -}}
 

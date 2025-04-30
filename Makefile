@@ -124,7 +124,7 @@ test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer tes
 	exit $${EXIT_CODE:-0}
 
 test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer test/single-cluster/up
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || EXIT_CODE=$$?; \
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || EXIT_CODE=$$?; \
 	$(MAKE) test/multi-cluster/down; \
 	exit $${EXIT_CODE:-0}
 

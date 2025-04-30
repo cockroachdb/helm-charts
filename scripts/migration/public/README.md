@@ -124,7 +124,7 @@ kubectl label service $CRDBCLUSTER-public app.kubernetes.io/managed-by=Helm --ov
 Finally, apply the crdbcluster manifest:
 
 ```
-helm install $CRDBCLUSTER ./cockroachdb -f manifests/values.yaml
+helm install $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb -f manifests/values.yaml
 ```
 
 One the migration is successful, now delete the statefulset created by public operator:

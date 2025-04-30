@@ -65,12 +65,17 @@ Cockroachdb, however, expects the files to be named like this:
 
 #### Cert-manager
 
-If you wish to supply certificates with [cert-manager][1], set
+If you wish to provision certificates using [cert-manager][1], follow the steps below:
 
-* `cockroachdb.tls.certManager.enabled` to `yes`/`true`
-* `cockroachdb.tls.certManager.issuer` to an IssuerRef (as they appear in certificate resources) pointing to a clusterIssuer or issuer, you have set up in the cluster
+  * By default, cert-manager stores the CA certificate in a Secret, which is used by the Issuer.
 
-Example issuer:
+  * To provide the CA certificate in a ConfigMap (required by some applications like CockroachDB), you can use the [trust-manager][2] project.
+
+  * The trust-manager can be configured to copy the CA cert from a Secret to a ConfigMap automatically.
+
+  * If your CA Secret is in the cockroachdb namespace, your trust-manager deployment must also reference that namespace. You can set the trust namespace using the Helm value: --set app.trust.namespace=cockroachdb.
+
+Example Setup:
 
 ```yaml
 apiVersion: v1
@@ -86,11 +91,65 @@ type: kubernetes.io/tls
 apiVersion: cert-manager.io/v1alpha3
 kind: Issuer
 metadata:
-  name: cockroachdb-cert-issuer
+  name: cockroachdb
   namespace: cockroachdb
 spec:
   ca:
     secretName: cockroachdb-ca
+---
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: cockroachdb-ca
+spec:
+  sources:
+    - secret:
+        name: cockroachdb-ca
+        key: ca.crt
+  target:
+    configMap:
+      key: ca.crt
+    namespaceSelector:
+      matchLabels:
+       kubernetes.io/metadata.name: cockroachdb
+```
+> 🔍 Bundle will create a ConfigMap named cockroach-ca in the cockroachdb namespace with a ca.crt key copied from the Secret's tls.crt.
+
+🔧 **values.yaml configuration** :
+
+To enable cert-manager integration via Helm, configure the following:
+
+```yaml
+cockroachdb:
+  tls:
+    enabled: true
+    selfSigner:
+      enabled: false
+    certManager:
+      enabled: true
+      # caSecret defines the secret name that contains the CA certificate.
+      caConfigMap: cockroachdb-ca
+      # nodeSecret defines the secret name that contains the node certificate.
+      nodeSecret: cockroachdb-node
+      # clientRootSecret defines the secret name that contains the root client certificate.
+      clientRootSecret: cockroachdb-root
+      # issuer specifies the Issuer or ClusterIssuer resource to use for issuing node and client certificates.
+      # The values correspond to the issuerRef in the certificate.
+      issuer:
+        # group specifies the API group of the Issuer resource.
+        group: cert-manager.io
+        # kind specifies the kind of the Issuer resource.
+        kind: Issuer
+        # name specifies the name of the Issuer resource.
+        name: cockroachdb
+        # clientCertDuration specifies the duration of client certificates.
+        clientCertDuration: 672h
+        # clientCertExpiryWindow specifies the rotation window before client certificate expiry.
+        clientCertExpiryWindow: 48h
+        # nodeCertDuration specifies the duration for node certificates.
+        nodeCertDuration: 8760h
+        # nodeCertExpiryWindow specifies the rotation window before node certificate expiry.
+        nodeCertExpiryWindow: 168h
 ```
 
 # CockroachDB Helm Chart
@@ -264,3 +323,4 @@ In order to access the DB console, follow the steps documented in https://www.co
 Use the corresponding Service name that is suffixed by `-public` (in this case, `$CRDBCLUSTER-public`).
 
 [1]: https://cert-manager.io/
+[2]: https://cert-manager.io/docs/trust/trust-manager/

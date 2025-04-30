@@ -95,5 +95,5 @@ kubectl delete poddisruptionbudget $STS_NAME-budget
 Finally, apply the crdbcluster manifest using helm upgrade:
 
 ```
-helm upgrade $RELEASE_NAME ./cockroachdb -f manifests/values.yaml
+helm upgrade $RELEASE_NAME ./cockroachdb-parent/charts/cockroachdb -f manifests/values.yaml
 ```

@@ -40,6 +40,7 @@ func TestOperatorInSingleRegion(t *testing.T) {
 	t.Run("TestClusterRollingRestart", r.TestClusterRollingRestart)
 	t.Run("TestKillingCockroachNode", r.TestKillingCockroachNode)
 	t.Run("TestClusterScaleUp", r.TestClusterScaleUp)
+	t.Run("TestInstallWithCertManager", r.TestInstallWithCertManager)
 }
 
 // TestHelmInstall will install Operator and CockroachDB charts
@@ -334,4 +335,31 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T) {
 	}
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
 	r.ValidateCRDB(t, cluster)
+}
+
+// TestInstallWithCertManager will install the Operator and CockroachDB charts
+// with cert-manager and trust-manager and verifies cockroachdb cluster is up and running.
+func (r *singleRegion) TestInstallWithCertManager(t *testing.T) {
+	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
+	cluster := operator.Clusters[0]
+	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
+	r.IsCertManager = true
+
+	// Cleanup resources.
+	defer r.CleanupResources(t)
+
+	r.SetUpInfra(t, corednsClusterOptions)
+
+	// Install Operator and CockroachDB charts.
+	r.InstallCharts(t, cluster, 0)
+
+	// Get current context name.
+	_, rawConfig := r.GetCurrentContext(t)
+
+	if _, ok := rawConfig.Contexts[cluster]; !ok {
+		t.Fatal()
+	}
+	rawConfig.CurrentContext = cluster
+	r.ValidateCRDB(t, cluster)
+
 }

@@ -83,8 +83,8 @@ cockroachdb:
     certManager:
       # enabled determines whether cert-manager is used to issue certificates.
       enabled: false
-      # caSecret defines the secret name that contains the CA certificate.
-      caSecret: cockroach-ca
+      # caConfigMap defines the configmap name that contains the CA certificate.
+      caConfigMap: cockroachdb-ca
       # nodeSecret defines the secret name that contains the node certificate.
       nodeSecret: cockroachdb-node
       # clientRootSecret defines the secret name that contains the root client certificate.
@@ -98,12 +98,6 @@ cockroachdb:
         kind: Issuer
         # name specifies the name of the Issuer resource.
         name: cockroachdb
-        # isSelfSignedIssuer indicates whether the Issuer is self-signed.
-        isSelfSignedIssuer: true
-        # caCertDuration specifies the duration for the CA certificate.
-        caCertDuration: 43800h
-        # caCertExpiryWindow specifies the rotation window before CA certificate expiry.
-        caCertExpiryWindow: 648h
         # clientCertDuration specifies the duration of client certificates.
         clientCertDuration: 672h
         # clientCertExpiryWindow specifies the rotation window before client certificate expiry.
