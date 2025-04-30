@@ -174,11 +174,11 @@ cockroachdb:
     # resources captures the resource requests and limits for CockroachDB pods.
     resources: ~
       # limits:
-      #   cpu: 100m
-      #   memory: 128Mi
+      #   cpu: 4000m
+      #   memory: 16Gi
       # requests:
-      #   cpu: 100m
-      #   memory: 128Mi
+      #   cpu: 4000m
+      #   memory: 16Gi
     # dataStore captures the disk configuration for CockroachDB storage.
     dataStore:
       # volumeClaimTemplate captures the PVC template for storage.
@@ -227,11 +227,14 @@ cockroachdb:
     # regions captures the configuration of CockroachDB nodes per region.
     regions:
         # code corresponds to the cloud provider's identifier for this region (e.g., "us-east-1" for AWS, "us-east1" for GCP).
-        # This value is used to detect the region to be reconciled and must match the "topology.kubernetes.io/region" label on Kubernetes Nodes in this cluster.
+        # This value is used to detect the region to be reconciled and must match the "topology.kubernetes.io/region" label (if it exists) on Kubernetes nodes in this cluster.
+        # This value should match the operator's cloudRegion configuration.
       - code: us-east1
         # nodes defines the number of CockroachDB nodes in this region.
         nodes: 3
         # cloudProvider specifies the cloud platform identifier.
+        # Supported values are "aws", "gcp", "azure", and "k3d".
+        # For other environments, use an empty string "".
         cloudProvider: k3d
         # namespace defines the Kubernetes namespace for this region used to compute the --join flag.
         namespace: default
