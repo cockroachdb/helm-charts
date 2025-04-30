@@ -1,10 +1,6 @@
 {{- if and .Values.cockroachdb.tls.enabled (and .Values.cockroachdb.tls.selfSigner.enabled (not .Values.cockroachdb.tls.selfSigner.caProvided)) }}
   {{- if .Values.cockroachdb.tls.selfSigner.rotateCerts }}
-    {{- if .Capabilities.APIVersions.Has "batch/v1/CronJob" }}
 apiVersion: batch/v1
-    {{- else }}
-apiVersion: batch/v1beta1
-    {{- end }}
 kind: CronJob
 metadata:
   name: {{ template "rotatecerts.fullname" . }}

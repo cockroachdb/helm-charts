@@ -273,7 +273,8 @@ func buildHelmValuesFromHelm(
 	input parsedMigrationInput) map[string]interface{} {
 
 	return map[string]interface{}{
-		"tls": map[string]interface{}{
+		"cockroachdb": map[string]interface{}{
+			"tls": map[string]interface{}{
 			"enabled": input.tlsEnabled,
 			"selfSigner": map[string]interface{}{
 				"enabled": false,
@@ -284,10 +285,9 @@ func buildHelmValuesFromHelm(
 					"caConfigMapName":         sts.Name + "-ca-secret-crt",
 					"nodeSecretName":          sts.Name + "-node-secret",
 					"rootSqlClientSecretName": sts.Name + "-client-secret",
+					},
 				},
 			},
-		},
-		"cockroachdb": map[string]interface{}{
 			"crdbCluster": map[string]interface{}{
 				"podLabels":      sts.Spec.Template.Labels,
 				"podAnnotations": sts.Spec.Template.Annotations,

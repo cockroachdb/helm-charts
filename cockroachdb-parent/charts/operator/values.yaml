@@ -1,5 +1,3 @@
-# Generated file, DO NOT EDIT. Source: build/templates/values.yaml
-
 # Default values for the operator chart.
 
 # image captures the container image settings for Operator pods.

@@ -1,5 +1,3 @@
-# Generated file, DO NOT EDIT. Source: build/templates/values.yaml
-
 # Default values for the cockroachdb chart.
 
 # cockroachdb encapsulates the configuration for the CockroachDB cluster.
@@ -176,11 +174,11 @@ cockroachdb:
     # resources captures the resource requests and limits for CockroachDB pods.
     resources: ~
       # limits:
-      #   cpu: 100m
-      #   memory: 128Mi
+      #   cpu: 4000m
+      #   memory: 16Gi
       # requests:
-      #   cpu: 100m
-      #   memory: 128Mi
+      #   cpu: 4000m
+      #   memory: 16Gi
     # dataStore captures the disk configuration for CockroachDB storage.
     dataStore:
       # volumeClaimTemplate captures the PVC template for storage.
@@ -229,11 +227,14 @@ cockroachdb:
     # regions captures the configuration of CockroachDB nodes per region.
     regions:
         # code corresponds to the cloud provider's identifier for this region (e.g., "us-east-1" for AWS, "us-east1" for GCP).
-        # This value is used to detect the region to be reconciled and must match the "topology.kubernetes.io/region" label on Kubernetes Nodes in this cluster.
+        # This value is used to detect the region to be reconciled and must match the "topology.kubernetes.io/region" label (if it exists) on Kubernetes nodes in this cluster.
+        # This value should match the operator's cloudRegion configuration.
       - code: us-east1
         # nodes defines the number of CockroachDB nodes in this region.
         nodes: 3
         # cloudProvider specifies the cloud platform identifier.
+        # Supported values are "aws", "gcp", "azure", and "k3d".
+        # For other environments, use an empty string "".
         cloudProvider: k3d
         # namespace defines the Kubernetes namespace for this region used to compute the --join flag.
         namespace: default
@@ -243,15 +244,22 @@ cockroachdb:
         #
         # encryptionAtRest contains all secret names and keys for Encryption At Rest.
         # encryptionAtRest:
-          # keySecretName is the name of the Kubernetes Secret containing the (new) store key.
-          # If not set, this will be interpreted as "plain", i.e., unencrypted.
-          # keySecretName: ""
           #
           # platform is the cloud platform whose KMS is used to gate the new Customer-Managed Encryption Key (CMEK).
+          # Supported values are UNKNOWN_KEY_TYPE, AWS_KMS, and GCP_CLOUD_KMS.
           # platform: ""
           #
+          # keySecretName is the name of the Kubernetes Secret containing the (new) store key.
+          # If not set, this will be interpreted as "plain", i.e., unencrypted.
+          # For the AWS_KMS platform, the secret should contain "StoreKeyData", "AuthPrincipal", "URI", "Region", "Type", and "ExternalID".
+          # For the GCP_CLOUD_KMS platform, the secret should contain "StoreKeyData", "AuthPrincipal", "URI", "Region", and "Type".
+          # For the UNKNOWN_KEY_TYPE platform, the secret should contain "StoreKeyData".
+          # keySecretName: ""
+          #
           # cmekCredentialsSecretName is the name of the Kubernetes Secret containing credentials that are needed to authenticate into the customer's KMS.
-          # This value is required if platform is not empty.
+          # This value is required if platform is not UNKNOWN_KEY_TYPE.
+          # For AWS_KMS platform, the secret should contain "aws_access_key_id" and "aws_secret_access_key".
+          # For GCP_CLOUD_KMS platform, the secret should contain "gcp_service_account_key".
           # cmekCredentialsSecretName: ""
           #
           # oldKeySecretName is the name of the Kubernetes Secret containing the old store key.
