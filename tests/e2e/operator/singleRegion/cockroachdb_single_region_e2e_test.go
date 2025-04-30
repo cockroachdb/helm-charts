@@ -349,7 +349,7 @@ func (r *singleRegion) TestInstallWithCertManager(t *testing.T) {
 	defer r.CleanupResources(t)
 
 	r.SetUpInfra(t, corednsClusterOptions)
-	
+
 	// Install Operator and CockroachDB charts.
 	r.InstallCharts(t, cluster, 0)
 

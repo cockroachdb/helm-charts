@@ -32,8 +32,8 @@ spec:
       {{- if .Values.cockroachdb.crdbCluster.join }}
       join: {{ .Values.cockroachdb.crdbCluster.join }}
       {{- end }}
-      {{- if .Values.cockroachdb.tls.enabled }}
       certificates:
+        {{- if .Values.cockroachdb.tls.enabled }}
         {{- if .Values.cockroachdb.tls.externalCertificates.enabled }}
         externalCertificates: {{- toYaml .Values.cockroachdb.tls.externalCertificates.certificates | nindent 10 }}
         {{- end }}
@@ -54,7 +54,7 @@ spec:
           httpSecretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
           rootSqlClientSecretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
         {{- end }}
-      {{- end }}
+        {{- end }}
       {{- with .Values.cockroachdb.crdbCluster.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
       {{- end }}

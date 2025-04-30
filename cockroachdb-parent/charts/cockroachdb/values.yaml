@@ -84,7 +84,7 @@ cockroachdb:
       # enabled determines whether cert-manager is used to issue certificates.
       enabled: false
       # caConfigMap defines the configmap name that contains the CA certificate.
-      caConfigMap: cockroach-ca
+      caConfigMap: cockroachdb-ca
       # nodeSecret defines the secret name that contains the node certificate.
       nodeSecret: cockroachdb-node
       # clientRootSecret defines the secret name that contains the root client certificate.

@@ -100,11 +100,11 @@ spec:
 apiVersion: trust.cert-manager.io/v1alpha1
 kind: Bundle
 metadata:
-  name: cockroach-ca
+  name: cockroachdb-ca
 spec:
   sources:
     - secret:
-        name: cockroach-ca
+        name: cockroachdb-ca
         key: ca.crt
   target:
     configMap:
@@ -128,7 +128,7 @@ cockroachdb:
     certManager:
       enabled: true
       # caSecret defines the secret name that contains the CA certificate.
-      caConfigMap: cockroach-ca
+      caConfigMap: cockroachdb-ca
       # nodeSecret defines the secret name that contains the node certificate.
       nodeSecret: cockroachdb-node
       # clientRootSecret defines the secret name that contains the root client certificate.

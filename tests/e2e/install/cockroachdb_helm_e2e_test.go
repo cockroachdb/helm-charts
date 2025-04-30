@@ -317,16 +317,17 @@ func (h *CockroachDBHelm) TestWithCertManager(t *testing.T) {
 	h.Namespace = "cockroach" + strings.ToLower(random.UniqueId())
 
 	k8sOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	certManagerK8sOptions := k8s.NewKubectlOptions("", "", testutil.CertManagerNamespace)
 	k8s.CreateNamespace(t, k8sOptions, h.Namespace)
-	testutil.InstallCertManager(t)
+	testutil.InstallCertManager(t, certManagerK8sOptions)
 	//... and make sure to delete the helm release at the end of the test.
 	defer func() {
-		testutil.DeleteCertManager(t)
-		k8s.DeleteNamespace(t, &k8s.KubectlOptions{}, "cert-manager")
+		testutil.DeleteCertManager(t, certManagerK8sOptions)
+		k8s.DeleteNamespace(t, certManagerK8sOptions, testutil.CertManagerNamespace)
 	}()
 
-	testutil.CreateSelfSignedIssuer(t, h.Namespace)
-	
+	testutil.CreateSelfSignedIssuer(t, k8sOptions, h.Namespace)
+
 	h.CrdbCluster = testutil.CockroachCluster{
 		Cfg:              cfg,
 		K8sClient:        k8sClient,

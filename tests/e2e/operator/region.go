@@ -300,24 +300,24 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 
 	// Setup kubectl options for this cluster.
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
+	certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
 
 	// Create namespace.
 	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
 
 	if r.IsCertManager {
-		testutil.InstallCertManager(t)
-		testutil.InstallTrustManager(t, r.Namespace[cluster])
-		testutil.CreateSelfSignedIssuer(t, r.Namespace[cluster])
-		testutil.CreateSelfSignedCertificate(t, r.Namespace[cluster])
-		testutil.CreateCAIssuer(t, r.Namespace[cluster])
-		testutil.CreateBundle(t, r.Namespace[cluster])
+		testutil.InstallCertManager(t, certManagerK8sOptions)
+		testutil.InstallTrustManager(t, certManagerK8sOptions, r.Namespace[cluster])
+		testutil.CreateSelfSignedIssuer(t, kubectlOptions, r.Namespace[cluster])
+		testutil.CreateSelfSignedCertificate(t, kubectlOptions, r.Namespace[cluster])
+		testutil.CreateCAIssuer(t, kubectlOptions, r.Namespace[cluster])
+		testutil.CreateBundle(t, kubectlOptions, r.Namespace[cluster])
 	} else {
 		// create CA Secret.
 		err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
-		"--from-file=ca.key")
+			"--from-file=ca.key")
 		require.NoError(t, err)
 	}
-	
 
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
@@ -325,18 +325,18 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 
 	if r.IsCertManager {
 		crdbOp = PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain": CustomDomains[cluster],
-			"cockroachdb.tls.enabled": "true",
-			"cockroachdb.tls.selfSigner.enabled": "false",
-			"cockroachdb.tls.certManager.enabled": "true",
+			"cockroachdb.clusterDomain":               CustomDomains[cluster],
+			"cockroachdb.tls.enabled":                 "true",
+			"cockroachdb.tls.selfSigner.enabled":      "false",
+			"cockroachdb.tls.certManager.enabled":     "true",
 			"cockroachdb.tls.certManager.issuer.name": testutil.CAIssuerName,
 			"cockroachdb.tls.certManager.caConfigMap": testutil.CAConfigMapName,
 		})
 	} else {
 		crdbOp = PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain":                                                             CustomDomains[cluster],
-			"cockroachdb.tls.selfSigner.caProvided":                                                 "true",
-			"cockroachdb.tls.selfSigner.caSecret":                                                   customCASecret,
+			"cockroachdb.clusterDomain":             CustomDomains[cluster],
+			"cockroachdb.tls.selfSigner.caProvided": "true",
+			"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 		})
 	}
 	// Helm install cockroach CR with operator region config.
@@ -379,7 +379,15 @@ func (r *Region) ValidateCRDB(t *testing.T, cluster string) {
 		Context:          cluster,
 	}
 
-	testutil.RequireCertificatesToBeValid(t, crdbCluster)
+	if r.IsCertManager {
+		crdbCluster.CaSecret = testutil.CASecretName
+		crdbCluster.NodeSecret = "cockroachdb-node"
+		crdbCluster.ClientSecret = "cockroachdb-root"
+	}
+
+	if !r.IsCertManager {
+		testutil.RequireCertificatesToBeValid(t, crdbCluster)
+	}
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 900*time.Second)
 
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
@@ -540,6 +548,7 @@ func (r *Region) GetCurrentContext(t *testing.T) (string, api.Config) {
 func (r *Region) CleanupResources(t *testing.T) {
 	for cluster, namespace := range r.Namespace {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, "", namespace)
+		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, "", testutil.CertManagerNamespace)
 
 		extraArgs := map[string][]string{
 			"delete": {
@@ -556,12 +565,12 @@ func (r *Region) CleanupResources(t *testing.T) {
 		err = helm.DeleteE(t, helmOptions, operatorReleaseName, true)
 		require.NoError(t, err)
 		if r.IsCertManager {
-			testutil.DeleteBundle(t, namespace)
-			testutil.DeleteCAIssuer(t, namespace)
-			testutil.DeleteSelfSignedCertificate(t, namespace)
-			testutil.DeleteSelfSignedIssuer(t, namespace)
-			testutil.DeleteTrustManager(t)
-			testutil.DeleteCertManager(t)
+			testutil.DeleteBundle(t, kubectlOptions, namespace)
+			testutil.DeleteCAIssuer(t, kubectlOptions, namespace)
+			testutil.DeleteSelfSignedCertificate(t, kubectlOptions, namespace)
+			testutil.DeleteSelfSignedIssuer(t, kubectlOptions, namespace)
+			testutil.DeleteTrustManager(t, certManagerK8sOptions)
+			testutil.DeleteCertManager(t, certManagerK8sOptions)
 		}
 		k8s.DeleteNamespace(t, kubectlOptions, namespace)
 	}

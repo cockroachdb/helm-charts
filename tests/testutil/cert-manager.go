@@ -15,20 +15,19 @@ import (
 
 const (
 	SelfSignedIssuerName = "cockroachdb-selfsigned"
-	SelfSignedCertName = "cockroachdb-ca"
-	CAIssuerName = "cockroachdb"
-	CASecretName = "cockroachdb-ca-secret"
-	CAConfigMapName = "cockroachdb-ca"
-	certManagerNamespace = "cert-manager"
+	SelfSignedCertName   = "cockroachdb-ca"
+	CAIssuerName         = "cockroachdb"
+	CASecretName         = "cockroachdb-ca-secret"
+	CAConfigMapName      = "cockroachdb-ca"
+	CertManagerNamespace = "cert-manager"
 	selfSignedIssuerYaml = "selfsign-ca-issuer.yaml"
-	caIssuerYaml = "ca-issuer.yaml"
-	caCertYaml = "ca-cert.yaml"
-	bundleYaml = "bundle.yaml"
+	caIssuerYaml         = "ca-issuer.yaml"
+	caCertYaml           = "ca-cert.yaml"
+	bundleYaml           = "bundle.yaml"
 )
 
 // InstallCertManager installs the cert-manager in cert-manager namespace with helm: https://cert-manager.io/docs/installation/helm/
-func InstallCertManager(t *testing.T) {
-	kubectlOptions := k8s.NewKubectlOptions("", "", certManagerNamespace)
+func InstallCertManager(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 	certManagerHelmOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
 	}
@@ -50,13 +49,12 @@ func InstallCertManager(t *testing.T) {
 }
 
 // InstallTrustManager installs the trust-manager in cert-manager namespace with helm: https://cert-manager.io/docs/trust/trust-manager/installation/
-func InstallTrustManager(t *testing.T, trustNamespace string) {
-	kubectlOptions := k8s.NewKubectlOptions("", "", certManagerNamespace)
+func InstallTrustManager(t *testing.T, kubectlOptions *k8s.KubectlOptions, trustNamespace string) {
 	trustManagerHelmOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
 	}
-	trustManagerInstall := []string{"trust-manager", "jetstack/trust-manager", "--create-namespace", 
-	"--set", fmt.Sprintf("app.trust.namespace=%s", trustNamespace)}
+	trustManagerInstall := []string{"trust-manager", "jetstack/trust-manager", "--create-namespace",
+		"--set", fmt.Sprintf("app.trust.namespace=%s", trustNamespace), "--wait"}
 	output, err := helm.RunHelmCommandAndGetOutputE(t, trustManagerHelmOptions, "install", trustManagerInstall...)
 	require.NoError(t, err)
 	t.Log(output)
@@ -73,23 +71,23 @@ func InstallTrustManager(t *testing.T, trustNamespace string) {
 }
 
 // DeleteCertManager deletes the cert-manager release.
-func DeleteCertManager(t *testing.T) {
+func DeleteCertManager(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 	certManagerHelmOptions := &helm.Options{
-		KubectlOptions: k8s.NewKubectlOptions("", "", certManagerNamespace),
+		KubectlOptions: kubectlOptions,
 	}
 	helm.Delete(t, certManagerHelmOptions, "cert-manager", true)
 }
 
 // DeleteTrustManager deletes the trust-manager release.
-func DeleteTrustManager(t *testing.T) {
+func DeleteTrustManager(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 	certManagerHelmOptions := &helm.Options{
-		KubectlOptions: k8s.NewKubectlOptions("", "", certManagerNamespace),
+		KubectlOptions: kubectlOptions,
 	}
 	helm.Delete(t, certManagerHelmOptions, "trust-manager", true)
 }
 
 // CreateSelfSignedIssuer creates a self-signed issuer which is used to sign the self signed CA certificate.
-func CreateSelfSignedIssuer(t *testing.T, issuerNamespace string) {
+func CreateSelfSignedIssuer(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
 	issuerCreateData := fmt.Sprintf(`
 apiVersion: cert-manager.io/v1
 kind: Issuer
@@ -103,17 +101,17 @@ spec:
 	err := os.WriteFile(selfSignedIssuerYaml, []byte(issuerCreateData), fs.ModePerm)
 	require.NoError(t, err)
 
-	k8s.RunKubectl(t, k8s.NewKubectlOptions("", "", issuerNamespace), "apply", "-f", selfSignedIssuerYaml)
+	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", selfSignedIssuerYaml)
 }
 
 // DeleteSelfSignedIssuer deletes the self-signed issuer.
-func DeleteSelfSignedIssuer(t *testing.T, issuerNamespace string) {
-	k8s.RunKubectl(t, k8s.NewKubectlOptions("", "", issuerNamespace), "delete", "-f", selfSignedIssuerYaml)
+func DeleteSelfSignedIssuer(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
+	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", selfSignedIssuerYaml)
 	_ = os.Remove(selfSignedIssuerYaml)
 }
 
 // CreateSelfSignedCertificate creates a self-signed certificate which is stored in a secret.
-func CreateSelfSignedCertificate(t *testing.T, issuerNamespace string) {
+func CreateSelfSignedCertificate(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
 	certCreateData := fmt.Sprintf(`
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -138,17 +136,17 @@ spec:
 	err := os.WriteFile(caCertYaml, []byte(certCreateData), fs.ModePerm)
 	require.NoError(t, err)
 
-	k8s.RunKubectl(t, k8s.NewKubectlOptions("", "", issuerNamespace), "apply", "-f", caCertYaml)
+	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", caCertYaml)
 }
 
-func DeleteSelfSignedCertificate(t *testing.T, issuerNamespace string) {
-	k8s.RunKubectl(t, k8s.NewKubectlOptions("", "", issuerNamespace), "delete", "-f", caCertYaml)
+func DeleteSelfSignedCertificate(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
+	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", caCertYaml)
 	_ = os.Remove(caCertYaml)
 }
 
 // CreateCAIssuer creates a CA issuer using the CA certificate stored in a secret.
 // The CA issuer is used to sign the certificates for the cockroachdb cluster.
-func CreateCAIssuer(t *testing.T, issuerNamespace string) {
+func CreateCAIssuer(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
 	issuerCreateData := fmt.Sprintf(`
 apiVersion: cert-manager.io/v1
 kind: Issuer
@@ -163,16 +161,16 @@ spec:
 	err := os.WriteFile(caIssuerYaml, []byte(issuerCreateData), fs.ModePerm)
 	require.NoError(t, err)
 
-	k8s.RunKubectl(t, k8s.NewKubectlOptions("", "", issuerNamespace), "apply", "-f", caIssuerYaml)
+	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", caIssuerYaml)
 }
 
-func DeleteCAIssuer(t *testing.T, issuerNamespace string) {
-	k8s.RunKubectl(t, k8s.NewKubectlOptions("", "", issuerNamespace), "delete", "-f", caIssuerYaml)
+func DeleteCAIssuer(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
+	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", caIssuerYaml)
 	_ = os.Remove(caIssuerYaml)
 }
 
 // CreateBundle creates a bundle which transfers the CA certificate from secret to configmap in the target namespace.
-func CreateBundle(t *testing.T, targetNamespace string) {
+func CreateBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions, targetNamespace string) {
 	bundleCreateData := fmt.Sprintf(`
 apiVersion: trust.cert-manager.io/v1alpha1
 kind: Bundle
@@ -193,11 +191,11 @@ spec:
 	err := os.WriteFile(bundleYaml, []byte(bundleCreateData), fs.ModePerm)
 	require.NoError(t, err)
 
-	k8s.RunKubectl(t, k8s.NewKubectlOptions("", "", targetNamespace), "apply", "-f", bundleYaml)
+	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", bundleYaml)
 }
 
 // DeleteBundle deletes the bundle.
-func DeleteBundle(t *testing.T, targetNamespace string) {
-	k8s.RunKubectl(t, k8s.NewKubectlOptions("", "", targetNamespace), "delete", "-f", bundleYaml)
+func DeleteBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions, targetNamespace string) {
+	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", bundleYaml)
 	_ = os.Remove(bundleYaml)
 }

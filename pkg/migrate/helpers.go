@@ -140,13 +140,13 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 
 // buildHelmValuesFromOperator builds a map of values for the CockroachDB Helm chart from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
 func buildHelmValuesFromOperator(
-	cluster publicv1.CrdbCluster, 
-	cloudProvider string, 
-	cloudRegion string, 
-	namespace string, 
-	joinStr string, 
+	cluster publicv1.CrdbCluster,
+	cloudProvider string,
+	cloudRegion string,
+	namespace string,
+	joinStr string,
 	flags map[string]string) map[string]interface{} {
-	
+
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
 			"tls": map[string]interface{}{
@@ -197,13 +197,13 @@ func buildHelmValuesFromOperator(
 						},
 					},
 				},
-				"affinity":                      cluster.Spec.Affinity,
-				"nodeSelector":                  cluster.Spec.NodeSelector,
-				"tolerations":                   cluster.Spec.Tolerations,
-				"terminationGracePeriod": 		 fmt.Sprintf("%ds", cluster.Spec.TerminationGracePeriodSecs),
-				"loggingConfigMapName":          cluster.Spec.LogConfigMap,
-				"env":                           cluster.Spec.PodEnvVariables,
-				"join":                          joinStr,
+				"affinity":               cluster.Spec.Affinity,
+				"nodeSelector":           cluster.Spec.NodeSelector,
+				"tolerations":            cluster.Spec.Tolerations,
+				"terminationGracePeriod": fmt.Sprintf("%ds", cluster.Spec.TerminationGracePeriodSecs),
+				"loggingConfigMapName":   cluster.Spec.LogConfigMap,
+				"env":                    cluster.Spec.PodEnvVariables,
+				"join":                   joinStr,
 			},
 		},
 		"k8s": map[string]interface{}{
@@ -214,10 +214,10 @@ func buildHelmValuesFromOperator(
 
 // buildNodeSpecFromHelm builds a CrdbNodeSpec from a StatefulSet created by the CockroachDB Helm chart.
 func buildNodeSpecFromHelm(
-	sts *appsv1.StatefulSet, 
-	nodeName string, 
+	sts *appsv1.StatefulSet,
+	nodeName string,
 	input parsedMigrationInput) v1alpha1.CrdbNodeSpec {
-	
+
 	return v1alpha1.CrdbNodeSpec{
 		NodeName:  nodeName,
 		Join:      input.joinCmd,
@@ -284,7 +284,7 @@ func buildHelmValuesFromHelm(
 					"caConfigMapName":         sts.Name + "-ca-secret-crt",
 					"nodeSecretName":          sts.Name + "-node-secret",
 					"rootSqlClientSecretName": sts.Name + "-client-secret",
-				},	
+				},
 			},
 		},
 		"cockroachdb": map[string]interface{}{
@@ -305,7 +305,7 @@ func buildHelmValuesFromHelm(
 				"dataStore": map[string]interface{}{
 					"volumeClaimTemplate": map[string]interface{}{
 						"metadata": map[string]interface{}{
-						"name": "datadir",
+							"name": "datadir",
 						},
 					},
 				},
@@ -322,13 +322,13 @@ func buildHelmValuesFromHelm(
 						},
 					},
 				},
-				"affinity":                      sts.Spec.Template.Spec.Affinity,
-				"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
-				"tolerations":                   sts.Spec.Template.Spec.Tolerations,
-				"terminationGracePeriod": 		 fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
-				"loggingConfigMapName":          input.loggingConfigMap,
-				"env":                           sts.Spec.Template.Spec.Containers[0].Env,
-				"join":                          input.joinCmd,
+				"affinity":               sts.Spec.Template.Spec.Affinity,
+				"nodeSelector":           sts.Spec.Template.Spec.NodeSelector,
+				"tolerations":            sts.Spec.Template.Spec.Tolerations,
+				"terminationGracePeriod": fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
+				"loggingConfigMapName":   input.loggingConfigMap,
+				"env":                    sts.Spec.Template.Spec.Containers[0].Env,
+				"join":                   input.joinCmd,
 			},
 		},
 	}
