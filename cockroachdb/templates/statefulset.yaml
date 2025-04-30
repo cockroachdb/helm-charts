@@ -81,8 +81,8 @@ spec:
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
         {{/* Sidecar support is since k8s 1.29, which is beyond the k8s support horizon */}}
-        {{- if and .Values.visus.enabled semverCompare ">=1.29" .Capabilities.KubeVersion.Version }}
-        - name: Visus
+        {{- if .Values.visus.enabled  }}
+        - name: visus
           image: "{{ .Values.visus.image.name }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.visus.image.pullPolicy | quote }}
           # This is a sidecar
@@ -91,10 +91,10 @@ spec:
             - visus
             - start
             - --url
-            - {{ template "cockroachdb.pg_url" . }}
+            - {{ template "cockroachdb.pg_url" $ }}
             - --visus-metrics
             - --bind-addr
-            - "localhost:{{ .Values.visus.bind_port | quote }}"
+            - localhost:{{ .Values.visus.bind_port }}
             {{- if .Values.visus.insecure }}
             - --insecure
             {{- else }}
@@ -110,7 +110,7 @@ spec:
             {{- end }}
           ports:
             - name: visus-http
-              containerPort: { { index .Values.visus.bind_port | int64 } }
+              containerPort: {{ .Values.visus.bind_port | int64 }}
               protocol: TCP
           {{ with $.Values.statefulset.volumeMounts}}
           volumeMounts:

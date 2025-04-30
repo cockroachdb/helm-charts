@@ -117,6 +117,36 @@ func TestHelmSelfCertSignerServiceAccount(t *testing.T) {
 	require.Contains(t, err.Error(), "Error: could not find template templates/serviceaccount-certSelfSigner.yaml in chart")
 }
 
+// TestHelmVisusSidecar verifies the visus sidecar yaml
+func TestHelmVisusSidecar(t *testing.T) {
+	t.Parallel()
+
+	// Setup the args. For this test, we will set the following input values:
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"visus.enabled": "true",
+		},
+	}
+	output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"}, "--debug")
+
+	require.NoError(t, err)
+
+	var sts appsv1.StatefulSet
+	helm.UnmarshalK8SYaml(t, output, &sts)
+	require.Equal(t, "visus", sts.Spec.Template.Spec.InitContainers[1].Name)
+	require.Equal(t, []string{
+		"visus",
+		"start",
+		"--url",
+		"postgres://root@localhost:26257/defaultdb?application_name=visus&sslmode=verify-full&ssrootcert=/cockroach/cockroach-certs/ca.crt&sslcert=/cockroach/cockroach-certs/root.crt&sslkey=/cockroach/cockroach-certs/root.key",
+		"--visus-metrics",
+		"--bind-addr",
+		"localhost:8888",
+		"--insecure",
+	}, sts.Spec.Template.Spec.InitContainers[1].Command)
+}
+
 // TestHelmSelfCertSignerRole contains the tests around the Role of self signer utility
 func TestHelmSelfCertSignerRole(t *testing.T) {
 	t.Parallel()
