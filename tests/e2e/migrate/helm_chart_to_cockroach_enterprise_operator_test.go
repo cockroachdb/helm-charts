@@ -10,6 +10,7 @@ import (
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/runtime"
 	kscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
@@ -120,11 +121,19 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 
 	t.Log("helm upgrade the cockroach enterprise operator")
 	helmPath, _ := operator.HelmChartPaths()
+	err := helm.UpgradeE(t, &helm.Options{
+		KubectlOptions: kubectlOptions,
+		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
+	}, helmPath, releaseName)
+	require.Contains(t, err.Error(), "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Enterprise Operator.")
+
+	t.Log("Delete the StatefulSet as helm upgrade can proceed only if no StatefulSet is present")
+	k8s.RunKubectl(t, kubectlOptions, "delete", "statefulset", stsName)
+
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 	}, helmPath, releaseName)
-
 	defer func() {
 		t.Log("helm uninstall the crdbcluster CR from the helm chart")
 		h.Uninstall(t)
