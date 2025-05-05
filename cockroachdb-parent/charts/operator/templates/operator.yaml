@@ -336,6 +336,12 @@ rules:
   - apiGroups:
       - crdb.cockroachlabs.com
     resources:
+      - crdbclusters/finalizers
+    verbs:
+      - update
+  - apiGroups:
+      - crdb.cockroachlabs.com
+    resources:
       - crdbnodes
     verbs:
       - create
@@ -352,6 +358,12 @@ rules:
     verbs:
       - get
       - patch
+      - update
+  - apiGroups:
+      - crdb.cockroachlabs.com
+    resources:
+      - crdbnodes/finalizers
+    verbs:
       - update
   - apiGroups:
       - crdb.cockroachlabs.com
