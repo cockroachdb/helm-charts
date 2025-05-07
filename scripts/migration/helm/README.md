@@ -92,6 +92,12 @@ To avoid this conflict, delete the existing PDB before applying the CrdbCluster 
 kubectl delete poddisruptionbudget $STS_NAME-budget
 ```
 
+Delete the StatefulSet that you previously scaled down to zero, as the Helm upgrade can proceed only if no StatefulSet is present.
+
+```
+kubectl delete statefulset $STS_NAME
+```
+
 Finally, apply the crdbcluster manifest using helm upgrade:
 
 ```
