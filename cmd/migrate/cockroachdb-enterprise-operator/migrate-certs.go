@@ -29,7 +29,8 @@ var migrateCertsCmd = &cobra.Command{
 	Long: `Migrate and manage certificates for the CockroachDB Enterprise Operator.
 
 This command performs the following operations:
-1. Moves the existing CA certificate from a Kubernetes Secret to a ConfigMap for better accessibility
+1. Moves the existing CA certificate from a Kubernetes Secret to a ConfigMap because the operator 
+   expects the CA certificate to be in a ConfigMap.
 2. Regenerates node certificates to include Subject Alternative Names (SAN) for the CockroachDB join service
 3. Generates client certificates if they are not already present in the cluster
 
@@ -54,6 +55,7 @@ func init() {
 	migrateCertsCmd.PersistentFlags().StringVar(&clientExpiry, "client-expiry", "48h", "expiry window for Client(root) cert. Defaults to 2 days")
 
 	migrateCertsCmd.PersistentFlags().StringVar(&clusterDomain, "cluster-domain", "cluster.local", "cluster domain")
+	migrateCertsCmd.MarkFlagRequired("statefulset-name")
 
 	var err error
 	runtimeScheme := runtime.NewScheme()

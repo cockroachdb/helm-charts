@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
@@ -59,23 +60,26 @@ func prepareForMigration(t *testing.T, stsName, namespace, caSecret, crdbDeploym
 	t.Log(shell.RunCommandAndGetOutput(t, generateManifestsCmd))
 }
 
-func migratePodsToCrdbNodes(t *testing.T, stsName, namespace string) {
+func migratePodsToCrdbNodes(t *testing.T, crdbCluster testutil.CockroachCluster, namespace string) {
 	t.Log("Migrating the pods to CrdbNodes")
 
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespace)
 	var crdbSts = appsv1.StatefulSet{}
-	err := k8sClient.Get(context.TODO(), types.NamespacedName{Name: stsName, Namespace: namespace}, &crdbSts)
+	err := k8sClient.Get(context.TODO(), types.NamespacedName{Name: crdbCluster.StatefulSetName, Namespace: namespace}, &crdbSts)
 	require.NoError(t, err)
 
 	crdbPodCount := int(*crdbSts.Spec.Replicas)
 	for idx := crdbPodCount - 1; idx >= 0; idx-- {
-		t.Logf("Scaling statefulset %s to %d", stsName, idx)
-		k8s.RunKubectl(t, kubectlOptions, "scale", "statefulset", stsName, "--replicas", strconv.Itoa(idx))
+		t.Logf("Scaling statefulset %s to %d", crdbCluster.StatefulSetName, idx)
+		k8s.RunKubectl(t, kubectlOptions, "scale", "statefulset", crdbCluster.StatefulSetName, "--replicas", strconv.Itoa(idx))
 
-		podName := fmt.Sprintf("%s-%d", stsName, idx)
+		podName := fmt.Sprintf("%s-%d", crdbCluster.StatefulSetName, idx)
 		testutil.WaitUntilPodDeleted(t, kubectlOptions, podName, 30, 2*time.Second)
 		k8s.RunKubectl(t, kubectlOptions, "apply", "-f", filepath.Join(manifestsDirPath, fmt.Sprintf("crdbnode-%d.yaml", idx)))
 		testutil.RequirePodToBeCreatedAndReady(t, kubectlOptions, podName, 300*time.Second)
+		testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
+		time.Sleep(20 * time.Second)
+		testutil.RequireCRDBToFunction(t, crdbCluster, true)
 	}
 
 	t.Log("All the statefulset pods are migrated to CrdbNodes")

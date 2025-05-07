@@ -45,6 +45,8 @@ type HelmInstall struct {
 
 	CrdbCluster testutil.CockroachCluster
 
+	ValidateExistingData bool
+
 	cockroachHelmChart
 }
 
@@ -84,8 +86,7 @@ func (h *HelmInstall) ValidateCRDB(t *testing.T) {
 	}
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, h.CrdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
-	testutil.RequireCRDBToFunction(t, h.CrdbCluster, false)
-	testutil.RequireCRDBDatabaseToFunction(t, h.CrdbCluster, TestDBName, "")
+	testutil.RequireCRDBToFunction(t, h.CrdbCluster, h.ValidateExistingData)
 }
 
 func (h *HelmInstall) Uninstall(t *testing.T) {

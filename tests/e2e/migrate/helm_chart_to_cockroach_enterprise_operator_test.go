@@ -33,7 +33,6 @@ var (
 	ClientSecret        = fmt.Sprintf("%s-cockroachdb-client-secret", releaseName)
 	NodeSecret          = fmt.Sprintf("%s-cockroachdb-node-secret", releaseName)
 	CASecret            = fmt.Sprintf("%s-cockroachdb-ca-secret", releaseName)
-	stsName             = fmt.Sprintf("%s-cockroachdb", releaseName)
 	isCaUserProvided    = false
 )
 
@@ -96,14 +95,17 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 
 	t.Log("Migrate the existing helm chart to Cockroach Enterprise Operator")
 
-	prepareForMigration(t, stsName, h.Namespace, CASecret, "helm")
+	prepareForMigration(t, h.CrdbCluster.StatefulSetName, h.Namespace, CASecret, "helm")
 	defer func() {
 		_ = os.RemoveAll(manifestsDirPath)
 	}()
 
 	t.Log("Install the cockroachdb enterprise operator")
 	k8s.RunKubectl(t, kubectlOptions, "create", "priorityclass", "crdb-critical", "--value", "500000000")
-	defer k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
+	defer func() {
+		t.Log("Delete the priority class crdb-critical")
+		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
+	}()
 
 	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
 	defer func() {
@@ -111,12 +113,12 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)
 	}()
 
-	migratePodsToCrdbNodes(t, stsName, h.Namespace)
+	migratePodsToCrdbNodes(t, h.CrdbCluster, h.Namespace)
 
 	t.Log("All the statefulset pods are migrated to CrdbNodes")
 	t.Log("Update the public service")
 	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", filepath.Join(manifestsDirPath, "public-service.yaml"))
-	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", fmt.Sprintf("%s-budget", stsName))
+	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", fmt.Sprintf("%s-budget", h.CrdbCluster.StatefulSetName))
 
 	t.Log("helm upgrade the cockroach enterprise operator")
 	helmPath, _ := operator.HelmChartPaths()
@@ -130,5 +132,6 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 		h.Uninstall(t)
 	}()
 
+	h.ValidateExistingData = true
 	h.ValidateCRDB(t)
 }
