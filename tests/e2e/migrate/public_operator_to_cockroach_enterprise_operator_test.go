@@ -76,8 +76,7 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, o.CrdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, o.CrdbCluster, false)
-	testutil.RequireCRDBDatabaseToFunction(t, o.CrdbCluster, migration.TestDBName, "")
-
+	
 	prepareForMigration(t, o.CrdbCluster.StatefulSetName, o.Namespace, o.CrdbCluster.CaSecret, "operator")
 	defer func() {
 		_ = os.RemoveAll(manifestsDirPath)
@@ -86,7 +85,10 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	o.UninstallOperator(t)
 	t.Log("Create the priority class crdb-critical which will be owned by the cockroachdb enterprise operator")
 	k8s.RunKubectl(t, kubectlOptions, "create", "priorityclass", "crdb-critical", "--value", "500000000")
-	defer k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
+	defer func() {
+		t.Log("Delete the priority class crdb-critical")
+		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
+	}()
 
 	t.Log("Create the rbac permissions for the cockroachdb enterprise operator")
 	k8s.KubectlApply(t, kubectlOptions, filepath.Join(manifestsDirPath, "rbac.yaml"))
@@ -98,7 +100,7 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)
 	}()
 
-	migratePodsToCrdbNodes(t, o.CrdbCluster.StatefulSetName, o.Namespace)
+	migratePodsToCrdbNodes(t, o.CrdbCluster, o.Namespace)
 
 	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", o.CrdbCluster.StatefulSetName)
 	k8s.RunKubectl(t, kubectlOptions, "annotate", "service", fmt.Sprintf("%s-public", o.CrdbCluster.StatefulSetName), fmt.Sprintf("meta.helm.sh/release-name=%s", o.CrdbCluster.StatefulSetName), "--overwrite")
@@ -110,11 +112,11 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 		SetValues:      map[string]string{},
 	}
-	t.Log("helm install the cockroach enterprise operator")
+	t.Log("helm install the crdb cluster from the helm chart")
 	helmPath, _ := operator.HelmChartPaths()
 	helm.Install(t, o.HelmOptions, helmPath, crdbClusterName)
 	defer func() {
-		t.Log("helm uninstall the cockroach enterprise operator")
+		t.Log("helm uninstall the crdb cluster")
 		o.Uninstall(t)
 	}()
 
@@ -122,5 +124,6 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	o.CrdbCluster.ClientSecret = fmt.Sprintf("%s-client-secret", crdbClusterName)
 	o.CrdbCluster.NodeSecret = fmt.Sprintf("%s-node-secret", crdbClusterName)
 
+	o.ValidateExistingData = true
 	o.ValidateCRDB(t)
 }

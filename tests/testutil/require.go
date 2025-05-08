@@ -30,6 +30,10 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+const (
+	TestDBName = "test_db"
+)
+
 type CockroachCluster struct {
 	Cfg                        *rest.Config
 	K8sClient                  client.Client
@@ -209,16 +213,16 @@ func RequireCRDBDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, d
 }
 
 // RequireCRDBToFunction creates a database, a table and insert two rows if it is a fresh installation of the cluster.
-// If certificate is rotated and cluster rolling restart has happened, this will check that existing two rows are present.
-func RequireCRDBToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bool) {
+// If validateExistingData is true, this will check that existing two rows are present.
+func RequireCRDBToFunction(t *testing.T, crdbCluster CockroachCluster, validateExistingData bool) {
 	db := getDBConn(t, crdbCluster, "system", "")
 
-	if rotate {
+	if validateExistingData {
 		t.Log("Verifying the existing data in the database after certificate rotation")
 	}
 
 	// Create database only if we are testing crdb install
-	if !rotate {
+	if !validateExistingData {
 		if _, err := db.Exec("CREATE DATABASE IF NOT EXISTS test_db"); err != nil {
 			t.Fatal(err)
 		}
@@ -229,7 +233,7 @@ func RequireCRDBToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bo
 	}
 
 	// Create and insert into table only for the crdb install
-	if !rotate {
+	if !validateExistingData {
 		// Create the "accounts" table.
 		if _, err := db.Exec("CREATE TABLE IF NOT EXISTS accounts (id INT PRIMARY KEY, balance INT)"); err != nil {
 			t.Fatal(err)
