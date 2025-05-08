@@ -83,7 +83,7 @@ spec:
         {{/* Sidecar support is since k8s 1.29, which is beyond the k8s support horizon */}}
         {{- if .Values.visus.enabled  }}
         - name: visus
-          image: "{{ .Values.visus.image.name }}:{{ .Values.image.tag }}"
+          image: "{{ .Values.visus.image.name }}:{{ .Values.visus.image.tag }}"
           imagePullPolicy: {{ .Values.visus.image.pullPolicy | quote }}
           # This is a sidecar
           restartPolicy: Always

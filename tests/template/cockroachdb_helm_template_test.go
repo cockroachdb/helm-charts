@@ -128,7 +128,7 @@ func TestHelmVisusSidecar(t *testing.T) {
 			"visus.enabled": "true",
 		},
 	}
-	output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"}, "--debug")
+	output, err := helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/statefulset.yaml"})
 
 	require.NoError(t, err)
 
