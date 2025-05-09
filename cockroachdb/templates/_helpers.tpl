@@ -76,7 +76,7 @@ Construct the PG_URL for this database node
 {{- define "cockroachdb.pg_url" -}}
     {{- printf "postgres://root@localhost:%d/defaultdb?application_name=visus&" (.Values.service.ports.grpc.internal.port | int64) -}}
     {{- if .Values.tls.enabled }}
-      {{- printf "sslmode=verify-full&ssrootcert=/cockroach/cockroach-certs/ca.crt&sslcert=/cockroach/cockroach-certs/root.crt&sslkey=/cockroach/cockroach-certs/root.key" }}
+      {{- printf "sslmode=verify-full&ssrootcert=/cockroach/client/ca.crt&sslcert=/cockroach/client/client.root.crt&sslkey=/cockroach/client/client.root.key" }}
     {{- else }}
       {{- print "sslmode=disable" }}
     {{- end }}
