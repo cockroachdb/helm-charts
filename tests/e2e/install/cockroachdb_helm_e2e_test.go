@@ -3,6 +3,7 @@ package install
 import (
 	"fmt"
 	"log"
+	"net/http"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -46,7 +47,8 @@ func newCockroachDBHelm() *CockroachDBHelm {
 
 func TestHelmChartInstall(t *testing.T) {
 	h := newCockroachDBHelm()
-	t.Run("CockroachDB Helm Installl", h.TestHelmInstall)
+	t.Run("CockroachDB Helm Install", h.TestHelmInstall)
+	t.Run("CockroachDB Helm Install with Visus", h.TestHelmInstallWithVisus)
 	t.Run("CockroachDB Helm Install with user provided CA", h.TestHelmInstallWithCAProvided)
 	t.Run("CockroachDB Helm Chart with cert migration", h.TestHelmMigration)
 	t.Run("CockroachDB Helm Chart with insecure mode", h.TestHelmWithInsecureMode)
@@ -86,6 +88,44 @@ func (h *CockroachDBHelm) TestHelmInstall(t *testing.T) {
 		k8s.DeleteNamespace(t, k8s.NewKubectlOptions("", "", h.Namespace), h.Namespace)
 	}()
 	h.ValidateCRDB(t)
+}
+
+func (h *CockroachDBHelm) TestHelmInstallWithVisus(t *testing.T) {
+	isCaUserProvided := false
+	h.Namespace = "cockroach" + strings.ToLower(random.UniqueId())
+	h.CrdbCluster = testutil.CockroachCluster{
+		Cfg:              cfg,
+		K8sClient:        k8sClient,
+		StatefulSetName:  fmt.Sprintf("%s-cockroachdb", releaseName),
+		Namespace:        h.Namespace,
+		ClientSecret:     ClientSecret,
+		NodeSecret:       NodeSecret,
+		CaSecret:         CASecret,
+		IsCaUserProvided: isCaUserProvided,
+		Context:          k3dClusterName,
+		DesiredNodes:     3,
+	}
+	h.HelmOptions = &helm.Options{
+		SetValues: testutil.PatchHelmValues(map[string]string{
+			"operator.enabled":                         "false",
+			"conf.cluster-name":                        "test",
+			"init.provisioning.enabled":                "true",
+			"init.provisioning.databases[0].name":      migration.TestDBName,
+			"init.provisioning.databases[0].owners[0]": "root",
+			"visus.enabled":                            "true",
+		}),
+	}
+
+	h.InstallHelm(t)
+	defer func() {
+		h.Uninstall(t)
+		k8s.DeleteNamespace(t, k8s.NewKubectlOptions("", "", h.Namespace), h.Namespace)
+	}()
+	h.ValidateCRDB(t)
+
+	body, err := http.Get("http://host:8888/_status/vars")
+	require.NoError(t, err)
+	require.Equal(t, 200, body.StatusCode)
 }
 
 func (h *CockroachDBHelm) TestHelmInstallWithCAProvided(t *testing.T) {
