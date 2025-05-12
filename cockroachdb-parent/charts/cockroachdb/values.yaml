@@ -393,6 +393,10 @@ cockroachdb:
     # locality: country=us,region=us-west,datacenter=us-west-1b,rack=12
     # locality: country=ca,region=ca-east,datacenter=ca-east-2,rack=4
     # locality: planet=earth,province=manitoba,colo=secondary,power=3
+    # The order of the labels in the list follows the hierarchy.
+    # For region and zone to be part of the locality, the labels (topology.kubernetes.io/region, topology.kubernetes.io/zone) must be set on the nodes.
+    # For other labels, they must be set on the nodes and will be present as key/value pairs as defined on the node in the locality.
+    # https://www.cockroachlabs.com/docs/v25.1/cockroach-start?filters=insecure#locality
     localityLabels: []
     # loggingConfigMapName defines the ConfigMap which contains log configuration used to send the logs through the
     # proper channels within CockroachDB.
