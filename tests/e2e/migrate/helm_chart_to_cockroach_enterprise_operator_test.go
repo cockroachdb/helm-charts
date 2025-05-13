@@ -130,7 +130,7 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	require.Contains(t, err.Error(), "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Enterprise Operator.")
 
 	t.Log("Delete the StatefulSet as helm upgrade can proceed only if no StatefulSet is present")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "statefulset", stsName)
+	k8s.RunKubectl(t, kubectlOptions, "delete", "statefulset", h.CrdbCluster.StatefulSetName)
 
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
