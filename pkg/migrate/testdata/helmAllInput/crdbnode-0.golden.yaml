@@ -1,0 +1,101 @@
+apiVersion: crdb.cockroachlabs.com/v1alpha1
+kind: CrdbNode
+metadata:
+  annotations:
+    crdb.cockroachlabs.com/cloudProvider: gcp
+  finalizers:
+  - crdbnode.crdb.cockroachlabs.com/finalizer
+  labels:
+    app: cockroachdb
+    crdb.cockroachlabs.com/cluster: cockroachdb
+    svc: cockroachdb
+  name: cockroachdb-0
+  namespace: default
+spec:
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: cockroachdb
+              app.kubernetes.io/instance: cockroachdb
+              app.kubernetes.io/name: cockroachdb
+          topologyKey: kubernetes.io/hostname
+        weight: 100
+  certificates:
+    externalCertificates:
+      caConfigMapName: cockroachdb-ca-secret-crt
+      nodeSecretName: cockroachdb-node-secret
+      rootSqlClientSecretName: cockroachdb-client-secret
+  dataStore:
+    volumeClaimTemplate:
+      metadata:
+        name: datadir
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 100Gi
+        volumeMode: Filesystem
+      status: {}
+  env:
+  - name: STATEFULSET_NAME
+    value: cockroachdb
+  - name: STATEFULSET_FQDN
+    value: cockroachdb.default.svc.cluster.local
+  - name: COCKROACH_CHANNEL
+    value: kubernetes-helm
+  - name: GODEBUG
+    value: disablethp=1
+  - name: HOST_IP
+    valueFrom:
+      fieldRef:
+        apiVersion: v1
+        fieldPath: status.hostIP
+  flags:
+    --advertise-host: $(hostname).${STATEFULSET_FQDN}
+    --cache: 25%
+    --certs-dir: /cockroach/cockroach-certs/
+    --max-sql-memory: 25%
+  grpcPort: 26258
+  httpPort: 8080
+  image: cockroachdb/cockroach:v25.1.5
+  join: ${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257
+  loggingConfigMapName: cockroachdb-log-config
+  nodeName: node0
+  nodeSelector:
+    cloud.google.com/gke-nodepool: default-pool
+  podAnnotations:
+    crdb: is-cool
+  podLabels:
+    app.kubernetes.io/component: cockroachdb
+    app.kubernetes.io/instance: cockroachdb
+    app.kubernetes.io/name: cockroachdb
+  resourceRequirements:
+    limits:
+      cpu: "2"
+      memory: 4Gi
+    requests:
+      cpu: "1"
+      memory: 2Gi
+  serviceAccountName: cockroachdb
+  sideCars: {}
+  sqlPort: 26257
+  terminationGracePeriod: 5m0s
+  tolerations:
+  - effect: NoSchedule
+    key: non-crdb
+    operator: Exists
+  topologySpreadConstraints:
+  - labelSelector:
+      matchLabels:
+        app.kubernetes.io/component: cockroachdb
+        app.kubernetes.io/instance: cockroachdb
+        app.kubernetes.io/name: cockroachdb
+    maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+status:
+  observedGeneration: 0

@@ -31,6 +31,7 @@ const (
 	httpPortPrefix                 = "--http-port="
 	insecureFlag                   = "--insecure"
 	logtostderrFlag                = "--logtostderr"
+	logFlag                        = "--log"
 	grpcName                       = "grpc"
 	grpcPort                       = 26258
 	sqlName                        = "sql"
@@ -93,10 +94,11 @@ func yamlToDisk(path string, data []any) error {
 func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, joinString string, flags map[string]string) v1alpha1.CrdbNodeSpec {
 
 	return v1alpha1.CrdbNodeSpec{
-		NodeName:  nodeName,
-		Join:      joinString,
-		PodLabels: sts.Spec.Template.Labels,
-		Flags:     flags,
+		NodeName:       nodeName,
+		Join:           joinString,
+		PodLabels:      sts.Spec.Template.Labels,
+		PodAnnotations: sts.Spec.Template.Annotations,
+		Flags:          flags,
 		DataStore: v1alpha1.DataStore{
 			VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
@@ -107,7 +109,7 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 		},
 		Domain:               "",
 		LoggingConfigMapName: cluster.Spec.LogConfigMap,
-		Env: append(cluster.Spec.PodEnvVariables, []corev1.EnvVar{
+		Env: append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
 			{
 				Name: "HOST_IP",
 				ValueFrom: &corev1.EnvVarSource{
@@ -131,16 +133,18 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 				RootSQLClientSecretName: cluster.Name + "-client-secret",
 			},
 		},
-		Affinity:               cluster.Spec.Affinity,
-		NodeSelector:           cluster.Spec.NodeSelector,
-		Tolerations:            cluster.Spec.Tolerations,
-		TerminationGracePeriod: &metav1.Duration{Duration: time.Duration(cluster.Spec.TerminationGracePeriodSecs)},
+		Affinity:                  sts.Spec.Template.Spec.Affinity,
+		NodeSelector:              sts.Spec.Template.Spec.NodeSelector,
+		Tolerations:               sts.Spec.Template.Spec.Tolerations,
+		TerminationGracePeriod:    &metav1.Duration{Duration: time.Duration(cluster.Spec.TerminationGracePeriodSecs) * time.Second},
+		TopologySpreadConstraints: sts.Spec.Template.Spec.TopologySpreadConstraints,
 	}
 }
 
 // buildHelmValuesFromOperator builds a map of values for the CockroachDB Helm chart from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
 func buildHelmValuesFromOperator(
 	cluster publicv1.CrdbCluster,
+	sts *appsv1.StatefulSet,
 	cloudProvider string,
 	cloudRegion string,
 	namespace string,
@@ -164,8 +168,11 @@ func buildHelmValuesFromOperator(
 				},
 			},
 			"crdbCluster": map[string]interface{}{
-				"podLabels":      cluster.Spec.AdditionalLabels,
-				"podAnnotations": cluster.Spec.AdditionalAnnotations,
+				"image": map[string]interface{}{
+					"name": cluster.Spec.Image.Name,
+				},
+				"podLabels":      sts.Spec.Template.Labels,
+				"podAnnotations": sts.Spec.Template.Annotations,
 				"resources":      cluster.Spec.Resources,
 				"flags":          flags,
 				"regions": []map[string]interface{}{
@@ -182,6 +189,7 @@ func buildHelmValuesFromOperator(
 						"metadata": map[string]interface{}{
 							"name": "datadir",
 						},
+						"spec": sts.Spec.VolumeClaimTemplates[0].Spec,
 					},
 				},
 				"service": map[string]interface{}{
@@ -197,13 +205,14 @@ func buildHelmValuesFromOperator(
 						},
 					},
 				},
-				"affinity":               cluster.Spec.Affinity,
-				"nodeSelector":           cluster.Spec.NodeSelector,
-				"tolerations":            cluster.Spec.Tolerations,
-				"terminationGracePeriod": fmt.Sprintf("%ds", cluster.Spec.TerminationGracePeriodSecs),
-				"loggingConfigMapName":   cluster.Spec.LogConfigMap,
-				"env":                    cluster.Spec.PodEnvVariables,
-				"join":                   joinStr,
+				"affinity":                  sts.Spec.Template.Spec.Affinity,
+				"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
+				"tolerations":               sts.Spec.Template.Spec.Tolerations,
+				"terminationGracePeriod":    fmt.Sprintf("%ds", cluster.Spec.TerminationGracePeriodSecs),
+				"loggingConfigMapName":      cluster.Spec.LogConfigMap,
+				"env":                       sts.Spec.Template.Spec.Containers[0].Env,
+				"join":                      joinStr,
+				"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
 			},
 		},
 		"k8s": map[string]interface{}{
@@ -219,10 +228,11 @@ func buildNodeSpecFromHelm(
 	input parsedMigrationInput) v1alpha1.CrdbNodeSpec {
 
 	return v1alpha1.CrdbNodeSpec{
-		NodeName:  nodeName,
-		Join:      input.joinCmd,
-		PodLabels: sts.Spec.Template.Labels,
-		Flags:     input.flags,
+		NodeName:       nodeName,
+		Join:           input.joinCmd,
+		PodLabels:      sts.Spec.Template.Labels,
+		PodAnnotations: sts.Spec.Template.Annotations,
+		Flags:          input.flags,
 		DataStore: v1alpha1.DataStore{
 			VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
@@ -257,10 +267,11 @@ func buildNodeSpecFromHelm(
 				RootSQLClientSecretName: sts.Name + "-client-secret",
 			},
 		},
-		Affinity:               sts.Spec.Template.Spec.Affinity,
-		NodeSelector:           sts.Spec.Template.Spec.NodeSelector,
-		Tolerations:            sts.Spec.Template.Spec.Tolerations,
-		TerminationGracePeriod: &metav1.Duration{Duration: time.Duration(*sts.Spec.Template.Spec.TerminationGracePeriodSeconds) * time.Second},
+		Affinity:                  sts.Spec.Template.Spec.Affinity,
+		NodeSelector:              sts.Spec.Template.Spec.NodeSelector,
+		Tolerations:               sts.Spec.Template.Spec.Tolerations,
+		TerminationGracePeriod:    &metav1.Duration{Duration: time.Duration(*sts.Spec.Template.Spec.TerminationGracePeriodSeconds) * time.Second},
+		TopologySpreadConstraints: sts.Spec.Template.Spec.TopologySpreadConstraints,
 	}
 }
 
@@ -275,20 +286,23 @@ func buildHelmValuesFromHelm(
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
 			"tls": map[string]interface{}{
-			"enabled": input.tlsEnabled,
-			"selfSigner": map[string]interface{}{
-				"enabled": false,
-			},
-			"externalCertificates": map[string]interface{}{
-				"enabled": true,
-				"certificates": map[string]interface{}{
-					"caConfigMapName":         sts.Name + "-ca-secret-crt",
-					"nodeSecretName":          sts.Name + "-node-secret",
-					"rootSqlClientSecretName": sts.Name + "-client-secret",
+				"enabled": input.tlsEnabled,
+				"selfSigner": map[string]interface{}{
+					"enabled": false,
+				},
+				"externalCertificates": map[string]interface{}{
+					"enabled": true,
+					"certificates": map[string]interface{}{
+						"caConfigMapName":         sts.Name + "-ca-secret-crt",
+						"nodeSecretName":          sts.Name + "-node-secret",
+						"rootSqlClientSecretName": sts.Name + "-client-secret",
 					},
 				},
 			},
 			"crdbCluster": map[string]interface{}{
+				"image": map[string]interface{}{
+					"name": sts.Spec.Template.Spec.Containers[0].Image,
+				},
 				"podLabels":      sts.Spec.Template.Labels,
 				"podAnnotations": sts.Spec.Template.Annotations,
 				"resources":      sts.Spec.Template.Spec.Containers[0].Resources,
@@ -307,6 +321,7 @@ func buildHelmValuesFromHelm(
 						"metadata": map[string]interface{}{
 							"name": "datadir",
 						},
+						"spec": sts.Spec.VolumeClaimTemplates[0].Spec,
 					},
 				},
 				"service": map[string]interface{}{
@@ -322,13 +337,14 @@ func buildHelmValuesFromHelm(
 						},
 					},
 				},
-				"affinity":               sts.Spec.Template.Spec.Affinity,
-				"nodeSelector":           sts.Spec.Template.Spec.NodeSelector,
-				"tolerations":            sts.Spec.Template.Spec.Tolerations,
-				"terminationGracePeriod": fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
-				"loggingConfigMapName":   input.loggingConfigMap,
-				"env":                    sts.Spec.Template.Spec.Containers[0].Env,
-				"join":                   input.joinCmd,
+				"affinity":                  sts.Spec.Template.Spec.Affinity,
+				"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
+				"tolerations":               sts.Spec.Template.Spec.Tolerations,
+				"terminationGracePeriod":    fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
+				"loggingConfigMapName":      input.loggingConfigMap,
+				"env":                       sts.Spec.Template.Spec.Containers[0].Env,
+				"join":                      input.joinCmd,
+				"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
 			},
 		},
 	}
@@ -403,6 +419,9 @@ func extractJoinStringAndFlags(
 
 		// CockroachDB Enterprise Operator automatically adds "--logs" flag if it is not present.
 		case strings.HasPrefix(arg, logtostderrFlag):
+			continue
+
+		case strings.HasPrefix(arg, logFlag):
 			continue
 
 		default:

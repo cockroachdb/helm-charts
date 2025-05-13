@@ -1,0 +1,95 @@
+cockroachdb:
+  crdbCluster:
+    affinity:
+      podAntiAffinity:
+        preferredDuringSchedulingIgnoredDuringExecution:
+        - podAffinityTerm:
+            labelSelector:
+              matchLabels:
+                app.kubernetes.io/component: cockroachdb
+                app.kubernetes.io/instance: cockroachdb
+                app.kubernetes.io/name: cockroachdb
+            topologyKey: kubernetes.io/hostname
+          weight: 100
+    dataStore:
+      volumeClaimTemplate:
+        metadata:
+          name: datadir
+        spec:
+          accessModes:
+          - ReadWriteOnce
+          resources:
+            requests:
+              storage: 100Gi
+          volumeMode: Filesystem
+    env:
+    - name: STATEFULSET_NAME
+      value: cockroachdb
+    - name: STATEFULSET_FQDN
+      value: cockroachdb.default.svc.cluster.local
+    - name: COCKROACH_CHANNEL
+      value: kubernetes-helm
+    - name: GODEBUG
+      value: disablethp=1
+    flags:
+      --advertise-host: $(hostname).${STATEFULSET_FQDN}
+      --cache: 25%
+      --certs-dir: /cockroach/cockroach-certs/
+      --max-sql-memory: 25%
+    image:
+      name: cockroachdb/cockroach:v25.1.5
+    join: ${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257
+    loggingConfigMapName: cockroachdb-log-config
+    nodeSelector:
+      cloud.google.com/gke-nodepool: default-pool
+    podAnnotations:
+      crdb: is-cool
+    podLabels:
+      app.kubernetes.io/component: cockroachdb
+      app.kubernetes.io/instance: cockroachdb
+      app.kubernetes.io/name: cockroachdb
+    regions:
+    - cloudProvider: gcp
+      code: us-central1
+      domain: ""
+      namespace: default
+      nodes: 3
+    resources:
+      limits:
+        cpu: "2"
+        memory: 4Gi
+      requests:
+        cpu: "1"
+        memory: 2Gi
+    service:
+      ports:
+        grpc:
+          port: 26258
+        http:
+          port: 8080
+        sql:
+          port: 26257
+    terminationGracePeriod: 300s
+    tolerations:
+    - effect: NoSchedule
+      key: non-crdb
+      operator: Exists
+    topologySpreadConstraints:
+    - labelSelector:
+        matchLabels:
+          app.kubernetes.io/component: cockroachdb
+          app.kubernetes.io/instance: cockroachdb
+          app.kubernetes.io/name: cockroachdb
+      maxSkew: 1
+      topologyKey: topology.kubernetes.io/zone
+      whenUnsatisfiable: ScheduleAnyway
+  tls:
+    enabled: true
+    externalCertificates:
+      certificates:
+        caConfigMapName: cockroachdb-ca-secret-crt
+        nodeSecretName: cockroachdb-node-secret
+        rootSqlClientSecretName: cockroachdb-client-secret
+      enabled: true
+    selfSigner:
+      enabled: false

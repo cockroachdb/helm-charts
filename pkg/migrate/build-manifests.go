@@ -23,8 +23,9 @@ type Manifest struct {
 	cloudRegion   string
 	objectName    string
 	namespace     string
-	kubeconfig    string
 	outputDir     string
+	clientset     kubernetes.Interface
+	dynamicClient dynamic.Interface
 }
 
 // NewManifest constructs a Manifest with required fields and functional options
@@ -34,13 +35,27 @@ func NewManifest(cloudProvider, cloudRegion, kubeconfig, objectName, namespace, 
 		return nil, errors.New("cloudProvider and cloudRegion are required")
 	}
 
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "building k8s config")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, errors.Wrap(err, "building k8s clientset")
+	}
+	dynamicClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, errors.Wrap(err, "building k8s dynamic client")
+	}
+
 	return &Manifest{
 		cloudProvider: cloudProvider,
 		cloudRegion:   cloudRegion,
-		kubeconfig:    kubeconfig,
 		namespace:     namespace,
 		objectName:    objectName,
 		outputDir:     outputDir,
+		clientset:     clientset,
+		dynamicClient: dynamicClient,
 	}, nil
 }
 
@@ -48,26 +63,13 @@ func (m *Manifest) FromPublicOperator() error {
 	var crdbCluster string
 	ctx := context.TODO()
 
-	config, err := clientcmd.BuildConfigFromFlags("", m.kubeconfig)
-	if err != nil {
-		return errors.Wrap(err, "building k8s config")
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return errors.Wrap(err, "building k8s clientset")
-	}
-	dynamicClient, err := dynamic.NewForConfig(config)
-	if err != nil {
-		return errors.Wrap(err, "building k8s dynamic client")
-	}
-
 	publicCluster := publicv1.CrdbCluster{}
 	gvr := schema.GroupVersionResource{
 		Group:    "crdb.cockroachlabs.com",
 		Version:  "v1alpha1",
 		Resource: "crdbclusters",
 	}
-	cr, err := dynamicClient.Resource(gvr).Namespace(m.namespace).Get(ctx, m.objectName, metav1.GetOptions{})
+	cr, err := m.dynamicClient.Resource(gvr).Namespace(m.namespace).Get(ctx, m.objectName, metav1.GetOptions{})
 	if err != nil {
 		return errors.Wrap(err, "fetching public crdbcluster objectName")
 	}
@@ -76,33 +78,24 @@ func (m *Manifest) FromPublicOperator() error {
 	}
 
 	crdbCluster = publicCluster.Name
-	sts, err := clientset.AppsV1().StatefulSets(m.namespace).Get(ctx, crdbCluster, metav1.GetOptions{})
+	sts, err := m.clientset.AppsV1().StatefulSets(m.namespace).Get(ctx, crdbCluster, metav1.GetOptions{})
 	if err != nil {
 		return errors.Wrap(err, "fetching statefulset")
 	}
 
-	grpcPort := publicCluster.Spec.GRPCPort
-	joinAddrs := []string{}
-	for nodeIdx := int32(0); nodeIdx < publicCluster.Spec.Nodes; nodeIdx++ {
-		joinAddrs = append(joinAddrs, fmt.Sprintf("%s-%d.%s.%s:%d", crdbCluster, nodeIdx, crdbCluster, m.namespace, grpcPort))
-	}
-	joinString := strings.Join(joinAddrs, ",")
-
-	flags := map[string]string{}
-	if publicCluster.Spec.Cache != "" {
-		flags["--cache"] = publicCluster.Spec.Cache
-	}
-	if publicCluster.Spec.MaxSQLMemory != "" {
-		flags["--max-sql-memory"] = publicCluster.Spec.MaxSQLMemory
-	}
 	if publicCluster.Spec.LogConfigMap != "" {
-		if err := moveConfigMapKey(ctx, clientset, m.namespace, publicCluster.Spec.LogConfigMap); err != nil {
+		if err := moveConfigMapKey(ctx, m.clientset, m.namespace, publicCluster.Spec.LogConfigMap); err != nil {
 			return errors.Wrap(err, "moving config map key")
 		}
 	}
+	input := parsedMigrationInput{tlsEnabled: publicCluster.Spec.TLSEnabled}
+	if err := extractJoinStringAndFlags(&input, strings.Fields(sts.Spec.Template.Spec.Containers[0].Command[2])); err != nil {
+		return errors.Wrap(err, "extracting join string and flags")
+	}
+
 	for nodeIdx := int32(0); nodeIdx < publicCluster.Spec.Nodes; nodeIdx++ {
 		podName := fmt.Sprintf("%s-%d", crdbCluster, nodeIdx)
-		pod, err := clientset.CoreV1().Pods(m.namespace).Get(ctx, podName, metav1.GetOptions{})
+		pod, err := m.clientset.CoreV1().Pods(m.namespace).Get(ctx, podName, metav1.GetOptions{})
 		if err != nil {
 			return errors.Newf("couldn't find crdb pod %s", podName)
 		}
@@ -111,7 +104,7 @@ func (m *Manifest) FromPublicOperator() error {
 			return errors.Newf("pod %s isn't scheduled to a node", podName)
 		}
 
-		nodeSpec := buildNodeSpecFromOperator(publicCluster, sts, pod.Spec.NodeName, joinString, flags)
+		nodeSpec := buildNodeSpecFromOperator(publicCluster, sts, pod.Spec.NodeName, input.joinCmd, input.flags)
 		crdbNode := v1alpha1.CrdbNode{
 			TypeMeta: metav1.TypeMeta{
 				Kind:       "CrdbNode",
@@ -138,7 +131,7 @@ func (m *Manifest) FromPublicOperator() error {
 		}
 	}
 
-	helmValues := buildHelmValuesFromOperator(publicCluster, m.cloudProvider, m.cloudRegion, m.namespace, joinString, flags)
+	helmValues := buildHelmValuesFromOperator(publicCluster, sts, m.cloudProvider, m.cloudRegion, m.namespace, input.joinCmd, input.flags)
 
 	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{helmValues}); err != nil {
 		return errors.Wrap(err, "writing helm values to disk")
@@ -153,32 +146,24 @@ func (m *Manifest) FromPublicOperator() error {
 
 func (m *Manifest) FromHelmChart() error {
 	ctx := context.TODO()
-	config, err := clientcmd.BuildConfigFromFlags("", m.kubeconfig)
-	if err != nil {
-		return errors.Wrap(err, "building k8s config")
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		return errors.Wrap(err, "building k8s clientset")
-	}
 
-	sts, err := clientset.AppsV1().StatefulSets(m.namespace).Get(ctx, m.objectName, metav1.GetOptions{})
+	sts, err := m.clientset.AppsV1().StatefulSets(m.namespace).Get(ctx, m.objectName, metav1.GetOptions{})
 	if err != nil {
 		return errors.Wrap(err, "fetching statefulset")
 	}
 
-	input, err := generateParsedMigrationInput(ctx, clientset, sts)
+	input, err := generateParsedMigrationInput(ctx, m.clientset, sts)
 	if err != nil {
 		return err
 	}
 
-	if err := generateUpdatedPublicServiceConfig(ctx, clientset, sts.Namespace, fmt.Sprintf("%s-public", sts.Name), m.outputDir); err != nil {
+	if err := generateUpdatedPublicServiceConfig(ctx, m.clientset, sts.Namespace, fmt.Sprintf("%s-public", sts.Name), m.outputDir); err != nil {
 		return err
 	}
 
 	for nodeIdx := int32(0); nodeIdx < *sts.Spec.Replicas; nodeIdx++ {
 		podName := fmt.Sprintf("%s-%d", sts.Name, nodeIdx)
-		pod, err := clientset.CoreV1().Pods(m.namespace).Get(ctx, podName, metav1.GetOptions{})
+		pod, err := m.clientset.CoreV1().Pods(m.namespace).Get(ctx, podName, metav1.GetOptions{})
 		if err != nil {
 			return errors.Newf("couldn't find crdb pod %s", podName)
 		}

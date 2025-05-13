@@ -1,0 +1,96 @@
+apiVersion: crdb.cockroachlabs.com/v1alpha1
+kind: CrdbCluster
+metadata:
+  annotations:
+    crdb.io/certexpiration: "2030-05-16T16:24:32Z"
+    crdb.io/containerimage: cockroachdb/cockroach:v25.1.5
+    crdb.io/version: v25.1.5
+  name: cockroachdb
+  namespace: default
+spec:
+  additionalAnnotations:
+    crdb: is-cool
+  additionalLabels:
+    crdb: is-cool
+  affinity:
+    podAntiAffinity:
+      preferredDuringSchedulingIgnoredDuringExecution:
+      - podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: cockroachdb
+              app.kubernetes.io/instance: cockroachdb
+              app.kubernetes.io/name: cockroachdb
+          topologyKey: kubernetes.io/hostname
+        weight: 100
+  cache: 30%
+  dataStore:
+    pvc:
+      source:
+        claimName: ""
+      spec:
+        accessModes:
+        - ReadWriteOnce
+        resources:
+          requests:
+            storage: 60Gi
+        volumeMode: Filesystem
+    supportsAutoResize: false
+  grpcPort: 26258
+  httpPort: 8080
+  image:
+    name: cockroachdb/cockroach:v25.1.5
+    pullPolicy: IfNotPresent
+  logConfigMap: cockroachdb-log-config
+  maxSQLMemory: 30%
+  maxUnavailable: 1
+  nodeSelector:
+    cloud.google.com/gke-nodepool: default-pool
+  nodes: 3
+  podEnvVariables:
+  - name: MY_ENV_VAR
+    value: kubernetes-helm
+  resources:
+    limits:
+      cpu: "2"
+      memory: 8Gi
+    requests:
+      cpu: 500m
+      memory: 2Gi
+  sqlPort: 26257
+  terminationGracePeriodSecs: 300
+  tlsEnabled: true
+  tolerations:
+  - effect: NoSchedule
+    key: non-crdb
+    operator: Exists
+  topologySpreadConstraints:
+  - labelSelector:
+      matchLabels:
+        app.kubernetes.io/component: cockroachdb
+        app.kubernetes.io/instance: cockroachdb
+        app.kubernetes.io/name: cockroachdb
+    maxSkew: 1
+    topologyKey: topology.kubernetes.io/zone
+    whenUnsatisfiable: ScheduleAnyway
+status:
+  clusterStatus: Finished
+  conditions:
+  - lastTransitionTime: "2025-05-12T16:24:56Z"
+    status: "True"
+    type: Initialized
+  - lastTransitionTime: "2025-05-12T16:24:30Z"
+    status: "True"
+    type: CrdbVersionChecked
+  - lastTransitionTime: "2025-05-12T16:24:34Z"
+    status: "True"
+    type: CertificateGenerated
+  crdbcontainerimage: cockroachdb/cockroach:v25.1.5
+  operatorActions:
+  - lastTransitionTime: "2025-05-12T16:24:30Z"
+    status: Finished
+    type: VersionCheckerAction
+  - lastTransitionTime: "2025-05-12T16:24:56Z"
+    status: Finished
+    type: Initialize
+  version: v25.1.5
