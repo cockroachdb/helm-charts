@@ -11,7 +11,7 @@ timestamp: "2021-10-18T00:00:00Z"
 
 image:
   repository: cockroachdb/cockroach
-  tag: v25.1.5
+  tag: v25.1.6
   pullPolicy: IfNotPresent
   credentials: {}
     # registry: docker.io
