@@ -1,0 +1,44 @@
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    cloud.google.com/neg: '{"ingress":true}'
+    meta.helm.sh/release-name: cockroachdb
+    meta.helm.sh/release-namespace: default
+    service.alpha.kubernetes.io/app-protocols: '{"http":"HTTPS"}'
+  creationTimestamp: "2025-05-09T16:50:13Z"
+  labels:
+    app.kubernetes.io/component: cockroachdb
+    app.kubernetes.io/instance: cockroachdb
+    app.kubernetes.io/managed-by: Helm
+    app.kubernetes.io/name: cockroachdb
+    helm.sh/chart: cockroachdb-16.0.7
+  name: cockroachdb-public
+  namespace: default
+  resourceVersion: "49749"
+  uid: aa0c54ef-d1cb-47d6-8631-4627a506a223
+spec:
+  clusterIP: 34.118.225.220
+  clusterIPs:
+  - 34.118.225.220
+  internalTrafficPolicy: Cluster
+  ipFamilies:
+  - IPv4
+  ipFamilyPolicy: SingleStack
+  ports:
+  - name: grpc
+    port: 26257
+    protocol: TCP
+    targetPort: grpc
+  - name: http
+    port: 8080
+    protocol: TCP
+    targetPort: http
+  selector:
+    app.kubernetes.io/component: cockroachdb
+    app.kubernetes.io/instance: cockroachdb
+    app.kubernetes.io/name: cockroachdb
+  sessionAffinity: None
+  type: ClusterIP
+status:
+  loadBalancer: {}

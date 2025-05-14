@@ -76,7 +76,7 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, o.CrdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, o.CrdbCluster, false)
-	
+
 	prepareForMigration(t, o.CrdbCluster.StatefulSetName, o.Namespace, o.CrdbCluster.CaSecret, "operator")
 	defer func() {
 		_ = os.RemoveAll(manifestsDirPath)

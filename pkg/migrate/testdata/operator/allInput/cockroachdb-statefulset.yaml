@@ -1,0 +1,258 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  annotations:
+    crdb: is-cool
+    crdb.io/containerimage: cockroachdb/cockroach:v25.1.5
+    crdb.io/last-applied: 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
+    crdb.io/version: v25.1.5
+  creationTimestamp: "2025-05-12T16:24:34Z"
+  generation: 1
+  labels:
+    app.kubernetes.io/component: database
+    app.kubernetes.io/instance: cockroachdb
+    app.kubernetes.io/managed-by: cockroach-operator
+    app.kubernetes.io/name: cockroachdb
+    app.kubernetes.io/part-of: cockroachdb
+    app.kubernetes.io/version: v25.1.5
+    crdb: is-cool
+  name: cockroachdb
+  namespace: default
+  ownerReferences:
+  - apiVersion: crdb.cockroachlabs.com/v1alpha1
+    blockOwnerDeletion: true
+    controller: true
+    kind: CrdbCluster
+    name: cockroachdb
+    uid: ac584755-2e90-4a60-b31f-da49f749e9f4
+  resourceVersion: "3015832"
+  uid: 344cd0dd-5634-42f9-b2e5-97428632c00b
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  podManagementPolicy: Parallel
+  replicas: 3
+  revisionHistoryLimit: 10
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: database
+      app.kubernetes.io/instance: cockroachdb
+      app.kubernetes.io/name: cockroachdb
+      crdb: is-cool
+  serviceName: cockroachdb
+  template:
+    metadata:
+      annotations:
+        crdb: is-cool
+      creationTimestamp: null
+      labels:
+        app.kubernetes.io/component: database
+        app.kubernetes.io/instance: cockroachdb
+        app.kubernetes.io/name: cockroachdb
+        crdb: is-cool
+    spec:
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: cockroachdb
+                    app.kubernetes.io/instance: cockroachdb
+                    app.kubernetes.io/name: cockroachdb
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+      automountServiceAccountToken: false
+      containers:
+      - command:
+        - /bin/bash
+        - -ecx
+        - |-
+          exec /cockroach/cockroach.sh start --advertise-host=$(POD_NAME).cockroachdb.default --certs-dir=/cockroach/cockroach-certs/ --http-port=8080 --sql-addr=:26257 --listen-addr=:26258 --log="sinks:
+            file-groups:
+              dev:
+                channels: DEV
+                filter: WARNING
+          " --cache=30% --max-sql-memory=30% --join=cockroachdb-0.cockroachdb.default:26258,cockroachdb-1.cockroachdb.default:26258,cockroachdb-2.cockroachdb.default:26258
+        env:
+        - name: COCKROACH_CHANNEL
+          value: kubernetes-operator-gke
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              apiVersion: v1
+              fieldPath: metadata.name
+        - name: GOMAXPROCS
+          valueFrom:
+            resourceFieldRef:
+              divisor: "1"
+              resource: limits.cpu
+        - name: MEMORY_LIMIT_MIB
+          valueFrom:
+            resourceFieldRef:
+              divisor: 1Mi
+              resource: limits.memory
+        - name: MY_ENV_VAR
+          value: kubernetes-helm
+        image: cockroachdb/cockroach:v25.1.5
+        imagePullPolicy: IfNotPresent
+        lifecycle:
+          preStop:
+            exec:
+              command:
+              - sh
+              - -c
+              - /cockroach/cockroach node drain --certs-dir=/cockroach/cockroach-certs/
+                || exit 0
+        name: db
+        ports:
+        - containerPort: 26258
+          name: grpc
+          protocol: TCP
+        - containerPort: 8080
+          name: http
+          protocol: TCP
+        - containerPort: 26257
+          name: sql
+          protocol: TCP
+        readinessProbe:
+          failureThreshold: 2
+          httpGet:
+            path: /health?ready=1
+            port: http
+            scheme: HTTPS
+          initialDelaySeconds: 10
+          periodSeconds: 5
+          successThreshold: 1
+          timeoutSeconds: 1
+        resources:
+          limits:
+            cpu: "2"
+            memory: 8Gi
+          requests:
+            cpu: 500m
+            memory: 2Gi
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /cockroach/cockroach-data/
+          name: datadir
+        - mountPath: /cockroach/cockroach-certs/
+          name: emptydir
+      dnsPolicy: ClusterFirst
+      initContainers:
+      - command:
+        - /bin/sh
+        - -c
+        - '>- cp -p /cockroach/cockroach-certs-prestage/..data/* /cockroach/cockroach-certs/
+          && chmod 600 /cockroach/cockroach-certs/*.key && chown 1000581000:1000581000
+          /cockroach/cockroach-certs/*.key'
+        image: cockroachdb/cockroach:v25.1.5
+        imagePullPolicy: IfNotPresent
+        name: db-init
+        resources:
+          limits:
+            cpu: 100m
+            memory: 200Mi
+          requests:
+            cpu: 50m
+            memory: 100Mi
+        securityContext:
+          allowPrivilegeEscalation: false
+          runAsUser: 0
+        terminationMessagePath: /dev/termination-log
+        terminationMessagePolicy: File
+        volumeMounts:
+        - mountPath: /cockroach/cockroach-certs-prestage/
+          name: certs
+        - mountPath: /cockroach/cockroach-certs/
+          name: emptydir
+      nodeSelector:
+        cloud.google.com/gke-nodepool: default-pool
+      restartPolicy: Always
+      schedulerName: default-scheduler
+      securityContext:
+        fsGroup: 1000581000
+        runAsUser: 1000581000
+      serviceAccount: cockroachdb-sa
+      serviceAccountName: cockroachdb-sa
+      terminationGracePeriodSeconds: 300
+      tolerations:
+        - effect: NoSchedule
+          key: non-crdb
+          operator: Exists
+      topologySpreadConstraints:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: cockroachdb
+              app.kubernetes.io/instance: cockroachdb
+              app.kubernetes.io/name: cockroachdb
+          maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
+      volumes:
+      - name: datadir
+        persistentVolumeClaim:
+          claimName: ""
+      - emptyDir: {}
+        name: emptydir
+      - name: certs
+        projected:
+          defaultMode: 400
+          sources:
+          - secret:
+              items:
+              - key: ca.crt
+                mode: 504
+                path: ca.crt
+              - key: tls.crt
+                mode: 504
+                path: node.crt
+              - key: tls.key
+                mode: 400
+                path: node.key
+              name: cockroachdb-node
+          - secret:
+              items:
+              - key: tls.crt
+                mode: 504
+                path: client.root.crt
+              - key: tls.key
+                mode: 400
+                path: client.root.key
+              name: cockroachdb-root
+  updateStrategy:
+    rollingUpdate:
+      partition: 0
+    type: RollingUpdate
+  volumeClaimTemplates:
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      creationTimestamp: null
+      labels:
+        app.kubernetes.io/component: database
+        app.kubernetes.io/instance: cockroachdb
+        app.kubernetes.io/name: cockroachdb
+        crdb: is-cool
+      name: datadir
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 60Gi
+      volumeMode: Filesystem
+    status:
+      phase: Pending
+status:
+  availableReplicas: 3
+  collisionCount: 0
+  currentReplicas: 3
+  currentRevision: cockroachdb-57466cfb8b
+  observedGeneration: 1
+  readyReplicas: 3
+  replicas: 3
+  updateRevision: cockroachdb-57466cfb8b
+  updatedReplicas: 3
