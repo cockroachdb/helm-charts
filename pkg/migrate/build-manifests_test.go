@@ -2,6 +2,7 @@ package migrate
 
 import (
 	"context"
+	"flag"
 	"os"
 	"path/filepath"
 	"sigs.k8s.io/yaml"
@@ -20,6 +21,8 @@ import (
 	"k8s.io/client-go/kubernetes/fake"
 )
 
+var updateGolden = flag.Bool("update", false, "update golden files")
+
 func TestFromHelmChart(t *testing.T) {
 	// Setup fake Kubernetes client
 	clientset := fake.NewSimpleClientset()
@@ -29,7 +32,7 @@ func TestFromHelmChart(t *testing.T) {
 	outputDir := t.TempDir()
 
 	sts := appsv1.StatefulSet{}
-	manifestBytes, err := os.ReadFile("testdata/helmAllInput/cockroachdb-statefulset.yaml")
+	manifestBytes, err := os.ReadFile("testdata/helm/allInput/cockroachdb-statefulset.yaml")
 	require.NoError(t, err)
 	err = yaml.Unmarshal(manifestBytes, &sts)
 	require.NoError(t, err)
@@ -51,7 +54,7 @@ func TestFromHelmChart(t *testing.T) {
 	}
 	// Create the public service
 	svc := &corev1.Service{}
-	manifestBytes, err = os.ReadFile("testdata/helmAllInput/cockroachdb-public.yaml")
+	manifestBytes, err = os.ReadFile("testdata/helm/allInput/cockroachdb-public.yaml")
 	require.NoError(t, err)
 	err = yaml.Unmarshal(manifestBytes, &svc)
 	require.NoError(t, err)
@@ -85,9 +88,9 @@ func TestFromHelmChart(t *testing.T) {
 	require.NoError(t, err)
 
 	// Validate generated files against golden files
-	validateGoldenFile(t, filepath.Join(outputDir, "values.yaml"), "testdata/helmAllInput/values.golden.yaml")
+	validateGoldenFile(t, filepath.Join(outputDir, "values.yaml"), "testdata/helm/allInput/values.yaml.golden")
 	for i := 0; i < 3; i++ {
-		validateGoldenFile(t, filepath.Join(outputDir, "crdbnode-"+strconv.Itoa(i)+".yaml"), "testdata/helmAllInput/crdbnode-"+strconv.Itoa(i)+".golden.yaml")
+		validateGoldenFile(t, filepath.Join(outputDir, "crdbnode-"+strconv.Itoa(i)+".yaml"), "testdata/helm/allInput/crdbnode-"+strconv.Itoa(i)+".yaml.golden")
 	}
 }
 
@@ -100,7 +103,7 @@ func TestFromOperator(t *testing.T) {
 	outputDir := t.TempDir()
 
 	// Load and create CrdbCluster (as unstructured)
-	crdbClusterBytes, err := os.ReadFile("testdata/operatorAllInput/crdbcluster.yaml")
+	crdbClusterBytes, err := os.ReadFile("testdata/operator/allInput/crdbcluster.yaml")
 	require.NoError(t, err)
 	var unstructuredCrdbCluster map[string]interface{}
 	require.NoError(t, yaml.Unmarshal(crdbClusterBytes, &unstructuredCrdbCluster))
@@ -118,7 +121,7 @@ func TestFromOperator(t *testing.T) {
 
 	// Load and create StatefulSet
 	sts := appsv1.StatefulSet{}
-	stsBytes, err := os.ReadFile("testdata/operatorAllInput/cockroachdb-statefulset.yaml")
+	stsBytes, err := os.ReadFile("testdata/operator/allInput/cockroachdb-statefulset.yaml")
 	require.NoError(t, err)
 	require.NoError(t, yaml.Unmarshal(stsBytes, &sts))
 	_, err = clientset.AppsV1().StatefulSets(namespace).Create(ctx, &sts, metav1.CreateOptions{})
@@ -165,9 +168,9 @@ func TestFromOperator(t *testing.T) {
 	require.NoError(t, err)
 
 	// Validate generated files against golden files
-	validateGoldenFile(t, filepath.Join(outputDir, "values.yaml"), "testdata/operatorAllInput/values.golden.yaml")
+	validateGoldenFile(t, filepath.Join(outputDir, "values.yaml"), "testdata/operator/allInput/values.yaml.golden")
 	for i := 0; i < 3; i++ {
-		validateGoldenFile(t, filepath.Join(outputDir, "crdbnode-"+strconv.Itoa(i)+".yaml"), "testdata/operatorAllInput/crdbnode-"+strconv.Itoa(i)+".golden.yaml")
+		validateGoldenFile(t, filepath.Join(outputDir, "crdbnode-"+strconv.Itoa(i)+".yaml"), "testdata/operator/allInput/crdbnode-"+strconv.Itoa(i)+".yaml.golden")
 	}
 
 }
@@ -179,6 +182,14 @@ func validateGoldenFile(t *testing.T, generatedFile, goldenFile string) {
 
 	golden, err := os.ReadFile(goldenFile)
 	require.NoError(t, err)
+
+	if *updateGolden {
+		generatedData, err := os.ReadFile(generatedFile)
+		require.NoError(t, err)
+		err = os.WriteFile(goldenFile, generatedData, 0644)
+		require.NoError(t, err)
+		t.Logf("Updated golden file: %s", goldenFile)
+	}
 
 	assert.Equal(t, string(golden), string(generated), "Generated file does not match golden file")
 }

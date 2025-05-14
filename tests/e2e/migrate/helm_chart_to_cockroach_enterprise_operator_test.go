@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
@@ -136,6 +137,11 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 	}, helmPath, releaseName)
+
+	for i := h.CrdbCluster.DesiredNodes - 1; i >= 0; i-- {
+		podName := fmt.Sprintf("%s-%d", h.CrdbCluster.StatefulSetName, i)
+		testutil.RequirePodToBeCreatedAndReady(t, kubectlOptions, podName, 300*time.Second)
+	}
 	defer func() {
 		t.Log("helm uninstall the crdbcluster CR from the helm chart")
 		h.Uninstall(t)

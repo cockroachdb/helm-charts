@@ -30,10 +30,11 @@ import (
 )
 
 const (
-	CloudProvider = "k3d"
-	TestDBName    = "testdb"
-	Namespace     = "test-cockroach"
-	LabelSelector = "app=cockroachdb"
+	CloudProvider         = "k3d"
+	TestDBName            = "testdb"
+	Namespace             = "test-cockroach"
+	LabelSelector         = "app=cockroachdb"
+	OperatorLabelSelector = "app=cockroach-operator"
 )
 
 var (
@@ -657,6 +658,15 @@ func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.Kube
 	_, _ = retry.DoWithRetryE(t, "wait-for-crd", 60, time.Second*5, func() (string, error) {
 		return k8s.RunKubectlAndGetOutputE(t, operatorOpts.KubectlOptions, "get", "crd", "crdbclusters.crdb.cockroachlabs.com")
 	})
+
+	// wait for the operator pod to be running
+	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+		LabelSelector: OperatorLabelSelector,
+	})
+
+	for i := range pods {
+		testutil.RequirePodToBeCreatedAndReady(t, operatorOpts.KubectlOptions, pods[i].Name, 300*time.Second)
+	}
 }
 
 func UninstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
