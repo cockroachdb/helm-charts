@@ -389,9 +389,12 @@ cockroachdb:
     # localityLabels captures labels used to determine node locality.
     # It is an ordered, comma-separated list of keys that which must be present as labels on the nodes.
     # For region and zone to be part of the locality, the labels (topology.kubernetes.io/region, topology.kubernetes.io/region) must be set on the nodes.
-    # For other labels, they must be set on the nodes and will be present as key/value pairs as defined on the node in the locality.
+    # For other labels, they must be set on the nodes and will be presented as key/value pairs to the node locality.
     # Example:
-    # If localityLabels are provided as ["topology.kubernetes.io/region", "topology.kubernetes.io/zone", "example.datacenter.locality"], and the value of the example.datacenter.locality label on the node is dc2,
+    # If localityLabels are provided as ["topology.kubernetes.io/region", "topology.kubernetes.io/zone", "example.datacenter.locality"], and the node labels are:
+    #   topology.kubernetes.io/region: us-central1
+    #   topology.kubernetes.io/zone: us-central1-c
+    #   example.datacenter.locality: dc2
     # the resulting locality flag will be: locality=region=us-central1,zone=us-central1-c,example.datacenter.locality=dc2.
     # https://www.cockroachlabs.com/docs/v25.1/cockroach-start#locality
     localityLabels: []
