@@ -191,6 +191,12 @@ The operator chart does not exist in the Helm repository yet and will be added s
 
 ### Install Operator
 
+- Update `cloudRegion` accordingly in [`operator/values.yaml`](/cockroachdb-parent/charts/operator/values.yaml). This value must be same as the current region provided under regions section at [`cockroachdb/values.yaml`](/cockroachdb-parent/charts/cockroachdb/values.yaml).
+
+```
+  cloudRegion: us-central1
+```
+
 ```shell
 $ helm install $CRDBOPERATOR ./cockroachdb-parent/charts/operator -n $NAMESPACE
 ```
@@ -235,7 +241,7 @@ For multi-region cluster deployments, ensure the required networking is setup wh
 For each region, modify the `regions` configuration of [`cockroachdb/values.yaml`](/cockroachdb-parent/charts/cockroachdb/values.yaml) and perform `helm install` as above against the respective Kubernetes cluster.
 
 While applying `helm install` in a given region:
-- Verify that the domain matches the `clusterDomain` in `values.yaml` for the corresponding region
+- Verify that the domain matches the `clusterDomain` in [`cockroachdb/values.yaml`](/cockroachdb-parent/charts/cockroachdb/values.yaml) for the corresponding region.
 - Ensure `regions` captures the information for regions that have already been deployed, including the current region. This enables CockroachDB in the current region to connect to CockroachDB deployed in the existing regions.
 
 For example, if `us-central1` has already been deployed, and `us-east1` is being deployed to:
