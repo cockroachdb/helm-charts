@@ -1,4 +1,3 @@
-<!--- Generated file, DO NOT EDIT. Source: build/templates-v2/charts/cockroachdb/README.md --->
 # CockroachDB Helm Chart
 
 [CockroachDB](https://github.com/cockroachdb/cockroach) - the open source, cloud-native distributed SQL database.
