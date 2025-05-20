@@ -1,4 +1,3 @@
-<!--- Generated file, DO NOT EDIT. Source: build/templates-v2/README.md --->
 
 **NOTE: This README is currently a work in progress**
 
