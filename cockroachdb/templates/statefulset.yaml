@@ -49,8 +49,8 @@ spec:
         - name: {{ template "cockroachdb.fullname" . }}.db.registry
     {{- end }}
       serviceAccountName: {{ template "cockroachdb.serviceAccount.name" . }}
-      {{- if .Values.tls.enabled }}
       initContainers:
+        {{- if .Values.tls.enabled }}
         - name: copy-certs
           image: {{ .Values.tls.copyCerts.image | quote }}
           imagePullPolicy: {{ .Values.tls.selfSigner.image.pullPolicy | quote }}
@@ -80,6 +80,49 @@ spec:
         {{- with .Values.tls.copyCerts.resources }}
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
+        {{- end }}
+        {{/* Sidecar support is since k8s 1.29, which is beyond the k8s support horizon */}}
+        {{- if .Values.visus.enabled  }}
+        - name: visus
+          image: "{{ .Values.visus.image.name }}:{{ .Values.visus.image.tag }}"
+          imagePullPolicy: {{ .Values.visus.image.pullPolicy | quote }}
+          # This is a sidecar
+          restartPolicy: Always
+          command:
+            - visus
+            - start
+            - --url
+            - {{ template "cockroachdb.pg_url" $ }}
+            - --visus-metrics
+            - --bind-addr
+            - localhost:{{ .Values.visus.bind_port }}
+            {{- if .Values.visus.insecure }}
+            - --insecure
+            {{- else }}
+            - --bind-cert
+            - /cockroach/node/node.crt
+            - --bind-key
+            - /cockroach/node/node.key
+            - --ca-cert
+            - /cockroach/node/ca.crt
+            {{- end }}
+            {{- range $ic := .Values.visus.args }}
+            - {{- toYaml $ic | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: visus-http
+              containerPort: {{ .Values.visus.bind_port | int64 }}
+              protocol: TCP
+          volumeMounts:
+            {{- if .Values.tls.enabled }}
+            - name: certs
+              mountPath: /cockroach-certs/
+            - name: certs-secret
+              mountPath: /cockroach/node/
+            - name: client-secret
+              mountPath: /cockroach/client
+            {{- end }}
+        {{- end }}
         {{- range $ic := .Values.statefulset.initContainers }}
         - {{- toYaml $ic | nindent 10 }}
           {{ with $.Values.statefulset.volumeMounts}}
@@ -87,7 +130,6 @@ spec:
           {{- toYaml . | nindent 12 }}
           {{- end }}
         {{- end }}
-      {{- end }}
     {{- if or .Values.statefulset.nodeAffinity .Values.statefulset.podAffinity .Values.statefulset.podAntiAffinity }}
       affinity:
       {{- with .Values.statefulset.nodeAffinity }}
@@ -433,6 +475,33 @@ spec:
             defaultMode: 256
           {{- end }}
           {{- end }}
+        {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
+        - name: client-secret
+        {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
+          projected:
+            sources:
+            - secret:
+                {{- if .Values.tls.certs.selfSigner.enabled }}
+                name: {{ template "cockroachdb.fullname" . }}-client-secret
+                {{ else }}
+                name: {{ .Values.tls.certs.clientRootSecret }}
+                {{ end -}}
+                items:
+                - key: ca.crt
+                  path: ca.crt
+                  mode: 0400
+                - key: tls.crt
+                  path: client.root.crt
+                  mode: 0400
+                - key: tls.key
+                  path: client.root.key
+                  mode: 0400
+        {{- else }}
+          secret:
+            secretName: {{ .Values.tls.certs.clientRootSecret }}
+            defaultMode: 0400
+        {{- end }}
+        {{- end }}
       {{- end }}
       {{- range .Values.statefulset.secretMounts }}
         - name: {{ printf "secret-%s" . | quote }}

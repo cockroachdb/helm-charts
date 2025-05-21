@@ -722,6 +722,18 @@ iap:
 godebug:
   disablethp: "1"
 
+# Visus exports additional Prometheus metrics derived from internal Cockroach DB sources (often SQL queries)
+visus:
+  enabled: false
+  image:
+    name: cockroachdb/visus
+    tag: v1.0.0
+    pullPolicy: IfNotPresent
+  bind_port: 8888
+  # Insecure is pretty normal here; it just applies to the Prometheus metrics exporter service
+  insecure: true
+  args: []
+
 # Use the CockroachDB Operator to manage the CockroachDB clusters.
 operator:
   enabled: false
