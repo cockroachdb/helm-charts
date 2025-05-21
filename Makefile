@@ -208,3 +208,8 @@ build-and-push-operator-image:
 build-and-push-bundle-image:
 	docker buildx build --platform=linux/amd64,linux/arm64 \
 		-t $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(BUNDLE_IMAGE):$(VERSION) --push -f build/docker-image/olm-catalog/bundle.Dockerfile ./
+
+bump/%:
+	@bazel build //build
+	./bazel-bin/build/build_/build bump $*
+	@helm dependency update ./cockroachdb-parent
