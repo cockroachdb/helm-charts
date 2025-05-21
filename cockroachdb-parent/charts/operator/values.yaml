@@ -1,4 +1,4 @@
-# Generated file, DO NOT EDIT. Source: build/templates-v2/charts/operator/values.yaml
+# Generated file, DO NOT EDIT. Source: build/templates/cockroachdb-parent/charts/operator/values.yaml
 # Default values for the operator chart.
 
 # image captures the container image settings for Operator pods.

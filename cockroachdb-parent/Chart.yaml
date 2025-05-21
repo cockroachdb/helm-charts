@@ -1,16 +1,16 @@
-# Generated file, DO NOT EDIT. Source: build/templates-v2/Chart.yaml
+# Generated file, DO NOT EDIT. Source: build/templates/cockroachdb-parent/Chart.yaml
 apiVersion: v2
 name: cockroachdb-parent
 description: A parent Helm chart for CockroachDB and its operator using helm-spray
 type: application
-version: 20.0.0
+version: 25.0.0-preview
 appVersion: 25.1.6
 dependencies:
   - name: operator
-    version: 20.0.0
+    version: 25.0.0-preview
     condition: operator.enabled
     repository: "file://charts/operator"
   - name: cockroachdb
-    version: 20.0.0
+    version: 25.0.0-preview
     condition: cockroachdb.enabled
     repository: "file://charts/cockroachdb"
