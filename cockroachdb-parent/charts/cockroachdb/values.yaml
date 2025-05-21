@@ -1,4 +1,4 @@
-# Generated file, DO NOT EDIT. Source: build/templates-v2/charts/cockroachdb/values.yaml
+# Generated file, DO NOT EDIT. Source: build/templates/cockroachdb-parent/charts/cockroachdb/values.yaml
 # Default values for the cockroachdb chart.
 
 # cockroachdb encapsulates the configuration for the CockroachDB cluster.

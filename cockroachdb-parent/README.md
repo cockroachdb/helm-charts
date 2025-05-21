@@ -1,4 +1,4 @@
-<!--- Generated file, DO NOT EDIT. Source: build/templates-v2/README.md --->
+<!--- Generated file, DO NOT EDIT. Source: build/templates/cockroachdb-parent/README.md --->
 
 **NOTE: This README is currently a work in progress**
 

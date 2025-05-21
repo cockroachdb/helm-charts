@@ -1,4 +1,4 @@
-# Generated file, DO NOT EDIT. Source: build/templates-v2/values.yaml
+# Generated file, DO NOT EDIT. Source: build/templates/cockroachdb-parent/values.yaml
 ## Operator chart values
 # operator:
 #  enabled: true

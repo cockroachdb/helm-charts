@@ -1,7 +1,7 @@
-# Generated file, DO NOT EDIT. Source: build/templates-v2/charts/operator/Chart.yaml
+# Generated file, DO NOT EDIT. Source: build/templates/cockroachdb-parent/charts/operator/Chart.yaml
 apiVersion: v2
 name: operator
 description: A Helm chart for managing the CockroachDB operator.
 type: application
 appVersion: 25.1.6
-version: 20.0.0
+version: 25.0.0-preview

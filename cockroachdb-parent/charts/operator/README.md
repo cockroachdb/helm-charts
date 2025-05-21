@@ -1,4 +1,4 @@
-<!--- Generated file, DO NOT EDIT. Source: build/templates-v2/charts/operator/README.md --->
+<!--- Generated file, DO NOT EDIT. Source: build/templates/cockroachdb-parent/charts/operator/README.md --->
 # Operator Helm Chart
 
 This is a subchart for installing the CockroachDB operator.

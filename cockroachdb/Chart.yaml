@@ -1,4 +1,4 @@
-# Generated file, DO NOT EDIT. Source: build/templates/Chart.yaml
+# Generated file, DO NOT EDIT. Source: build/templates/cockroachdb/Chart.yaml
 apiVersion: v1
 name: cockroachdb
 home: https://www.cockroachlabs.com

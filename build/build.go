@@ -31,30 +31,30 @@ const (
 	chartsFile         = "cockroachdb/Chart.yaml"
 	valuesFile         = "cockroachdb/values.yaml"
 	readmeFile         = "cockroachdb/README.md"
-	chartsFileTemplate = "build/templates/Chart.yaml"
-	valuesFileTemplate = "build/templates/values.yaml"
-	readmeFileTemplate = "build/templates/README.md"
+	chartsFileTemplate = "build/templates/cockroachdb/Chart.yaml"
+	valuesFileTemplate = "build/templates/cockroachdb/values.yaml"
+	readmeFileTemplate = "build/templates/cockroachdb/README.md"
 
 	cockroachDBChartFile          = "cockroachdb-parent/charts/cockroachdb/Chart.yaml"
 	cockroachDBValuesFile         = "cockroachdb-parent/charts/cockroachdb/values.yaml"
 	cockroachDBReadmeFile         = "cockroachdb-parent/charts/cockroachdb/README.md"
-	cockroachDBChartsFileTemplate = "build/templates-v2/charts/cockroachdb/Chart.yaml"
-	cockroachDBValuesFileTemplate = "build/templates-v2/charts/cockroachdb/values.yaml"
-	cockroachDBReadmeFileTemplate = "build/templates-v2/charts/cockroachdb/README.md"
+	cockroachDBChartsFileTemplate = "build/templates/cockroachdb-parent/charts/cockroachdb/Chart.yaml"
+	cockroachDBValuesFileTemplate = "build/templates/cockroachdb-parent/charts/cockroachdb/values.yaml"
+	cockroachDBReadmeFileTemplate = "build/templates/cockroachdb-parent/charts/cockroachdb/README.md"
 
 	operatorChartFile          = "cockroachdb-parent/charts/operator/Chart.yaml"
 	operatorValuesFile         = "cockroachdb-parent/charts/operator/values.yaml"
 	operatorReadmeFile         = "cockroachdb-parent/charts/operator/README.md"
-	operatorChartsFileTemplate = "build/templates-v2/charts/operator/Chart.yaml"
-	operatorValuesFileTemplate = "build/templates-v2/charts/operator/values.yaml"
-	operatorReadmeFileTemplate = "build/templates-v2/charts/operator/README.md"
+	operatorChartsFileTemplate = "build/templates/cockroachdb-parent/charts/operator/Chart.yaml"
+	operatorValuesFileTemplate = "build/templates/cockroachdb-parent/charts/operator/values.yaml"
+	operatorReadmeFileTemplate = "build/templates/cockroachdb-parent/charts/operator/README.md"
 
 	parentChartFile          = "cockroachdb-parent/Chart.yaml"
 	parentValuesFile         = "cockroachdb-parent/values.yaml"
 	parentReadmeFile         = "cockroachdb-parent/README.md"
-	parentChartFileTemplate  = "build/templates-v2/Chart.yaml"
-	parentValuesFileTemplate = "build/templates-v2/values.yaml"
-	parentReadmeFileTemplate = "build/templates-v2/README.md"
+	parentChartFileTemplate  = "build/templates/cockroachdb-parent/Chart.yaml"
+	parentValuesFileTemplate = "build/templates/cockroachdb-parent/values.yaml"
+	parentReadmeFileTemplate = "build/templates/cockroachdb-parent/README.md"
 )
 
 const usage = `Usage:
@@ -256,6 +256,14 @@ func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error)
 			return "", fmt.Errorf("cannot parse next version: %w", err)
 		}
 		return nextVersion.Original(), nil
+	}
+	// If the version includes a prerelease label like `-preview`, the IncrPatch function automatically removes it.
+	// For example, v25.0.0-preview becomes v25.0.0 after incrementing the patch.
+	// To retain the prerelease label, we now increment the patch twice and re-append the prerelease.
+	// This ensures that versions with a prerelease set maintain the label even after a patch increment.
+	if chart.Version.Prerelease() != "" {
+		nextVersion, err := chart.Version.IncPatch().IncPatch().SetPrerelease(chart.Version.Prerelease())
+		return nextVersion.Original(), err
 	}
 	nextVersion := chart.Version.IncPatch()
 	return nextVersion.Original(), nil
