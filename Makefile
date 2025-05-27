@@ -211,5 +211,5 @@ build-and-push-bundle-image:
 
 bump/%:
 	@bazel build //build
-	./bazel-bin/build/build_/build bump $*
+	$$(bazel info bazel-bin)/build/build_/build bump $*
 	@helm dependency update ./cockroachdb-parent

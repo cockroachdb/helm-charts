@@ -20,6 +20,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"text/template"
 
@@ -27,45 +28,14 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const (
-	chartsFile         = "cockroachdb/Chart.yaml"
-	valuesFile         = "cockroachdb/values.yaml"
-	readmeFile         = "cockroachdb/README.md"
-	chartsFileTemplate = "build/templates/cockroachdb/Chart.yaml"
-	valuesFileTemplate = "build/templates/cockroachdb/values.yaml"
-	readmeFileTemplate = "build/templates/cockroachdb/README.md"
-
-	cockroachDBChartFile          = "cockroachdb-parent/charts/cockroachdb/Chart.yaml"
-	cockroachDBValuesFile         = "cockroachdb-parent/charts/cockroachdb/values.yaml"
-	cockroachDBReadmeFile         = "cockroachdb-parent/charts/cockroachdb/README.md"
-	cockroachDBChartsFileTemplate = "build/templates/cockroachdb-parent/charts/cockroachdb/Chart.yaml"
-	cockroachDBValuesFileTemplate = "build/templates/cockroachdb-parent/charts/cockroachdb/values.yaml"
-	cockroachDBReadmeFileTemplate = "build/templates/cockroachdb-parent/charts/cockroachdb/README.md"
-
-	operatorChartFile          = "cockroachdb-parent/charts/operator/Chart.yaml"
-	operatorValuesFile         = "cockroachdb-parent/charts/operator/values.yaml"
-	operatorReadmeFile         = "cockroachdb-parent/charts/operator/README.md"
-	operatorChartsFileTemplate = "build/templates/cockroachdb-parent/charts/operator/Chart.yaml"
-	operatorValuesFileTemplate = "build/templates/cockroachdb-parent/charts/operator/values.yaml"
-	operatorReadmeFileTemplate = "build/templates/cockroachdb-parent/charts/operator/README.md"
-
-	parentChartFile          = "cockroachdb-parent/Chart.yaml"
-	parentValuesFile         = "cockroachdb-parent/values.yaml"
-	parentReadmeFile         = "cockroachdb-parent/README.md"
-	parentChartFileTemplate  = "build/templates/cockroachdb-parent/Chart.yaml"
-	parentValuesFileTemplate = "build/templates/cockroachdb-parent/values.yaml"
-	parentReadmeFileTemplate = "build/templates/cockroachdb-parent/README.md"
-)
-
 const usage = `Usage:
+// Bump cockroachdb version and chart version in Chart.yaml file.
 - go run build/build.go bump <crdbversion>
+// Bump cockroachdb chart version in Chart.yaml file.
+- go run build/build.go bump helm
+// Generate files based on templates in build/templates directory.
 - go run build/build.go generate
 `
-
-type HelmTemplate struct {
-	chartsFile, valuesFile, readmeFile                         string
-	chartsFileTemplate, valuesFileTemplate, readmeFileTemplate string
-}
 
 type parsedVersion struct {
 	*semver.Version
@@ -96,37 +66,6 @@ func main() {
 		os.Exit(1)
 	}
 
-	helmTemplates := make([]HelmTemplate, 0)
-	helmTemplates = append(helmTemplates, HelmTemplate{
-		chartsFile:         chartsFile,
-		valuesFile:         valuesFile,
-		readmeFile:         readmeFile,
-		chartsFileTemplate: chartsFileTemplate,
-		valuesFileTemplate: valuesFileTemplate,
-		readmeFileTemplate: readmeFileTemplate,
-	}, HelmTemplate{
-		chartsFile:         operatorChartFile,
-		valuesFile:         operatorValuesFile,
-		readmeFile:         operatorReadmeFile,
-		chartsFileTemplate: operatorChartsFileTemplate,
-		valuesFileTemplate: operatorValuesFileTemplate,
-		readmeFileTemplate: operatorReadmeFileTemplate,
-	}, HelmTemplate{
-		chartsFile:         cockroachDBChartFile,
-		valuesFile:         cockroachDBValuesFile,
-		readmeFile:         cockroachDBReadmeFile,
-		chartsFileTemplate: cockroachDBChartsFileTemplate,
-		valuesFileTemplate: cockroachDBValuesFileTemplate,
-		readmeFileTemplate: cockroachDBReadmeFileTemplate,
-	}, HelmTemplate{
-		chartsFile:         parentChartFile,
-		valuesFile:         parentValuesFile,
-		readmeFile:         parentReadmeFile,
-		chartsFileTemplate: parentChartFileTemplate,
-		valuesFileTemplate: parentValuesFileTemplate,
-		readmeFileTemplate: parentReadmeFileTemplate,
-	})
-
 	switch os.Args[1] {
 	case "bump":
 		if len(os.Args) < 3 {
@@ -134,12 +73,9 @@ func main() {
 			os.Exit(1)
 		}
 
-		for i := range helmTemplates {
-			h := helmTemplates[i]
-			if err := h.bump(os.Args[2]); err != nil {
-				fmt.Fprintf(os.Stderr, "cannot run: %s", err)
-				os.Exit(1)
-			}
+		if err := generate(os.Args[2]); err != nil {
+			fmt.Fprintf(os.Stderr, "cannot run: %s", err)
+			os.Exit(1)
 		}
 		return
 	case "generate":
@@ -147,12 +83,10 @@ func main() {
 			fmt.Print(usage)
 			os.Exit(1)
 		}
-		for i := range helmTemplates {
-			h := helmTemplates[i]
-			if err := h.generate(); err != nil {
-				fmt.Fprintf(os.Stderr, "cannot run: %s", err)
-				os.Exit(1)
-			}
+
+		if err := generate(""); err != nil {
+			fmt.Fprintf(os.Stderr, "cannot run: %s", err)
+			os.Exit(1)
 		}
 		return
 	}
@@ -163,62 +97,89 @@ func main() {
 
 // regenerate destination files based on templates, which should
 // result in a zero diff, if template is up-to-date with destination files.
-func (h *HelmTemplate) generate() error {
-	chart, err := getVersions(h.chartsFile)
+// If version is specified, it will be used to bump the version in Chart.yaml file.
+func generate(version string) error {
+	const templatesDir = "build/templates"
+	const outputDir = "."
+	var args templateArgs
+
+	dirInfo, err := os.Stat(templatesDir)
 	if err != nil {
-		return fmt.Errorf("cannot get chart versions: %w", err)
+		return fmt.Errorf("cannot stat templates directory: %w", err)
 	}
-	return h.processTemplates(chart.Version.String(), chart.AppVersion.String())
+	if !dirInfo.IsDir() {
+		return fmt.Errorf("%s is not a directory", templatesDir)
+	}
+
+	return filepath.Walk(templatesDir, func(filePath string, fileInfo os.FileInfo, e error) error {
+		if e != nil {
+			return e
+		}
+		// Skip directories
+		if !fileInfo.Mode().IsRegular() {
+			return nil
+		}
+		// calculate file directory relative to the given root directory.
+		dir := filepath.Dir(filePath)
+		fileName := filepath.Base(filePath)
+		relDir, err := filepath.Rel(templatesDir, dir)
+		if err != nil {
+			return err
+		}
+		destDir := filepath.Join(outputDir, relDir)
+		destFile := filepath.Join(destDir, fileInfo.Name())
+		if fileName == "Chart.yaml" {
+			args, err = buildTemplateArgs(destFile, version)
+			if err != nil {
+				return err
+			}
+		}
+		doNotEditStatement := fmt.Sprintf("# Generated file, DO NOT EDIT. Source: %s\n", filePath)
+		if fileName == "README.md" {
+			doNotEditStatement = fmt.Sprintf("<!--- Generated file, DO NOT EDIT. Source: %s --->\n", filePath)
+		}
+		if err := processTemplate(
+			filePath,
+			destFile,
+			args,
+			doNotEditStatement,
+		); err != nil {
+			return fmt.Errorf("cannot process %s -> %s: %w", filePath, destFile, err)
+		}
+
+		return nil
+	})
 }
 
-func (h *HelmTemplate) bump(version string) error {
-	// Trim the "v" prefix if exists. It will be added explicitly in the templates when needed.
-	crdbVersion, err := semver.NewVersion(strings.TrimPrefix(version, "v"))
+// buildTemplateArgs reads the Chart.yaml file and returns the template arguments.
+func buildTemplateArgs(destFile, version string) (templateArgs, error) {
+	chart, err := getVersions(destFile)
 	if err != nil {
-		return fmt.Errorf("cannot parse version %s: %w", version, err)
+		return templateArgs{}, fmt.Errorf("cannot get chart versions: %w", err)
 	}
-	chart, err := getVersions(h.chartsFile)
-	if err != nil {
-		return fmt.Errorf("cannot get chart versions: %w", err)
+	if version == "" {
+		return templateArgs{
+			Version:    chart.Version.String(),
+			AppVersion: chart.AppVersion.String(),
+		}, nil
 	}
-	// Bump the chart version to be nice to helm.
+
+	crdbVersion := semver.MustParse(chart.AppVersion.String())
+	if version != "helm" {
+		crdbVersion, err = semver.NewVersion(strings.TrimPrefix(version, "v"))
+		if err != nil {
+			return templateArgs{}, fmt.Errorf("cannot parse version %s: %w", version, err)
+		}
+	}
+
 	newChartVersion, err := bumpVersion(chart, crdbVersion)
 	if err != nil {
-		return fmt.Errorf("cannot bump chart version: %w", err)
+		return templateArgs{}, fmt.Errorf("cannot bump chart version: %w", err)
 	}
-	return h.processTemplates(newChartVersion, crdbVersion.Original())
-}
-
-func (h *HelmTemplate) processTemplates(version string, appVersion string) error {
-	args := templateArgs{
-		Version:    version,
-		AppVersion: appVersion,
-	}
-	if err := processTemplate(
-		h.chartsFileTemplate,
-		h.chartsFile,
-		args,
-		fmt.Sprintf("# Generated file, DO NOT EDIT. Source: %s\n", h.chartsFileTemplate),
-	); err != nil {
-		return fmt.Errorf("cannot process %s -> %s: %w", h.chartsFileTemplate, h.chartsFile, err)
-	}
-	if err := processTemplate(
-		h.valuesFileTemplate,
-		h.valuesFile,
-		args,
-		fmt.Sprintf("# Generated file, DO NOT EDIT. Source: %s\n", h.valuesFileTemplate),
-	); err != nil {
-		return fmt.Errorf("cannot process %s -> %s: %w", h.valuesFileTemplate, h.valuesFile, err)
-	}
-	if err := processTemplate(
-		h.readmeFileTemplate,
-		h.readmeFile,
-		args,
-		fmt.Sprintf("<!--- Generated file, DO NOT EDIT. Source: %s --->\n", h.readmeFileTemplate),
-	); err != nil {
-		return fmt.Errorf("cannot process %s -> %s: %w", h.readmeFileTemplate, h.readmeFile, err)
-	}
-	return nil
+	return templateArgs{
+		Version:    newChartVersion,
+		AppVersion: crdbVersion.Original(),
+	}, nil
 }
 
 // processTemplate reads a template file, applies the template arguments and writes it to the specified location
@@ -257,6 +218,32 @@ func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error)
 		}
 		return nextVersion.Original(), nil
 	}
+
+	// If the chart version is the same as the new CRDB version, we increment the BUILD number.
+	// Increment BUILD number for the new chart version where AppVersion and Version are the same.
+	if chart.AppVersion.String() == newCRDBVersion.String() && chart.Version.Major() == chart.AppVersion.Major() {
+		build := chart.Version.Metadata()
+		newBuild := "1"
+		if build != "" {
+			parts := strings.Split(build, ".")
+			if len(parts) == 1 {
+				if n, err := fmt.Sscanf(parts[0], "%s", &newBuild); n == 1 && err == nil {
+					var val int
+					fmt.Sscanf(parts[0], "%d", &val)
+					newBuild = fmt.Sprintf("%d", val+1)
+				}
+			}
+		}
+
+		baseVersionStr := fmt.Sprintf("%d.%d.%d", chart.Version.Major(), chart.Version.Minor(), chart.Version.Patch())
+		if chart.Version.Prerelease() != "" {
+			baseVersionStr = fmt.Sprintf("%s-%s", baseVersionStr, chart.Version.Prerelease())
+		}
+
+		// Construct the new version string
+		return fmt.Sprintf("%s+%s", baseVersionStr, newBuild), nil
+	}
+
 	// If the version includes a prerelease label like `-preview`, the IncrPatch function automatically removes it.
 	// For example, v25.0.0-preview becomes v25.0.0 after incrementing the patch.
 	// To retain the prerelease label, we now increment the patch twice and re-append the prerelease.

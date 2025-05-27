@@ -1,9 +1,9 @@
 dependencies:
 - name: operator
   repository: file://charts/operator
-  version: 25.0.0-preview
+  version: 25.1.6-preview
 - name: cockroachdb
   repository: file://charts/cockroachdb
-  version: 25.0.0-preview
-digest: sha256:bf34db0fda4c6cf79a36ea0cfa00443187f1f9a1b2f3f048df54667b5850306b
-generated: "2025-05-21T17:21:40.859594+05:30"
+  version: 25.1.6-preview
+digest: sha256:63c5e0fc2441a9be1b27661079650a3714c357ed9aef77c5d66512252534586e
+generated: "2025-05-27T11:22:27.787672+05:30"
