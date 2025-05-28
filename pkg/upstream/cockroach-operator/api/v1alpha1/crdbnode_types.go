@@ -80,6 +80,11 @@ type CrdbNodeSpec struct {
 	// +kubebuilder:validation:Required
 	Image string `json:"image,omitempty"`
 
+	// InitContainerImage is the location and name of the CockroachDB init
+	// container to deploy. Defaults to [manifests.defaultInitContainerImage].
+	// +kubebuilder:validation:Optional
+	InitContainerImage string `json:"initContainerImage,omitempty"`
+
 	// Env is a list of environment variables to set in the container.
 	// +kubebuilder:validation:Optional
 	Env []corev1.EnvVar `json:"env,omitempty"`
@@ -158,6 +163,11 @@ type CrdbNodeSpec struct {
 	// is spawned from CrdbNodeSpec. This field is expected to be removed once
 	// all clusters are using a value of `false`.
 	NoCloudPrefixedLocalities bool `json:"noCloudPrefixedLocalities,omitempty"`
+
+	// LocalityLabels specifies a list of kubernetes node labels
+	// to read and add to the CockroachDB locality string.
+	// +kubebuilder:validation:Optional
+	LocalityLabels []string `json:"localityLabels,omitempty"`
 
 	// TerminationGracePeriodSeconds determines the time available to CRDB for graceful drain.
 	// It defaults to 5m.
