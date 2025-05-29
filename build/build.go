@@ -29,7 +29,7 @@ import (
 )
 
 const usage = `Usage:
-// Bump cockroachdb version and chart version in Chart.yaml file.
+// Bump cockroachdb app and chart version in Chart.yaml file.
 - go run build/build.go bump <crdbversion>
 // Bump cockroachdb chart version in Chart.yaml file.
 - go run build/build.go bump helm
@@ -207,14 +207,30 @@ func processTemplate(
 
 // bumpVersion increases the patch release version (the last digit) of a given version
 func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error) {
+	isOperatorBasedChart := isEnterpriseOperatorChart(chart)
 	// Bump chart major version in case appVersion changes its major or minor version
-	// For example, 22.1.0 or 22.2.0 should trigger this behaviour.
-	if chart.AppVersion.Major() != newCRDBVersion.Major() ||
-		chart.AppVersion.Minor() != newCRDBVersion.Minor() {
+	// For example, 22.1.0 or 22.2.0 should trigger this behaviour. \
+	// This is applicable only for the old chart, not for the enterprise operator chart.
+	if !isOperatorBasedChart &&
+		(chart.AppVersion.Major() != newCRDBVersion.Major() || chart.AppVersion.Minor() != newCRDBVersion.Minor()) {
 		nextMajor := chart.Version.IncMajor()
 		nextVersion, err := semver.NewVersion(fmt.Sprintf("%d.0.0", nextMajor.Major()))
 		if err != nil {
 			return "", fmt.Errorf("cannot parse next version: %w", err)
+		}
+		return nextVersion.Original(), nil
+	}
+
+	// For enterprise operator charts, if appVersion changes, set the chart version to the new CRDB version,
+	// preserving any existing prerelease information from the current chart version.
+	if isOperatorBasedChart && (chart.AppVersion.String() != newCRDBVersion.String()) {
+		newVer := newCRDBVersion.String()
+		if chart.Version.Prerelease() != "" {
+			newVer = fmt.Sprintf("%s-%s", newVer, chart.Version.Prerelease())
+		}
+		nextVersion, err := semver.NewVersion(newVer)
+		if err != nil {
+			return "", err
 		}
 		return nextVersion.Original(), nil
 	}
@@ -240,18 +256,15 @@ func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error)
 			baseVersionStr = fmt.Sprintf("%s-%s", baseVersionStr, chart.Version.Prerelease())
 		}
 
+		v, err := semver.NewVersion(fmt.Sprintf("%s+%s", baseVersionStr, newBuild))
+		if err != nil {
+			return "", fmt.Errorf("cannot parse new version with build metadata: %w", err)
+		}
 		// Construct the new version string
-		return fmt.Sprintf("%s+%s", baseVersionStr, newBuild), nil
+		return v.Original(), nil
 	}
 
-	// If the version includes a prerelease label like `-preview`, the IncrPatch function automatically removes it.
-	// For example, v25.0.0-preview becomes v25.0.0 after incrementing the patch.
-	// To retain the prerelease label, we now increment the patch twice and re-append the prerelease.
-	// This ensures that versions with a prerelease set maintain the label even after a patch increment.
-	if chart.Version.Prerelease() != "" {
-		nextVersion, err := chart.Version.IncPatch().IncPatch().SetPrerelease(chart.Version.Prerelease())
-		return nextVersion.Original(), err
-	}
+	// This will be executed for the old chart versions, where we just increment the patch version.
 	nextVersion := chart.Version.IncPatch()
 	return nextVersion.Original(), nil
 }
@@ -267,4 +280,10 @@ func getVersions(chartPath string) (versions, error) {
 		return versions{}, fmt.Errorf("cannot unmarshal %s: %w", chartPath, err)
 	}
 	return chart, nil
+}
+
+// isEnterpriseOperatorChart checks if the chart is an enterprise operator chart.
+func isEnterpriseOperatorChart(chart versions) bool {
+	return chart.Version.Major() == chart.AppVersion.Major() && chart.Version.Minor() == chart.AppVersion.Minor() &&
+		chart.Version.Patch() == chart.AppVersion.Patch()
 }
