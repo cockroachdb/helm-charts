@@ -205,5 +205,13 @@ func (m *Manifest) FromHelmChart() error {
 		return errors.Wrap(err, "writing helm values to disk")
 	}
 
+	if len(input.localityLabels) > 0 {
+		fmt.Println("⚠️  Locality labels detected on CockroachDB cluster.")
+		fmt.Println("CockroachDB uses locality labels to distribute pods across failure domains (e.g., zones or regions).")
+		fmt.Println("These labels must be present on the Kubernetes nodes before upgrading to new operator.")
+		fmt.Printf("Following locality label keys are supplied to cockroachdb nodes: %v\n", input.localityLabels)
+		fmt.Println("\n❗ If the required locality labels are missing from kubernetes nodes, the CockroachDB pods will not start.")
+	}
+
 	return nil
 }

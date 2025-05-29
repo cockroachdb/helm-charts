@@ -161,6 +161,7 @@ func TestGenerateParsedMigrationInput(t *testing.T) {
 	assert.Equal(t, int32(8080), input.httpPort)
 	assert.Equal(t, true, input.tlsEnabled)
 	assert.Equal(t, secretName, input.loggingConfigMap)
+	assert.Equal(t, []string{"country", "region"}, input.localityLabels)
 	assert.Equal(t, input.flags["--cache"], "25%")
 }
 

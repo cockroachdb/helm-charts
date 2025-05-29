@@ -80,7 +80,7 @@ kubectl delete validatingwebhookconfigurations cockroach-operator-validating-web
 Install the cloud operator and wait for it to become ready:
 
 ```
-helm upgrade --install crdb-operator ./operator
+helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator
 kubectl rollout status deployment/cockroach-operator --timeout=60s
 ```
 

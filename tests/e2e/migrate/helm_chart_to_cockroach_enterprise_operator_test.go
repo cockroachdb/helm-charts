@@ -87,6 +87,7 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 			"init.provisioning.databases[0].name":      migration.TestDBName,
 			"init.provisioning.databases[0].owners[0]": "root",
 			"statefulset.labels.app":                   "cockroachdb",
+			"conf.locality":                            "topology.kubernetes.io/region=us-east-1",
 		}),
 	}
 

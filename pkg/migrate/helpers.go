@@ -30,6 +30,7 @@ const (
 	portPrefix                     = "--port="
 	httpPortPrefix                 = "--http-port="
 	insecureFlag                   = "--insecure"
+	localityFlag                   = "--locality"
 	logtostderrFlag                = "--logtostderr"
 	logFlag                        = "--log"
 	grpcName                       = "grpc"
@@ -49,6 +50,7 @@ type parsedMigrationInput struct {
 	httpPort         int32
 	joinCmd          string
 	tlsEnabled       bool
+	localityLabels   []string
 	loggingConfigMap string
 	flags            map[string]string
 }
@@ -242,6 +244,7 @@ func buildNodeSpecFromHelm(
 			},
 		},
 		Domain:               "",
+		LocalityLabels:       input.localityLabels,
 		LoggingConfigMapName: input.loggingConfigMap,
 		Env: append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
 			{
@@ -303,6 +306,7 @@ func buildHelmValuesFromHelm(
 				"image": map[string]interface{}{
 					"name": sts.Spec.Template.Spec.Containers[0].Image,
 				},
+				"localityLabels": input.localityLabels,
 				"podLabels":      sts.Spec.Template.Labels,
 				"podAnnotations": sts.Spec.Template.Annotations,
 				"resources":      sts.Spec.Template.Spec.Containers[0].Resources,
@@ -416,6 +420,13 @@ func extractJoinStringAndFlags(
 
 		case strings.HasPrefix(arg, insecureFlag):
 			parsedInput.tlsEnabled = false
+
+		case strings.HasPrefix(arg, localityFlag):
+			value := strings.TrimPrefix(arg, localityFlag+"=")
+			labels := strings.Split(value, ",")
+			for i := range labels {
+				parsedInput.localityLabels = append(parsedInput.localityLabels, strings.Split(labels[i], "=")[0])
+			}
 
 		// CockroachDB Enterprise Operator automatically adds "--logs" flag if it is not present.
 		case strings.HasPrefix(arg, logtostderrFlag):

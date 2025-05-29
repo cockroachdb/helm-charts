@@ -54,7 +54,7 @@ spec:
         - -ecx
         - exec /cockroach/cockroach start --join=${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257
           --advertise-host=$(hostname).${STATEFULSET_FQDN} --certs-dir=/cockroach/cockroach-certs/
-          --http-port=8080 --port=26257 --cache=25% --max-sql-memory=25% --log-config-file=/cockroach/log-config/log-config.yaml
+          --http-port=8080 --port=26257 --cache=25% --max-sql-memory=25% --log-config-file=/cockroach/log-config/log-config.yaml --locality=country=us,region=us-central1
         env:
         - name: STATEFULSET_NAME
           value: cockroachdb

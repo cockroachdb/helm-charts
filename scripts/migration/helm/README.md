@@ -57,7 +57,7 @@ kubectl create priorityclass crdb-critical --value 500000000
 Next, install the cloud operator:
 
 ```
-helm upgrade --install crdb-operator ./operator
+helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator
 ```
 
 For each crdb pod, scale the statefulset down by one replica. For example, for a three-node cluster, first scale the statefulset down to two replicas:
