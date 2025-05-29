@@ -23,42 +23,42 @@ func TestBumpVersion_MajorOrMinorChange(t *testing.T) {
 		gotVersion   string
 	}{
 		{
-			name:         "bump major version",
+			name:         "bump major version calendar year",
 			chartVersion: "25.1.6",
 			appVersion:   "25.1.6",
 			newCRDB:      "26.0.0",
 			gotVersion:   "26.0.0",
 		},
 		{
-			name:         "bump minor version",
+			name:         "bump major version series",
 			chartVersion: "25.1.6",
 			appVersion:   "25.1.6",
 			newCRDB:      "25.2.0",
 			gotVersion:   "25.2.0",
 		},
 		{
-			name:         "bump major version with preview",
+			name:         "bump major version calendar year with preview",
 			chartVersion: "25.1.6-preview",
 			appVersion:   "25.1.6",
 			newCRDB:      "26.0.0",
 			gotVersion:   "26.0.0-preview",
 		},
 		{
-			name:         "bump minor version with preview",
+			name:         "bump major version series with preview",
 			chartVersion: "25.1.6-preview",
 			appVersion:   "25.1.6",
 			newCRDB:      "25.2.0",
 			gotVersion:   "25.2.0-preview",
 		},
 		{
-			name:         "bump major version for old chart version",
+			name:         "bump major version calendar year for old chart version",
 			chartVersion: "16.1.0",
 			appVersion:   "25.1.6",
 			newCRDB:      "26.0.0",
 			gotVersion:   "17.0.0",
 		},
 		{
-			name:         "bump minor version for old chart version",
+			name:         "bump major version series for old chart version",
 			chartVersion: "16.1.0",
 			appVersion:   "25.1.6",
 			newCRDB:      "25.2.0",
