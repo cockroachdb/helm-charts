@@ -148,8 +148,8 @@ test/lint: bin/helm ## lint the helm chart
 test/template: bin/cockroach bin/helm ## Run template tests
 	@PATH="$(PWD)/bin:${PATH}" go test -v ./tests/template/...
 
-test/units: bin/cockroach ## Run unit tests in ./pkg/...
-	@PATH="$(PWD)/bin:${PATH}" go test -v ./pkg/...
+test/units: bin/cockroach ## Run unit tests in ./pkg/... and ./build/...
+	@PATH="$(PWD)/bin:${PATH}" go test -v ./pkg/... ./build/...
 
 ##@ Binaries
 bin: bin/cockroach bin/helm bin/k3d bin/kubectl bin/yq ## install all binaries
@@ -208,3 +208,8 @@ build-and-push-operator-image:
 build-and-push-bundle-image:
 	docker buildx build --platform=linux/amd64,linux/arm64 \
 		-t $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(BUNDLE_IMAGE):$(VERSION) --push -f build/docker-image/olm-catalog/bundle.Dockerfile ./
+
+bump/%:
+	@bazel build //build
+	$$(bazel info bazel-bin)/build/build_/build bump $*
+	@helm dependency update ./cockroachdb-parent

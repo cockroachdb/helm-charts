@@ -49,8 +49,7 @@ jobs:
             echo "Downgrades are not permitteed in automatic mode, $appVersion < $latest_appVersion"
             exit 1
           fi
-          bazel build //build
-          $(bazel info bazel-bin)/build/build_/build bump "$appVersion"
+          make bump/$appVersion
       - name: Confirm expected patch
         run: git diff --exit-code
       - name: Approve PR

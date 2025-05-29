@@ -1,4 +1,4 @@
-# Generated file, DO NOT EDIT. Source: build/templates/values.yaml
+# Generated file, DO NOT EDIT. Source: build/templates/cockroachdb/values.yaml
 # Overrides the chart name against the label "app.kubernetes.io/name: " placed on every resource this chart creates.
 nameOverride: ""
 
