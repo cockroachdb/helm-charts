@@ -312,7 +312,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 		testutil.CreateSelfSignedIssuer(t, kubectlOptions, r.Namespace[cluster])
 		testutil.CreateSelfSignedCertificate(t, kubectlOptions, r.Namespace[cluster])
 		testutil.CreateCAIssuer(t, kubectlOptions, r.Namespace[cluster])
-		testutil.CreateBundle(t, kubectlOptions, r.Namespace[cluster])
+		testutil.CreateBundle(t, kubectlOptions, testutil.CASecretName, testutil.CAConfigMapName)
 	} else {
 		// create CA Secret.
 		err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
@@ -566,7 +566,7 @@ func (r *Region) CleanupResources(t *testing.T) {
 		err = helm.DeleteE(t, helmOptions, operatorReleaseName, true)
 		require.NoError(t, err)
 		if r.IsCertManager {
-			testutil.DeleteBundle(t, kubectlOptions, namespace)
+			testutil.DeleteBundle(t, kubectlOptions)
 			testutil.DeleteCAIssuer(t, kubectlOptions, namespace)
 			testutil.DeleteSelfSignedCertificate(t, kubectlOptions, namespace)
 			testutil.DeleteSelfSignedIssuer(t, kubectlOptions, namespace)

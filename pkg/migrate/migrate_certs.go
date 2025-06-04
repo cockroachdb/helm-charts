@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	certv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"k8s.io/apimachinery/pkg/types"
@@ -32,6 +33,56 @@ func GenerateCertsForOperator(cl client.Client, namespace string, rc *generator.
 	operatorType, err := identifyHelmOrPublicOperator(cl, rc.DiscoveryServiceName, namespace)
 	if err != nil {
 		return err
+	}
+
+	if operatorType == "helm" {
+		isCertManager, err := updateCertsForCertManager(cl, rc, namespace)
+		if err != nil {
+			return err
+		}
+		if isCertManager {
+			var caSecret = "cockroach-ca"
+			if rc.CaSecret != "" {
+				caSecret = rc.CaSecret
+			}
+			// If the cert-manager is used, we don't need to generate the certs.
+			fmt.Println("✅ Successfully updated the cockroachdb-node certificate to include the new DNS names.")
+
+			fmt.Println()
+			fmt.Println("ℹ️  Note: By default, cert-manager stores the CA certificate in a Secret, which is used by the Issuer.")
+			fmt.Println()
+			fmt.Println("🔁 To provide the CA certificate in a ConfigMap (required by some applications like CockroachDB), you can use the trust-manager project:")
+			fmt.Println("   [trust-manager] https://cert-manager.io/docs/trust/trust-manager/")
+			fmt.Println()
+			fmt.Println("⚙️  The trust-manager can be configured to automatically copy the CA certificate from a Secret to a ConfigMap.")
+			fmt.Println()
+			fmt.Println("📦 If your CA Secret is in the 'cockroachdb' namespace, make sure your trust-manager is configured to reference it.")
+			fmt.Println("   You can do this by setting the trust namespace via Helm:")
+			fmt.Printf("helm upgrade trust-manager jetstack/trust-manager --install --namespace cert-manager --set app.trust.namespace=%s\n", namespace)
+			fmt.Println()
+			fmt.Println("ℹ️  You can use the following command to generate the required ConfigMap:")
+			fmt.Printf(`cat <<EOF | kubectl apply -f -
+apiVersion: trust.cert-manager.io/v1alpha1
+kind: Bundle
+metadata:
+  name: %s-ca-crt
+spec:
+  sources:
+    - secret:
+        name: %s
+        key: ca.crt
+  target:
+    configMap:
+      key: ca.crt
+    namespaceSelector:
+      matchLabels:
+       kubernetes.io/metadata.name: %s
+EOF`, rc.DiscoveryServiceName, caSecret, namespace)
+			fmt.Println()
+			fmt.Printf("Configmap name will be %s-ca-crt in %s namespace \n", rc.DiscoveryServiceName, namespace)
+
+			return nil
+		}
 	}
 
 	if rc.CaSecret == "" {
@@ -78,6 +129,31 @@ func identifyHelmOrPublicOperator(cl client.Client, name, namespace string) (str
 	}
 
 	return "", fmt.Errorf("unknown statefulset deployment")
+}
+
+// updateCertsForCertManager updates the node certificate for cert-manager
+func updateCertsForCertManager(cl client.Client, rc *generator.GenerateCert, namespace string) (bool, error) {
+	// Get the node certificate CR
+	nodeCertificate := certv1.Certificate{}
+	nodeCertificateName := fmt.Sprintf("%s-node", rc.DiscoveryServiceName)
+	if err := cl.Get(context.Background(), types.NamespacedName{Name: nodeCertificateName, Namespace: namespace}, &nodeCertificate); err != nil {
+		return false, nil
+	}
+
+	// Update the node certificate with some DNSNames
+	dnsNames := []string{
+		fmt.Sprintf("%s-join", rc.DiscoveryServiceName),
+		fmt.Sprintf("%s-join.%s", rc.DiscoveryServiceName, namespace),
+		fmt.Sprintf("%s-join.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
+	}
+	nodeCertificate.Spec.DNSNames = append(nodeCertificate.Spec.DNSNames, dnsNames...)
+
+	// update the node certificate with the new DNSNames
+	if err := cl.Update(context.Background(), &nodeCertificate); err != nil {
+		return false, errors.Wrap(err, "failed to update node certificate with new DNSNames")
+	}
+
+	return true, nil
 }
 
 // loadCASecret loads the CA secret from the CA secret or the node secret

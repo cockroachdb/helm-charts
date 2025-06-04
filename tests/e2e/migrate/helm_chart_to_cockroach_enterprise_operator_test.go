@@ -63,6 +63,7 @@ func init() {
 func TestHelmChartToOperatorMigration(t *testing.T) {
 	h := newHelmChartToOperator()
 	t.Run("helm chart to cockroach enterprise operator migration", h.TestDefaultMigration)
+	t.Run("helm chart to cockroach enterprise operator migration with cert manager", h.TestCertManagerMigration)
 }
 
 func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
@@ -150,4 +151,111 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 
 	h.ValidateExistingData = true
 	h.ValidateCRDB(t)
+}
+
+func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
+	const caSecretName = "cockroach-ca"
+	h.Namespace = "cockroach" + strings.ToLower(random.UniqueId())
+	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+
+	certManagerK8sOptions := k8s.NewKubectlOptions("", "", testutil.CertManagerNamespace)
+	testutil.InstallCertManager(t, certManagerK8sOptions)
+	//... and make sure to delete the helm release at the end of the test.
+	defer func() {
+		testutil.DeleteCertManager(t, certManagerK8sOptions)
+		k8s.DeleteNamespace(t, certManagerK8sOptions, testutil.CertManagerNamespace)
+	}()
+
+	k8s.CreateNamespace(t, kubectlOptions, h.Namespace)
+	testutil.CreateSelfSignedIssuer(t, kubectlOptions, h.Namespace)
+
+	h.CrdbCluster = testutil.CockroachCluster{
+		Cfg:              cfg,
+		K8sClient:        k8sClient,
+		StatefulSetName:  fmt.Sprintf("%s-cockroachdb", releaseName),
+		Namespace:        h.Namespace,
+		ClientSecret:     "cockroachdb-root",
+		NodeSecret:       "cockroachdb-node",
+		CaSecret:         caSecretName,
+		IsCaUserProvided: isCaUserProvided,
+		Context:          k3dClusterName,
+		DesiredNodes:     3,
+	}
+	h.HelmOptions = &helm.Options{
+		SetValues: testutil.PatchHelmValues(map[string]string{
+			"operator.enabled":                         "false",
+			"conf.cluster-name":                        "test",
+			"init.provisioning.enabled":                "true",
+			"init.provisioning.databases[0].name":      migration.TestDBName,
+			"init.provisioning.databases[0].owners[0]": "root",
+			"statefulset.labels.app":                   "cockroachdb",
+			"tls.certs.selfSigner.enabled":             "false",
+			"tls.certs.certManager":                    "true",
+			"tls.certs.certManagerIssuer.name":         testutil.SelfSignedIssuerName,
+		}),
+	}
+
+	h.ValidateExistingData = false
+	h.InstallHelm(t)
+	h.ValidateCRDB(t)
+
+	t.Log("Migrate the existing helm chart to Cockroach Enterprise Operator")
+
+	prepareForMigration(t, h.CrdbCluster.StatefulSetName, h.Namespace, CASecret, "helm")
+	defer func() {
+		_ = os.RemoveAll(manifestsDirPath)
+	}()
+
+	caConfigMapName := fmt.Sprintf("%s-ca-crt", h.CrdbCluster.StatefulSetName)
+	testutil.InstallTrustManager(t, certManagerK8sOptions, h.Namespace)
+	testutil.CreateBundle(t, kubectlOptions, caSecretName, caConfigMapName)
+	defer func() {
+		testutil.DeleteBundle(t, kubectlOptions)
+	}()
+
+	t.Log("Install the cockroachdb enterprise operator")
+	k8s.RunKubectl(t, kubectlOptions, "create", "priorityclass", "crdb-critical", "--value", "500000000")
+	defer func() {
+		t.Log("Delete the priority class crdb-critical")
+		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
+	}()
+
+	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	defer func() {
+		t.Log("Uninstall the cockroachdb enterprise operator")
+		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	}()
+
+	migratePodsToCrdbNodes(t, h.CrdbCluster, h.Namespace)
+
+	t.Log("All the statefulset pods are migrated to CrdbNodes")
+	t.Log("Update the public service")
+	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", filepath.Join(manifestsDirPath, "public-service.yaml"))
+	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", fmt.Sprintf("%s-budget", h.CrdbCluster.StatefulSetName))
+
+	t.Log("helm upgrade the cockroach enterprise operator")
+	helmPath, _ := operator.HelmChartPaths()
+	t.Log("Delete the StatefulSet as helm upgrade can proceed only if no StatefulSet is present")
+	k8s.RunKubectl(t, kubectlOptions, "delete", "statefulset", h.CrdbCluster.StatefulSetName)
+
+	helm.Upgrade(t, &helm.Options{
+		KubectlOptions: kubectlOptions,
+		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
+	}, helmPath, releaseName)
+
+	for i := h.CrdbCluster.DesiredNodes - 1; i >= 0; i-- {
+		podName := fmt.Sprintf("%s-%d", h.CrdbCluster.StatefulSetName, i)
+		testutil.RequirePodToBeCreatedAndReady(t, kubectlOptions, podName, 300*time.Second)
+	}
+	defer func() {
+		t.Log("helm uninstall the crdbcluster CR from the helm chart")
+		h.Uninstall(t)
+	}()
+
+	k8s.RunKubectl(t, kubectlOptions, "create", "-f", filepath.Join(manifestsDirPath, fmt.Sprintf("%s-cockroachdb-ca-cert.yaml", releaseName)))
+	k8s.RunKubectl(t, kubectlOptions, "create", "-f", filepath.Join(manifestsDirPath, fmt.Sprintf("%s-cockroachdb-ca-issuer.yaml", releaseName)))
+
+	h.ValidateExistingData = true
+	h.ValidateCRDB(t)
+	h.ValidateCertManagerResources(t)
 }

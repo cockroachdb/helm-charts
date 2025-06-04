@@ -26,6 +26,8 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-webhook:v1.11.0"
     "quay.io/jetstack/cert-manager-controller:v1.11.0"
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
+    "quay.io/jetstack/trust-manager:v0.17.1"
+    "quay.io/jetstack/trust-pkg-debian-bookworm:20230311.0"
     "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
     "cockroachdb/cockroach-operator:v2.18.1"
     "bash:latest"
