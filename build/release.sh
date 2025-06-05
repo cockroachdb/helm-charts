@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+if [ ! -d build/artifacts ]; then
+  echo "Directory build/artifacts does not exist. Skipping release."
+  exit 0
+fi
+
 charts_hostname="${CHARTS_HOSTNAME:-charts.cockroachdb.com}"
 case $charts_hostname in
   charts.cockroachdb.com)
