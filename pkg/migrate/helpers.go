@@ -10,11 +10,16 @@ import (
 	"strings"
 	"time"
 
+	certv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/yaml"
 
@@ -42,6 +47,10 @@ const (
 	helmLogConfigKey               = "log-config.yaml"
 	publicOperatorLogConfigKey     = "logging.yaml"
 	enterpriseOperatorLogConfigKey = "logs.yaml"
+	certManagerGroup               = "cert-manager.io"
+	certManagerVersion             = "v1"
+	certificatesResource           = "certificates"
+	issuersResource                = "issuers"
 )
 
 type parsedMigrationInput struct {
@@ -53,6 +62,15 @@ type parsedMigrationInput struct {
 	localityLabels   []string
 	loggingConfigMap string
 	flags            map[string]string
+	certManagerInput *certManagerInput
+	caConfigMap      string
+	nodeSecretName   string
+	clientSecretName string
+}
+
+type certManagerInput struct {
+	issuerName string
+	issuerKind string
 }
 
 func To[T any](v T) *T {
@@ -265,9 +283,11 @@ func buildNodeSpecFromHelm(
 		HTTPPort:             &input.httpPort,
 		Certificates: v1alpha1.Certificates{
 			ExternalCertificates: &v1alpha1.ExternalCertificates{
-				CAConfigMapName:         sts.Name + "-ca-secret-crt",
-				NodeSecretName:          sts.Name + "-node-secret",
-				RootSQLClientSecretName: sts.Name + "-client-secret",
+				CAConfigMapName:         input.caConfigMap,
+				NodeSecretName:          input.nodeSecretName,
+				RootSQLClientSecretName: input.clientSecretName,
+				HTTPSecretName:          input.clientSecretName,
+				NodeClientSecretName:    input.clientSecretName,
 			},
 		},
 		Affinity:                  sts.Spec.Template.Spec.Affinity,
@@ -286,22 +306,44 @@ func buildHelmValuesFromHelm(
 	namespace string,
 	input parsedMigrationInput) map[string]interface{} {
 
-	return map[string]interface{}{
-		"cockroachdb": map[string]interface{}{
-			"tls": map[string]interface{}{
-				"enabled": input.tlsEnabled,
-				"selfSigner": map[string]interface{}{
-					"enabled": false,
-				},
-				"externalCertificates": map[string]interface{}{
-					"enabled": true,
-					"certificates": map[string]interface{}{
-						"caConfigMapName":         sts.Name + "-ca-secret-crt",
-						"nodeSecretName":          sts.Name + "-node-secret",
-						"rootSqlClientSecretName": sts.Name + "-client-secret",
-					},
+	tls := map[string]interface{}{
+		"enabled": input.tlsEnabled,
+		"selfSigner": map[string]interface{}{
+			"enabled": false,
+		},
+		"externalCertificates": map[string]interface{}{
+			"enabled": true,
+			"certificates": map[string]interface{}{
+				"caConfigMapName":         input.caConfigMap,
+				"nodeSecretName":          input.nodeSecretName,
+				"rootSqlClientSecretName": input.clientSecretName,
+				"httpSecretName":          input.clientSecretName,
+				"nodeClientSecretName":    input.clientSecretName,
+			},
+		},
+	}
+	if input.certManagerInput != nil {
+		tls = map[string]interface{}{
+			"enabled": input.tlsEnabled,
+			"selfSigner": map[string]interface{}{
+				"enabled": false,
+			},
+			"certManager": map[string]interface{}{
+				"enabled":          true,
+				"caConfigMap":      input.caConfigMap,
+				"nodeSecret":       input.nodeSecretName,
+				"clientRootSecret": input.clientSecretName,
+				"issuer": map[string]interface{}{
+					"name": input.certManagerInput.issuerName,
+					"kind": input.certManagerInput.issuerKind,
 				},
 			},
+		}
+	}
+
+	return map[string]interface{}{
+		"cockroachdb": map[string]interface{}{
+			"tls": tls,
 			"crdbCluster": map[string]interface{}{
 				"image": map[string]interface{}{
 					"name": sts.Spec.Template.Spec.Containers[0].Image,
@@ -388,6 +430,42 @@ func generateParsedMigrationInput(
 	}
 
 	return parsedInput, nil
+}
+
+// certificatesInput checks if the node certificate exists in the cluster and adds the certificate input based on
+// the presence of the node certificate. If the node certificate is present, it means the cert-manager manages the certificates.
+// If not, then certs are managed by self-signer utility
+func certificatesInput(ctx context.Context, dynamicClient dynamic.Interface, parsedInput *parsedMigrationInput, sts *appsv1.StatefulSet) error {
+	var (
+		err error
+	)
+
+	nodeCertificateName := fmt.Sprintf("%s-node", sts.Name)
+	// if the node certificate is not present, then we assume that the cert-manager is not managing the certificates
+	// and we will use the self-signer utility to generate the certificates.
+	nodeCertificate, err := getCertificate(ctx, dynamicClient, nodeCertificateName, sts.Namespace)
+	if err != nil {
+		parsedInput.caConfigMap = fmt.Sprintf("%s-ca-secret-crt", sts.Name)
+		parsedInput.nodeSecretName = fmt.Sprintf("%s-node-secret", sts.Name)
+		parsedInput.clientSecretName = fmt.Sprintf("%s-client-secret", sts.Name)
+		return nil
+	}
+
+	parsedInput.caConfigMap = fmt.Sprintf("%s-ca-crt", sts.Name)
+	parsedInput.certManagerInput = &certManagerInput{
+		issuerName: nodeCertificate.Spec.IssuerRef.Name,
+		issuerKind: nodeCertificate.Spec.IssuerRef.Kind,
+	}
+	parsedInput.nodeSecretName = nodeCertificate.Spec.SecretName
+
+	clientCertificateName := fmt.Sprintf("%s-root-client", sts.Name)
+	clientCertificate, err := getCertificate(ctx, dynamicClient, clientCertificateName, sts.Namespace)
+	if err != nil {
+		return err
+	}
+	parsedInput.clientSecretName = clientCertificate.Spec.SecretName
+
+	return nil
 }
 
 // extractJoinStringAndFlags parses the command arguments, extracts the --join string, and replaces env variables.
@@ -708,4 +786,77 @@ func buildRBACFromPublicOperator(cluster publicv1.CrdbCluster, outputDir string)
 	}
 
 	return yamlToDisk(filepath.Join(outputDir, "rbac.yaml"), []any{clusterRole, clusterRoleBinding, role, roleBinding, serviceAccount})
+}
+
+// backupCAIssuerAndCert if generated by the previous helm chart.
+func backupCAIssuerAndCert(ctx context.Context, dynamicClient dynamic.Interface, sts *appsv1.StatefulSet, outputDir string) error {
+	certManagerResources := []struct {
+		name     string
+		resource string
+	}{
+		{
+			name:     fmt.Sprintf("%s-ca-issuer", sts.Name),
+			resource: issuersResource,
+		},
+		{
+			name:     fmt.Sprintf("%s-ca-cert", sts.Name),
+			resource: certificatesResource,
+		},
+	}
+
+	for i := range certManagerResources {
+		resourceName := certManagerResources[i].name
+		resourceType := certManagerResources[i].resource
+
+		gvr := schema.GroupVersionResource{
+			Group:    certManagerGroup,
+			Version:  certManagerVersion,
+			Resource: resourceType,
+		}
+
+		resource, err := dynamicClient.Resource(gvr).Namespace(sts.Namespace).Get(ctx, resourceName, metav1.GetOptions{})
+		if err != nil {
+			if apierrors.IsNotFound(err) {
+				fmt.Printf("Resource %s %s not found, skipping backup.\n", resourceType, resourceName)
+				continue
+			}
+			return fmt.Errorf("failed to get %s %s: %w", resourceType, resourceName, err)
+		}
+
+		annotations := resource.GetAnnotations()
+		if _, ok := annotations["meta.helm.sh/release-name"]; !ok {
+			// helm release annotation is not present, no need to backup as resource is not managed by helm.
+			continue
+		}
+
+		if err := yamlToDisk(filepath.Join(outputDir, resourceName+".yaml"), []any{resource}); err != nil {
+			return fmt.Errorf("failed to write %s to disk: %w", resourceType, err)
+		}
+		fmt.Printf("📁Backed up %s %s to %s\n", resourceType, resourceName, filepath.Join(outputDir, resourceName+".yaml"))
+	}
+
+	fmt.Println("⚙️ After helm upgrade, the backed up resources will be removed. Please recreate these resource after upgrade.")
+
+	return nil
+}
+
+// getCertificate retrieves a certificate by name and namespace using the dynamic client.
+func getCertificate(ctx context.Context, dynamicClient dynamic.Interface, name, namespace string) (*certv1.Certificate, error) {
+	cert := &certv1.Certificate{}
+	certGVR := schema.GroupVersionResource{
+		Group:    certManagerGroup,
+		Version:  certManagerVersion,
+		Resource: certificatesResource,
+	}
+
+	certUnstructured, err := dynamicClient.Resource(certGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(certUnstructured.Object, &cert); err != nil {
+		return nil, errors.Wrap(err, "unmarshalling public crdbcluster objectName")
+	}
+
+	return cert, nil
 }

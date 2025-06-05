@@ -191,5 +191,5 @@ func validateGoldenFile(t *testing.T, generatedFile, goldenFile string) {
 		t.Logf("Updated golden file: %s", goldenFile)
 	}
 
-	assert.Equal(t, string(golden), string(generated), "Generated file does not match golden file")
+	assert.Equal(t, string(golden), string(generated), "Generated file does not match golden file. Please run the test with the -update flag to update the golden files.")
 }

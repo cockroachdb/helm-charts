@@ -120,6 +120,13 @@ func (h *HelmInstall) Uninstall(t *testing.T) {
 	time.Sleep(10 * time.Second)
 }
 
+// ValidateCertManagerResources checks if the cert-manager resources are retained after helm upgrade.
+func (h *HelmInstall) ValidateCertManagerResources(t *testing.T) {
+	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	k8s.RunKubectl(t, kubectlOptions, "get", "certificates.cert-manager.io", fmt.Sprintf("%s-node", h.CrdbCluster.StatefulSetName))
+	k8s.RunKubectl(t, kubectlOptions, "get", "certificates.cert-manager.io", fmt.Sprintf("%s-root-client", h.CrdbCluster.StatefulSetName))
+}
+
 func cleanupResources(
 	t *testing.T,
 	releaseName string,

@@ -157,6 +157,16 @@ func (m *Manifest) FromHelmChart() error {
 		return err
 	}
 
+	if err := certificatesInput(ctx, m.dynamicClient, &input, sts); err != nil {
+		return err
+	}
+
+	if input.certManagerInput != nil {
+		if err := backupCAIssuerAndCert(ctx, m.dynamicClient, sts, m.outputDir); err != nil {
+			return errors.Wrap(err, "backing up CA issuer and cert")
+		}
+	}
+
 	if err := generateUpdatedPublicServiceConfig(ctx, m.clientset, sts.Namespace, fmt.Sprintf("%s-public", sts.Name), m.outputDir); err != nil {
 		return err
 	}

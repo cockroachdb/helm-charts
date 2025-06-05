@@ -6,6 +6,7 @@ import (
 
 	"github.com/cockroachdb/helm-charts/pkg/generator"
 	"github.com/cockroachdb/helm-charts/pkg/migrate"
+	certv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
@@ -59,6 +60,7 @@ func init() {
 
 	var err error
 	runtimeScheme := runtime.NewScheme()
+	_ = certv1.AddToScheme(runtimeScheme)
 
 	_ = clientgoscheme.AddToScheme(runtimeScheme)
 	config := controllerruntime.GetConfigOrDie()

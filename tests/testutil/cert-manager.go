@@ -170,7 +170,7 @@ func DeleteCAIssuer(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerName
 }
 
 // CreateBundle creates a bundle which transfers the CA certificate from secret to configmap in the target namespace.
-func CreateBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions, targetNamespace string) {
+func CreateBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions, caSecretName, caConfigMapName string) {
 	bundleCreateData := fmt.Sprintf(`
 apiVersion: trust.cert-manager.io/v1alpha1
 kind: Bundle
@@ -186,7 +186,7 @@ spec:
       key: ca.crt
     namespaceSelector:
       matchLabels:
-       kubernetes.io/metadata.name: %s`, CAConfigMapName, CASecretName, targetNamespace)
+       kubernetes.io/metadata.name: %s`, caConfigMapName, caSecretName, kubectlOptions.Namespace)
 
 	err := os.WriteFile(bundleYaml, []byte(bundleCreateData), fs.ModePerm)
 	require.NoError(t, err)
@@ -195,7 +195,7 @@ spec:
 }
 
 // DeleteBundle deletes the bundle.
-func DeleteBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions, targetNamespace string) {
+func DeleteBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", bundleYaml)
 	_ = os.Remove(bundleYaml)
 }
