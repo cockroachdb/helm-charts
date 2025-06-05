@@ -13,7 +13,7 @@ case $charts_hostname in
     is_prod=false
     ;;
   *)
-    echo "uknown host $charts_hostname"
+    echo "unknown host $charts_hostname"
     exit 1
     ;;
 esac
