@@ -835,7 +835,7 @@ func backupCAIssuerAndCert(ctx context.Context, dynamicClient dynamic.Interface,
 		fmt.Printf("📁Backed up %s %s to %s\n", resourceType, resourceName, filepath.Join(outputDir, resourceName+".yaml"))
 	}
 
-	fmt.Println("⚙️ After helm upgrade, the backed up resources will be removed. Please create the resource after upgrade.")
+	fmt.Println("⚙️ After helm upgrade, the backed up resources will be removed. Please recreate these resource after upgrade.")
 
 	return nil
 }
