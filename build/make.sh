@@ -32,8 +32,9 @@ install_helm() {
 chart_version_exists() {
   helm repo add cockroachdb "https://${charts_hostname}" --force-update
   helm repo update
-  existing_version=$(yq '.version' cockroachdb/Chart.yaml)
-  if helm search repo cockroachdb/cockroachdb --version "$existing_version" | grep -q $existing_version; then
+
+  existing_version=$(grep 'version:' cockroachdb/Chart.yaml | awk '{print $2}')
+  if helm search repo cockroachdb/cockroachdb --version "$existing_version" | grep $existing_version; then
     echo "Chart version $existing_version already exists in the repository."
     return 1
   fi
