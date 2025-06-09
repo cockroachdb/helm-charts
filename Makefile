@@ -213,3 +213,4 @@ bump/%:
 	@bazel build //build
 	$$(bazel info bazel-bin)/build/build_/build bump $*
 	@helm dependency update ./cockroachdb-parent
+	@rm -rf ./cockroachdb-parent/charts/*.tgz
