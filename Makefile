@@ -139,6 +139,9 @@ test/single-cluster/up: bin/k3d
 test/multi-cluster/down: bin/k3d
 	 ./tests/k3d/dev-multi-cluster.sh down --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters $(REGIONS)
 
+test/nightly-e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || EXIT_CODE=$$?; \
+
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && \
 	bin/helm lint cockroachdb && \

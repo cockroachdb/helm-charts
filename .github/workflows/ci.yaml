@@ -204,6 +204,8 @@ jobs:
           go-version: 1.22
 
       - name: Run E2E Test
+        env:
+          isNightly: false
         run: make test/e2e/single-region
 
       - name: Clean up Docker resources

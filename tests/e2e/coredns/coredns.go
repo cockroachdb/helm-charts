@@ -2,6 +2,7 @@ package coredns
 
 import (
 	"fmt"
+	v1 "k8s.io/api/rbac/v1"
 	"regexp"
 	"sort"
 	"strings"
@@ -30,10 +31,77 @@ import (
 // Todo(nishanth): We will directly import this code, once
 // we move operator code into a separate repo.
 
-// CoreDNSService returns coredns service object.
-func CoreDNSService() *corev1.Service {
+func CoreDNSServiceAccount() *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ServiceAccount",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "coredns",
+			Namespace: "kube-system",
+		},
+	}
+}
 
-	return &corev1.Service{
+func CoreDNSClusterRole() *v1.ClusterRole {
+	return &v1.ClusterRole{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ClusterRole",
+			APIVersion: "rbac.authorization.k8s.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "system:coredns",
+			Labels: map[string]string{
+				"kubernetes.io/bootstrapping": "rbac-defaults",
+			},
+		},
+		Rules: []v1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"services", "endpoints", "pods", "namespaces", "nodes"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
+				APIGroups: []string{"discovery.k8s.io"},
+				Resources: []string{"endpointslices"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+		},
+	}
+}
+
+func CoreDNSClusterRoleBinding() *v1.ClusterRoleBinding {
+	return &v1.ClusterRoleBinding{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ClusterRoleBinding",
+			APIVersion: "rbac.authorization.k8s.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "system:coredns",
+			Labels: map[string]string{
+				"kubernetes.io/bootstrapping": "rbac-defaults",
+			},
+		},
+		Subjects: []v1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      "coredns",
+				Namespace: "kube-system",
+			},
+		},
+		RoleRef: v1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     "system:coredns",
+		},
+	}
+}
+
+// CoreDNSService returns coredns service object.
+func CoreDNSService(IpAddress *string, annotations map[string]string) *corev1.Service {
+
+	svc := &corev1.Service{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Service",
 			APIVersion: "v1",
@@ -42,8 +110,9 @@ func CoreDNSService() *corev1.Service {
 			Labels: map[string]string{
 				"k8s-app": "kube-dns",
 			},
-			Name:      "crl-core-dns",
-			Namespace: "kube-system",
+			Name:        "crl-core-dns",
+			Namespace:   "kube-system",
+			Annotations: annotations,
 		},
 		Spec: corev1.ServiceSpec{
 			Type: corev1.ServiceTypeLoadBalancer,
@@ -60,6 +129,10 @@ func CoreDNSService() *corev1.Service {
 			},
 		},
 	}
+	if IpAddress != nil {
+		svc.Spec.LoadBalancerIP = *IpAddress
+	}
+	return svc
 }
 
 // CoreDNSDeployment returns coredns deployment object.
@@ -122,7 +195,7 @@ func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
 					SecurityContext: &corev1.PodSecurityContext{
 						SeccompProfile: &corev1.SeccompProfile{Type: "RuntimeDefault"},
 					},
-					PriorityClassName:  "system-cluster-critical",
+					//PriorityClassName:  "system-cluster-critical",
 					ServiceAccountName: "coredns",
 					Affinity: &corev1.Affinity{
 						PodAntiAffinity: &corev1.PodAntiAffinity{
@@ -416,6 +489,12 @@ func ToYAML(t *testing.T, obj runtime.Object) string {
 		scheme.AddKnownTypes(corev1.SchemeGroupVersion, &appsv1.Deployment{})
 	case *corev1.ConfigMap:
 		scheme.AddKnownTypes(corev1.SchemeGroupVersion, &corev1.ConfigMap{})
+	case *corev1.ServiceAccount:
+		scheme.AddKnownTypes(corev1.SchemeGroupVersion, &corev1.ServiceAccount{})
+	case *v1.ClusterRole:
+		scheme.AddKnownTypes(appsv1.SchemeGroupVersion, &v1.ClusterRole{})
+	case *v1.ClusterRoleBinding:
+		scheme.AddKnownTypes(appsv1.SchemeGroupVersion, &v1.ClusterRoleBinding{})
 	default:
 		t.Fatalf("Unsupported object type: %T", obj)
 	}

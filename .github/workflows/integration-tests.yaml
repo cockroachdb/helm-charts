@@ -1,0 +1,40 @@
+name: integration-tests
+
+on:
+  # Run integration tests nightly.
+  schedule:
+    - cron: "0 0 * * *"
+  # Or trigger on demand.
+  workflow_dispatch:
+
+jobs:
+  integration-tests:
+    runs-on: ubuntu-latest-x64-8-core
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    steps:
+      - uses: bazel-contrib/setup-bazel@0.14.0
+        with:
+          bazelisk-cache: true
+          disk-cache: ${{ github.workflow }}
+          repository-cache: true
+      - uses: actions/checkout@v4
+      - name: Setup Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        id: auth
+        with:
+          token_format: access_token
+          project_id: 'cockroach-nishanth'
+          workload_identity_provider: 'projects/893592977954/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider'
+          service_account: 'github-actions-sa@cockroach-nishanth.iam.gserviceaccount.com'
+      - name: Run tests
+        env:
+          isNightly: true
+        run: make test/nightly-e2e/singleRegion
