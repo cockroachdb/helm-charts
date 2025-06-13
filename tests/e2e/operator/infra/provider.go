@@ -11,13 +11,15 @@ import (
 // can implement them as no-ops with appropriate logging.
 type CloudProvider interface {
 	// SetUpInfra creates the necessary infrastructure for the tests
+	// This is the only required method for all providers
 	SetUpInfra(t *testing.T)
 
 	// TeardownInfra cleans up all resources created by SetUpInfra
+	// Optional: providers that don't support teardown can implement as no-op
 	TeardownInfra(t *testing.T)
 
 	// ScaleNodePool scales the node pool in a cluster
-	// Optional: providers that don't support scaling/ if auto-scaling is enabled can implement as no-op
+	// Optional: providers that don't support scaling/if auto-scaling is enabled can implement as no-op
 	ScaleNodePool(t *testing.T, location string, nodeCount, index int)
 
 	// CanScale checks if the provider supports scaling.
