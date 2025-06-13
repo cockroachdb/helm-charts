@@ -2,13 +2,11 @@ package singleRegion
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -16,7 +14,14 @@ import (
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
+
+// Environment variable name to check if running in nightly mode
+const isNightlyEnvVar = "isNightly"
 
 type singleRegion struct {
 	operator.OperatorUseCases
@@ -27,28 +32,66 @@ func newSingleRegion() *singleRegion {
 	return &singleRegion{}
 }
 func TestOperatorInSingleRegion(t *testing.T) {
-	r := newSingleRegion()
-	r.Region = operator.Region{
-		IsMultiRegion: false,
-		NodeCount:     3,
-		ReusingInfra:  false,
+	var providers []string
+	if os.Getenv(isNightlyEnvVar) == "true" {
+		providers = []string{infra.ProviderGCP}
+	} else {
+		providers = []string{infra.ProviderK3D}
 	}
-	r.Clients = make(map[string]client.Client)
-	r.Namespace = make(map[string]string)
-	t.Run("TestHelmInstall", r.TestHelmInstall)
-	t.Run("TestHelmUpgrade", r.TestHelmUpgrade)
-	t.Run("TestClusterRollingRestart", r.TestClusterRollingRestart)
-	t.Run("TestKillingCockroachNode", r.TestKillingCockroachNode)
-	t.Run("TestClusterScaleUp", r.TestClusterScaleUp)
-	t.Run("TestInstallWithCertManager", r.TestInstallWithCertManager)
+
+	for _, provider := range providers {
+		provider := provider // Create a new variable to avoid closure issues
+		t.Run(provider, func(t *testing.T) {
+			// Run tests for different providers in parallel.
+			t.Parallel()
+
+			// Create a provider-specific instance to avoid race conditions.
+			providerRegion := newSingleRegion()
+			providerRegion.Region = operator.Region{
+				IsMultiRegion: false,
+				NodeCount:     3,
+				ReusingInfra:  false,
+			}
+			providerRegion.Clients = make(map[string]client.Client)
+			providerRegion.Namespace = make(map[string]string)
+
+			providerRegion.Provider = provider
+			clusterName := fmt.Sprintf("%s-%s", providerRegion.Provider, operator.Clusters[0])
+			if provider != infra.ProviderK3D {
+				clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
+			}
+			providerRegion.Clusters = append(providerRegion.Clusters, clusterName)
+
+			// Use t.Cleanup for guaranteed cleanup even on test timeout/panic
+			t.Cleanup(func() {
+				t.Logf("Starting infrastructure cleanup for provider: %s", provider)
+				providerRegion.tearDownInfra(t, provider)
+				t.Logf("Completed infrastructure cleanup for provider: %s", provider)
+			})
+
+			// Setup infrastructure for this provider.
+			providerRegion.setupInfra(t)
+
+			// Run tests sequentially within a provider.
+			t.Run("TestHelmInstall", providerRegion.TestHelmInstall)
+			t.Run("TestHelmUpgrade", providerRegion.TestHelmUpgrade)
+			t.Run("TestClusterRollingRestart", providerRegion.TestClusterRollingRestart)
+			t.Run("TestKillingCockroachNode", providerRegion.TestKillingCockroachNode)
+			t.Run("TestClusterScaleUp", providerRegion.TestClusterScaleUp)
+			t.Run("TestInstallWithCertManager", providerRegion.TestInstallWithCertManager)
+		})
+	}
 }
 
 // TestHelmInstall will install Operator and CockroachDB charts
 // and verifies if CockroachDB service is up and running.
 func (r *singleRegion) TestHelmInstall(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-	cluster := operator.Clusters[0]
+
+	cluster := r.Clusters[0]
 	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
+
+	// Setup Single region infra.
+	r.setupInfra(t)
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
@@ -59,17 +102,14 @@ func (r *singleRegion) TestHelmInstall(t *testing.T) {
 
 	defer r.CleanUpCACertificate(t)
 
-	// Setup Single region k3d infra.
-	r.SetUpInfra(t, corednsClusterOptions)
-
 	// Install Operator and CockroachDB charts.
 	r.InstallCharts(t, cluster, 0)
 
-	// Get current context name.
+	// Get the current context name.
 	_, rawConfig := r.GetCurrentContext(t)
 
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
-		t.Fatal()
+		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
 	rawConfig.CurrentContext = cluster
 	r.ValidateCRDB(t, cluster)
@@ -78,9 +118,11 @@ func (r *singleRegion) TestHelmInstall(t *testing.T) {
 // TestHelmUpgrade will upgrade the existing charts in a single region
 // and verifies the CockroachDB health.
 func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-	cluster := operator.Clusters[0]
+	cluster := r.Clusters[0]
 	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
+
+	// Setup Single region infra.
+	r.setupInfra(t)
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
@@ -91,9 +133,6 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 
 	defer r.CleanUpCACertificate(t)
 
-	// Setup Single region k3d infra.
-	r.SetUpInfra(t, corednsClusterOptions)
-
 	// Install Operator and CockroachDB charts.
 	r.InstallCharts(t, cluster, 0)
 
@@ -101,7 +140,7 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
-		t.Fatal()
+		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
 	rawConfig.CurrentContext = cluster
 
@@ -114,8 +153,11 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 		LabelSelector: operator.LabelSelector,
 	})
 
-	// Capture the creation timestamp of the last pod.
-	initialTimestamp := pods[0].CreationTimestamp.Time
+	// Capture the creation timestamp of the first pod.
+	if len(pods) == 0 {
+		require.Fail(t, "No pods found for deployment")
+	}
+	initialTimestamp := pods[len(pods)-1].CreationTimestamp.Time
 
 	// Get helm chart paths.
 	helmChartPath, _ := operator.HelmChartPaths()
@@ -153,9 +195,11 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 // TestClusterRollingRestart will do a rolling restart by updating
 // timestamp of each cockroachdb pod in single region through helm upgrade and verifies the same.
 func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-	cluster := operator.Clusters[0]
+	cluster := r.Clusters[0]
 	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
+
+	// Setup Single region infra.
+	r.setupInfra(t)
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
@@ -166,9 +210,6 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 
 	defer r.CleanUpCACertificate(t)
 
-	//Setup Single region k3d infra.
-	r.SetUpInfra(t, corednsClusterOptions)
-
 	// Install Operator and CRDB charts.
 	r.InstallCharts(t, cluster, 0)
 
@@ -176,7 +217,7 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
-		t.Fatal()
+		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
 	rawConfig.CurrentContext = cluster
 
@@ -209,6 +250,9 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 	}
 
 	// Capture the creation timestamp of the last pod.
+	if len(pods) < 3 {
+		require.Fail(t, "Expected at least 3 pods but found %d", len(pods))
+	}
 	initialTimestamp := pods[2].CreationTimestamp.Time
 
 	// Verify if the pods are restarted after helm upgrade.
@@ -224,7 +268,7 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 	})
 	// Verify that each pod's creation timestamp is after the upgradeTime.
 	for _, pod := range pods {
-		require.False(t, pod.CreationTimestamp.Time.Before(upgradeTime), fmt.Errorf("pod %s was not restarted before %v", pod.Name, upgradeTime))
+		require.False(t, pod.CreationTimestamp.Time.Before(upgradeTime), "pod %s was not restarted after %v", pod.Name, upgradeTime)
 	}
 	r.ValidateCRDB(t, cluster)
 }
@@ -232,15 +276,14 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 // TestKillingCockroachNode will manually kill one cockroachdb node to verify
 // if the reconciliation is working as expected in single region and verifies the same.
 func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-	cluster := operator.Clusters[0]
+	cluster := r.Clusters[0]
 	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
+
+	// Setup Single region infra.
+	r.setupInfra(t)
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
-
-	//Setup Single region k3d infra.
-	r.SetUpInfra(t, corednsClusterOptions)
 
 	// Create CA certificate.
 	err := r.CreateCACertificate(t)
@@ -256,7 +299,7 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 
 	// Validate CockroachDB cluster.
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
-		t.Fatal()
+		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
 	rawConfig.CurrentContext = cluster
 
@@ -280,7 +323,7 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
 
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
-		t.Fatal()
+		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
 	rawConfig.CurrentContext = cluster
 
@@ -291,15 +334,14 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 // TestClusterScaleUp will scale the CockroachDB nodes in the existing region
 // and verifies the CockroachDB cluster health and replicas.
 func (r *singleRegion) TestClusterScaleUp(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-	cluster := operator.Clusters[0]
+	cluster := r.Clusters[0]
 	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
+
+	// Setup Single region infra.
+	r.setupInfra(t)
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
-
-	//Setup Single region k3d infra.
-	r.SetUpInfra(t, corednsClusterOptions)
 
 	// Create CA certificate.
 	err := r.CreateCACertificate(t)
@@ -313,7 +355,7 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T) {
 	// Get current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
-		t.Fatal()
+		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
 	rawConfig.CurrentContext = cluster
 
@@ -323,7 +365,8 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T) {
 	// Get helm chart paths.
 	helmChartPath, _ := operator.HelmChartPaths()
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-	r.NodeCount = 4
+	r.NodeCount += 1
+	r.scaleNodePool(t)
 	options := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		SetJsonValues: map[string]string{
@@ -345,26 +388,88 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T) {
 // TestInstallWithCertManager will install the Operator and CockroachDB charts
 // with cert-manager and trust-manager and verifies cockroachdb cluster is up and running.
 func (r *singleRegion) TestInstallWithCertManager(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-	cluster := operator.Clusters[0]
+	cluster := r.Clusters[0]
 	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
 	r.IsCertManager = true
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	r.SetUpInfra(t, corednsClusterOptions)
+	// Setup Single region infra.
+	r.setupInfra(t)
 
 	// Install Operator and CockroachDB charts.
 	r.InstallCharts(t, cluster, 0)
 
-	// Get current context name.
+	// Get the current context name.
 	_, rawConfig := r.GetCurrentContext(t)
 
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
-		t.Fatal()
+		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
 	rawConfig.CurrentContext = cluster
 	r.ValidateCRDB(t, cluster)
+}
 
+func (r *singleRegion) setupInfra(t *testing.T) {
+	// Create the appropriate provider using the factory.
+	provider := infra.ProviderFactory(r.Provider, &r.Region)
+
+	// Set up the infrastructure.
+	if provider != nil {
+		provider.SetUpInfra(t)
+	} else {
+		t.Fatalf("Unsupported provider: %s", r.Provider)
+	}
+}
+
+func (r *singleRegion) tearDownInfra(t *testing.T, provider string) {
+	// Ensure teardown continues even if individual steps fail
+	defer func() {
+		if r := recover(); r != nil {
+			t.Logf("Panic during teardown (continuing cleanup): %v", r)
+		}
+	}()
+
+	t.Logf("Tearing down infrastructure for provider: %s", provider)
+
+	// Create the appropriate provider using the factory.
+	providerType := infra.ProviderFactory(provider, &r.Region)
+	if providerType == nil {
+		t.Logf("Unsupported provider: %s", provider)
+		return
+	}
+
+	// Check if the provider supports teardown.
+	if teardownProvider, ok := infra.CanTeardown(providerType); ok {
+		t.Logf("Running teardown for provider: %s", provider)
+
+		// Wrap teardown in a recovery block to ensure it continues even if it panics
+		func() {
+			defer func() {
+				if r := recover(); r != nil {
+					t.Logf("Panic during provider teardown (continuing): %v", r)
+				}
+			}()
+			teardownProvider.TeardownInfra(t)
+		}()
+
+		t.Logf("Teardown completed for provider: %s", provider)
+	} else {
+		t.Logf("Provider %s does not support teardown or teardown is not implemented", provider)
+	}
+}
+
+func (r *singleRegion) scaleNodePool(t *testing.T) {
+	// Create the appropriate provider using the factory.
+	provider := infra.ProviderFactory(r.Provider, &r.Region)
+
+	// Check if the provider supports scaling.
+	if scalableProvider, ok := infra.CanScale(provider); ok {
+		// Scale the node pool.
+		t.Logf("Scaling node pool for provider: %s", r.Provider)
+		scalableProvider.ScaleNodePool(t, r.RegionCodes[0], r.NodeCount, 0)
+	} else {
+		t.Logf("Provider %s does not support scaling", r.Provider)
+	}
 }
