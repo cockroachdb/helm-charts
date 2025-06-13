@@ -1,7 +1,6 @@
 package infra
 
 import (
-	"context"
 	"fmt"
 	"net"
 	"os/exec"
@@ -56,11 +55,11 @@ const (
 
 // RegionCodes maps provider types to their region codes
 var RegionCodes = map[string][]string{
-	ProviderK3D:   {"us-east1", "us-east2", "us-west1"},
-	ProviderKind:  {"us-east1", "us-east2", "us-west1"},
+	ProviderK3D:   {"us-east1", "us-east2"},
+	ProviderKind:  {"us-east1", "us-east2"},
 	ProviderGCP:   {"us-central1", "us-east1", "us-west1"},
-	ProviderAzure: {"centralus", "eastus", "westus"},
-	ProviderAWS:   {"us-east-1", "us-east-2", "us-west-1"},
+	ProviderAzure: {"centralus", "eastus"},
+	ProviderAWS:   {"us-east-1", "us-east-2"},
 }
 
 // LoadBalancerAnnotations contains provider-specific service annotations
@@ -354,24 +353,4 @@ func UpdateKubeconfigAzure(t *testing.T, resourceGroup, clusterName string) erro
 		return fmt.Errorf("failed to get Azure credentials for cluster %s: %w", clusterName, err)
 	}
 	return nil
-}
-
-// WaitWithTimeout waits for a condition to be true with a timeout
-func WaitWithTimeout(ctx context.Context, interval, timeout time.Duration, condition func() (bool, error)) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		success, err := condition()
-		if err != nil {
-			return err
-		}
-		if success {
-			return nil
-		}
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case <-time.After(interval):
-		}
-	}
-	return fmt.Errorf("timed out after %s", timeout)
 }

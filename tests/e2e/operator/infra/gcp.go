@@ -33,7 +33,7 @@ const (
 	webhookFirewallRuleName  = "allow-9443-port-for-webhook"
 	internalFirewallRuleName = "allow-internal"
 	defaultNodePool          = "default-pool" // default node pool name for GKE clusters
-	subnetSuffix             = "subnet-1"     // suffix for dynamically created subnets
+	subnetSuffix             = "subnet"       // suffix for dynamically created subnets
 )
 
 // Helper functions to get network configuration from common.go
@@ -252,14 +252,60 @@ func (r *GcpRegion) TeardownInfra(t *testing.T) {
 	computeService, err := createComputeServiceClient(ctx)
 	require.NoError(t, err)
 
-	// 1) Delete GKE clusters via gcloud (ensures proper cleanup of node pools, etc.)
+	gkeService, err := createGKEServiceClient(ctx)
+	require.NoError(t, err)
+
+	// 1) Delete GKE clusters
 	for _, cfg := range clusterConfigurations[:len(r.Clusters)] {
 		t.Logf("[%s] Deleting GKE cluster '%s'", ProviderGCP, cfg.ClusterName)
+
+		// Check for ongoing operations
+		clusterPath := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", projectID, cfg.Region, cfg.ClusterName)
+		cluster, err := gkeService.Projects.Locations.Clusters.Get(clusterPath).Context(ctx).Do()
+		if err != nil {
+			if IsResourceNotFound(err) {
+				t.Logf("[%s] Cluster %s already deleted", ProviderGCP, cfg.ClusterName)
+				continue
+			}
+			t.Logf("[%s] Warning: error checking cluster %s status: %v", ProviderGCP, cfg.ClusterName, err)
+			continue
+		}
+
+		// If cluster is in a transitioning state, wait for current operation to complete
+		if cluster.Status != "RUNNING" && cluster.Status != "ERROR" {
+			t.Logf("[%s] Cluster %s is in %s state, waiting for operation to complete...", ProviderGCP, cfg.ClusterName, cluster.Status)
+			if cluster.CurrentMasterVersion != "" { // Check if there's an ongoing operation
+				err = waitForGKEOperation(gkeService, cluster.CurrentMasterVersion, cfg.Region, "")
+				if err != nil {
+					t.Logf("[%s] Warning: error waiting for operation on cluster %s: %v", ProviderGCP, cfg.ClusterName, err)
+				}
+			}
+		}
+
+		// Now try to delete the cluster
 		delCmd := exec.Command("gcloud", "container", "clusters", "delete", cfg.ClusterName,
-			"--region", cfg.Region, "--project", projectID, "--quiet")
+			"--region", cfg.Region, "--project", projectID, "--quiet", "--async")
 		delCmd.Stdout = os.Stdout
 		delCmd.Stderr = os.Stderr
-		_ = delCmd.Run()
+		if err := delCmd.Run(); err != nil {
+			t.Logf("[%s] Warning: error initiating deletion of cluster %s: %v", ProviderGCP, cfg.ClusterName, err)
+		}
+	}
+
+	// Wait for all cluster deletions to complete
+	for _, cfg := range clusterConfigurations[:len(r.Clusters)] {
+		clusterPath := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", projectID, cfg.Region, cfg.ClusterName)
+		for retries := 0; retries < 10; retries++ {
+			_, err := gkeService.Projects.Locations.Clusters.Get(clusterPath).Context(ctx).Do()
+			if IsResourceNotFound(err) {
+				t.Logf("[%s] Confirmed deletion of cluster %s", ProviderGCP, cfg.ClusterName)
+				break
+			}
+			if retries == 9 {
+				t.Logf("[%s] Warning: timed out waiting for cluster %s deletion", ProviderGCP, cfg.ClusterName)
+			}
+			time.Sleep(30 * time.Second)
+		}
 	}
 
 	// 2) Delete static IPs (unreserve)
@@ -296,22 +342,23 @@ func (r *GcpRegion) TeardownInfra(t *testing.T) {
 	t.Logf("[%s] Infrastructure teardown completed", ProviderGCP)
 }
 
+// This is a no-op right now
 func (r *GcpRegion) ScaleNodePool(t *testing.T, location string, nodeCount, index int) {
-	t.Logf("[%s] Scaling node pool for cluster '%s' to %d nodes", ProviderGCP, clusterConfigurations[index].ClusterName, nodeCount)
-
-	ctx := context.Background()
-	gkeService, err := createGKEServiceClient(ctx)
-	require.NoError(t, err, "failed to create GKE client")
-
-	scaleOp, err := scaleNodePool(ctx, gkeService, projectID, location, clusterConfigurations[index].ClusterName, defaultNodePool, int64(nodeCount))
-	require.NoError(t, err, "error initiating scaling for node pool")
-
-	err = waitForGKEOperation(gkeService, scaleOp.Name, location, "")
-	if err != nil {
-		t.Logf("[%s] Error during scaling operation for node pool '%s': %v", ProviderGCP, defaultNodePool, err)
-	} else {
-		t.Logf("[%s] Successfully scaled node pool '%s' to %d nodes", ProviderGCP, defaultNodePool, nodeCount)
-	}
+	//t.Logf("[%s] Scaling node pool for cluster '%s' to %d nodes", ProviderGCP, clusterConfigurations[index].ClusterName, nodeCount)
+	//
+	//ctx := context.Background()
+	//gkeService, err := createGKEServiceClient(ctx)
+	//require.NoError(t, err, "failed to create GKE client")
+	//
+	//scaleOp, err := scaleNodePool(ctx, gkeService, projectID, location, clusterConfigurations[index].ClusterName, defaultNodePool, int64(1))
+	//require.NoError(t, err, "error initiating scaling for node pool")
+	//
+	//err = waitForGKEOperation(gkeService, scaleOp.Name, location, "")
+	//if err != nil {
+	//	t.Logf("[%s] Error during scaling operation for node pool '%s': %v", ProviderGCP, defaultNodePool, err)
+	//} else {
+	//	t.Logf("[%s] Successfully scaled node pool '%s' to %d nodes", ProviderGCP, defaultNodePool, nodeCount)
+	//}
 }
 
 // getServiceAccountKeyPath returns the path to the service account key file
@@ -490,7 +537,10 @@ func createGKERegionalCluster(ctx context.Context, client *container.Service, se
 		"--tags", strings.Join([]string{defaultNodeTag}, ","), // Join tags if there are multiple
 		"--enable-master-authorized-networks",
 		"--master-authorized-networks", strings.Join([]string{"0.0.0.0/0"}, ","),
-		"--num-nodes", fmt.Sprint(DefaultNodesPerZone), // For regional, this is total nodes spread across 3 zones by default
+		"--num-nodes", fmt.Sprint(DefaultNodesPerZone),
+		"--min-nodes", fmt.Sprint(DefaultNodesPerZone),
+		"--max-nodes", fmt.Sprint(DefaultNodesPerZone + 1), // Needed for scaling cluster
+		"--enable-autoscaling", // Enable autoscaling
 		"--autoprovisioning-network-tags", strings.Join([]string{defaultNodeTag}, ","),
 		"--machine-type", GCPDefaultMachineType,
 		"--quiet", // Suppress interactive prompts

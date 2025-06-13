@@ -7,12 +7,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gruntwork-io/terratest/modules/random"
-
 	"github.com/cockroachdb/errors"
 	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
 	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
@@ -32,7 +31,23 @@ type K3dRegion struct {
 
 // TeardownInfra cleans up all resources created by SetUpInfra
 func (r *K3dRegion) TeardownInfra(t *testing.T) {
-	t.Logf("[%s] K3D teardown not implemented - clusters will be cleaned up by the test framework", ProviderK3D)
+	t.Logf("[%s] Tearing down K3D infrastructure", ProviderK3D)
+
+	cmd := shell.Command{
+		Command: "make",
+		Args: []string{
+			"test/multi-cluster/down",
+		},
+		WorkingDir: testutil.GetGitRoot(),
+	}
+
+	output, err := shell.RunCommandAndGetOutputE(t, cmd)
+	if err != nil {
+		t.Logf("[%s] Warning: Failed to tear down K3D clusters: %v\nOutput: %s",
+			ProviderK3D, err, output)
+	} else {
+		t.Logf("[%s] Successfully tore down K3D clusters", ProviderK3D)
+	}
 }
 
 // ScaleNodePool scales the node pool in a K3D cluster
@@ -59,11 +74,10 @@ func (r *K3dRegion) SetUpInfra(t *testing.T) {
 	for i, cluster := range r.Clusters {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			// Create cluster using shell command.
-			err := createK3DCluster(t)
+			err := createK3DCluster(t, cluster, r.NodeCount)
 			require.NoError(t, err)
 		}
 
-		r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
 		cfg, err := config.GetConfigWithContext(cluster)
 		require.NoError(t, err)
 		k8sClient, err := client.New(cfg, client.Options{})
@@ -212,14 +226,16 @@ func (r *K3dRegion) setupNetworking(t *testing.T, ctx context.Context, region st
 // createK3DCluster creates a new k3d cluster
 // by calling the make command which will create
 // single k3d cluster.
-func createK3DCluster(t *testing.T) error {
-	t.Logf("[%s] Creating new K3D cluster", ProviderK3D)
+func createK3DCluster(t *testing.T, clusterName string, nodeCount int) error {
+	t.Logf("[%s] Creating new K3D cluster: %s with %d nodes", ProviderK3D, clusterName, nodeCount)
 	cmd := shell.Command{
 		Command: "make",
 		Args: []string{
 			"test/single-cluster/up",
+			fmt.Sprintf("name=%s", strings.TrimLeft(clusterName, "k3d-")),
+			fmt.Sprintf("nodes=%d", nodeCount),
 		},
-		WorkingDir: "../../../../..",
+		WorkingDir: testutil.GetGitRoot(),
 	}
 
 	output, err := shell.RunCommandAndGetOutputE(t, cmd)
@@ -228,6 +244,6 @@ func createK3DCluster(t *testing.T) error {
 		return fmt.Errorf("failed to create cluster: %v\nOutput: %s", err, output)
 	}
 
-	t.Logf("[%s] Successfully created new K3D cluster", ProviderK3D)
+	t.Logf("[%s] Successfully created new K3D cluster: %s", ProviderK3D, clusterName)
 	return nil
 }

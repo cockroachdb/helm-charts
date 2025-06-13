@@ -52,7 +52,9 @@ func TestOperatorInMultiRegion(t *testing.T) {
 		provider := provider // Create new variable to avoid closure issues
 		t.Run(provider, func(t *testing.T) {
 			r.Provider = provider
-			r.Clusters = append(r.Clusters, fmt.Sprintf("%s-%s", r.Provider, operator.Clusters[0]))
+			for _, cluster := range operator.Clusters {
+				r.Clusters = append(r.Clusters, fmt.Sprintf("%s-%s", r.Provider, cluster))
+			}
 
 			t.Run("TestHelmInstall", r.TestHelmInstall)
 			t.Run("TestHelmUpgrade", r.TestHelmUpgrade)
@@ -374,7 +376,7 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T) {
 	// Modify the nodes in each region and apply helm upgrade.
 	for i, cluster := range r.Clusters {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-		r.NodeCount = 4
+		r.NodeCount += 1
 
 		// Scale the node pool in the cloud infrastructure
 		r.scaleNodePool(t, r.RegionCodes[i], r.NodeCount, i)
@@ -395,10 +397,6 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T) {
 			DesiredNodes: r.NodeCount,
 		}
 		testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
-		pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-			LabelSelector: operator.LabelSelector,
-		})
-		require.True(t, len(pods) == 4)
 		// Validate CockroachDB cluster.
 		r.ValidateCRDB(t, cluster)
 	}

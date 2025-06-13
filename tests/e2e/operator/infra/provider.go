@@ -7,22 +7,19 @@ import (
 )
 
 // CloudProvider defines the interface that all cloud providers must implement
+// Some methods are optional - providers that don't support certain operations
+// can implement them as no-ops with appropriate logging
 type CloudProvider interface {
 	// SetUpInfra creates the necessary infrastructure for the tests
+	// This is the only required method for all providers
 	SetUpInfra(t *testing.T)
-}
 
-// CloudProviderWithTeardown extends CloudProvider with teardown capability
-type CloudProviderWithTeardown interface {
-	CloudProvider
 	// TeardownInfra cleans up all resources created by SetUpInfra
+	// Optional: providers that don't support teardown can implement as no-op
 	TeardownInfra(t *testing.T)
-}
 
-// CloudProviderWithScaling extends CloudProvider with scaling capability
-type CloudProviderWithScaling interface {
-	CloudProvider
 	// ScaleNodePool scales the node pool in a cluster
+	// Optional: providers that don't support scaling can implement as no-op
 	ScaleNodePool(t *testing.T, location string, nodeCount, index int)
 }
 
@@ -55,17 +52,27 @@ func ProviderFactory(providerType string, region *operator.Region) CloudProvider
 }
 
 // CanTeardown checks if the provider supports teardown
-func CanTeardown(provider CloudProvider) (CloudProviderWithTeardown, bool) {
-	if p, ok := provider.(CloudProviderWithTeardown); ok {
-		return p, true
+// This function is kept for backward compatibility
+func CanTeardown(provider CloudProvider) (CloudProvider, bool) {
+	// Check if the TeardownInfra method is a no-op implementation
+	// Kind and K3D providers have no-op implementations
+	switch provider.(type) {
+	case *KindRegion:
+		return nil, false
+	default:
+		return provider, true
 	}
-	return nil, false
 }
 
 // CanScale checks if the provider supports scaling
-func CanScale(provider CloudProvider) (CloudProviderWithScaling, bool) {
-	if p, ok := provider.(CloudProviderWithScaling); ok {
-		return p, true
+// This function is kept for backward compatibility
+func CanScale(provider CloudProvider) (CloudProvider, bool) {
+	// Check if the ScaleNodePool method is a no-op implementation
+	// GCP, Kind and K3D providers have no-op implementations
+	switch provider.(type) {
+	case *K3dRegion, *KindRegion, *GcpRegion:
+		return nil, false
+	default:
+		return provider, true
 	}
-	return nil, false
 }

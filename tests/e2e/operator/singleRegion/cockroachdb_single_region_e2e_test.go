@@ -2,11 +2,12 @@ package singleRegion
 
 import (
 	"fmt"
-	"github.com/gruntwork-io/terratest/modules/random"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gruntwork-io/terratest/modules/random"
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
 
@@ -39,12 +40,12 @@ func TestOperatorInSingleRegion(t *testing.T) {
 	}
 	r.Clients = make(map[string]client.Client)
 	r.Namespace = make(map[string]string)
-
+	//os.Setenv("isNightly", "false")
 	var providers []string
 	if os.Getenv("isNightly") == "false" {
-		providers = []string{"k3d"}
+		providers = []string{infra.ProviderK3D}
 	} else {
-		providers = []string{"gcp"}
+		providers = []string{infra.ProviderGCP}
 	}
 
 	defer r.tearDownInfra(t, providers)
@@ -55,10 +56,10 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			r.Provider = provider
 			r.Clusters = append(r.Clusters, fmt.Sprintf("%s-%s", r.Provider, operator.Clusters[0]))
 
-			//t.Run("TestHelmInstall", r.TestHelmInstall)
-			//t.Run("TestHelmUpgrade", r.TestHelmUpgrade)
-			//t.Run("TestClusterRollingRestart", r.TestClusterRollingRestart)
-			//t.Run("TestKillingCockroachNode", r.TestKillingCockroachNode)
+			t.Run("TestHelmInstall", r.TestHelmInstall)
+			t.Run("TestHelmUpgrade", r.TestHelmUpgrade)
+			t.Run("TestClusterRollingRestart", r.TestClusterRollingRestart)
+			t.Run("TestKillingCockroachNode", r.TestKillingCockroachNode)
 			t.Run("TestClusterScaleUp", r.TestClusterScaleUp)
 			t.Run("TestInstallWithCertManager", r.TestInstallWithCertManager)
 		})
