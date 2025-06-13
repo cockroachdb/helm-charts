@@ -1,0 +1,76 @@
+name: integration-tests
+
+on:
+  schedule:
+    - cron: "15 6 * * *"  # Run at 6:15 AM UTC to avoid peak times
+  # Allow manual trigger on any branch
+  workflow_dispatch:
+
+jobs:
+  integration-tests-multi-region:
+    runs-on: ubuntu-latest-4-core
+    permissions:
+      contents: 'read'
+      id-token: 'write'
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        id: auth
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+      - name: Run tests
+        env:
+          isNightly: true
+          USE_GKE_GCLOUD_AUTH_PLUGIN: True
+        run: |
+          set -e
+          make test/nightly-e2e/multi-region
+        continue-on-error: false
+  integration-tests-single-region:
+    runs-on: ubuntu-latest-4-core
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        id: auth
+        with:
+          token_format: access_token
+          project_id: 'cockroach-helm-testing'
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+      - name: Run tests
+        env:
+          isNightly: true
+          USE_GKE_GCLOUD_AUTH_PLUGIN: True
+        run: |
+          set -e
+          make test/nightly-e2e/single-region
+        continue-on-error: false

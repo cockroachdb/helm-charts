@@ -10,6 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -30,10 +31,85 @@ import (
 // Todo(nishanth): We will directly import this code, once
 // we move operator code into a separate repo.
 
-// CoreDNSService returns coredns service object.
-func CoreDNSService() *corev1.Service {
+// CoreDNSServiceAccount returns a ServiceAccount for CoreDNS.
+func CoreDNSServiceAccount() *corev1.ServiceAccount {
+	return &corev1.ServiceAccount{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ServiceAccount",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "coredns",
+			Namespace: "kube-system",
+		},
+	}
+}
 
-	return &corev1.Service{
+// CoreDNSClusterRole returns a ClusterRole for CoreDNS with necessary permissions.
+func CoreDNSClusterRole() *v1.ClusterRole {
+	return &v1.ClusterRole{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ClusterRole",
+			APIVersion: "rbac.authorization.k8s.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "system:coredns",
+			Labels: map[string]string{
+				"kubernetes.io/bootstrapping": "rbac-defaults",
+			},
+		},
+		Rules: []v1.PolicyRule{
+			{
+				APIGroups: []string{""},
+				Resources: []string{"services", "endpoints", "pods", "namespaces", "nodes"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+			{
+				APIGroups: []string{"discovery.k8s.io"},
+				Resources: []string{"endpointslices"},
+				Verbs:     []string{"get", "list", "watch"},
+			},
+		},
+	}
+}
+
+// CoreDNSClusterRoleBinding returns a ClusterRoleBinding that binds the CoreDNS ServiceAccount to the CoreDNS ClusterRole.
+func CoreDNSClusterRoleBinding() *v1.ClusterRoleBinding {
+	return &v1.ClusterRoleBinding{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "ClusterRoleBinding",
+			APIVersion: "rbac.authorization.k8s.io/v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name: "system:coredns",
+			Labels: map[string]string{
+				"kubernetes.io/bootstrapping": "rbac-defaults",
+			},
+		},
+		Subjects: []v1.Subject{
+			{
+				Kind:      "ServiceAccount",
+				Name:      "coredns",
+				Namespace: "kube-system",
+			},
+		},
+		RoleRef: v1.RoleRef{
+			APIGroup: "rbac.authorization.k8s.io",
+			Kind:     "ClusterRole",
+			Name:     "system:coredns",
+		},
+	}
+}
+
+// CoreDNSService returns coredns service object.
+func CoreDNSService(IpAddress *string, annotations map[string]string) *corev1.Service {
+	// Create a copy of the annotations to avoid modifying the original map.
+	serviceAnnotations := make(map[string]string)
+	for k, v := range annotations {
+		serviceAnnotations[k] = v
+	}
+
+	svc := &corev1.Service{
 		TypeMeta: metav1.TypeMeta{
 			Kind:       "Service",
 			APIVersion: "v1",
@@ -42,14 +118,15 @@ func CoreDNSService() *corev1.Service {
 			Labels: map[string]string{
 				"k8s-app": "kube-dns",
 			},
-			Name:      "crl-core-dns",
-			Namespace: "kube-system",
+			Name:        "crl-core-dns",
+			Namespace:   "kube-system",
+			Annotations: serviceAnnotations,
 		},
 		Spec: corev1.ServiceSpec{
 			Type: corev1.ServiceTypeLoadBalancer,
 			Ports: []corev1.ServicePort{
 				{
-					Name:       "dns",
+					Name:       "dns-tcp",
 					Port:       53,
 					Protocol:   "TCP",
 					TargetPort: intstr.Parse("53"),
@@ -60,26 +137,25 @@ func CoreDNSService() *corev1.Service {
 			},
 		},
 	}
+
+	// Set LoadBalancerIP field for backward compatibility and as fallback.
+	// For GCP internal LoadBalancers, we rely on annotations, but still set LoadBalancerIP as fallback.
+	// For other providers or external LoadBalancers, LoadBalancerIP might be the primary method.
+	if IpAddress != nil {
+		svc.Spec.LoadBalancerIP = *IpAddress
+	}
+
+	return svc
 }
 
 // CoreDNSDeployment returns coredns deployment object.
 func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
-	healthCheckPort := intstr.FromInt(8080)
-	maxSurge := intstr.FromInt(1)
-	readinessPort := intstr.FromInt(8181)
+	healthCheckPort := intstr.FromInt32(8080)
+	maxSurge := intstr.FromInt32(1)
+	readinessPort := intstr.FromInt32(8181)
 
-	memoryLimit, err := resource.ParseQuantity("170Mi")
-	if err != nil {
-		panic(err)
-	}
-	memoryRequest, err := resource.ParseQuantity("70Mi")
-	if err != nil {
-		panic(err)
-	}
-	cpuRequest, err := resource.ParseQuantity("100m")
-	if err != nil {
-		panic(err)
-	}
+	memoryRequest := resource.MustParse("70Mi")
+	cpuRequest := resource.MustParse("100m")
 
 	// templateLables are the labels applied to the created pods and the labels
 	// used to target pods by the deployment.
@@ -122,7 +198,6 @@ func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
 					SecurityContext: &corev1.PodSecurityContext{
 						SeccompProfile: &corev1.SeccompProfile{Type: "RuntimeDefault"},
 					},
-					PriorityClassName:  "system-cluster-critical",
 					ServiceAccountName: "coredns",
 					Affinity: &corev1.Affinity{
 						PodAntiAffinity: &corev1.PodAntiAffinity{
@@ -151,9 +226,6 @@ func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
 							Image:           "coredns/coredns:1.9.2",
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Resources: corev1.ResourceRequirements{
-								Limits: corev1.ResourceList{
-									corev1.ResourceMemory: memoryLimit,
-								},
 								Requests: corev1.ResourceList{
 									corev1.ResourceMemory: memoryRequest,
 									corev1.ResourceCPU:    cpuRequest,
@@ -247,6 +319,8 @@ func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
 	}
 }
 
+// CoreDNSClusterOption defines configuration options for CoreDNS in a multi-cluster environment.
+// It contains information needed for cross-cluster DNS resolution.
 type CoreDNSClusterOption struct {
 	// Namespace is the namespace where other clusters can resolve
 	// services by querying <service-name>.<namespace>.<svc>.cluster.local.
@@ -416,6 +490,12 @@ func ToYAML(t *testing.T, obj runtime.Object) string {
 		scheme.AddKnownTypes(corev1.SchemeGroupVersion, &appsv1.Deployment{})
 	case *corev1.ConfigMap:
 		scheme.AddKnownTypes(corev1.SchemeGroupVersion, &corev1.ConfigMap{})
+	case *corev1.ServiceAccount:
+		scheme.AddKnownTypes(corev1.SchemeGroupVersion, &corev1.ServiceAccount{})
+	case *v1.ClusterRole:
+		scheme.AddKnownTypes(v1.SchemeGroupVersion, &v1.ClusterRole{})
+	case *v1.ClusterRoleBinding:
+		scheme.AddKnownTypes(v1.SchemeGroupVersion, &v1.ClusterRoleBinding{})
 	default:
 		t.Fatalf("Unsupported object type: %T", obj)
 	}

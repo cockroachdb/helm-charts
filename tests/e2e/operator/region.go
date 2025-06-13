@@ -1,48 +1,40 @@
 package operator
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
-	"net"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
-	apiextv1 "k8s.io/apiextensions-apiserver/pkg/apis/apiextensions/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
-
-	"github.com/cockroachdb/errors"
-	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 const (
-	CloudProvider         = "k3d"
 	TestDBName            = "testdb"
-	Namespace             = "test-cockroach"
+	Namespace             = "cockroach-ns"
 	LabelSelector         = "app=cockroachdb"
 	OperatorLabelSelector = "app=cockroach-operator"
 )
 
 var (
-	RegionCodes   = []string{"us-east1", "us-east2"}
-	Clusters      = []string{"k3d-chart-testing-cluster-0", "k3d-chart-testing-cluster-1"}
-	CustomDomains = map[string]string{
-		"k3d-chart-testing-cluster-0": "cluster1.local",
-		"k3d-chart-testing-cluster-1": "cluster2.local",
+	Clusters      = []string{"chart-testing-cluster-0", "chart-testing-cluster-1"}
+	CustomDomains = map[int]string{
+		0: "cluster1.local",
+		1: "cluster2.local",
 	}
 
 	operatorReleaseName    = "cockroachdb-operator"
@@ -57,12 +49,6 @@ var (
 		},
 	}
 )
-
-type cockroachEnterpriseOperator interface {
-	setUpInfra(t *testing.T, corednsClusterOptions map[string]coredns.CoreDNSClusterOption) map[string]client.Client
-	installCharts(t *testing.T, cluster string, index int)
-	validateCRDB(t *testing.T, cluster string, clients map[string]client.Client)
-}
 
 // OperatorUseCases defines use cases for the CockroachDB cluster.
 type OperatorUseCases interface {
@@ -86,201 +72,11 @@ type Region struct {
 	ReusingInfra bool
 	// Clients store the k8s client for each cluster
 	// needed for performing k8s operations on k8s objects.
-	Clients map[string]client.Client
-	cockroachEnterpriseOperator
-}
-
-// SetUpInfra Creates K3d clusters, deploy calico CNI, deploy coredns in each cluster.
-func (r *Region) SetUpInfra(t *testing.T, corednsClusterOptions map[string]coredns.CoreDNSClusterOption) {
-
-	// If using existing infra return clients.
-	if r.ReusingInfra {
-		return
-	}
-
-	var clients = make(map[string]client.Client)
-	// Get current context name.
-	kubeConfig, rawConfig := r.GetCurrentContext(t)
-
-	for i, cluster := range Clusters {
-		if _, ok := rawConfig.Contexts[cluster]; !ok {
-			// Create cluster using shell command.
-			err := createK3DCluster(t)
-			require.NoError(t, err)
-		}
-
-		cfg, err := config.GetConfigWithContext(cluster)
-		require.NoError(t, err)
-		k8sClient, err := client.New(cfg, client.Options{})
-		require.NoError(t, err)
-		clients[cluster] = k8sClient
-
-		// Add the apiextensions scheme to the client's scheme.
-		_ = apiextv1.AddToScheme(k8sClient.Scheme())
-
-		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, "kube-system")
-
-		// Install Calico.
-		calico.RegisterCalicoGVK(k8sClient.Scheme())
-		objects := calico.K3DCalicoCNI(calico.K3dClusterBGPConfig{
-			AddressAllocation: i,
-		})
-
-		for _, obj := range objects {
-			err = k8sClient.Create(context.Background(), obj)
-			require.NoError(t, err)
-		}
-
-		// Create or update CoreDNS deployment.
-		deployment := coredns.CoreDNSDeployment(2)
-		// Apply deployment.
-		deploymentYaml := coredns.ToYAML(t, deployment)
-		err = k8s.KubectlApplyFromStringE(t, kubectlOptions, deploymentYaml)
-		require.NoError(t, err)
-
-		// Wait for deployment to be ready.
-		_, err = retry.DoWithRetryE(t, "waiting for coredns deployment",
-			30, 10*time.Second,
-			func() (string, error) {
-				return k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-					"wait", "--for=condition=Available", "deployment/coredns")
-			})
-		require.NoError(t, err)
-
-		// Create CoreDNS service.
-		service := coredns.CoreDNSService()
-		serviceYaml := coredns.ToYAML(t, service)
-		// Apply service.
-		err = k8s.KubectlApplyFromStringE(t, kubectlOptions, serviceYaml)
-		require.NoError(t, err)
-
-		// Now get the DNS IPs.
-		var ips []string
-		_, err = retry.DoWithRetryE(t, "waiting for CoreDNS service IPs",
-			30, 10*time.Second,
-			func() (string, error) {
-				svc, err := k8s.GetServiceE(t, kubectlOptions, "crl-core-dns")
-				if err != nil {
-					return "", err
-				}
-
-				if len(svc.Status.LoadBalancer.Ingress) == 0 {
-					return "", fmt.Errorf("waiting for load balancer ingress")
-				}
-
-				// Collect IPs from ingress.
-				for _, ingress := range svc.Status.LoadBalancer.Ingress {
-					if ingress.IP != "" {
-						time.Sleep(5 * time.Second)
-						ips = append(ips, ingress.IP)
-					} else if ingress.Hostname != "" {
-						// If hostname is provided instead of IP, resolve it
-						resolvedIPs, err := net.LookupHost(ingress.Hostname)
-						if err != nil {
-							return "", fmt.Errorf("failed to resolve hostname %s: %v", ingress.Hostname, err)
-						}
-						ips = append(ips, resolvedIPs...)
-					}
-				}
-				return "", nil
-			})
-
-		require.NoError(t, err)
-
-		corednsClusterOptions[CustomDomains[cluster]] = coredns.CoreDNSClusterOption{
-			IPs:       ips,
-			Namespace: r.Namespace[cluster],
-			Domain:    CustomDomains[cluster],
-		}
-		if !r.IsMultiRegion {
-			break
-		}
-	}
-
-	// Update Coredns config.
-	for _, cluster := range Clusters {
-		// Create or update CoreDNS configmap.
-		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, "kube-system")
-		cm := coredns.CoreDNSConfigMap(CustomDomains[cluster], corednsClusterOptions)
-
-		// Apply the updated ConfigMap to Kubernetes.
-		cmYaml := coredns.ToYAML(t, cm)
-		err := k8s.KubectlApplyFromStringE(t, kubectlOptions, cmYaml)
-		require.NoError(t, err)
-
-		// restart coredns pods.
-		err = k8s.RunKubectlE(t, kubectlOptions, "rollout", "restart", "deployment", "coredns")
-		require.NoError(t, err)
-		if !r.IsMultiRegion {
-			r.Clients = clients
-			r.ReusingInfra = true
-			return
-		}
-	}
-	r.Clients = clients
-	r.ReusingInfra = true
-
-	netConfig := calico.K3dCalicoBGPPeeringOptions{
-		ClusterConfig: map[string]calico.K3dClusterBGPConfig{},
-	}
-
-	// Update network config for each region.
-	for i, region := range RegionCodes {
-		rawConfig.CurrentContext = Clusters[i]
-		kubectlOptions := k8s.NewKubectlOptions(Clusters[i], kubeConfig, "kube-system")
-		err := r.setupNetworking(t, context.TODO(), region, netConfig, kubectlOptions, i)
-		if err != nil {
-			t.Error(err)
-		}
-	}
-
-	objectsByRegion := calico.K3dCalicoBGPPeeringObjects(netConfig)
-	// Apply all the objects for each region on to the cluster.
-	for i, region := range RegionCodes {
-		ctl := clients[Clusters[i]]
-		for _, obj := range objectsByRegion[region] {
-			err := ctl.Create(context.Background(), obj)
-			require.NoError(t, err)
-		}
-	}
-}
-
-// setupNetworking ensures there is cross-k3d-cluster network connectivity and
-// service discovery.
-func (r *Region) setupNetworking(t *testing.T, ctx context.Context, region string, netConfig calico.K3dCalicoBGPPeeringOptions, options *k8s.KubectlOptions, clusterId int) error {
-	// Mark the master nodes as our bgp edge. These nodes will act as our bgp
-	// peers.
-	clusterConfig := netConfig.ClusterConfig[region]
-	clusterConfig.AddressAllocation = clusterId
-
-	ctl := r.Clients[options.ContextName]
-
-	// Get master nodes.
-	var nodes []corev1.Node
-	nodes, err := k8s.GetNodesByFilterE(t, options, metav1.ListOptions{
-		LabelSelector: fmt.Sprintf("%s=%s", "node-role.kubernetes.io/master", "true"),
-	})
-	if err != nil {
-		return errors.Wrapf(err, "list nodes in %s", region)
-	}
-
-	// Patch server nodes with new annotation.
-	for _, node := range nodes {
-		patch := []byte(`{"metadata": {"annotations": {"projectcalico.org/labels": "{\"edge\":\"true\"}"}}}`)
-		if err := ctl.Patch(ctx, &node, client.RawPatch(types.StrategicMergePatchType, patch)); err != nil {
-			return errors.Wrapf(err, "annotate node for calico edge")
-		}
-
-		time.Sleep(15 * time.Second)
-
-		for _, nodeAddress := range node.Status.Addresses {
-			if nodeAddress.Type == corev1.NodeInternalIP {
-				clusterConfig.PeeringNodes = append(clusterConfig.PeeringNodes, nodeAddress.Address)
-			}
-		}
-	}
-	netConfig.ClusterConfig[region] = clusterConfig
-	return nil
+	Clients               map[string]client.Client
+	Clusters              []string
+	CorednsClusterOptions map[string]coredns.CoreDNSClusterOption
+	Provider              string
+	RegionCodes           []string
 }
 
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
@@ -288,13 +84,13 @@ func (r *Region) setupNetworking(t *testing.T, ctx context.Context, region strin
 // verifies whether relevant services are up and running.
 func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	var crdbOp map[string]string
-	// Get current context name.
+	// Get the current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
 	// Get helm chart paths.
 	helmChartPath, _ := HelmChartPaths()
 
-	// Verify if cluster exists in the contexts.
+	// Verify if a cluster exists in the contexts.
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
 		t.Fatal()
 	}
@@ -304,7 +100,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
 
-	// Create namespace.
+	// Create a namespace.
 	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
 
 	if r.IsCertManager {
@@ -327,7 +123,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 
 	if r.IsCertManager {
 		crdbOp = PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain":               CustomDomains[cluster],
+			"cockroachdb.clusterDomain":               CustomDomains[index],
 			"cockroachdb.tls.enabled":                 "true",
 			"cockroachdb.tls.selfSigner.enabled":      "false",
 			"cockroachdb.tls.certManager.enabled":     "true",
@@ -336,7 +132,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 		})
 	} else {
 		crdbOp = PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain":             CustomDomains[cluster],
+			"cockroachdb.clusterDomain":             CustomDomains[index],
 			"cockroachdb.tls.selfSigner.caProvided": "true",
 			"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 		})
@@ -346,8 +142,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 		KubectlOptions: kubectlOptions,
 		SetValues:      crdbOp,
 		SetJsonValues: map[string]string{
-			"cockroachdb.crdbCluster.regions":        MustMarshalJSON(r.OperatorRegions(index, r.NodeCount)),
-			"cockroachdb.crdbCluster.localityLabels": MustMarshalJSON([]string{"topology.kubernetes.io/region", "topology.kubernetes.io/zone"}),
+			"cockroachdb.crdbCluster.regions": MustMarshalJSON(r.OperatorRegions(index, r.NodeCount)),
 		},
 		ExtraArgs: helmExtraArgs,
 	}
@@ -448,8 +243,8 @@ func (r *Region) VerifyHelmUpgrade(t *testing.T, initialTimestamp time.Time, kub
 // ValidateMultiRegionSetup validates the multi-region setup.
 func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 	// Validate multi-region setup.
-	for _, cluster := range Clusters {
-		// Get current context name.
+	for _, cluster := range r.Clusters {
+		// Get the current context name.
 		kubeConfig, rawConfig := r.GetCurrentContext(t)
 		rawConfig.CurrentContext = cluster
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
@@ -466,13 +261,11 @@ func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 			"-e", "SHOW REGIONS FROM CLUSTER")
 		require.NoError(t, err)
 
-		// Verify regions output.
-		expectedRegions := []string{
-			"k3d-us-east1",
-			"k3d-us-east2",
-		}
-		for _, clusterRegion := range expectedRegions {
-			require.Contains(t, stdout, clusterRegion)
+		// Verify regions output
+		for _, clusterRegion := range r.RegionCodes {
+			// For multi-region validation, check for cloud provider prefixed region names
+			expectedRegion := fmt.Sprintf("%s-%s", r.Provider, clusterRegion)
+			require.Contains(t, stdout, expectedRegion, "Expected region %s to be present in cluster output", expectedRegion)
 		}
 
 		// Execute node status command and verify node properties.
@@ -511,12 +304,38 @@ func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 		}
 
 		// Verify node count per region matches desired nodes.
-		for _, region := range expectedRegions {
+		for _, region := range r.RegionCodes {
+			region = fmt.Sprintf("%s-%s", r.Provider, region)
 			require.Equal(t, r.NodeCount, nodesPerRegion[region],
 				"Region %s has %d nodes, expected %d",
 				region, nodesPerRegion[region], r.NodeCount)
 		}
 	}
+}
+
+func (r *Region) ValidateCRDBContainerResources(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+	// Wait for resource specifications to be applied
+	_, err := retry.DoWithRetryE(t, "waiting for container resources to be updated",
+		30, 5*time.Second,
+		func() (string, error) {
+			pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+				LabelSelector: LabelSelector,
+			})
+
+			for _, pod := range pods {
+				containers := pod.Spec.Containers
+				for _, container := range containers {
+					if container.Name == CockroachContainerName {
+						quantity := container.Resources.Requests["cpu"]
+						if container.Resources.Requests == nil || quantity.IsZero() {
+							return "", fmt.Errorf("container %s resources not yet updated", container.Name)
+						}
+					}
+				}
+			}
+			return "", nil
+		})
+	require.NoError(t, err)
 }
 
 // CreateCACertificate creates CA cert and key at the same path.
@@ -545,15 +364,44 @@ func (r *Region) CleanUpCACertificate(t *testing.T) {
 	shell.RunCommand(t, cmd)
 }
 
-// GetCurrentContext gets current cluster context from KubeConfig.
+// GetCurrentContext gets the current cluster context from KubeConfig.
 func (r *Region) GetCurrentContext(t *testing.T) (string, api.Config) {
+	// Try to get kubeconfig path using the standard method
 	kubeConfig, err := k8s.GetKubeConfigPathE(t)
 	require.NoError(t, err)
-
+	_, err = r.EnsureKubeConfigPath()
+	require.NoError(t, err)
 	config := k8s.LoadConfigFromPath(kubeConfig)
 	rawConfig, err := config.RawConfig()
 	require.NoError(t, err)
 	return kubeConfig, rawConfig
+}
+
+// EnsureKubeConfigPath ensures that the kubeconfig file exists and returns its path.
+func (r *Region) EnsureKubeConfigPath() (string, error) {
+	kubeConfigPath, err := k8s.KubeConfigPathFromHomeDirE()
+	kubeConfigDir := filepath.Dir(kubeConfigPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to get kubeconfig path: %w", err)
+	}
+
+	// Check if a directory exists, create if not.
+	if _, err := os.Stat(kubeConfigDir); os.IsNotExist(err) {
+		if err := os.MkdirAll(kubeConfigDir, 0755); err != nil {
+			return "", fmt.Errorf("failed to create .kube directory: %w", err)
+		}
+	}
+
+	// Check if a file exists, create an empty one if not.
+	if _, err := os.Stat(kubeConfigPath); os.IsNotExist(err) {
+		// Create an empty kubeconfig file.
+		emptyConfig := []byte("apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n")
+		if err := os.WriteFile(kubeConfigPath, emptyConfig, 0644); err != nil {
+			return "", fmt.Errorf("failed to create empty kubeconfig file: %w", err)
+		}
+	}
+
+	return kubeConfigPath, nil
 }
 
 // CleanupResources will clean the resources installed by Operator, CockroachDB charts and deletes the namespace.
@@ -593,7 +441,7 @@ func (r *Region) CleanupResources(t *testing.T) {
 // OperatorRegions returns the regions config based on the index
 // which is referring to cluster index.
 func (r *Region) OperatorRegions(index int, nodes int) []map[string]interface{} {
-	return r.createOperatorRegions(index, nodes, CustomDomains, Clusters, RegionCodes)
+	return r.createOperatorRegions(index, nodes, CustomDomains)
 }
 
 func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
@@ -604,44 +452,25 @@ func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 	return helmChartPath, operatorChartPath
 }
 
-// createK3DCluster creates a new k3d cluster
-// by calling the make command which will create
-// single k3d cluster.
-func createK3DCluster(t *testing.T) error {
-	cmd := shell.Command{
-		Command: "make",
-		Args: []string{
-			"test/single-cluster/up",
-		},
-		WorkingDir: "../../../..",
-	}
-
-	output, err := shell.RunCommandAndGetOutputE(t, cmd)
-	if err != nil {
-		return fmt.Errorf("failed to create cluster: %v\nOutput: %s", err, output)
-	}
-	return nil
-}
-
 // createOperatorRegions returns the appropriate regions config
 // required while installing CockroachDb charts.
-func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[string]string, clusters []string, regionCodes []string) []map[string]interface{} {
-	regions := make([]map[string]interface{}, 0, len(regionCodes))
+func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[int]string) []map[string]interface{} {
+	regions := make([]map[string]interface{}, 0, len(r.Clusters))
 
-	for i, code := range regionCodes {
+	for i := 0; i < len(r.Clusters); i++ {
 		if i > index {
 			break
 		}
 
 		region := map[string]interface{}{
-			"code":          code,
-			"cloudProvider": CloudProvider,
+			"code":          r.RegionCodes[i],
+			"cloudProvider": r.Provider,
 			"nodes":         nodes,
-			"namespace":     r.Namespace[clusters[i]],
+			"namespace":     r.Namespace[r.Clusters[i]],
 		}
 
-		if len(clusters) > i && clusters[i] != "" {
-			if domain, ok := customDomains[clusters[i]]; ok {
+		if len(r.Clusters) > i && r.Clusters[i] != "" {
+			if domain, ok := customDomains[i]; ok {
 				region["domain"] = domain
 			}
 		}

@@ -118,15 +118,11 @@ test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/cluster/up
 	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
 
-test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer test/single-cluster/up
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || EXIT_CODE=$$?; \
-	$(MAKE) test/multi-cluster/down; \
-	exit $${EXIT_CODE:-0}
+test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Multi region tests failed with exit code $$?" && exit 1)
 
-test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer test/single-cluster/up
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || EXIT_CODE=$$?; \
-	$(MAKE) test/multi-cluster/down; \
-	exit $${EXIT_CODE:-0}
+test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Single region tests failed with exit code $$?" && exit 1)
 
 test/e2e/migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/self-signer test/cluster/up/3
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
@@ -137,7 +133,14 @@ test/single-cluster/up: bin/k3d
 	 ./tests/k3d/dev-multi-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters 1
 
 test/multi-cluster/down: bin/k3d
-	 ./tests/k3d/dev-multi-cluster.sh down --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters $(REGIONS)
+	 ./tests/k3d/dev-multi-cluster.sh down
+
+test/nightly-e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Single region tests failed with exit code $$?" && exit 1)
+
+test/nightly-e2e/multi-region: bin/cockroach bin/kubectl bin/helm build/self-signer
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Multi region tests failed with exit code $$?" && exit 1)
+
 
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && \
@@ -170,7 +173,7 @@ bin/helm: ## install helm
 
 bin/k3d: ## install k3d
 	@mkdir -p bin
-	@curl -Lo bin/k3d $(K3D_BIN)	
+	@curl -Lo bin/k3d $(K3D_BIN)
 	@chmod +x bin/k3d
 
 bin/kubectl: ## install kubectl
