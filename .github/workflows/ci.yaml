@@ -43,7 +43,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.22
+          go-version: 1.23
 
       - name: Checkout sources
         uses: actions/checkout@v3
@@ -95,7 +95,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.22
+          go-version: 1.23
 
       - name: HelmTemplate
         run: make test/template
@@ -149,7 +149,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.22
+          go-version: 1.23
 
       - name: Run E2E Test
         run: make test/e2e/install
@@ -175,7 +175,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.22
+          go-version: 1.23
 
       - name: Run E2E Test
         run: make test/e2e/rotate
@@ -201,7 +201,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.22
+          go-version: 1.23
 
       - name: Run E2E Test
         run: make test/e2e/single-region
@@ -227,7 +227,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.22
+          go-version: 1.23
 
       - name: Run E2E Test
         run: make test/e2e/multi-region
@@ -252,7 +252,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.22
+          go-version: 1.23
 
       - name: Run E2E Test
         run: make test/e2e/migrate
@@ -277,7 +277,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v3
         with:
-          go-version: 1.22
+          go-version: 1.23
 
       - name: generate configs
         run: go run build/build.go generate
