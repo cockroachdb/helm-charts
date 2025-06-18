@@ -199,7 +199,7 @@ func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
 								ReadOnlyRootFilesystem: proto.Bool(true),
 							},
 							LivenessProbe: &corev1.Probe{
-								Handler: corev1.Handler{
+								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
 										Path:   "/health",
 										Port:   healthCheckPort,
@@ -212,7 +212,7 @@ func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
 								FailureThreshold:    5,
 							},
 							ReadinessProbe: &corev1.Probe{
-								Handler: corev1.Handler{
+								ProbeHandler: corev1.ProbeHandler{
 									HTTPGet: &corev1.HTTPGetAction{
 										Path:   "/ready",
 										Port:   readinessPort,
