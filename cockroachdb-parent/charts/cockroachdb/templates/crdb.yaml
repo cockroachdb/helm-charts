@@ -45,7 +45,6 @@ spec:
           {{- /* Note: defaults should match secrets and configmaps created by the self-signer job. */}}
           caConfigMapName: {{ default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
           httpSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
-          nodeClientSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
           nodeSecretName: {{ default (printf "%s-node-secret" (include "cockroachdb.fullname" .)) }}
           rootSqlClientSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
         {{- end }}
@@ -53,7 +52,6 @@ spec:
         externalCertificates:
           caConfigMapName: {{ .Values.cockroachdb.tls.certManager.caConfigMap }}
           nodeSecretName: {{ .Values.cockroachdb.tls.certManager.nodeSecret }}
-          nodeClientSecretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
           httpSecretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
           rootSqlClientSecretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
         {{- end }}
