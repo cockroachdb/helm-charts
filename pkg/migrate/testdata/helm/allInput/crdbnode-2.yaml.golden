@@ -27,7 +27,6 @@ spec:
     externalCertificates:
       caConfigMapName: cockroachdb-ca-secret-crt
       httpSecretName: cockroachdb-client-secret
-      nodeClientSecretName: cockroachdb-client-secret
       nodeSecretName: cockroachdb-node-secret
       rootSqlClientSecretName: cockroachdb-client-secret
   dataStore:
