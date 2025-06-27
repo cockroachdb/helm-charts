@@ -287,7 +287,6 @@ func buildNodeSpecFromHelm(
 				NodeSecretName:          input.nodeSecretName,
 				RootSQLClientSecretName: input.clientSecretName,
 				HTTPSecretName:          input.clientSecretName,
-				NodeClientSecretName:    input.clientSecretName,
 			},
 		},
 		Affinity:                  sts.Spec.Template.Spec.Affinity,
@@ -318,7 +317,6 @@ func buildHelmValuesFromHelm(
 				"nodeSecretName":          input.nodeSecretName,
 				"rootSqlClientSecretName": input.clientSecretName,
 				"httpSecretName":          input.clientSecretName,
-				"nodeClientSecretName":    input.clientSecretName,
 			},
 		},
 	}
