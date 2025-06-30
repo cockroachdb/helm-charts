@@ -95,7 +95,7 @@ spec:
             - {{ template "cockroachdb.pg_url" $ }}
             - --visus-metrics
             - --bind-addr
-            - localhost:{{ .Values.visus.bind_port }}
+            - :{{ .Values.visus.bind_port }}
             {{- if .Values.visus.insecure }}
             - --insecure
             {{- else }}

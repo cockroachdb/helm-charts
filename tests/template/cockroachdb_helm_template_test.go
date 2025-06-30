@@ -142,7 +142,7 @@ func TestHelmVisusSidecar(t *testing.T) {
 		"postgres://root@localhost:26257/defaultdb?application_name=visus&sslmode=verify-full&ssrootcert=/cockroach/client/ca.crt&sslcert=/cockroach/client/client.root.crt&sslkey=/cockroach/client/client.root.key",
 		"--visus-metrics",
 		"--bind-addr",
-		"localhost:8888",
+		":8888",
 		"--insecure",
 	}, sts.Spec.Template.Spec.InitContainers[1].Command)
 }
