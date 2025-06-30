@@ -105,6 +105,22 @@ kubectl apply -f manifests/crdbnode-2.yaml
 
 Wait until the new pod is ready. If it fails to become ready, check the Cloud Operator logs for errors.
 
+To ensure your CockroachDB node is fully ready before proceeding with the next replica migration, verify that there are no under-replicated ranges. You can check this using the `ranges_underreplicated` metric, which should be zero.
+
+First, set up port forwarding to access the CockroachDB node's HTTP interface:
+```
+kubectl port-forward pod/cockroachdb-2 8080:8080
+```
+Note: CockroachDB's UI is running on 8080 port by default.
+
+Now, you can verify the metric by running following command:
+```
+curl --insecure -s https://localhost:8080/_status/vars | grep "ranges_underreplicated{" | awk '
+{print $2}'
+```
+The above command will emit the number of under-replicated ranges on the particular CockroachDB
+node and it should be zero before proceeding to next crdb node.
+
 Repeat this process for each CRDB node until the StatefulSet reaches zero replicas.
 
 The public operator creates a pod disruption budget that conflicts with a pod disruption budget managed by the cloud operator. Before applying the crdbcluster manifest, delete the existing pod disruption budget:
