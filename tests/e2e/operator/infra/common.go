@@ -165,6 +165,12 @@ func DeployCoreDNS(t *testing.T, clusterName, kubeConfigPath string, staticIP *s
 
 	// 5. Deploy Service with provider-specific annotations.
 	annotations := GetLoadBalancerAnnotations(provider)
+
+	// For GCP, use the annotation approach for static IP (preferred in newer K8s versions).
+	if provider == ProviderGCP && staticIP != nil {
+		annotations["networking.gke.io/load-balancer-ip"] = *staticIP
+	}
+
 	service := coredns.CoreDNSService(staticIP, annotations)
 	svcYAML := coredns.ToYAML(t, service)
 	if err := k8s.KubectlApplyFromStringE(t, kubectlOpts, svcYAML); err != nil {

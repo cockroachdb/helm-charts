@@ -11,14 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"google.golang.org/api/googleapi"
-
 	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/container/v1"
+	"google.golang.org/api/googleapi"
 	"google.golang.org/api/option"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -27,7 +26,6 @@ import (
 // ─── GCP CONSTANTS ───────────────────────────────────────────────────────────────
 
 const (
-	projectID                = "cockroach-nishanth"
 	vpcName                  = "cockroachdb-vpc"
 	defaultNodeTag           = "cockroachdb-node"
 	serviceAccountKeyPath    = "" // optional path to service-account JSON; if empty, ADC is used.
@@ -35,6 +33,17 @@ const (
 	internalFirewallRuleName = "allow-internal"
 	subnetSuffix             = "subnet" // suffix for dynamically created subnets.
 )
+
+// Default project ID to use if not specified in the environment.
+const defaultProjectID = "helm-testing"
+
+// getProjectID returns the GCP project ID from the environment variable or falls back to default.
+func getProjectID() string {
+	if projectID := os.Getenv("GCP_PROJECT_ID"); projectID != "" {
+		return projectID
+	}
+	return defaultProjectID
+}
 
 func getGCPClusterCIDR(region string) string {
 	if config, ok := NetworkConfigs[ProviderGCP][region]; ok {
@@ -132,14 +141,14 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 	require.NoError(t, err, "failed to create Compute client")
 
 	// 2) Create or reuse VPC (custom mode).
-	networkOp, err := createVPC(ctx, computeService, projectID, vpcName)
+	networkOp, err := createVPC(ctx, computeService, getProjectID(), vpcName)
 	if err != nil && !IsResourceConflict(err) {
 		t.Fatalf("VPC creation failed: %v", err)
 	}
 	if networkOp != nil {
-		waitForGlobalComputeOperation(ctx, computeService, projectID, networkOp.Name)
+		waitForGlobalComputeOperation(ctx, computeService, getProjectID(), networkOp.Name)
 	}
-	vpcSelfLink := fmt.Sprintf("projects/%s/global/networks/%s", projectID, vpcName)
+	vpcSelfLink := fmt.Sprintf("projects/%s/global/networks/%s", getProjectID(), vpcName)
 
 	// 3) Create subnets.
 	var allSubnetRanges []string
@@ -152,12 +161,12 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 		subnetName := fmt.Sprintf("%s-%s", clusterName, subnetSuffix)
 		clusterConfigurations[i].SubnetName = subnetName
 		// 3a) Create or reuse subnet
-		subnetOp, err := createSubnet(ctx, computeService, projectID, setup.Region, vpcSelfLink, subnetName, setup.SubnetRange)
+		subnetOp, err := createSubnet(ctx, computeService, getProjectID(), setup.Region, vpcSelfLink, subnetName, setup.SubnetRange)
 		if err != nil && !IsResourceConflict(err) {
 			t.Fatalf("subnet %s creation failed: %v", subnetName, err)
 		}
 		if subnetOp != nil {
-			waitForRegionalComputeOperation(ctx, computeService, projectID, setup.Region, subnetOp.Name)
+			waitForRegionalComputeOperation(ctx, computeService, getProjectID(), setup.Region, subnetOp.Name)
 		}
 		allSubnetRanges = append(allSubnetRanges, setup.SubnetRange)
 		allClusterIPV4CIDRs = append(allClusterIPV4CIDRs, setup.ClusterIPV4CIDR)
@@ -165,11 +174,11 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 	}
 
 	// 4) Create or reuse static IP addresses.
-	for i, _ := range r.Clusters {
+	for i := range r.Clusters {
 		setup := clusterConfigurations[i]
 		addressName := fmt.Sprintf("coredns-loadbalancer-%s", setup.Region)
-		subnetSelfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", projectID, setup.Region, setup.SubnetName)
-		allocID, err := ensureStaticIPAddress(ctx, computeService, projectID, setup.Region, addressName, setup.StaticIPAddress, subnetSelfLink)
+		subnetSelfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", getProjectID(), setup.Region, setup.SubnetName)
+		allocID, err := ensureStaticIPAddress(ctx, computeService, getProjectID(), setup.Region, addressName, setup.StaticIPAddress, subnetSelfLink)
 		require.NoError(t, err, "failed to ensure static IP")
 		// We store the allocation ID in the StaticIPAddress field for later reference in CoreDNS service creation.
 		setup.StaticIPAddress = allocID
@@ -178,7 +187,7 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 	// 5) Create firewall rules (IDEMPOTENT)
 	// 5a) Allow port 9443
 	allow9443 := []*compute.FirewallAllowed{{IPProtocol: "tcp", Ports: []string{"9443"}}}
-	_, err = createFirewallRuleIfNotExists(ctx, computeService, projectID, vpcSelfLink, webhookFirewallRuleName, allow9443, []string{defaultNodeTag}, allSubnetRanges)
+	_, err = createFirewallRuleIfNotExists(ctx, computeService, getProjectID(), vpcSelfLink, webhookFirewallRuleName, allow9443, []string{defaultNodeTag}, allSubnetRanges)
 	require.NoError(t, err, "failed to create webhook firewall rule")
 
 	// 5b) Allow internal (TCP,UDP,ICMP)
@@ -186,7 +195,7 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 		{IPProtocol: "tcp"}, {IPProtocol: "udp"}, {IPProtocol: "icmp"},
 	}
 	allSources := append(allSubnetRanges, allClusterIPV4CIDRs...)
-	_, err = createFirewallRuleIfNotExists(ctx, computeService, projectID, vpcSelfLink, internalFirewallRuleName, internalAllow, []string{defaultNodeTag}, allSources)
+	_, err = createFirewallRuleIfNotExists(ctx, computeService, getProjectID(), vpcSelfLink, internalFirewallRuleName, internalAllow, []string{defaultNodeTag}, allSources)
 	require.NoError(t, err, "failed to create internal firewall rule")
 
 	// 6) Create GKE clusters.
@@ -200,7 +209,7 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 		cfg := clusterConfigurations[i]
 
 		// 6a) Discover zones for this region.
-		zones, err := discoverNodeLocations(ctx, computeService, projectID, cfg.Region)
+		zones, err := discoverNodeLocations(ctx, computeService, getProjectID(), cfg.Region)
 		require.NoError(t, err, "failed to discover zones")
 		cfg.NodeZones = zones[:r.NodeCount]
 
@@ -211,7 +220,7 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 		}
 
 		// 6c) Fetch credentials via gcloud (aliases context to cluster name)
-		err = UpdateKubeconfigGCP(t, projectID, cfg.Region, clusterName, clusterName)
+		err = UpdateKubeconfigGCP(t, getProjectID(), cfg.Region, clusterName, clusterName)
 		require.NoError(t, err, "failed to update kubeconfig for cluster %s", clusterName)
 
 		// 6d) Prepare a controller-runtime client for this context.
@@ -255,7 +264,7 @@ func (r *GcpRegion) TeardownInfra(t *testing.T) {
 		t.Logf("[%s] Deleting GKE cluster '%s'", ProviderGCP, cfg.ClusterName)
 
 		// Check for ongoing operations.
-		clusterPath := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", projectID, cfg.Region, cfg.ClusterName)
+		clusterPath := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", getProjectID(), cfg.Region, cfg.ClusterName)
 		cluster, err := gkeService.Projects.Locations.Clusters.Get(clusterPath).Context(ctx).Do()
 		if err != nil {
 			if IsResourceNotFound(err) {
@@ -279,7 +288,7 @@ func (r *GcpRegion) TeardownInfra(t *testing.T) {
 
 		// Now try to delete the cluster.
 		delCmd := exec.Command("gcloud", "container", "clusters", "delete", cfg.ClusterName,
-			"--region", cfg.Region, "--project", projectID, "--quiet", "--async")
+			"--region", cfg.Region, "--project", getProjectID(), "--quiet", "--async")
 		delCmd.Stdout = os.Stdout
 		delCmd.Stderr = os.Stderr
 		if err := delCmd.Run(); err != nil {
@@ -289,7 +298,7 @@ func (r *GcpRegion) TeardownInfra(t *testing.T) {
 
 	// Wait for all cluster deletions to complete.
 	for _, cfg := range clusterConfigurations[:len(r.Clusters)] {
-		clusterPath := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", projectID, cfg.Region, cfg.ClusterName)
+		clusterPath := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", getProjectID(), cfg.Region, cfg.ClusterName)
 		for retries := 0; retries < 10; retries++ {
 			_, err := gkeService.Projects.Locations.Clusters.Get(clusterPath).Context(ctx).Do()
 			if IsResourceNotFound(err) {
@@ -306,7 +315,7 @@ func (r *GcpRegion) TeardownInfra(t *testing.T) {
 	// 2) Delete static IPs (unreserve).
 	for _, cfg := range clusterConfigurations[:len(r.Clusters)] {
 		addressName := fmt.Sprintf("coredns-loadbalancer-%s", cfg.Region)
-		_, err := computeService.Addresses.Delete(projectID, cfg.Region, addressName).Context(ctx).Do()
+		_, err := computeService.Addresses.Delete(getProjectID(), cfg.Region, addressName).Context(ctx).Do()
 		if err != nil && !IsResourceNotFound(err) {
 			t.Logf("[%s] Warning: failed to delete static IP %s: %v", ProviderGCP, addressName, err)
 		}
@@ -314,7 +323,7 @@ func (r *GcpRegion) TeardownInfra(t *testing.T) {
 
 	// 3) Delete firewall rules.
 	for _, rule := range []string{webhookFirewallRuleName, internalFirewallRuleName} {
-		_, err = computeService.Firewalls.Delete(projectID, rule).Context(ctx).Do()
+		_, err = computeService.Firewalls.Delete(getProjectID(), rule).Context(ctx).Do()
 		if err != nil && !IsResourceNotFound(err) {
 			t.Logf("[%s] Warning: failed to delete firewall rule %s: %v", ProviderGCP, rule, err)
 		}
@@ -322,14 +331,14 @@ func (r *GcpRegion) TeardownInfra(t *testing.T) {
 
 	// 4) Delete subnets.
 	for _, cfg := range clusterConfigurations[:len(r.Clusters)] {
-		_, err = computeService.Subnetworks.Delete(projectID, cfg.Region, cfg.SubnetName).Context(ctx).Do()
+		_, err = computeService.Subnetworks.Delete(getProjectID(), cfg.Region, cfg.SubnetName).Context(ctx).Do()
 		if err != nil && !IsResourceNotFound(err) {
 			t.Logf("[%s] Warning: failed to delete subnet %s: %v", ProviderGCP, cfg.SubnetName, err)
 		}
 	}
 
 	// 5) Delete VPC
-	_, err = computeService.Networks.Delete(projectID, vpcName).Context(ctx).Do()
+	_, err = computeService.Networks.Delete(getProjectID(), vpcName).Context(ctx).Do()
 	if err != nil && !IsResourceNotFound(err) {
 		t.Logf("[%s] Warning: failed to delete VPC %s: %v", ProviderGCP, vpcName, err)
 	}
@@ -494,7 +503,7 @@ func createGKERegionalCluster(ctx context.Context, client *container.Service, se
 	vpcSelfLink string) error {
 
 	// Construct the full cluster name path for the Get request.
-	clusterPath := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", projectID, setup.Region, setup.ClusterName)
+	clusterPath := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", getProjectID(), setup.Region, setup.ClusterName)
 
 	//See if the cluster already exists.
 	_, err := client.Projects.Locations.Clusters.Get(clusterPath).Context(ctx).Do()
@@ -514,13 +523,13 @@ func createGKERegionalCluster(ctx context.Context, client *container.Service, se
 	// If we get here, it means the error was a 404, so the cluster does not exist. Proceed with creation.
 	fmt.Printf("Cluster '%s' not found, proceeding with creation...\n", setup.ClusterName)
 
-	subnetSelfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", projectID, setup.Region, setup.SubnetName)
+	subnetSelfLink := fmt.Sprintf("projects/%s/regions/%s/subnetworks/%s", getProjectID(), setup.Region, setup.SubnetName)
 
 	// Construct the arguments slice for the gcloud command
 	args := []string{
 		"container", "clusters", "create", setup.ClusterName,
 		"--region", setup.Region,
-		"--project", projectID,
+		"--project", getProjectID(),
 		"--network", vpcSelfLink,
 		"--subnetwork", subnetSelfLink,
 		"--cluster-ipv4-cidr", setup.ClusterIPV4CIDR,
@@ -595,9 +604,9 @@ func waitForGKEOperation(service *container.Service, operationName, location, zo
 		var op *container.Operation
 		var err error
 		if zone != "" {
-			op, err = service.Projects.Zones.Operations.Get(projectID, zone, opID).Context(context.Background()).Do()
+			op, err = service.Projects.Zones.Operations.Get(getProjectID(), zone, opID).Context(context.Background()).Do()
 		} else {
-			name := fmt.Sprintf("projects/%s/locations/%s/operations/%s", projectID, location, opID)
+			name := fmt.Sprintf("projects/%s/locations/%s/operations/%s", getProjectID(), location, opID)
 			op, err = service.Projects.Locations.Operations.Get(name).Context(context.Background()).Do()
 		}
 		if err != nil {

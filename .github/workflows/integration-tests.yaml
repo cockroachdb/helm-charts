@@ -3,7 +3,7 @@ name: integration-tests
 on:
   # Run integration tests nightly.
   schedule:
-    - cron: "0 0 * * *"
+    - cron: "15 6 * * *"  # Run at 6:15 AM UTC to avoid peak times
   # Or trigger on demand.
   workflow_dispatch:
 
@@ -13,9 +13,11 @@ jobs:
     permissions:
       contents: 'read'
       id-token: 'write'
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
     steps:
       - uses: actions/checkout@v4
-      - name: Setup Go ${{ matrix.go-version }}
+      - name: Setup Go
         uses: actions/setup-go@v5
         with:
           go-version: 1.23
@@ -26,9 +28,8 @@ jobs:
         id: auth
         with:
           token_format: access_token
-          project_id: 'cockroach-nishanth'
-          workload_identity_provider: 'projects/893592977954/locations/global/workloadIdentityPools/github-actions/providers/github-actions-provider'
-          service_account: 'github-actions-sa@cockroach-nishanth.iam.gserviceaccount.com'
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Run tests
         env:
           isNightly: true

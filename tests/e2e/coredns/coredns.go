@@ -2,7 +2,6 @@ package coredns
 
 import (
 	"fmt"
-	v1 "k8s.io/api/rbac/v1"
 	"regexp"
 	"sort"
 	"strings"
@@ -11,6 +10,7 @@ import (
 	"google.golang.org/protobuf/proto"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -31,6 +31,7 @@ import (
 // Todo(nishanth): We will directly import this code, once
 // we move operator code into a separate repo.
 
+// CoreDNSServiceAccount returns a ServiceAccount for CoreDNS.
 func CoreDNSServiceAccount() *corev1.ServiceAccount {
 	return &corev1.ServiceAccount{
 		TypeMeta: metav1.TypeMeta{
@@ -44,6 +45,7 @@ func CoreDNSServiceAccount() *corev1.ServiceAccount {
 	}
 }
 
+// CoreDNSClusterRole returns a ClusterRole for CoreDNS with necessary permissions.
 func CoreDNSClusterRole() *v1.ClusterRole {
 	return &v1.ClusterRole{
 		TypeMeta: metav1.TypeMeta{
@@ -71,6 +73,7 @@ func CoreDNSClusterRole() *v1.ClusterRole {
 	}
 }
 
+// CoreDNSClusterRoleBinding returns a ClusterRoleBinding that binds the CoreDNS ServiceAccount to the CoreDNS ClusterRole.
 func CoreDNSClusterRoleBinding() *v1.ClusterRoleBinding {
 	return &v1.ClusterRoleBinding{
 		TypeMeta: metav1.TypeMeta{
@@ -100,6 +103,11 @@ func CoreDNSClusterRoleBinding() *v1.ClusterRoleBinding {
 
 // CoreDNSService returns coredns service object.
 func CoreDNSService(IpAddress *string, annotations map[string]string) *corev1.Service {
+	// Create a copy of the annotations to avoid modifying the original map
+	serviceAnnotations := make(map[string]string)
+	for k, v := range annotations {
+		serviceAnnotations[k] = v
+	}
 
 	svc := &corev1.Service{
 		TypeMeta: metav1.TypeMeta{
@@ -112,7 +120,7 @@ func CoreDNSService(IpAddress *string, annotations map[string]string) *corev1.Se
 			},
 			Name:        "crl-core-dns",
 			Namespace:   "kube-system",
-			Annotations: annotations,
+			Annotations: serviceAnnotations,
 		},
 		Spec: corev1.ServiceSpec{
 			Type: corev1.ServiceTypeLoadBalancer,
@@ -129,17 +137,21 @@ func CoreDNSService(IpAddress *string, annotations map[string]string) *corev1.Se
 			},
 		},
 	}
+
+	// For backward compatibility, set the LoadBalancerIP field.
+	// This will work for providers that still support it.
 	if IpAddress != nil {
 		svc.Spec.LoadBalancerIP = *IpAddress
 	}
+
 	return svc
 }
 
 // CoreDNSDeployment returns coredns deployment object.
 func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
-	healthCheckPort := intstr.FromInt(8080)
-	maxSurge := intstr.FromInt(1)
-	readinessPort := intstr.FromInt(8181)
+	healthCheckPort := intstr.FromInt32(8080)
+	maxSurge := intstr.FromInt32(1)
+	readinessPort := intstr.FromInt32(8181)
 
 	memoryLimit, err := resource.ParseQuantity("170Mi")
 	if err != nil {
@@ -320,6 +332,8 @@ func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
 	}
 }
 
+// CoreDNSClusterOption defines configuration options for CoreDNS in a multi-cluster environment.
+// It contains information needed for cross-cluster DNS resolution.
 type CoreDNSClusterOption struct {
 	// Namespace is the namespace where other clusters can resolve
 	// services by querying <service-name>.<namespace>.<svc>.cluster.local.

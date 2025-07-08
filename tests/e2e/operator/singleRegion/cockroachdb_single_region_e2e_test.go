@@ -8,19 +8,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gruntwork-io/terratest/modules/random"
-
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
-
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
+
+// Environment variable name to check if running in nightly mode
+const isNightlyEnvVar = "isNightly"
 
 type singleRegion struct {
 	operator.OperatorUseCases
@@ -32,7 +33,7 @@ func newSingleRegion() *singleRegion {
 }
 func TestOperatorInSingleRegion(t *testing.T) {
 	var providers []string
-	if os.Getenv("isNightly") == "false" {
+	if os.Getenv(isNightlyEnvVar) == "false" {
 		providers = []string{infra.ProviderK3D}
 	} else {
 		providers = []string{infra.ProviderGCP}

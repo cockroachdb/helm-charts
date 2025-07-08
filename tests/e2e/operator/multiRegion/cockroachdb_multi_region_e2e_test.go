@@ -20,6 +20,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// Environment variable name to check if running in nightly mode
+const isNightlyEnvVar = "isNightly"
+
 // Region codes for each provider are now centralized in infra.RegionCodes
 type multiRegion struct {
 	operator.OperatorUseCases
@@ -33,7 +36,7 @@ func newMultiRegion() *multiRegion {
 // TestOperatorInMultiRegion tests CockroachDB operator functionality across multiple regions
 func TestOperatorInMultiRegion(t *testing.T) {
 	var providers []string
-	if os.Getenv("isNightly") == "false" {
+	if os.Getenv(isNightlyEnvVar) == "false" {
 		providers = []string{infra.ProviderK3D}
 	} else {
 		providers = []string{infra.ProviderGCP}
