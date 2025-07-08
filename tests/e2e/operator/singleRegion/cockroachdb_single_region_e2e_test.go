@@ -33,10 +33,10 @@ func newSingleRegion() *singleRegion {
 }
 func TestOperatorInSingleRegion(t *testing.T) {
 	var providers []string
-	if os.Getenv(isNightlyEnvVar) == "false" {
-		providers = []string{infra.ProviderK3D}
-	} else {
+	if os.Getenv(isNightlyEnvVar) == "true" {
 		providers = []string{infra.ProviderGCP}
+	} else {
+		providers = []string{infra.ProviderK3D}
 	}
 
 	// Create a WaitGroup to track when all provider tests complete
