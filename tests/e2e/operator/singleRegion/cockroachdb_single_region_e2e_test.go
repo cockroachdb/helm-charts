@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -39,16 +38,10 @@ func TestOperatorInSingleRegion(t *testing.T) {
 		providers = []string{infra.ProviderK3D}
 	}
 
-	// Create a WaitGroup to track when all provider tests complete
-	var wg sync.WaitGroup
-
-	// Add the number of providers to the WaitGroup
-	wg.Add(len(providers))
-
 	for _, provider := range providers {
 		provider := provider // Create a new variable to avoid closure issues
 		t.Run(provider, func(t *testing.T) {
-			t.Parallel() // Run provider tests in parallel
+			t.Parallel()
 
 			// Create a provider-specific instance to avoid race conditions.
 			providerRegion := newSingleRegion()
@@ -69,7 +62,6 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			// Teardown infra for this provider.
 			defer func() {
 				providerRegion.tearDownInfra(t, provider)
-				wg.Done()
 			}()
 
 			t.Run("TestHelmInstall", providerRegion.TestHelmInstall)
@@ -80,10 +72,6 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			t.Run("TestInstallWithCertManager", providerRegion.TestInstallWithCertManager)
 		})
 	}
-
-	// Wait for all provider tests to complete before returning
-	// This ensures the main test function doesn't exit until all subtests are done
-	wg.Wait()
 }
 
 // TestHelmInstall will install Operator and CockroachDB charts

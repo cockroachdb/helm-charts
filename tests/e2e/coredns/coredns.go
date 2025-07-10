@@ -103,7 +103,7 @@ func CoreDNSClusterRoleBinding() *v1.ClusterRoleBinding {
 
 // CoreDNSService returns coredns service object.
 func CoreDNSService(IpAddress *string, annotations map[string]string) *corev1.Service {
-	// Create a copy of the annotations to avoid modifying the original map
+	// Create a copy of the annotations to avoid modifying the original map.
 	serviceAnnotations := make(map[string]string)
 	for k, v := range annotations {
 		serviceAnnotations[k] = v

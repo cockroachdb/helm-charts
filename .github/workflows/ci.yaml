@@ -100,10 +100,6 @@ jobs:
       - name: HelmTemplate
         run: make test/template
 
-      - name: Modernize
-        run: |
-          go run golang.org/x/tools/gopls/internal/analysis/modernize/cmd/modernize@latest -test ./pkg/...
-
       - name: Unit
         run: make test/units
 

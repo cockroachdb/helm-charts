@@ -1,14 +1,16 @@
 name: integration-tests
 
 on:
-  # Run integration tests nightly.
+  # Run integration tests nightly only on master branch
   schedule:
     - cron: "15 6 * * *"  # Run at 6:15 AM UTC to avoid peak times
-  # Or trigger on demand.
+  # Allow manual trigger on any branch
   workflow_dispatch:
-
+    
 jobs:
   integration-tests:
+    # For scheduled runs, only run on master branch
+    if: github.event_name != 'schedule' || github.ref == 'refs/heads/master'
     runs-on: ubuntu-latest-x64-8-core
     permissions:
       contents: 'read'
