@@ -122,7 +122,12 @@ Define the default values for the certificate selfSigner inputs
 {{- end -}}
 
 {{- define "rotatecerts.fullname" -}}
-  {{- printf "%s-%s" (include "cockroachdb.fullname" .) "rotate-self-signer" | trunc 56 | trimSuffix "-" -}}
+  {{- printf "%s-%s" (include "cockroachdb.fullname" .) "rotate-self-signer" | trunc 52 | trimSuffix "-" -}}
+{{- end -}}
+
+{{- define "rotatecerts.fullname-cronjob-client" -}}
+  {{- $base := printf "%s-%s" (include "cockroachdb.fullname" .) "rotate-self-signer" | trunc 45 | trimSuffix "-" -}}
+  {{- printf "%s-client" $base -}}
 {{- end -}}
 
 {{- define "selfcerts.minimumCertDuration" -}}
