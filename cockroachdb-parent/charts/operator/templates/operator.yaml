@@ -220,6 +220,12 @@ rules:
     verbs:
       - create
   - apiGroups:
+      - ""
+    resources:
+      - pods/log
+    verbs:
+      - get
+  - apiGroups:
       - policy
     resources:
       - poddisruptionbudgets
