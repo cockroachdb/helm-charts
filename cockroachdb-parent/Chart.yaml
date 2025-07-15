@@ -3,14 +3,14 @@ apiVersion: v2
 name: cockroachdb-parent
 description: A parent Helm chart for CockroachDB and its operator using helm-spray
 type: application
-version: 25.2.2-preview
+version: 25.2.2-preview+1
 appVersion: 25.2.2
 dependencies:
   - name: operator
-    version: 25.2.2-preview
+    version: 25.2.2-preview+1
     condition: operator.enabled
     repository: "file://charts/operator"
   - name: cockroachdb
-    version: 25.2.2-preview
+    version: 25.2.2-preview+1
     condition: cockroachdb.enabled
     repository: "file://charts/cockroachdb"
