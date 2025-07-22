@@ -32,9 +32,6 @@ spec:
   template:
     spec:
       image: "{{ .Values.cockroachdb.crdbCluster.image.name }}"
-      {{- if .Values.cockroachdb.crdbCluster.join }}
-      join: {{ .Values.cockroachdb.crdbCluster.join }}
-      {{- end }}
       certificates:
         {{- if .Values.cockroachdb.tls.enabled }}
         {{- if .Values.cockroachdb.tls.externalCertificates.enabled }}
@@ -91,6 +88,9 @@ spec:
       {{- with .Values.cockroachdb.crdbCluster.localityLabels }}
       localityLabels: {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.cockroachdb.crdbCluster.localityMappings }}
+      localityMappings: {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.cockroachdb.crdbCluster.tolerations }}
       tolerations: {{- toYaml . | nindent 8 }}
       {{- end }}
@@ -115,9 +115,6 @@ spec:
       {{- end }}
       {{- if .Values.cockroachdb.crdbCluster.service.ports.http.port }}
       httpPort: {{ .Values.cockroachdb.crdbCluster.service.ports.http.port }}
-      {{- end }}
-      {{- with .Values.cockroachdb.crdbCluster.flags }}
-      flags: {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.cockroachdb.crdbCluster.startFlags }}
       startFlags: {{- toYaml . | nindent 8 }}

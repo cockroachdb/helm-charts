@@ -168,9 +168,6 @@ cockroachdb:
     clusterSettings: ~
     # timestamp captures the annotation timestamp used for rolling restarts.
     timestamp: "2021-10-18T00:00:00Z"
-    # join captures the list of comma-separated addresses for joining an existing cluster.
-    # Each item should be a resolvable FQDN (with port if needed).
-    join: ""
     # resources captures the resource requests and limits for CockroachDB pods.
     resources: ~
       # limits:
@@ -282,11 +279,6 @@ cockroachdb:
     # podLabels captures additional labels to apply to CockroachDB pods.
     podLabels:
       app.kubernetes.io/component: cockroachdb
-    # flags captures flags passed to the CockroachDB container.
-    # It is recommended to configure `startFlags` over `flags` for setting flags that are passed to the CockroachDB start command.
-    flags:
-      # Disables backup/restore to local disk by default.
-      --external-io-dir: disabled
     # startFlags specify the flags that will be used for starting the cluster.
     # Any flag defined in here will take precedence over the first-class
     # fields responsible for setting the same flags.
@@ -408,8 +400,33 @@ cockroachdb:
     #   topology.kubernetes.io/zone: us-central1-c
     #   example.datacenter.locality: dc2
     # the resulting locality flag will be: locality=region=us-central1,zone=us-central1-c,example.datacenter.locality=dc2.
-    # https://www.cockroachlabs.com/docs/v25.1/cockroach-start#locality
+    # It is recommended to configure `localityMappings` over `localityLabels` for locality flag computation that is passed to the CockroachDB start command.
     localityLabels: []
+    # localityMappings captures labels used to determine node locality.
+    # It is an ordered, comma-separated list of key/value pairs that which must be present as labels on the nodes.
+    # Each locality mapping captures the relationship between a node label and a locality label.
+    # For region and zone to be part of the locality, the labels (topology.kubernetes.io/region, topology.kubernetes.io/region) must be set on the nodes.
+    # For other labels, they must be set on the nodes and will be presented as key/value pairs to the node locality.
+    # Example:
+    # If localityMappings are provided as
+    # [
+    #   {nodeLabel: "topology.kubernetes.io/region", localityLabel: "region"},
+    #   {nodeLabel: "topology.kubernetes.io/zone", localityLabel: "zone"},
+    #   {nodeLabel: "example.datacenter.locality", localityLabel: "dc"}
+    # ]
+    # and the node labels are:
+    # topology.kubernetes.io/region: us-central1
+    # topology.kubernetes.io/zone: us-central1-c
+    # example.datacenter.locality: dc2
+    # the resulting locality flag will be: locality=region=us-central1,zone=us-central1-c,dc=dc2.
+    # https://www.cockroachlabs.com/docs/v25.1/cockroach-start#locality
+    localityMappings: []
+      # - nodeLabel: "topology.kubernetes.io/region"
+      #   localityLabel: "region"
+      # - nodeLabel: "topology.kubernetes.io/zone"
+      #   localityLabel: "zone"
+      # - nodeLabel: "example.datacenter.locality"
+      #   localityLabel: "dc"
     # loggingConfigMapName defines the ConfigMap which contains log configuration used to send the logs through the
     # proper channels within CockroachDB.
     # The value of the ConfigMap should be specified under the key logs.yaml.
@@ -419,26 +436,26 @@ cockroachdb:
       # disablethp determines whether Transparent Huge Pages are disabled.
       # By default, disables THP, which can cause memory inefficiency for CockroachDB.
       disablethp: "1"
-      # podTemplate is an optional pod specification that overrides the default pod specification configured by the operator.
-      # If specified, podTemplate is merged with the default pod specification, with settings in podTemplate taking precedence.
-      # This can be used to add or update containers, volumes, and other settings of the CockroachDB pod.
-      podTemplate: {}
-        # # metadata captures the pod metadata for CockroachDB pods.
-        # metadata: {}
-        # # spec captures the pod specification for CockroachDB pods.
-        # spec:
-        #   # initContainers captures the list of init containers for CockroachDB pods.
-        #   initContainers:
-        #     - name : cockroachdb-init
-        #       image: us-docker.pkg.dev/cockroach-cloud-images/data-plane/init-container@sha256:c3e4ba851802a429c7f76c639a64b9152d206cebb31162c1760f05e98f7c4254
-        #   # containers captures the list of containers for CockroachDB pods.
-        #   containers:
-        #     - name: cockroachdb
-        #       image: cockroachdb/cockroach:v25.2.2
-        #     - name: cert-reloader
-        #       image: us-docker.pkg.dev/cockroach-cloud-images/data-plane/inotifywait:87edf086db32734c7fa083a62d1055d664900840
-        #   # imagePullSecrets captures the secrets for fetching images from private registries.
-        #   imagePullSecrets: []
+    # podTemplate is an optional pod specification that overrides the default pod specification configured by the operator.
+    # If specified, podTemplate is merged with the default pod specification, with settings in podTemplate taking precedence.
+    # This can be used to add or update containers, volumes, and other settings of the CockroachDB pod.
+    podTemplate: {}
+      # # metadata captures the pod metadata for CockroachDB pods.
+      # metadata: {}
+      # # spec captures the pod specification for CockroachDB pods.
+      # spec:
+      #   # initContainers captures the list of init containers for CockroachDB pods.
+      #   initContainers:
+      #     - name : cockroachdb-init
+      #       image: us-docker.pkg.dev/cockroach-cloud-images/data-plane/init-container@sha256:c3e4ba851802a429c7f76c639a64b9152d206cebb31162c1760f05e98f7c4254
+      #   # containers captures the list of containers for CockroachDB pods.
+      #   containers:
+      #     - name: cockroachdb
+      #       image: cockroachdb/cockroach:v25.2.2
+      #     - name: cert-reloader
+      #       image: us-docker.pkg.dev/cockroach-cloud-images/data-plane/inotifywait:87edf086db32734c7fa083a62d1055d664900840
+      #   # imagePullSecrets captures the secrets for fetching images from private registries.
+      #   imagePullSecrets: []
 k8s:
   # nameOverride overrides the name of the chart. If not set, the chart name will be used.
   # For example, if the chart name is "cockroachdb" and nameOverride is set to "crdb",

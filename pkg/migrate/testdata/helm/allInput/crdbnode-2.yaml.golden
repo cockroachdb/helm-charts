@@ -55,15 +55,9 @@ spec:
       fieldRef:
         apiVersion: v1
         fieldPath: status.hostIP
-  flags:
-    --advertise-host: $(hostname).${STATEFULSET_FQDN}
-    --cache: 25%
-    --certs-dir: /cockroach/cockroach-certs/
-    --max-sql-memory: 25%
   grpcPort: 26258
   httpPort: 8080
   image: cockroachdb/cockroach:v25.1.5
-  join: ${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257
   localityLabels:
   - country
   - region
@@ -87,6 +81,14 @@ spec:
   serviceAccountName: cockroachdb
   sideCars: {}
   sqlPort: 26257
+  startFlags:
+    omit: null
+    upsert:
+    - --join=${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257
+    - --advertise-host=$(hostname).${STATEFULSET_FQDN}
+    - --certs-dir=/cockroach/cockroach-certs/
+    - --cache=25%
+    - --max-sql-memory=25%
   terminationGracePeriod: 5m0s
   tolerations:
   - effect: NoSchedule
