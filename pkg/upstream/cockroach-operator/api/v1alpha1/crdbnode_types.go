@@ -70,9 +70,12 @@ const (
 type CrdbNodeSpec struct {
 	// PodAnnotations are the annotations that should be applied to the
 	// underlying CRDB pod.
+	// Deprecated: use `PodTemplate` instead.
 	PodAnnotations map[string]string `json:"podAnnotations,omitempty"`
+
 	// PodLabels are the labels that should be applied to the underlying CRDB
 	// pod.
+	// Deprecated: use `PodTemplate` instead.
 	PodLabels map[string]string `json:"podLabels,omitempty"`
 
 	// Image is the location and name of the CockroachDB container image to
@@ -87,6 +90,7 @@ type CrdbNodeSpec struct {
 
 	// Env is a list of environment variables to set in the container.
 	// +kubebuilder:validation:Optional
+	// Deprecated: use `PodTemplate` instead.
 	Env []corev1.EnvVar `json:"env,omitempty"`
 
 	// DataStore specifies the disk configuration for this CrdbNode.
@@ -100,6 +104,7 @@ type CrdbNodeSpec struct {
 	// ResourceRequirements is the resource requirements for the main
 	// crdb container.
 	// +kubebuilder:validation:Required
+	// Deprecated: use `PodTemplate` instead.
 	ResourceRequirements corev1.ResourceRequirements `json:"resourceRequirements,omitempty"`
 
 	// ConditionalResourceRequirements describes resource requirements  that are
@@ -110,11 +115,13 @@ type CrdbNodeSpec struct {
 	// ServiceAccountName is the name of a service account to use for
 	// running pods.
 	// +kubebuilder:validation:Required
+	// Deprecated: use `PodTemplate` instead.
 	ServiceAccountName string `json:"serviceAccountName,omitempty"`
 
 	// SideCars will be run in the same pod as the crdb process.
 	// This can be useful for running containers for fluentbit logging.
 	// +kubebuilder:validation:Optional
+	//  Deprecated: use `PodTemplate` instead.
 	SideCars CrdbNodeSideCars `json:"sideCars,omitempty"`
 
 	// TopologySpreadConstraints will be used to construct the crdb pod's topology spread
@@ -122,6 +129,7 @@ type CrdbNodeSpec struct {
 	// Note: any label selectors will be discarded; the operator will instead set
 	// the selector to match all pods belonging to the same cluster.
 	// +kubebuilder:validation:Optional
+	// Deprecated: use `PodTemplate` instead.
 	TopologySpreadConstraints []corev1.TopologySpreadConstraint `json:"topologySpreadConstraints,omitempty"`
 
 	// Join will be used for setting the join flag.
@@ -141,9 +149,16 @@ type CrdbNodeSpec struct {
 	// +kubebuilder:validation:Optional
 	LoggingConfigMapName string `json:"loggingConfigMapName,omitempty"`
 
-	// Flags specifies the flags that will be used for starting the cluster.
+	// Flags specify the flags that will be used for starting the cluster.
+	// Deprecated: use `StartFlags` instead.
 	// +kubebuilder:validation:Optional
 	Flags map[string]string `json:"flags,omitempty"`
+
+	// StartFlags specify the flags that will be used for starting the cluster.
+	// Any flag defined in the StartFlags will take precedence over the first-class
+	// fields responsible for setting the same flags.
+	// +kubebuilder:validation:Optional
+	StartFlags *Flags `json:"startFlags,omitempty"`
 
 	// EncryptionAtRest contains all the information that will be needed
 	// for EAR setup at CrdbNode pod initialization. This value will be updated
@@ -166,13 +181,29 @@ type CrdbNodeSpec struct {
 
 	// LocalityLabels specifies a list of kubernetes node labels
 	// to read and add to the CockroachDB locality string.
+	// Deprecated: use `LocalityMappings` instead.
 	// +kubebuilder:validation:Optional
 	LocalityLabels []string `json:"localityLabels,omitempty"`
+
+	// LocalityMappings specifies a list of mappings from k8s node labels to crdb
+	// locality labels. In order to set the `--locality` flag for the `cockroach
+	// start` command, we may need information that's available at runtime, but
+	// not available when the crdb pod is scheduled. We use an init continer to
+	// look up node labels at runtime, then write the contents of the
+	// `--locality` flag to disk. Then we `cat` the locality file as an argument
+	// to `cockroach start`. By default, map the standard
+	// "topology.kubernetes.io/region" and "topology.kubernetes.io/zone" node
+	// labels to "region" and "zone", respectively. For details, see
+	// https://www.cockroachlabs.com/docs/stable/cockroach-start#locality.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default={{nodeLabel: "topology.kubernetes.io/region", localityLabel: "region"}, {nodeLabel: "topology.kubernetes.io/zone", localityLabel: "zone"}}
+	LocalityMappings []LocalityMapping `json:"localityMappings,omitempty"`
 
 	// TerminationGracePeriodSeconds determines the time available to CRDB for graceful drain.
 	// It defaults to 5m.
 	// See documentation for [manifests.CRDBTerminationGracePeriodSeconds].
 	// +kubebuilder:validation:Optional
+	// Deprecated: use `PodTemplate` instead.
 	TerminationGracePeriod *metav1.Duration `json:"terminationGracePeriod,omitempty"`
 
 	// NodeName is the name of the kubernetes corev1.Node the CrdbNode is
@@ -186,14 +217,17 @@ type CrdbNodeSpec struct {
 
 	// Tolerations is the set of tolerations to apply to a node.
 	// https://kubernetes.io/docs/concepts/scheduling-eviction/taint-and-toleration/
+	// Deprecated: use `PodTemplate` instead.
 	Tolerations []corev1.Toleration `json:"tolerations,omitempty"`
 
 	// NodeSelector is the set of nodeSelector labels to apply to a node.
 	// https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#nodeselector
+	// Deprecated: use `PodTemplate` instead.
 	NodeSelector map[string]string `json:"nodeSelector,omitempty"`
 
 	// Affinity is the affinity policy to apply to a node.
 	// https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#affinity-and-anti-affinity
+	// Deprecated: use `PodTemplate` instead.
 	Affinity *corev1.Affinity `json:"affinity,omitempty"`
 
 	// GRPCPort is the port used for the grpc service. This controls the
@@ -210,6 +244,54 @@ type CrdbNodeSpec struct {
 	// `--sql-addr` flag to `cockroach start`. If not set, default to 26257.
 	// +kubebuilder:validation:Optional
 	SQLPort *int32 `json:"sqlPort,omitempty"`
+
+	// DropChownContainer drops the chown initContainer from the crdb pod. We
+	// needed this initContainer during the rollout of the securityContext
+	// feature previously, but now that this rollout is complete, we can drop the
+	// container.
+	// TODO(jmcarp): Drop this flag after it's fully rolled out.
+	// +kubebuilder:validation:Optional
+	DropChownContainer bool `json:"dropChownContainer,omitempty"`
+
+	// PodTemplate is an optional pod specification that overrides the default pod specification configured by the
+	// operator. If specified, PodTemplate is merged with the default pod specification, with settings in
+	// PodTemplate taking precedence. This can be used to add or update containers, volumes, and
+	// other settings of the cockroachdb pod. List fields are generally merged by name;
+	// for details of merging behavior, see the PodTemplateBuilder type.
+	// +kubebuilder:validation:Optional
+	PodTemplate *PodTemplateSpec `json:"podTemplate,omitempty"`
+}
+
+// PodTemplateSpec is a structure allowing the user to set a template for Pod
+// generation.
+type PodTemplateSpec struct {
+	Metadata PodMeta        `json:"metadata,omitempty"`
+	Spec     corev1.PodSpec `json:"spec,omitempty"`
+}
+
+type PodMeta struct {
+	Labels      map[string]string `json:"labels,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// Flags enable upserting and omitting default flags
+// that are passed to the cockroach start command.
+type Flags struct {
+	// Upsert defines a set of flags that are given higher precedence
+	// in the start command.
+	// +kubebuilder:validation:Optional
+	Upsert []string `json:"upsert"`
+	// Omit defines a set of flags which will be omitted
+	// from the start command.
+	// +kubebuilder:validation:Optional
+	Omit []string `json:"omit"`
+}
+
+// LocalityMapping represents a mapping between a k8s node label and a crdb
+// locality label.
+type LocalityMapping struct {
+	NodeLabel     string `json:"nodeLabel,omitempty"`
+	LocalityLabel string `json:"localityLabel,omitempty"`
 }
 
 // ConditionalResourceRequirements describes compute resource requirements for
