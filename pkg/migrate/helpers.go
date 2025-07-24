@@ -57,11 +57,10 @@ type parsedMigrationInput struct {
 	sqlPort          int32
 	grpcPort         int32
 	httpPort         int32
-	joinCmd          string
 	tlsEnabled       bool
 	localityLabels   []string
 	loggingConfigMap string
-	flags            map[string]string
+	startFlags       *v1alpha1.Flags
 	certManagerInput *certManagerInput
 	caConfigMap      string
 	nodeSecretName   string
@@ -111,14 +110,13 @@ func yamlToDisk(path string, data []any) error {
 }
 
 // buildNodeSpecFromOperator builds a CrdbNodeSpec from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
-func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, joinString string, flags map[string]string) v1alpha1.CrdbNodeSpec {
+func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, startFlags *v1alpha1.Flags) v1alpha1.CrdbNodeSpec {
 
 	return v1alpha1.CrdbNodeSpec{
 		NodeName:       nodeName,
-		Join:           joinString,
 		PodLabels:      sts.Spec.Template.Labels,
 		PodAnnotations: sts.Spec.Template.Annotations,
-		Flags:          flags,
+		StartFlags:     startFlags,
 		DataStore: v1alpha1.DataStore{
 			VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
@@ -168,8 +166,7 @@ func buildHelmValuesFromOperator(
 	cloudProvider string,
 	cloudRegion string,
 	namespace string,
-	joinStr string,
-	flags map[string]string) map[string]interface{} {
+	flags *v1alpha1.Flags) map[string]interface{} {
 
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
@@ -194,7 +191,7 @@ func buildHelmValuesFromOperator(
 				"podLabels":      sts.Spec.Template.Labels,
 				"podAnnotations": sts.Spec.Template.Annotations,
 				"resources":      cluster.Spec.Resources,
-				"flags":          flags,
+				"startFlags":     flags,
 				"regions": []map[string]interface{}{
 					{
 						"namespace":     namespace,
@@ -231,7 +228,6 @@ func buildHelmValuesFromOperator(
 				"terminationGracePeriod":    fmt.Sprintf("%ds", cluster.Spec.TerminationGracePeriodSecs),
 				"loggingConfigMapName":      cluster.Spec.LogConfigMap,
 				"env":                       sts.Spec.Template.Spec.Containers[0].Env,
-				"join":                      joinStr,
 				"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
 			},
 		},
@@ -249,10 +245,9 @@ func buildNodeSpecFromHelm(
 
 	return v1alpha1.CrdbNodeSpec{
 		NodeName:       nodeName,
-		Join:           input.joinCmd,
 		PodLabels:      sts.Spec.Template.Labels,
 		PodAnnotations: sts.Spec.Template.Annotations,
-		Flags:          input.flags,
+		StartFlags:     input.startFlags,
 		DataStore: v1alpha1.DataStore{
 			VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
@@ -350,7 +345,7 @@ func buildHelmValuesFromHelm(
 				"podLabels":      sts.Spec.Template.Labels,
 				"podAnnotations": sts.Spec.Template.Annotations,
 				"resources":      sts.Spec.Template.Spec.Containers[0].Resources,
-				"flags":          input.flags,
+				"startFlags":     input.startFlags,
 				"regions": []map[string]interface{}{
 					{
 						"namespace":     namespace,
@@ -387,7 +382,6 @@ func buildHelmValuesFromHelm(
 				"terminationGracePeriod":    fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
 				"loggingConfigMapName":      input.loggingConfigMap,
 				"env":                       sts.Spec.Template.Spec.Containers[0].Env,
-				"join":                      input.joinCmd,
 				"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
 			},
 		},
@@ -471,15 +465,14 @@ func extractJoinStringAndFlags(
 	parsedInput *parsedMigrationInput,
 	args []string) error {
 
-	flags := make(map[string]string)
+	flags := &v1alpha1.Flags{}
 	// Regular expression to match flags (e.g., --advertise-host=something)
 	flagRegex := regexp.MustCompile(`--([\w-]+)=(.*)`)
 
 	for _, arg := range args {
 		switch {
 		case strings.HasPrefix(arg, joinStrPrefix):
-			parsedInput.joinCmd = strings.TrimPrefix(arg, joinStrPrefix)
-
+			flags.Upsert = append(flags.Upsert, fmt.Sprintf("%s", arg))
 		case strings.HasPrefix(arg, portPrefix):
 			num, err := parseInt32(strings.TrimPrefix(arg, portPrefix))
 			if err != nil {
@@ -513,9 +506,9 @@ func extractJoinStringAndFlags(
 
 		default:
 			if matches := flagRegex.FindStringSubmatch(arg); len(matches) == 3 {
-				flags[fmt.Sprintf("--%s", matches[1])] = matches[2]
+				flags.Upsert = append(flags.Upsert, fmt.Sprintf("--%s=%s", matches[1], matches[2]))
 			}
-			parsedInput.flags = flags
+			parsedInput.startFlags = flags
 		}
 	}
 

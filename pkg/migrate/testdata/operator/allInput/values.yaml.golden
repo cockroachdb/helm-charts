@@ -42,16 +42,8 @@ cockroachdb:
           resource: limits.memory
     - name: MY_ENV_VAR
       value: kubernetes-helm
-    flags:
-      --advertise-host: $(POD_NAME).cockroachdb.default
-      --cache: 30%
-      --certs-dir: /cockroach/cockroach-certs/
-      --listen-addr: :26258
-      --max-sql-memory: 30%
-      --sql-addr: :26257
     image:
       name: cockroachdb/cockroach:v25.1.5
-    join: cockroachdb-0.cockroachdb.default:26258,cockroachdb-1.cockroachdb.default:26258,cockroachdb-2.cockroachdb.default:26258
     loggingConfigMapName: cockroachdb-log-config
     nodeSelector:
       cloud.google.com/gke-nodepool: default-pool
@@ -83,6 +75,16 @@ cockroachdb:
           port: 8080
         sql:
           port: 26257
+    startFlags:
+      omit: null
+      upsert:
+      - --advertise-host=$(POD_NAME).cockroachdb.default
+      - --certs-dir=/cockroach/cockroach-certs/
+      - --sql-addr=:26257
+      - --listen-addr=:26258
+      - --cache=30%
+      - --max-sql-memory=30%
+      - --join=cockroachdb-0.cockroachdb.default:26258,cockroachdb-1.cockroachdb.default:26258,cockroachdb-2.cockroachdb.default:26258
     terminationGracePeriod: 300s
     tolerations:
     - effect: NoSchedule

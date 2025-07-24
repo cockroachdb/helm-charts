@@ -2,6 +2,16 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-25.2.2-preview] - 2025-07-28
+### Added
+- `startFlags`, `podTemplate` fields for overriding CockroachDB start command and pod spec. 
+- `localityMappings` field to allow granular mapping of Kubernetes node label to CockroachDB node locality.
+- `noCloudPrefixedLocalities` field to disable automatic prefixing of locality labels with "cloud provider".
+
+### Changed
+- Removed deprecated `flags` field.
+- Removed `join` field.
+
 ## [cockroachdb-17.0.0] - 2025-05-27
 ### Added
 - release: advance app version to v25.2.0
