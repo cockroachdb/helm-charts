@@ -40,11 +40,11 @@ func Execute() {
 }
 
 func init() {
-	buildManifestCmd.PersistentFlags().StringVar(&cloudProvider, "cloud-provider", "", "name of cloud provider")
-	buildManifestCmd.PersistentFlags().StringVar(&cloudRegion, "cloud-region", "", "name of cloud provider region")
+	buildManifestCmd.PersistentFlags().StringVar(&cloudProvider, "cloud-infra", "", "name of cloud infra")
+	buildManifestCmd.PersistentFlags().StringVar(&cloudRegion, "cloud-region", "", "name of cloud infra region")
 	buildManifestCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", filepath.Join(homedir.HomeDir(), ".kube", "config"), "path to kubeconfig file")
 	buildManifestCmd.PersistentFlags().StringVar(&outputDir, "output-dir", "./manifests", "manifest output directory")
-	_ = buildManifestCmd.MarkPersistentFlagRequired("cloud-provider")
+	_ = buildManifestCmd.MarkPersistentFlagRequired("cloud-infra")
 	_ = buildManifestCmd.MarkPersistentFlagRequired("cloud-region")
 	rootCmd.AddCommand(buildManifestCmd)
 	rootCmd.AddCommand(migrateCertsCmd)

@@ -31,8 +31,20 @@ func ProviderFactory(providerType string, region *operator.Region) CloudProvider
 		provider := K3dRegion{Region: region}
 		provider.RegionCodes = GetRegionCodes(providerType)
 		return &provider
+	case ProviderKind:
+		provider := KindRegion{Region: region}
+		provider.RegionCodes = GetRegionCodes(providerType)
+		return &provider
 	case ProviderGCP:
 		provider := GcpRegion{Region: region}
+		provider.RegionCodes = GetRegionCodes(providerType)
+		return &provider
+	case ProviderAzure:
+		provider := AzureRegion{Region: region}
+		provider.RegionCodes = GetRegionCodes(providerType)
+		return &provider
+	case ProviderAWS:
+		provider := AwsRegion{Region: region}
 		provider.RegionCodes = GetRegionCodes(providerType)
 		return &provider
 	default:
