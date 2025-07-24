@@ -15,6 +15,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
+	crdbv1alpha1 "github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -1997,6 +1998,397 @@ func TestHelmPrivateRepoUsingImagePullSecrets(t *testing.T) {
 			for _, cronJob := range cronjobs {
 				require.Equal(subT, secrets[1].Name, cronJob.Spec.JobTemplate.Spec.Template.Spec.ImagePullSecrets[0].Name)
 			}
+		})
+	}
+}
+
+// TestHelmOperatorStartFlags tests the startFlags configuration for operator enabled CockroachDB clusters
+func TestHelmOperatorStartFlags(t *testing.T) {
+	t.Parallel()
+
+	type expect struct {
+		upsertFlags []string
+		omitFlags   []string
+	}
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect
+	}{
+		{
+			"Start flags with upsert configuration",
+			map[string]string{
+				"cockroachdb.crdbCluster.startFlags.upsert[0]": "--cache=30%",
+				"cockroachdb.crdbCluster.startFlags.upsert[1]": "--max-sql-memory=35%",
+				"cockroachdb.crdbCluster.startFlags.upsert[2]": "--log-file-verbosity=2",
+			},
+			expect{
+				upsertFlags: []string{"--cache=30%", "--max-sql-memory=35%", "--log-file-verbosity=2"},
+				omitFlags:   nil,
+			},
+		},
+		{
+			"Start flags with omit configuration",
+			map[string]string{
+				"cockroachdb.crdbCluster.startFlags.omit[0]": "--max-offset",
+				"cockroachdb.crdbCluster.startFlags.omit[1]": "--locality",
+			},
+			expect{
+				upsertFlags: nil,
+				omitFlags:   []string{"--max-offset", "--locality"},
+			},
+		},
+		{
+			"Start flags with both upsert and omit configuration",
+			map[string]string{
+				"cockroachdb.crdbCluster.startFlags.upsert[0]": "--cache=40%",
+				"cockroachdb.crdbCluster.startFlags.upsert[1]": "--max-sql-memory=40%",
+				"cockroachdb.crdbCluster.startFlags.omit[0]":   "--max-disk-temp-storage",
+				"cockroachdb.crdbCluster.startFlags.omit[1]":   "--sql-audit-dir",
+			},
+			expect{
+				upsertFlags: []string{"--cache=40%", "--max-sql-memory=40%"},
+				omitFlags:   []string{"--max-disk-temp-storage", "--sql-audit-dir"},
+			},
+		},
+		{
+			"Empty start flags configuration",
+			map[string]string{},
+			expect{
+				upsertFlags: nil,
+				omitFlags:   nil,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			// Use cockroachdb chart path for operator tests.
+			chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+			output, err := helm.RenderTemplateE(
+				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
+			)
+			require.NoError(subT, err)
+
+			var crdbCluster crdbv1alpha1.CrdbCluster
+			helm.UnmarshalK8SYaml(t, output, &crdbCluster)
+
+			require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
+			require.Equal(subT, "crdb.cockroachlabs.com/v1alpha1", crdbCluster.APIVersion)
+
+			spec := crdbCluster.Spec
+
+			if len(testCase.expect.upsertFlags) > 0 || len(testCase.expect.omitFlags) > 0 {
+				require.NotNil(subT, spec.Template.Spec.StartFlags, "Expected startFlags to exist in template spec")
+
+				// Check upsert flags.
+				if len(testCase.expect.upsertFlags) > 0 {
+					require.NotNil(subT, spec.Template.Spec.StartFlags.Upsert, "Expected upsert field to exist")
+					require.ElementsMatch(subT, testCase.expect.upsertFlags, spec.Template.Spec.StartFlags.Upsert)
+				}
+
+				// Check omit flags.
+				if len(testCase.expect.omitFlags) > 0 {
+					require.NotNil(subT, spec.Template.Spec.StartFlags.Omit, "Expected omit field to exist")
+					require.ElementsMatch(subT, testCase.expect.omitFlags, spec.Template.Spec.StartFlags.Omit)
+				}
+			} else {
+				// If no flags are expected, startFlags should not exist or be nil.
+				if spec.Template.Spec.StartFlags != nil {
+					require.Empty(subT, spec.Template.Spec.StartFlags.Upsert)
+					require.Empty(subT, spec.Template.Spec.StartFlags.Omit)
+				}
+			}
+		})
+	}
+}
+
+type podTemplateValidators struct {
+	subT *testing.T
+	spec *crdbv1alpha1.PodTemplateSpec
+}
+
+// Helper functions for pod template validation
+func (v *podTemplateValidators) validatePodTemplateExists() {
+	require.NotNil(v.subT, v.spec, "Expected podTemplate to exist in template spec")
+}
+
+func (v *podTemplateValidators) validateMetadataLabels(expectedLabels map[string]string) {
+	require.NotNil(v.subT, v.spec.Metadata.Labels, "Expected labels to exist in metadata")
+
+	for expectedKey, expectedValue := range expectedLabels {
+		actualValue, exists := v.spec.Metadata.Labels[expectedKey]
+		require.True(v.subT, exists, fmt.Sprintf("Expected label %s to exist", expectedKey))
+		require.Equal(v.subT, expectedValue, actualValue, fmt.Sprintf("Expected label %s to have value %s", expectedKey, expectedValue))
+	}
+}
+
+func (v *podTemplateValidators) validateMetadataAnnotations(expectedAnnotations map[string]string) {
+	require.NotNil(v.subT, v.spec.Metadata.Annotations, "Expected annotations to exist in metadata")
+
+	for expectedKey, expectedValue := range expectedAnnotations {
+		actualValue, exists := v.spec.Metadata.Annotations[expectedKey]
+		require.True(v.subT, exists, fmt.Sprintf("Expected annotation %s to exist", expectedKey))
+		require.Equal(v.subT, expectedValue, actualValue, fmt.Sprintf("Expected annotation %s to have value %s", expectedKey, expectedValue))
+	}
+}
+
+func (v *podTemplateValidators) validateInitContainer(expectedName string) {
+	require.NotEmpty(v.subT, v.spec.Spec.InitContainers, "Expected at least one init container")
+	initContainer := v.spec.Spec.InitContainers[0]
+	require.Equal(v.subT, expectedName, initContainer.Name)
+}
+
+func (v *podTemplateValidators) validateContainer(expectedName string) {
+	require.NotEmpty(v.subT, v.spec.Spec.Containers, "Expected at least one container")
+	container := v.spec.Spec.Containers[0]
+	require.Equal(v.subT, expectedName, container.Name)
+}
+
+func (v *podTemplateValidators) validateVolume(expectedName string) {
+	require.NotEmpty(v.subT, v.spec.Spec.Volumes, "Expected at least one volume")
+	volume := v.spec.Spec.Volumes[0]
+	require.Equal(v.subT, expectedName, volume.Name)
+}
+
+func (v *podTemplateValidators) validateImagePullSecret(expectedName string) {
+	require.NotEmpty(v.subT, v.spec.Spec.ImagePullSecrets, "Expected at least one image pull secret")
+	imagePullSecret := v.spec.Spec.ImagePullSecrets[0]
+	require.Equal(v.subT, expectedName, imagePullSecret.Name)
+}
+
+func (v *podTemplateValidators) validateEmptyPodTemplate() {
+	if v.spec != nil {
+		require.Empty(v.subT, v.spec.Metadata.Labels, "Expected podTemplate labels to be empty when no configuration is provided")
+		require.Empty(v.subT, v.spec.Metadata.Annotations, "Expected podTemplate annotations to be empty when no configuration is provided")
+		require.Empty(v.subT, v.spec.Spec.Containers, "Expected podTemplate containers to be empty when no configuration is provided")
+	}
+}
+
+// PodTemplateExpected represents expected validation criteria for pod template tests.
+type PodTemplateExpected struct {
+	hasMetadata         bool
+	hasLabels           bool
+	hasAnnotations      bool
+	hasSpec             bool
+	hasInitContainer    bool
+	hasContainer        bool
+	hasVolume           bool
+	hasImagePullSecrets bool
+	labels              map[string]string
+	annotations         map[string]string
+	initContainerName   string
+	containerName       string
+	volumeName          string
+	imagePullSecretName string
+}
+
+// Helper function to validate pod template configuration.
+func validatePodTemplateConfiguration(
+	subT *testing.T, spec crdbv1alpha1.CrdbClusterSpec, expected PodTemplateExpected,
+) {
+	validator := &podTemplateValidators{subT: subT, spec: spec.Template.Spec.PodTemplate}
+
+	if expected.hasMetadata || expected.hasSpec {
+		validator.validatePodTemplateExists()
+
+		if expected.hasMetadata {
+			if expected.hasLabels {
+				validator.validateMetadataLabels(expected.labels)
+			}
+			if expected.hasAnnotations {
+				validator.validateMetadataAnnotations(expected.annotations)
+			}
+		}
+
+		if expected.hasSpec {
+			if expected.hasInitContainer {
+				validator.validateInitContainer(expected.initContainerName)
+			}
+			if expected.hasContainer {
+				validator.validateContainer(expected.containerName)
+			}
+			if expected.hasVolume {
+				validator.validateVolume(expected.volumeName)
+			}
+			if expected.hasImagePullSecrets {
+				validator.validateImagePullSecret(expected.imagePullSecretName)
+			}
+		}
+	} else {
+		validator.validateEmptyPodTemplate()
+	}
+}
+
+// TestHelmOperatorPodTemplate tests the podTemplate configuration for operator enabled CockroachDB clusters.
+func TestHelmOperatorPodTemplate(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect PodTemplateExpected
+	}{
+		{
+			"Pod template with metadata labels and annotations",
+			map[string]string{
+				"operator.enabled": "true",
+				"cockroachdb.crdbCluster.podTemplate.metadata.labels.environment":    "production",
+				"cockroachdb.crdbCluster.podTemplate.metadata.labels.team":           "platform",
+				"cockroachdb.crdbCluster.podTemplate.metadata.annotations.version":   "v1.0.0",
+				"cockroachdb.crdbCluster.podTemplate.metadata.annotations.buildDate": "2024-01-01",
+			},
+			PodTemplateExpected{
+				hasMetadata:    true,
+				hasLabels:      true,
+				hasAnnotations: true,
+				hasSpec:        false,
+				labels:         map[string]string{"environment": "production", "team": "platform"},
+				annotations:    map[string]string{"version": "v1.0.0", "buildDate": "2024-01-01"},
+			},
+		},
+		{
+			"Pod template with init containers",
+			map[string]string{
+				"operator.enabled": "true",
+				"cockroachdb.crdbCluster.podTemplate.spec.initContainers[0].name":       "setup-config",
+				"cockroachdb.crdbCluster.podTemplate.spec.initContainers[0].image":      "busybox:1.35",
+				"cockroachdb.crdbCluster.podTemplate.spec.initContainers[0].command[0]": "/bin/sh",
+				"cockroachdb.crdbCluster.podTemplate.spec.initContainers[0].command[1]": "-c",
+				"cockroachdb.crdbCluster.podTemplate.spec.initContainers[0].command[2]": "echo 'Setting up configuration'",
+			},
+			PodTemplateExpected{
+				hasMetadata:       false,
+				hasSpec:           true,
+				hasInitContainer:  true,
+				initContainerName: "setup-config",
+			},
+		},
+		{
+			"Pod template with containers",
+			map[string]string{
+				"operator.enabled": "true",
+				"cockroachdb.crdbCluster.podTemplate.spec.containers[0].name":    "logging-sidecar",
+				"cockroachdb.crdbCluster.podTemplate.spec.containers[0].image":   "fluent/fluent-bit:2.0",
+				"cockroachdb.crdbCluster.podTemplate.spec.containers[0].args[0]": "--config=/config/fluent-bit.conf",
+			},
+			PodTemplateExpected{
+				hasMetadata:   false,
+				hasSpec:       true,
+				hasContainer:  true,
+				containerName: "logging-sidecar",
+			},
+		},
+		{
+			"Pod template with volumes",
+			map[string]string{
+				"operator.enabled": "true",
+				"cockroachdb.crdbCluster.podTemplate.spec.volumes[0].name":                  "config-volume",
+				"cockroachdb.crdbCluster.podTemplate.spec.volumes[0].configMap.name":        "app-config",
+				"cockroachdb.crdbCluster.podTemplate.spec.volumes[0].configMap.defaultMode": "420",
+			},
+			PodTemplateExpected{
+				hasMetadata: false,
+				hasSpec:     true,
+				hasVolume:   true,
+				volumeName:  "config-volume",
+			},
+		},
+		{
+			"Pod template with image pull secrets",
+			map[string]string{
+				"operator.enabled": "true",
+				"cockroachdb.crdbCluster.podTemplate.spec.imagePullSecrets[0].name": "private-registry-secret",
+			},
+			PodTemplateExpected{
+				hasMetadata:         false,
+				hasSpec:             true,
+				hasImagePullSecrets: true,
+				imagePullSecretName: "private-registry-secret",
+			},
+		},
+		{
+			"Comprehensive pod template configuration",
+			map[string]string{
+				"operator.enabled": "true",
+				"cockroachdb.crdbCluster.podTemplate.metadata.labels.app":               "cockroachdb-custom",
+				"cockroachdb.crdbCluster.podTemplate.metadata.labels.version":           "v25.2.2",
+				"cockroachdb.crdbCluster.podTemplate.metadata.annotations.monitoring":   "enabled",
+				"cockroachdb.crdbCluster.podTemplate.spec.initContainers[0].name":       "pre-start",
+				"cockroachdb.crdbCluster.podTemplate.spec.initContainers[0].image":      "alpine:3.18",
+				"cockroachdb.crdbCluster.podTemplate.spec.containers[0].name":           "monitoring-agent",
+				"cockroachdb.crdbCluster.podTemplate.spec.containers[0].image":          "prom/node-exporter:v1.6.0",
+				"cockroachdb.crdbCluster.podTemplate.spec.volumes[0].name":              "monitoring-config",
+				"cockroachdb.crdbCluster.podTemplate.spec.volumes[0].secret.secretName": "monitoring-secret",
+				"cockroachdb.crdbCluster.podTemplate.spec.imagePullSecrets[0].name":     "registry-credentials",
+			},
+			PodTemplateExpected{
+				hasMetadata:         true,
+				hasLabels:           true,
+				hasAnnotations:      true,
+				hasSpec:             true,
+				hasInitContainer:    true,
+				hasContainer:        true,
+				hasVolume:           true,
+				hasImagePullSecrets: true,
+				labels:              map[string]string{"app": "cockroachdb-custom", "version": "v25.2.2"},
+				annotations:         map[string]string{"monitoring": "enabled"},
+				initContainerName:   "pre-start",
+				containerName:       "monitoring-agent",
+				volumeName:          "monitoring-config",
+				imagePullSecretName: "registry-credentials",
+			},
+		},
+		{
+			"Empty pod template configuration",
+			map[string]string{
+				"operator.enabled": "true",
+			},
+			PodTemplateExpected{
+				hasMetadata: false,
+				hasSpec:     false,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			// Use parent chart path for operator tests.
+			chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+			output, err := helm.RenderTemplateE(
+				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
+			)
+			require.NoError(subT, err)
+
+			var crdbCluster crdbv1alpha1.CrdbCluster
+			helm.UnmarshalK8SYaml(t, output, &crdbCluster)
+
+			// Verify the resource type
+			require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
+			require.Equal(subT, "crdb.cockroachlabs.com/v1alpha1", crdbCluster.APIVersion)
+
+			// Navigate to spec.template.spec.podTemplate
+			spec := crdbCluster.Spec
+
+			validatePodTemplateConfiguration(subT, spec, testCase.expect)
 		})
 	}
 }

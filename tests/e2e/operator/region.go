@@ -45,9 +45,10 @@ var (
 		"k3d-chart-testing-cluster-1": "cluster2.local",
 	}
 
-	operatorReleaseName = "cockroachdb-operator"
-	customCASecret      = "cockroachdb-ca-secret"
-	ReleaseName         = "cockroachdb"
+	operatorReleaseName    = "cockroachdb-operator"
+	customCASecret         = "cockroachdb-ca-secret"
+	ReleaseName            = "cockroachdb"
+	CockroachContainerName = "cockroachdb"
 
 	helmExtraArgs = map[string][]string{
 		"install": {
@@ -419,14 +420,26 @@ func (r *Region) VerifyHelmUpgrade(t *testing.T, initialTimestamp time.Time, kub
 			}
 
 			// Check if any pod has a creation timestamp greater than the initial timestamp.
-			// We are actually waiting for all pods to complete helm upgrade,
-			// as just verifying one pod and cleaning up the resources will cause issues,
-			// Since helm delete is happening while pods are still in upgrade process.
+			// We are waiting for all pods to complete the Helm upgrade,
+			// as verifying just one pod and cleaning up the resources via Helm delete may cause issues
+			// because the pods might still be in the upgrade process.
 			for _, pod := range pods {
 				if !pod.CreationTimestamp.Time.After(initialTimestamp) {
 					return "", fmt.Errorf("pod %s has not been recreated with a new timestamp yet", pod.Name)
 				}
+
+				if pod.Status.Phase != corev1.PodRunning {
+					return "", fmt.Errorf("pod %s is not in running phase", pod.Name)
+				}
+
+				containerStatus := pod.Status.ContainerStatuses
+				for _, container := range containerStatus {
+					if container.State.Running == nil {
+						return "", fmt.Errorf("container %s is not in running state", container.Name)
+					}
+				}
 			}
+
 			return "", nil
 		})
 	return err

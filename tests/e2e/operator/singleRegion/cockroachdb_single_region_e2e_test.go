@@ -108,9 +108,17 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 	// Validate CockroachDB cluster.
 	r.ValidateCRDB(t, cluster)
 
+	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
+	// Get the initial timestamp of the pods before the upgrade.
+	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+		LabelSelector: operator.LabelSelector,
+	})
+
+	// Capture the creation timestamp of the last pod.
+	initialTimestamp := pods[0].CreationTimestamp.Time
+
 	// Get helm chart paths.
 	helmChartPath, _ := operator.HelmChartPaths()
-	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	options := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ExtraArgs: map[string][]string{
@@ -119,14 +127,6 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 	}
 	// Apply Helm upgrade with updated values.
 	helm.Upgrade(t, options, helmChartPath, operator.ReleaseName)
-
-	// Get the initial timestamp of the pods before the upgrade.
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-		LabelSelector: operator.LabelSelector,
-	})
-
-	// Capture the creation timestamp of the last pod.
-	initialTimestamp := pods[0].CreationTimestamp.Time
 
 	// Verify if the pods are restarted after helm upgrade.
 	err = r.VerifyHelmUpgrade(t, initialTimestamp, kubectlOptions)
@@ -140,7 +140,12 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 		LabelSelector: operator.LabelSelector,
 	})
 	for _, pod := range pods {
-		require.Equal(t, resource.MustParse("100m"), pod.Spec.Containers[0].Resources.Requests["cpu"])
+		containers := pod.Spec.Containers
+		for _, container := range containers {
+			if container.Name == operator.CockroachContainerName {
+				require.Equal(t, resource.MustParse("100m"), container.Resources.Requests["cpu"])
+			}
+		}
 	}
 	r.ValidateCRDB(t, cluster)
 }
