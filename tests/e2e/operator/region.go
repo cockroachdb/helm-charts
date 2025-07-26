@@ -468,8 +468,8 @@ func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 
 		// Verify regions output.
 		expectedRegions := []string{
-			"k3d-us-east1",
-			"k3d-us-east2",
+			"us-east1",
+			"us-east2",
 		}
 		for _, clusterRegion := range expectedRegions {
 			require.Contains(t, stdout, clusterRegion)

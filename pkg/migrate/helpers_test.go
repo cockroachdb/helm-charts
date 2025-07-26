@@ -3,6 +3,7 @@ package migrate
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"testing"
 
@@ -110,10 +111,11 @@ func TestExtractJoinStringAndFlags(t *testing.T) {
 	}
 
 	expectedJoinString := "${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257"
-	expectedFlags := map[string]string{
-		"--advertise-host": "$(hostname).${STATEFULSET_FQDN}",
-		"--cache":          "25%",
-		"--max-sql-memory": "25%",
+	expectedFlags := []string{
+		fmt.Sprintf("--join=%s", expectedJoinString),
+		"--advertise-host=$(hostname).${STATEFULSET_FQDN}",
+		"--cache=25%",
+		"--max-sql-memory=25%",
 	}
 
 	err := extractJoinStringAndFlags(&input, args)
@@ -122,8 +124,7 @@ func TestExtractJoinStringAndFlags(t *testing.T) {
 	assert.Equal(t, int32(26257), input.sqlPort)
 	assert.Equal(t, int32(26258), input.grpcPort)
 	assert.Equal(t, int32(8080), input.httpPort)
-	assert.Equal(t, expectedJoinString, input.joinCmd)
-	assert.Equal(t, expectedFlags, input.flags)
+	assert.Equal(t, expectedFlags, input.startFlags.Upsert)
 }
 
 func TestGenerateParsedMigrationInput(t *testing.T) {
@@ -155,14 +156,21 @@ func TestGenerateParsedMigrationInput(t *testing.T) {
 	require.NoError(t, err)
 
 	// Verify the parsed input
-	assert.Equal(t, "${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257", input.joinCmd)
 	assert.Equal(t, int32(26258), input.grpcPort)
 	assert.Equal(t, int32(26257), input.sqlPort)
 	assert.Equal(t, int32(8080), input.httpPort)
 	assert.Equal(t, true, input.tlsEnabled)
 	assert.Equal(t, secretName, input.loggingConfigMap)
 	assert.Equal(t, []string{"country", "region"}, input.localityLabels)
-	assert.Equal(t, input.flags["--cache"], "25%")
+	expectedJoinString := "${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257"
+	expectedFlags := []string{
+		fmt.Sprintf("--join=%s", expectedJoinString),
+		"--advertise-host=$(hostname).${STATEFULSET_FQDN}",
+		"--certs-dir=/cockroach/cockroach-certs/",
+		"--cache=25%",
+		"--max-sql-memory=25%",
+	}
+	assert.Equal(t, expectedFlags, input.startFlags.Upsert)
 }
 
 func TestUpdatePublicService(t *testing.T) {
