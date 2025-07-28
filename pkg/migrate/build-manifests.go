@@ -104,7 +104,7 @@ func (m *Manifest) FromPublicOperator() error {
 			return errors.Newf("pod %s isn't scheduled to a node", podName)
 		}
 
-		nodeSpec := buildNodeSpecFromOperator(publicCluster, sts, pod.Spec.NodeName, input.joinCmd, input.flags)
+		nodeSpec := buildNodeSpecFromOperator(publicCluster, sts, pod.Spec.NodeName, input.startFlags)
 		crdbNode := v1alpha1.CrdbNode{
 			TypeMeta: metav1.TypeMeta{
 				Kind:       "CrdbNode",
@@ -131,7 +131,7 @@ func (m *Manifest) FromPublicOperator() error {
 		}
 	}
 
-	helmValues := buildHelmValuesFromOperator(publicCluster, sts, m.cloudProvider, m.cloudRegion, m.namespace, input.joinCmd, input.flags)
+	helmValues := buildHelmValuesFromOperator(publicCluster, sts, m.cloudProvider, m.cloudRegion, m.namespace, input.startFlags)
 
 	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{helmValues}); err != nil {
 		return errors.Wrap(err, "writing helm values to disk")

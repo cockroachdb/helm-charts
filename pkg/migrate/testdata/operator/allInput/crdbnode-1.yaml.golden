@@ -65,17 +65,9 @@ spec:
       fieldRef:
         apiVersion: v1
         fieldPath: status.hostIP
-  flags:
-    --advertise-host: $(POD_NAME).cockroachdb.default
-    --cache: 30%
-    --certs-dir: /cockroach/cockroach-certs/
-    --listen-addr: :26258
-    --max-sql-memory: 30%
-    --sql-addr: :26257
   grpcPort: 26258
   httpPort: 8080
   image: cockroachdb/cockroach:v25.1.5
-  join: cockroachdb-0.cockroachdb.default:26258,cockroachdb-1.cockroachdb.default:26258,cockroachdb-2.cockroachdb.default:26258
   loggingConfigMapName: cockroachdb-log-config
   nodeName: node1
   nodeSelector:
@@ -97,6 +89,16 @@ spec:
   serviceAccountName: cockroachdb
   sideCars: {}
   sqlPort: 26257
+  startFlags:
+    omit: null
+    upsert:
+    - --advertise-host=$(POD_NAME).cockroachdb.default
+    - --certs-dir=/cockroach/cockroach-certs/
+    - --sql-addr=:26257
+    - --listen-addr=:26258
+    - --cache=30%
+    - --max-sql-memory=30%
+    - --join=cockroachdb-0.cockroachdb.default:26258,cockroachdb-1.cockroachdb.default:26258,cockroachdb-2.cockroachdb.default:26258
   terminationGracePeriod: 5m0s
   tolerations:
   - effect: NoSchedule
