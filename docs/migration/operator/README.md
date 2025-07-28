@@ -104,6 +104,8 @@ Next, create the CRDB node corresponding to the pod that was scaled down:
 kubectl apply -f manifests/crdbnode-2.yaml
 ```
 
+> ⚠️ If you want to rollback follow [rollback section](#rollback-plan-in-case-of-migration-failure).
+
 Wait until the new pod is ready. If it fails to become ready, check the Cloud Operator logs for errors.
 
 To ensure your CockroachDB node is fully ready before proceeding with the next replica migration, verify that there are no under-replicated ranges. You can check this using the `ranges_underreplicated` metric, which should be zero.
@@ -163,3 +165,96 @@ One the migration is successful, now delete the statefulset created by public op
 ```
 kubectl delete statefulset $CRDBCLUSTER 
 ```
+
+## Rollback Plan (in case of migration failure)
+
+
+If the migration to the cloud operator fails during the stage where you are applying the generated crdbnode manifests, follow the steps below to safely restore the original state using the previously backed-up resources and preserved volumes. This assumes the StatefulSet and PVCs are not deleted.
+
+1. Delete the applied crdbnode resources in the reverse order you created them and simultaneously scale the StatefulSet back up
+
+Delete the individual crdbnode manifests in the reverse order of their creation (starting with the last one created, e.g., crdbnode-1.yaml) and scale the StatefulSet back to its original replica count (e.g., 2).
+
+**Example**: 
+
+1. Lets say you applied two crdbnode yaml file (`crdbnode-2.yaml` & `crdbnode-1.yaml`)
+2. Now you want to rollback due to any issue.
+3. Delete the crdbnodes in reverse order. 
+4. First delete the `crdbnode-1.yaml`, scale the replica count to 2 
+5. Do the verification by checking the under replicated range to zero.
+6. Then delete the `crdbnode-2.yaml` and scale replica count to 3 and so on.
+
+```
+kubectl delete -f manifests/crdbnode-1.yaml
+kubectl scale statefulset $CRDBCLUSTER --replicas=2
+```
+
+**Verification Step** 
+To ensure your CockroachDB node is fully ready before proceeding with the next replica rollback, verify that there are no under-replicated ranges. You can check this using the `ranges_underreplicated` metric, which should be zero.
+
+First, set up port forwarding to access the CockroachDB node's HTTP interface:
+```
+kubectl port-forward pod/cockroachdb-2 8080:8080
+```
+Note: CockroachDB's UI is running on 8080 port by default.
+
+Now, you can verify the metric by running following command:
+```
+curl --insecure -s https://localhost:8080/_status/vars | grep "ranges_underreplicated{" | awk '
+{print $2}'
+```
+The above command will emit the number of under-replicated ranges on the particular CockroachDB
+node and it should be zero before proceeding to next crdb node.
+
+Note: It might take some time for the `under-replicated` value to be zero.
+
+Repeat the kubectl delete -f ... command for each crdbnode manifest you applied during migration.
+
+
+2. Delete the PriorityClass and RBAC Resources Created for the Cloud Operator
+
+```
+kubectl delete priorityclass crdb-critical
+kubectl delete -f manifests/rbac.yaml
+```
+
+3. Uninstall the Cloud Operator
+
+```
+helm uninstall crdb-operator
+```
+
+4. Clean Up Cloud Operator Resources and CRDs
+
+```
+kubectl delete crds crdbnodes.crdb.cockroachlabs.com
+kubectl delete crds crdbtenants.crdb.cockroachlabs.com
+
+kubectl delete serviceaccount cockroachdb-sa
+kubectl delete service cockroach-webhook-service
+kubectl delete validatingwebhookconfiguration cockroach-webhook-config
+```
+
+5. Restore the Public Operator
+
+```
+kubectl apply -f https://raw.githubusercontent.com/cockroachdb/cockroach-operator/v2.17.0/install/crds.yaml
+kubectl apply -f https://raw.githubusercontent.com/cockroachdb/cockroach-operator/v2.17.0/install/operator.yaml
+```
+Wait for the operator pod to be Running:
+
+```
+kubectl get pods -n cockroach-operator-system
+```
+
+6. Restore the Original crdbcluster Custom Resource
+
+```
+kubectl apply -f backup/crdbcluster-$CRDBCLUSTER.yaml
+```
+
+Confirm that all CockroachDB pods are running and Ready:
+
+```
+kubectl get pods
+````
