@@ -44,6 +44,18 @@ cockroachdb:
       value: kubernetes-helm
     image:
       name: cockroachdb/cockroach:v25.1.5
+    ingress:
+      enabled: true
+      sql:
+        annotations:
+          key: value
+        host: sql.test.com
+        ingressClassName: nginx
+      ui:
+        annotations:
+          key: value
+        host: ui.local.com
+        ingressClassName: nginx
     loggingConfigMapName: cockroachdb-log-config
     nodeSelector:
       cloud.google.com/gke-nodepool: default-pool

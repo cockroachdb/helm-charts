@@ -1,0 +1,52 @@
+{{- if and .Values.cockroachdb.crdbCluster.ingress.enabled .Values.cockroachdb.crdbCluster.ingress.ui.host }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ui-{{ .Release.Name }}
+  namespace: {{ .Release.Namespace | quote }}
+  {{- if .Values.cockroachdb.crdbCluster.ingress.ui.annotations }}
+  annotations:
+  {{- range $key, $value := .Values.cockroachdb.crdbCluster.ingress.ui.annotations }}
+      {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.cockroachdb.crdbCluster.ingress.ui.ingressClassName }}
+  rules:
+  - host: {{ .Values.cockroachdb.crdbCluster.ingress.ui.host }}
+    http:
+      paths:
+      - backend:
+          service:
+            name: {{ .Release.Name }}-public
+            port:
+              name: http
+        pathType: ImplementationSpecific
+{{- end }}
+
+--- 
+{{- if and .Values.cockroachdb.crdbCluster.ingress.enabled .Values.cockroachdb.crdbCluster.ingress.sql.host }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sql-{{ .Release.Name }}
+  namespace: {{ .Release.Namespace | quote }}
+  {{- if .Values.cockroachdb.crdbCluster.ingress.sql.annotations }}
+  annotations:
+  {{- range $key, $value := .Values.cockroachdb.crdbCluster.ingress.sql.annotations }}
+      {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.cockroachdb.crdbCluster.ingress.sql.ingressClassName }}
+  rules:
+  - host: {{ .Values.cockroachdb.crdbCluster.ingress.sql.host }}
+    http:
+      paths:
+      - backend:
+          service:
+            name: {{ .Release.Name }}-public
+            port:
+              name: sql
+        pathType: ImplementationSpecific
+{{- end }}

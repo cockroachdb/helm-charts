@@ -60,6 +60,17 @@ spec:
   sqlPort: 26257
   terminationGracePeriodSecs: 300
   tlsEnabled: true
+  ingress:
+    ui:
+      ingressClassName: nginx
+      annotations:
+        key: value
+      host: ui.local.com
+    sql:
+      ingressClassName: nginx
+      annotations:
+        key: value
+      host: sql.test.com
   tolerations:
   - effect: NoSchedule
     key: non-crdb

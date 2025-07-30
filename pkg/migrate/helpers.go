@@ -168,6 +168,8 @@ func buildHelmValuesFromOperator(
 	namespace string,
 	flags *v1alpha1.Flags) map[string]interface{} {
 
+	ingressValue := buildIngressValue(cluster)
+
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
 			"tls": map[string]interface{}{
@@ -222,6 +224,7 @@ func buildHelmValuesFromOperator(
 						},
 					},
 				},
+				"ingress":                   ingressValue,
 				"affinity":                  sts.Spec.Template.Spec.Affinity,
 				"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
 				"tolerations":               sts.Spec.Template.Spec.Tolerations,
@@ -235,6 +238,32 @@ func buildHelmValuesFromOperator(
 			"fullnameOverride": cluster.Name,
 		},
 	}
+}
+
+// buildIngressValue constructs the ingress section of the Helm values
+func buildIngressValue(cluster publicv1.CrdbCluster) map[string]interface{} {
+	spec := cluster.Spec.Ingress
+	if spec == nil {
+		return map[string]interface{}{"enabled": false}
+	}
+
+	result := map[string]interface{}{"enabled": true}
+
+	if spec.UI != nil {
+		result["ui"] = map[string]interface{}{
+			"ingressClassName": spec.UI.IngressClassName,
+			"annotations":      spec.UI.Annotations,
+			"host":             spec.UI.Host,
+		}
+	}
+	if spec.SQL != nil {
+		result["sql"] = map[string]interface{}{
+			"ingressClassName": spec.SQL.IngressClassName,
+			"annotations":      spec.SQL.Annotations,
+			"host":             spec.SQL.Host,
+		}
+	}
+	return result
 }
 
 // buildNodeSpecFromHelm builds a CrdbNodeSpec from a StatefulSet created by the CockroachDB Helm chart.

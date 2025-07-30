@@ -21,6 +21,9 @@ export PATH=$PATH:$(pwd)/bin
 Set environment variables as per your setup:
 
 ```
+
+export STS_NAME=cockroachdb
+
 # CRDBCLUSTER refers to your crdbcluster CR in public operator.
 export CRDBCLUSTER=cockroachdb
 
@@ -136,6 +139,21 @@ kubectl annotate service $CRDBCLUSTER-public meta.helm.sh/release-name="$CRDBCLU
 kubectl annotate service $CRDBCLUSTER-public meta.helm.sh/release-namespace="$NAMESPACE"
 kubectl label service $CRDBCLUSTER-public app.kubernetes.io/managed-by=Helm --overwrite=true
 ```
+
+If Ingress is install, use the below command to migrate it as well if it was speceifed in CRDBCluster 
+
+```
+kubectl annotate ingress ui-cockroachdb meta.helm.sh/release-name="$CRDBCLUSTER"
+kubectl annotate ingress ui-cockroachdb  meta.helm.sh/release-namespace="$NAMESPACE"
+kubectl label ingress ui-cockroachdb app.kubernetes.io/managed-by=Helm --overwrite=true
+```
+
+```
+kubectl annotate ingress sql-cockroachdb meta.helm.sh/release-name="$CRDBCLUSTER"
+kubectl annotate ingress sql-cockroachdb  meta.helm.sh/release-namespace="$NAMESPACE"
+kubectl label ingress sql-cockroachdb app.kubernetes.io/managed-by=Helm --overwrite=true
+```
+
 
 Finally, apply the crdbcluster manifest:
 
