@@ -1,6 +1,6 @@
-## Migrate from statefulset to cloud operator
+## Migrate from statefulset to CockroachDB operator
 
-This guide will walk you through migrating a crdb cluster managed via statefulset to the crdb cloud operator. We assume you've configured a statefulset cluster using the helm chart. The goals of this process are to migrate without affecting cluster availability, and to preserve existing disks so that we don't have to replica data into empty volumes. Note that this process scales down the statefulset by one node before adding each operator-managed pod, so cluster capacity will be reduced by one node at times.
+This guide will walk you through migrating a CockroachDB cluster managed via statefulset to the CockroachDB operator. We assume you've configured a statefulset cluster using the official helm chart. The goals of this process are to migrate without affecting cluster availability, and to preserve existing disks so that we don't have to replica data into empty volumes. Note that this process scales down the statefulset by one node before adding each operator-managed pod, so cluster capacity will be reduced by one node at times.
 
 ```
 helm upgrade --install --set operator.enabled=false crdb-test --debug ./cockroachdb
@@ -36,7 +36,7 @@ export CLOUD_PROVIDER=gcp
 export REGION=us-central1
 ```
 
-Next, we need to re-map and generate tls certs. The crdb cloud operator uses slightly different certs than the cockroachdb helm chart and mounts them in configmaps and secrets with different names. Run the `migration-helper` utility with `migrate-certs` option to generate and upload certs to your cluster.
+Next, we need to re-map and generate tls certs. The CockroachDB operator uses slightly different certs than the cockroachdb helm chart and mounts them in configmaps and secrets with different names. Run the `migration-helper` utility with `migrate-certs` option to generate and upload certs to your cluster.
 
 ```
 bin/migration-helper migrate-certs --statefulset-name $STS_NAME --namespace $NAMESPACE
@@ -49,13 +49,13 @@ mkdir -p manifests
 bin/migration-helper build-manifest helm --statefulset-name $STS_NAME --namespace $NAMESPACE --cloud-provider $CLOUD_PROVIDER --cloud-region $REGION --output-dir ./manifests
 ```
 
-To migrate seamlessly from the cockroachdb helm chart to the cloud operator, we'll scale down statefulset-managed pods and replace them with crdbnode objects, one by one. Then we'll create the crdbcluster that manages the crdbnodes. Because of this order of operations, we need to create some objects that the crdbcluster will eventually own:
+To migrate seamlessly from the cockroachdb helm chart to the CockroachDB operator, we'll scale down statefulset-managed pods and replace them with crdbnode objects, one by one. Then we'll create the crdbcluster that manages the crdbnodes. Because of this order of operations, we need to create some objects that the crdbcluster will eventually own:
 
 ```
 kubectl create priorityclass crdb-critical --value 500000000
 ```
 
-Next, install the cloud operator:
+Next, install the CockroachDB operator:
 
 ```
 helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator
@@ -72,25 +72,11 @@ Then create the crdbnode corresponding to the statefulset pod you just scaled do
 ```
 kubectl apply -f manifests/crdbnode-2.yaml
 ```
-> ⚠️ If you want to rollback follow [rollback section](#rollback-plan-in-case-of-migration-failure).
+> ⚠️ If you want to rollback, follow the [rollback section](#rollback-plan-in-case-of-migration-failure).
 
-Wait for the new pod to become ready. If it doesn't, check the cloud operator logs for errors.
+Wait for the new pod to become ready. If it doesn't, check the CockroachDB operator logs for errors.
 
-To ensure your CockroachDB node is fully ready before proceeding with the next replica migration, verify that there are no under-replicated ranges. You can check this using the `ranges_underreplicated` metric, which should be zero.
-
-First, set up port forwarding to access the CockroachDB node's HTTP interface:
-```
-kubectl port-forward pod/cockroachdb-2 8080:8080
-```
-Note: CockroachDB's UI is running on 8080 port by default.
-
-Now, you can verify the metric by running following command:
-```
-curl --insecure -s https://localhost:8080/_status/vars | grep "ranges_underreplicated{" | awk '
-{print $2}'
-```
-The above command will emit the number of under-replicated ranges on the particular CockroachDB
-node and it should be zero before proceeding to next crdb node.
+Ensure that the [verification step](#verification-step) is completed prior to continuing with subsequent steps
 
 Repeat this process for each crdb node until the statefulset has zero replicas.
 
@@ -124,61 +110,40 @@ helm upgrade $RELEASE_NAME ./cockroachdb-parent/charts/cockroachdb -f manifests/
 
 ## Rollback Plan (in case of migration failure)
 
-If the migration to the cloud operator fails during the stage where you are applying the generated crdbnode manifests, follow the steps below to safely restore the original state using the previously backed-up resources and preserved volumes. This assumes the StatefulSet and PVCs are not deleted.
+If the migration to the CockroachDB operator fails during the stage where you are applying the generated crdbnode manifests, follow the steps below to safely restore the original state using the previously backed-up resources and preserved volumes. This assumes the StatefulSet and PVCs are not deleted.
 
 1. Delete the applied crdbnode resources and simultaneously scale the StatefulSet back up
 
-Delete the individual crdbnode manifests in the reverse order of their creation (starting with the last one created, e.g., crdbnode-1.yaml) and scale the StatefulSet back to its original replica count (e.g., 2).
+Delete the individual crdbnode manifests in the reverse order of their creation (starting with the last one created, e.g., crdbnode-1.yaml) and scale the StatefulSet back to its original replica count (e.g., 2). For example, assuming you have applied two `crdbnode` yaml files (`crdbnode-2.yaml` & `crdbnode-1.yaml`):
 
-**Example**: 
-
-1. Lets say you applied two crdbnode yaml file (`crdbnode-2.yaml` & `crdbnode-1.yaml`)
-2. Now you want to rollback due to any issue.
-3. Delete the crdbnodes in reverse order. 
-4. First delete the `crdbnode-1.yaml`, scale the replica count to 2 
-5. Do the verification by checking the under replicated range to zero.
-6. Then delete the `crdbnode-2.yaml` and scale replica count to 3 and so on.
+a. Delete the crdbnodes in reverse order, starting with `crdbnode-1.yaml`.
+b. Scale the StatefulSet replica count up by one (to 2).
+c. Verify that data has propagated by waiting for there to be zero under-replicated ranges using [verification step](#verification-step).
+d. Repeat steps a through c for each node, deleting the `crdbnode-2.yaml`, scaling replica count to 3, and so on.
 
 ```
 kubectl delete -f manifests/crdbnode-1.yaml
 kubectl scale statefulset $CRDBCLUSTER --replicas=2
 ```
 
-**Verification Step** 
-To ensure your CockroachDB node is fully ready before proceeding with the next replica rollback, verify that there are no under-replicated ranges. You can check this using the `ranges_underreplicated` metric, which should be zero.
-
-First, set up port forwarding to access the CockroachDB node's HTTP interface:
-```
-kubectl port-forward pod/cockroachdb-2 8080:8080
-```
-Note: CockroachDB's UI is running on 8080 port by default.
-
-Now, you can verify the metric by running following command:
-```
-curl --insecure -s https://localhost:8080/_status/vars | grep "ranges_underreplicated{" | awk '
-{print $2}'
-```
-The above command will emit the number of under-replicated ranges on the particular CockroachDB
-node and it should be zero before proceeding to next crdb node.
-
-Note: It might take some time for the `under-replicated` value to be zero.
+Ensure that the [verification step](#verification-step) is completed prior to continuing with subsequent steps
 
 Repeat the kubectl delete -f ... command for each crdbnode manifest you applied during migration.
 
 
-2. Delete the PriorityClass and RBAC Resources Created for the Cloud Operator
+1. Delete the PriorityClass and RBAC Resources Created for the CockroachDB operator
 
 ```
 kubectl delete priorityclass crdb-critical
 ```
 
-3. Uninstall the Cloud Operator
+3. Uninstall the CockroachDB operator
 
 ```
 helm uninstall crdb-operator
 ```
 
-4. Clean Up Cloud Operator Resources and CRDs
+4. Clean Up CockroachDB operator Resources and CRDs
 
 ```
 kubectl delete crds crdbnodes.crdb.cockroachlabs.com
@@ -193,4 +158,26 @@ kubectl delete validatingwebhookconfiguration cockroach-webhook-config
 
 ```
 kubectl get pods
-````
+```
+
+## Verification Step  
+
+To verify that there are no under-replicated ranges, ensuring that there is no downtime in data availability, follow these steps throughout rollback to review the `ranges_underreplicated` metric which should be zero before proceeding.
+
+a. Set up port forwarding to access the CockroachDB node's HTTP interface:
+
+```
+kubectl port-forward pod/cockroachdb-2 8080:8080
+```
+Note: CockroachDB's UI is running on 8080 port by default.
+
+b. Verify the metric by running the following command:
+
+```
+curl --insecure -s https://localhost:8080/_status/vars | grep "ranges_underreplicated{" | awk '
+{print $2}'
+```
+
+The above command will emit the number of under-replicated ranges on the particular CockroachDB node. This should be zero before proceeding to the next crdb node.
+
+Note: It might take some time for the `under-replicated` value to be zero.
