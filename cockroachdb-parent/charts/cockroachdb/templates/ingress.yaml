@@ -18,7 +18,11 @@ spec:
       paths:
       - backend:
           service:
-            name: {{ .Release.Name }}-public
+            {{- if .Values.cockroachdb.crdbCluster.service.public.name }}
+            name: {{ .Values.cockroachdb.crdbCluster.service.public.name | quote }}
+            {{- else }}
+            name: {{ template "cockroachdb.fullname" . }}-public
+            {{- end }}
             port:
               name: http
         pathType: ImplementationSpecific
@@ -45,7 +49,11 @@ spec:
       paths:
       - backend:
           service:
-            name: {{ .Release.Name }}-public
+            {{- if .Values.cockroachdb.crdbCluster.service.public.name }}
+            name: {{ .Values.cockroachdb.crdbCluster.service.public.name | quote }}
+            {{- else }}
+            name: {{ template "cockroachdb.fullname" . }}-public
+            {{- end }}
             port:
               name: sql
         pathType: ImplementationSpecific

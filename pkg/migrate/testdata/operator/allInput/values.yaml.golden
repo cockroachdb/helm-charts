@@ -87,6 +87,8 @@ cockroachdb:
           port: 8080
         sql:
           port: 26257
+      public:
+        name: cockroachdb-public
     startFlags:
       omit: null
       upsert:

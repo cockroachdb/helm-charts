@@ -334,6 +334,8 @@ cockroachdb:
       # public captures the public service configuration for client access.
       # It exposes a ClusterIP that will automatically load balance connections to the different database Pods.
       public:
+        # name defines the name of the public service.
+        name: ""
         # type defines the service type for external access.
         type: ClusterIP
         # annotations captures additional annotations for the public service.

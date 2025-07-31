@@ -223,6 +223,9 @@ func buildHelmValuesFromOperator(
 							"port": cluster.Spec.SQLPort,
 						},
 					},
+					"public": map[string]interface{}{
+						"name": cluster.Name + "-public",
+					},
 				},
 				"ingress":                   ingressValue,
 				"affinity":                  sts.Spec.Template.Spec.Affinity,
