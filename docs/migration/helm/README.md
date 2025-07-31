@@ -1,0 +1,183 @@
+## Migrate from statefulset to CockroachDB operator
+
+This guide will walk you through migrating a CockroachDB cluster managed via statefulset to the CockroachDB operator. We assume you've configured a statefulset cluster using the official helm chart. The goals of this process are to migrate without affecting cluster availability, and to preserve existing disks so that we don't have to replica data into empty volumes. Note that this process scales down the statefulset by one node before adding each operator-managed pod, so cluster capacity will be reduced by one node at times.
+
+```
+helm upgrade --install --set operator.enabled=false crdb-test --debug ./cockroachdb
+```
+
+
+Build the migration helper, and add the ./bin directory to your PATH:
+
+```
+make bin/migration-helper
+export PATH=$PATH:$(pwd)/bin
+```
+
+First, export environment variables about the current deployment:
+
+```
+# STS_NAME refers to the cockroachdb statefulset deployed via helm chart.
+export STS_NAME="crdb-test-cockroachdb"
+
+# NAMESPACE refers to the namespace where statefulset is installed.
+export NAMESPACE="default"
+
+# RELEASE_NAME refers to the release name of the installed helm chart release.
+export RELEASE_NAME=$(kubectl get sts $STS_NAME -n $NAMESPACE -o yaml | yq '.metadata.annotations."meta.helm.sh/release-name"')
+
+# CLOUD_PROVIDER is the cloud vendor where k8s cluster is residing. 
+# Right now, we support all the major cloud providers (gcp,aws,azure)
+export CLOUD_PROVIDER=gcp
+
+# REGION corresponds to the cloud provider's identifier of this region.
+# It must match the "topology.kubernetes.io/region" label on Kubernetes 
+# Nodes in this cluster.
+export REGION=us-central1
+```
+
+Next, we need to re-map and generate TLS certs. The CockroachDB operator uses slightly different certs than the cockroachdb helm chart and mounts them in configmaps and secrets with different names. Run the `migration-helper` utility with `migrate-certs` option to generate and upload certs to your cluster.
+
+```
+bin/migration-helper migrate-certs --statefulset-name $STS_NAME --namespace $NAMESPACE
+```
+
+Next, generate manifests for each crdbnode and the crdbcluster based on the state of the statefulset. We generate a manifest for each crdbnode because we want the crdb pods and their associated pvcs to have the same names as the original statefulset-managed pods and pvcs. This means that the new operator-managed pods will use the original pvcs, and won't have to replicate data into empty nodes.
+
+```
+mkdir -p manifests
+bin/migration-helper build-manifest helm --statefulset-name $STS_NAME --namespace $NAMESPACE --cloud-provider $CLOUD_PROVIDER --cloud-region $REGION --output-dir ./manifests
+```
+
+To migrate seamlessly from the cockroachdb helm chart to the CockroachDB operator, we'll scale down statefulset-managed pods and replace them with crdbnode objects, one by one. Then we'll create the crdbcluster that manages the crdbnodes. Because of this order of operations, we need to create some objects that the crdbcluster will eventually own:
+
+```
+kubectl create priorityclass crdb-critical --value 500000000
+```
+
+Next, install the CockroachDB operator:
+
+```
+helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator
+```
+
+For each crdb pod, scale the statefulset down by one replica. For example, for a three-node cluster, first scale the statefulset down to two replicas:
+
+```
+kubectl scale statefulset/$STS_NAME --replicas=2
+```
+
+Then create the crdbnode corresponding to the statefulset pod you just scaled down:
+
+```
+kubectl apply -f manifests/crdbnode-2.yaml
+```
+> ⚠️ If you want to rollback, follow the [rollback section](#rollback-plan-in-case-of-migration-failure).
+
+Wait for the new pod to become ready. If it doesn't, check the CockroachDB operator logs for errors.
+
+Ensure that the [verification step](#verification-step) is completed prior to continuing with subsequent steps
+
+Repeat this process for each crdb node until the statefulset has zero replicas.
+
+The official Helm chart creates a public Service that exposes both SQL and gRPC connections over a single port.
+However, the CockroachDB Enterprise Operator uses a different port for gRPC communication.
+To ensure compatibility, you’ll need to update the public Service to reflect the correct gRPC port used by the operator.
+
+Apply the updated service manifest with:
+```
+kubectl apply -f manifests/public-service.yaml
+```
+
+The existing StatefulSet creates a PodDisruptionBudget (PDB) that conflicts with the one managed by the CockroachDB Enterprise Operator.
+To avoid this conflict, delete the existing PDB before applying the CrdbCluster manifest:
+
+```
+kubectl delete poddisruptionbudget $STS_NAME-budget
+```
+
+Delete the StatefulSet that you previously scaled down to zero, as the Helm upgrade can proceed only if no StatefulSet is present.
+
+```
+kubectl delete statefulset $STS_NAME
+```
+
+Finally, apply the crdbcluster manifest using helm upgrade:
+
+```
+helm upgrade $RELEASE_NAME ./cockroachdb-parent/charts/cockroachdb -f manifests/values.yaml
+```
+
+## Rollback Plan (in case of migration failure)
+
+If the migration to the CockroachDB operator fails during the stage where you are applying the generated crdbnode manifests, follow the steps below to safely restore the original state using the previously backed-up resources and preserved volumes. This assumes the StatefulSet and PVCs are not deleted.
+
+1. Delete the applied crdbnode resources and simultaneously scale the StatefulSet back up
+
+Delete the individual crdbnode manifests in the reverse order of their creation (starting with the last one created, e.g., crdbnode-1.yaml) and scale the StatefulSet back to its original replica count (e.g., 2). For example, assuming you have applied two `crdbnode` yaml files (`crdbnode-2.yaml` & `crdbnode-1.yaml`):
+
+a. Delete the crdbnodes in reverse order, starting with `crdbnode-1.yaml`.
+b. Scale the StatefulSet replica count up by one (to 2).
+c. Verify that data has propagated by waiting for there to be zero under-replicated ranges using [verification step](#verification-step).
+d. Repeat steps a through c for each node, deleting the `crdbnode-2.yaml`, scaling replica count to 3, and so on.
+
+```
+kubectl delete -f manifests/crdbnode-1.yaml
+kubectl scale statefulset $CRDBCLUSTER --replicas=2
+```
+
+Ensure that the [verification step](#verification-step) is completed prior to continuing with subsequent steps
+
+Repeat the kubectl delete -f ... command for each crdbnode manifest you applied during migration.
+
+
+2. Delete the PriorityClass and RBAC Resources Created for the CockroachDB operator
+
+```
+kubectl delete priorityclass crdb-critical
+```
+
+3. Uninstall the CockroachDB operator
+
+```
+helm uninstall crdb-operator
+```
+
+4. Clean Up CockroachDB operator Resources and CRDs
+
+```
+kubectl delete crds crdbnodes.crdb.cockroachlabs.com
+kubectl delete crds crdbtenants.crdb.cockroachlabs.com
+kubectl delete crds crdbclusters.crdb.cockroachlabs.com
+
+kubectl delete service cockroach-webhook-service
+kubectl delete validatingwebhookconfiguration cockroach-webhook-config
+```
+
+5. Confirm that all CockroachDB pods are running and Ready:
+
+```
+kubectl get pods
+```
+
+## Verification Step  
+
+To verify that there are no under-replicated ranges, ensuring that there is no downtime in data availability, follow these steps throughout rollback to review the `ranges_underreplicated` metric which should be zero before proceeding.
+
+1. Set up port forwarding to access the CockroachDB node's HTTP interface:
+
+```
+kubectl port-forward pod/cockroachdb-2 8080:8080
+```
+Note: CockroachDB's UI is running on 8080 port by default.
+
+2. Verify the metric by running the following command:
+
+```
+curl --insecure -s https://localhost:8080/_status/vars | grep "ranges_underreplicated{" | awk '
+{print $2}'
+```
+
+The above command will emit the number of under-replicated ranges on the particular CockroachDB node. This should be zero before proceeding to the next crdb node.
+
+Note: It might take some time for the `under-replicated` value to be zero.
