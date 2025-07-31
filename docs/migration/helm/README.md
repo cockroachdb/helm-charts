@@ -36,7 +36,7 @@ export CLOUD_PROVIDER=gcp
 export REGION=us-central1
 ```
 
-Next, we need to re-map and generate tls certs. The CockroachDB operator uses slightly different certs than the cockroachdb helm chart and mounts them in configmaps and secrets with different names. Run the `migration-helper` utility with `migrate-certs` option to generate and upload certs to your cluster.
+Next, we need to re-map and generate TLS certs. The CockroachDB operator uses slightly different certs than the cockroachdb helm chart and mounts them in configmaps and secrets with different names. Run the `migration-helper` utility with `migrate-certs` option to generate and upload certs to your cluster.
 
 ```
 bin/migration-helper migrate-certs --statefulset-name $STS_NAME --namespace $NAMESPACE
@@ -131,7 +131,7 @@ Ensure that the [verification step](#verification-step) is completed prior to co
 Repeat the kubectl delete -f ... command for each crdbnode manifest you applied during migration.
 
 
-1. Delete the PriorityClass and RBAC Resources Created for the CockroachDB operator
+2. Delete the PriorityClass and RBAC Resources Created for the CockroachDB operator
 
 ```
 kubectl delete priorityclass crdb-critical
@@ -164,14 +164,14 @@ kubectl get pods
 
 To verify that there are no under-replicated ranges, ensuring that there is no downtime in data availability, follow these steps throughout rollback to review the `ranges_underreplicated` metric which should be zero before proceeding.
 
-a. Set up port forwarding to access the CockroachDB node's HTTP interface:
+1. Set up port forwarding to access the CockroachDB node's HTTP interface:
 
 ```
 kubectl port-forward pod/cockroachdb-2 8080:8080
 ```
 Note: CockroachDB's UI is running on 8080 port by default.
 
-b. Verify the metric by running the following command:
+2. Verify the metric by running the following command:
 
 ```
 curl --insecure -s https://localhost:8080/_status/vars | grep "ranges_underreplicated{" | awk '
