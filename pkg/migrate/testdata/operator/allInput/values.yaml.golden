@@ -68,6 +68,18 @@ cockroachdb:
         cpu: 500m
         memory: 2Gi
     service:
+      ingress:
+        enabled: true
+        sql:
+          annotations:
+            key: value
+          host: sql.test.com
+          ingressClassName: nginx
+        ui:
+          annotations:
+            key: value
+          host: ui.local.com
+          ingressClassName: nginx
       ports:
         grpc:
           port: 26258
@@ -75,6 +87,8 @@ cockroachdb:
           port: 8080
         sql:
           port: 26257
+      public:
+        name: cockroachdb-public
     startFlags:
       omit: null
       upsert:

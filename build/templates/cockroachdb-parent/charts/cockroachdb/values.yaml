@@ -226,7 +226,7 @@ cockroachdb:
         # code corresponds to the cloud provider's identifier for this region (e.g., "us-east-1" for AWS, "us-east1" for GCP).
         # This value is used to detect the region to be reconciled and must match the "topology.kubernetes.io/region" label (if it exists) on Kubernetes nodes in this cluster.
         # This value should match the operator's cloudRegion configuration.
-      - code: us-east1
+      - code: us-east-1
         # nodes defines the number of CockroachDB nodes in this region.
         nodes: 3
         # cloudProvider specifies the cloud platform identifier.
@@ -334,6 +334,8 @@ cockroachdb:
       # public captures the public service configuration for client access.
       # It exposes a ClusterIP that will automatically load balance connections to the different database Pods.
       public:
+        # name defines the name of the public service.
+        name: ""
         # type defines the service type for external access.
         type: ClusterIP
         # annotations captures additional annotations for the public service.
@@ -342,6 +344,17 @@ cockroachdb:
         labels:
           # app.kubernetes.io/component defines the component label for the public service.
           app.kubernetes.io/component: cockroachdb
+      # ingress captures the ingress configuration for CockroachDB UI and SQL.
+      ingress:
+        enabled: false
+        ui:
+          ingressClassName: ""
+          annotations: {}
+          host: ""
+        sql:
+          ingressClassName: ""
+          annotations: {}
+          host: ""
     # podAnnotations captures annotations to apply to CockroachDB pods.
     podAnnotations: {}
     # terminationGracePeriod determines the time available to CockroachDB for graceful drain.
@@ -456,6 +469,7 @@ cockroachdb:
       #       image: us-docker.pkg.dev/cockroach-cloud-images/data-plane/inotifywait:87edf086db32734c7fa083a62d1055d664900840
       #   # imagePullSecrets captures the secrets for fetching images from private registries.
       #   imagePullSecrets: []
+
 k8s:
   # nameOverride overrides the name of the chart. If not set, the chart name will be used.
   # For example, if the chart name is "cockroachdb" and nameOverride is set to "crdb",
