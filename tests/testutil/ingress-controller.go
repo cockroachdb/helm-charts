@@ -19,7 +19,7 @@ import (
 func InstallIngressAndMetalLB(t *testing.T) {
 	t.Log("Installing NGINX Ingress Controller")
 
-	// Add repo and install chart
+	// 1. Add repo and install chart
 	options := &helm.Options{}
 
 	helm.RunHelmCommandAndGetOutputE(t, options, "repo", "add", "ingress-nginx", "https://kubernetes.github.io/ingress-nginx")
@@ -79,6 +79,49 @@ metadata:
 
 	t.Log("Applying MetalLB IPAddressPool and L2Advertisement config")
 	k8s.KubectlApplyFromString(t, kubectlOptionsMetallb, ipPoolYAML)
+}
+
+func UninstallIngressAndMetalLB(t *testing.T) {
+	t.Log("Uninstalling NGINX Ingress Controller")
+
+	// 1. Uninstall ingress-nginx Helm release
+	options := &helm.Options{}
+	err := helm.DeleteE(t, options, "ingress-nginx", true)
+	if err != nil {
+		t.Logf("Warning: Failed to uninstall ingress-nginx: %v", err)
+	} else {
+		t.Log("Successfully uninstalled ingress-nginx")
+	}
+
+	// 2. Delete MetalLB resources
+	t.Log("Uninstalling MetalLB")
+
+	kubectlOptionsMetallb := k8s.NewKubectlOptions("", "", "metallb-system")
+
+	// Delete the IPAddressPool and L2Advertisement
+	t.Log("Deleting MetalLB IPAddressPool and L2Advertisement config")
+	k8s.KubectlDeleteFromStringE(t, kubectlOptionsMetallb, `
+apiVersion: metallb.io/v1beta1
+kind: IPAddressPool
+metadata:
+  name: demo-pool
+  namespace: metallb-system
+---
+apiVersion: metallb.io/v1beta1
+kind: L2Advertisement
+metadata:
+  name: demo-advertisement
+  namespace: metallb-system
+`)
+
+	// Delete the MetalLB manifests (controller and speaker)
+	t.Log("Deleting MetalLB core manifests")
+	err = k8s.KubectlDeleteE(t, kubectlOptionsMetallb, "https://raw.githubusercontent.com/metallb/metallb/v0.15.2/config/manifests/metallb-native.yaml")
+	if err != nil {
+		t.Logf("Warning: Failed to delete MetalLB core manifests: %v", err)
+	} else {
+		t.Log("Successfully deleted MetalLB core manifests")
+	}
 }
 
 func TestIngressRoutingDirect(t *testing.T, hostName string) {

@@ -226,8 +226,8 @@ func buildHelmValuesFromOperator(
 					"public": map[string]interface{}{
 						"name": cluster.Name + "-public",
 					},
+					"ingress": ingressValue,
 				},
-				"ingress":                   ingressValue,
 				"affinity":                  sts.Spec.Template.Spec.Affinity,
 				"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
 				"tolerations":               sts.Spec.Template.Spec.Tolerations,

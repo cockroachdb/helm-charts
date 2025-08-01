@@ -39,6 +39,10 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	kubectlOptions := k8s.NewKubectlOptions("", "", o.Namespace)
 	k8s.CreateNamespace(t, k8s.NewKubectlOptions("", "", o.Namespace), o.Namespace)
 	testutil.InstallIngressAndMetalLB(t)
+	defer func() {
+		t.Log("uninstall ingress and metalLB")
+		testutil.UninstallIngressAndMetalLB(t)
+	}()
 
 	// Create cluster with different logging config than the default one.
 	createLoggingConfig(t, k8sClient, "logging-config", o.Namespace)

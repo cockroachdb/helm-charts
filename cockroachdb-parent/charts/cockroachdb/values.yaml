@@ -345,6 +345,17 @@ cockroachdb:
         labels:
           # app.kubernetes.io/component defines the component label for the public service.
           app.kubernetes.io/component: cockroachdb
+      # ingress captures the ingress configuration for CockroachDB UI and SQL.
+      ingress:
+        enabled: false
+        ui:
+          ingressClassName: ""
+          annotations: {}
+          host: ""
+        sql:
+          ingressClassName: ""
+          annotations: {}
+          host: ""
     # podAnnotations captures annotations to apply to CockroachDB pods.
     podAnnotations: {}
     # terminationGracePeriod determines the time available to CockroachDB for graceful drain.
@@ -460,17 +471,6 @@ cockroachdb:
       #   # imagePullSecrets captures the secrets for fetching images from private registries.
       #   imagePullSecrets: []
 
-    # ingress captures the ingress configuration for CockroachDB UI and SQL.
-    ingress:
-      enabled: false
-      ui:
-        ingressClassName: ""
-        annotations: {}
-        host: ""
-      sql:
-        ingressClassName: ""
-        annotations: {}
-        host: ""
 k8s:
   # nameOverride overrides the name of the chart. If not set, the chart name will be used.
   # For example, if the chart name is "cockroachdb" and nameOverride is set to "crdb",

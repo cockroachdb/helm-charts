@@ -22,8 +22,6 @@ Set environment variables as per your setup:
 
 ```
 
-export STS_NAME=cockroachdb
-
 # CRDBCLUSTER refers to your crdbcluster CR in public operator.
 export CRDBCLUSTER=cockroachdb
 
@@ -50,7 +48,7 @@ kubectl get crdbcluster -o yaml $CRDBCLUSTER > backup/crdbcluster-$CRDBCLUSTER.y
 Next, we need to re-map and generate tls certs. The crdb cloud operator uses slightly different certs than the public operator and mounts them in configmaps and secrets with different names. Run the `migration-helper` utility with `migrate-certs` option to generate and upload certs to your cluster.
 
 ```
-bin/migration-helper migrate-certs --statefulset-name $STS_NAME --namespace $NAMESPACE
+bin/migration-helper migrate-certs --statefulset-name $CRDBCLUSTER --namespace $NAMESPACE
 ```
 
 Next, generate manifests for each crdbnode and the crdbcluster based on the state of the statefulset. We generate a manifest for each crdbnode because we want the crdb pods and their associated pvcs to use the same names as the original statefulset-managed pods and pvcs. This means that the new operator-managed pods will use the original pvcs, and won't have to replicate data into empty nodes.
@@ -150,7 +148,7 @@ kubectl label ingress ui-cockroachdb app.kubernetes.io/managed-by=Helm --overwri
 
 ```
 kubectl annotate ingress sql-cockroachdb meta.helm.sh/release-name="$CRDBCLUSTER"
-kubectl annotate ingress sql-cockroachdb  meta.helm.sh/release-namespace="$NAMESPACE"
+kubectl annotate ingress sql-cockroachdb meta.helm.sh/release-namespace="$NAMESPACE"
 kubectl label ingress sql-cockroachdb app.kubernetes.io/managed-by=Helm --overwrite=true
 ```
 
