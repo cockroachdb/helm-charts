@@ -1,0 +1,60 @@
+{{- if and .Values.cockroachdb.crdbCluster.service.ingress.enabled .Values.cockroachdb.crdbCluster.service.ingress.ui.host }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: ui-{{ .Release.Name }}
+  namespace: {{ .Release.Namespace | quote }}
+  {{- if .Values.cockroachdb.crdbCluster.service.ingress.ui.annotations }}
+  annotations:
+  {{- range $key, $value := .Values.cockroachdb.crdbCluster.service.ingress.ui.annotations }}
+      {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.cockroachdb.crdbCluster.service.ingress.ui.ingressClassName }}
+  rules:
+  - host: {{ .Values.cockroachdb.crdbCluster.service.ingress.ui.host }}
+    http:
+      paths:
+      - backend:
+          service:
+            {{- if .Values.cockroachdb.crdbCluster.service.public.name }}
+            name: {{ .Values.cockroachdb.crdbCluster.service.public.name | quote }}
+            {{- else }}
+            name: {{ template "cockroachdb.fullname" . }}-public
+            {{- end }}
+            port:
+              name: http
+        pathType: ImplementationSpecific
+{{- end }}
+
+--- 
+{{- if and .Values.cockroachdb.crdbCluster.service.ingress.enabled .Values.cockroachdb.crdbCluster.service.ingress.sql.host }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sql-{{ .Release.Name }}
+  namespace: {{ .Release.Namespace | quote }}
+  {{- if .Values.cockroachdb.crdbCluster.service.ingress.sql.annotations }}
+  annotations:
+  {{- range $key, $value := .Values.cockroachdb.crdbCluster.service.ingress.sql.annotations }}
+      {{ $key }}: {{ $value | quote }}
+  {{- end }}
+  {{- end }}
+spec:
+  ingressClassName: {{ .Values.cockroachdb.crdbCluster.service.ingress.sql.ingressClassName }}
+  rules:
+  - host: {{ .Values.cockroachdb.crdbCluster.service.ingress.sql.host }}
+    http:
+      paths:
+      - backend:
+          service:
+            {{- if .Values.cockroachdb.crdbCluster.service.public.name }}
+            name: {{ .Values.cockroachdb.crdbCluster.service.public.name | quote }}
+            {{- else }}
+            name: {{ template "cockroachdb.fullname" . }}-public
+            {{- end }}
+            port:
+              name: sql
+        pathType: ImplementationSpecific
+{{- end }}
