@@ -4,7 +4,11 @@
 kind: Service
 apiVersion: v1
 metadata:
+  {{- if .Values.cockroachdb.crdbCluster.service.public.name }}
+  name: {{ .Values.cockroachdb.crdbCluster.service.public.name | quote }}
+  {{- else }}
   name: {{ template "cockroachdb.fullname" . }}-public
+  {{- end }}
   namespace: {{ .Release.Namespace | quote }}
   labels:
     helm.sh/chart: {{ template "cockroachdb.chart" . }}

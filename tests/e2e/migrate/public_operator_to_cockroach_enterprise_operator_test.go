@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	api "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
 	optestutil "github.com/cockroachdb/cockroach-operator/pkg/testutil"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
@@ -37,9 +38,31 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	o.Namespace = "cockroach" + strings.ToLower(random.UniqueId())
 	kubectlOptions := k8s.NewKubectlOptions("", "", o.Namespace)
 	k8s.CreateNamespace(t, k8s.NewKubectlOptions("", "", o.Namespace), o.Namespace)
+	testutil.InstallIngressAndMetalLB(t)
+	defer func() {
+		t.Log("uninstall ingress and metalLB")
+		testutil.UninstallIngressAndMetalLB(t)
+	}()
 
 	// Create cluster with different logging config than the default one.
 	createLoggingConfig(t, k8sClient, "logging-config", o.Namespace)
+
+	ingress := &api.IngressConfig{
+		UI: &api.Ingress{
+			IngressClassName: "nginx",
+			Host:             "ui.local.com",
+			Annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/backend-protocol": "HTTPS",
+			},
+		},
+		SQL: &api.Ingress{
+			IngressClassName: "nginx",
+			Host:             "sql.local.com",
+			Annotations: map[string]string{
+				"nginx.ingress.kubernetes.io/backend-protocol": "HTTPS",
+			},
+		},
+	}
 
 	crdbClusterName := "crdb-test"
 	o.CustomResourceBuilder = optestutil.NewBuilder(crdbClusterName).
@@ -55,7 +78,8 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 				corev1.ResourceCPU:    resource.MustParse("200m"),
 				corev1.ResourceMemory: resource.MustParse("256Mi"),
 			},
-		}).WithClusterLogging("logging-config")
+		}).WithClusterLogging("logging-config").
+		WithIngress(ingress)
 
 	o.Ctx = context.Background()
 	o.CrdbCluster = testutil.CockroachCluster{
@@ -76,6 +100,7 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, o.CrdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, o.CrdbCluster, false)
+	testutil.TestIngressRoutingDirect(t, "ui.local.com")
 
 	prepareForMigration(t, o.CrdbCluster.StatefulSetName, o.Namespace, o.CrdbCluster.CaSecret, "operator")
 	defer func() {
@@ -103,9 +128,18 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	migratePodsToCrdbNodes(t, o.CrdbCluster, o.Namespace)
 
 	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", o.CrdbCluster.StatefulSetName)
-	k8s.RunKubectl(t, kubectlOptions, "annotate", "service", fmt.Sprintf("%s-public", o.CrdbCluster.StatefulSetName), fmt.Sprintf("meta.helm.sh/release-name=%s", o.CrdbCluster.StatefulSetName), "--overwrite")
-	k8s.RunKubectl(t, kubectlOptions, "annotate", "service", fmt.Sprintf("%s-public", o.CrdbCluster.StatefulSetName), fmt.Sprintf("meta.helm.sh/release-namespace=%s", o.Namespace), "--overwrite")
-	k8s.RunKubectl(t, kubectlOptions, "label", "service", fmt.Sprintf("%s-public", o.CrdbCluster.StatefulSetName), fmt.Sprintf("app.kubernetes.io/managed-by=%s", "Helm"), "--overwrite")
+
+	var migrateObjsToHelm = make(map[string][]string)
+
+	migrateObjsToHelm["service"] = []string{fmt.Sprintf("%s-public", o.CrdbCluster.StatefulSetName)}
+	migrateObjsToHelm["ingress"] = []string{fmt.Sprintf("ui-%s", o.CrdbCluster.StatefulSetName), fmt.Sprintf("sql-%s", o.CrdbCluster.StatefulSetName)}
+	for resourceName, obj := range migrateObjsToHelm {
+		for _, objName := range obj {
+			k8s.RunKubectl(t, kubectlOptions, "annotate", resourceName, objName, fmt.Sprintf("meta.helm.sh/release-name=%s", o.CrdbCluster.StatefulSetName), "--overwrite")
+			k8s.RunKubectl(t, kubectlOptions, "annotate", resourceName, objName, fmt.Sprintf("meta.helm.sh/release-namespace=%s", o.Namespace), "--overwrite")
+			k8s.RunKubectl(t, kubectlOptions, "label", resourceName, objName, fmt.Sprintf("app.kubernetes.io/managed-by=%s", "Helm"), "--overwrite")
+		}
+	}
 
 	o.HelmOptions = &helm.Options{
 		KubectlOptions: kubectlOptions,
@@ -126,4 +160,6 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 
 	o.ValidateExistingData = true
 	o.ValidateCRDB(t)
+
+	testutil.TestIngressRoutingDirect(t, "ui.local.com")
 }
