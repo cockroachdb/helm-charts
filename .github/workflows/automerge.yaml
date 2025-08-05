@@ -9,9 +9,8 @@ on:
     # Trigger the workflow only for certain files. First we need to exclude all
     # files, then add the files we care about.
     - "!**"
-    - "cockroachdb/Chart.yaml"
-    - "cockroachdb/README.md"
-    - "cockroachdb/values.yaml"
+    - "cockroachdb/**"
+    - "cockroachdb-parent/**"
 
 permissions:
   contents: write
@@ -35,8 +34,8 @@ jobs:
           set -euxo pipefail
           version="$(cat cockroachdb/Chart.yaml | yq -r '.version')"
           appVersion="$(cat cockroachdb/Chart.yaml | yq -r '.appVersion')"
-          git checkout origin/master -- cockroachdb/Chart.yaml cockroachdb/README.md cockroachdb/values.yaml
-          git restore --staged cockroachdb/Chart.yaml cockroachdb/README.md cockroachdb/values.yaml
+          git checkout origin/master -- cockroachdb cockroachdb-parent
+          git restore --staged cockroachdb cockroachdb-parent
           master_version="$(cat cockroachdb/Chart.yaml | yq -r '.version')"
           master_appVersion="$(cat cockroachdb/Chart.yaml | yq -r '.appVersion')"
           latest_version="$(echo -e "$version\n$master_version" | sort --version-sort -r | head -n1)"
@@ -50,6 +49,10 @@ jobs:
             exit 1
           fi
           make bump/$appVersion
+          # `helm dependency update` is not idempotent and bumps the
+          # `generated` field with the current date/TZ. Let's checkout the
+          # original version to ignore the changes.
+          git checkout cockroachdb-parent/Chart.lock 
       - name: Confirm expected patch
         run: git diff --exit-code
       - name: Approve PR
