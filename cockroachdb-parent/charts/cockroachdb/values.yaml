@@ -471,6 +471,11 @@ cockroachdb:
       #   # imagePullSecrets captures the secrets for fetching images from private registries.
       #   imagePullSecrets: []
 
+    # persistentVolumeClaimRetentionPolicy is used to Retain or Delete the PVCs when the node is deleted.
+    # If not specified, the PVCs will be deleted when the node is deleted.
+    persistentVolumeClaimRetentionPolicy: {}
+    #  whenDeleted: Delete
+
 k8s:
   # nameOverride overrides the name of the chart. If not set, the chart name will be used.
   # For example, if the chart name is "cockroachdb" and nameOverride is set to "crdb",

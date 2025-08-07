@@ -1,6 +1,7 @@
 package v1alpha1
 
 import (
+	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -260,6 +261,11 @@ type CrdbNodeSpec struct {
 	// for details of merging behavior, see the PodTemplateBuilder type.
 	// +kubebuilder:validation:Optional
 	PodTemplate *PodTemplateSpec `json:"podTemplate,omitempty"`
+
+	// PersistentVolumeClaimRetentionPolicy controls the retention of PVCs when the CrdbNode is deleted.
+	// If not specified, defaults to "Delete" for backward compatibility.
+	// +kubebuilder:validation:Optional
+	PersistentVolumeClaimRetentionPolicy *CrdbNodePersistentVolumeClaimRetentionPolicy `json:"persistentVolumeClaimRetentionPolicy,omitempty"`
 }
 
 // PodTemplateSpec is a structure allowing the user to set a template for Pod
@@ -272,6 +278,15 @@ type PodTemplateSpec struct {
 type PodMeta struct {
 	Labels      map[string]string `json:"labels,omitempty"`
 	Annotations map[string]string `json:"annotations,omitempty"`
+}
+
+// CrdbNodePersistentVolumeClaimRetentionPolicy describes the policy for PVCs created from CrdbNode.
+type CrdbNodePersistentVolumeClaimRetentionPolicy struct {
+	// WhenDeleted specifies what happens to PVCs when the CrdbNode is deleted.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:default=Delete
+	// +kubebuilder:validation:Enum=Retain;Delete
+	WhenDeleted appsv1.PersistentVolumeClaimRetentionPolicyType `json:"whenDeleted,omitempty"`
 }
 
 // Flags enable upserting and omitting default flags
