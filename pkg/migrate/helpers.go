@@ -151,6 +151,9 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 				RootSQLClientSecretName: cluster.Name + "-client-secret",
 			},
 		},
+		PersistentVolumeClaimRetentionPolicy: &v1alpha1.CrdbNodePersistentVolumeClaimRetentionPolicy{
+			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
+		},
 		Affinity:                  sts.Spec.Template.Spec.Affinity,
 		NodeSelector:              sts.Spec.Template.Spec.NodeSelector,
 		Tolerations:               sts.Spec.Template.Spec.Tolerations,
@@ -315,6 +318,9 @@ func buildNodeSpecFromHelm(
 				RootSQLClientSecretName: input.clientSecretName,
 				HTTPSecretName:          input.clientSecretName,
 			},
+		},
+		PersistentVolumeClaimRetentionPolicy: &v1alpha1.CrdbNodePersistentVolumeClaimRetentionPolicy{
+			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 		},
 		Affinity:                  sts.Spec.Template.Spec.Affinity,
 		NodeSelector:              sts.Spec.Template.Spec.NodeSelector,

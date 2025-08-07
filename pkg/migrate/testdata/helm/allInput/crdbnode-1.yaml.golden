@@ -65,6 +65,8 @@ spec:
   nodeName: node1
   nodeSelector:
     cloud.google.com/gke-nodepool: default-pool
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
   podAnnotations:
     crdb: is-cool
   podLabels:

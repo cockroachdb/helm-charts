@@ -141,7 +141,7 @@ Delete the individual crdbnode manifests in the reverse order of their creation 
 
 ```
 kubectl delete -f manifests/crdbnode-1.yaml
-kubectl scale statefulset $CRDBCLUSTER --replicas=2
+kubectl scale statefulset $STS_NAME --replicas=2
 ```
 
 **Verification Step** 
