@@ -191,12 +191,9 @@ import_container_images() {
 
 # Function to delete K3D clusters.
 delete_clusters() {
-    for ((i=0; i<clusters; i++)); do
-        cluster_name="${name}-cluster-${i}"
-        echo "Deleting cluster '${cluster_name}'..."
-        ${K3D_PATH} cluster delete "${cluster_name}"
-        echo "Cluster '${cluster_name}' deleted successfully."
-    done
+      echo "Deleting all K3d clusters..."
+      ${K3D_PATH} cluster delete --all
+      echo "K3d clusters deleted successfully."
 }
 
 

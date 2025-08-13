@@ -2,22 +2,26 @@ package multiRegion
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
-	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
+// Environment variable name to check if running in nightly mode
+const isNightlyEnvVar = "isNightly"
+
+// Region codes for each provider are now centralized in infra.RegionCodes
 type multiRegion struct {
 	operator.OperatorUseCases
 	operator.Region
@@ -26,36 +30,86 @@ type multiRegion struct {
 func newMultiRegion() *multiRegion {
 	return &multiRegion{}
 }
+
+// TestOperatorInMultiRegion tests CockroachDB operator functionality across multiple regions
 func TestOperatorInMultiRegion(t *testing.T) {
-	r := newMultiRegion()
-	r.Region = operator.Region{
-		IsMultiRegion: true,
-		NodeCount:     3,
-		ReusingInfra:  false,
+	var providers []string
+	if os.Getenv(isNightlyEnvVar) == "true" {
+		providers = []string{infra.ProviderGCP}
+	} else {
+		providers = []string{infra.ProviderK3D}
 	}
-	r.Clients = make(map[string]client.Client)
-	r.Namespace = make(map[string]string)
-	t.Run("TestHelmInstall", r.TestHelmInstall)
-	t.Run("TestHelmUpgrade", r.TestHelmUpgrade)
-	t.Run("TestClusterRollingRestart", r.TestClusterRollingRestart)
-	t.Run("TestKillingCockroachNode", r.TestKillingCockroachNode)
-	t.Run("TestClusterScaleUp", r.TestClusterScaleUp)
+
+	for _, provider := range providers {
+		// Create a new variable to avoid closure issues
+		provider := provider
+		t.Run(provider, func(t *testing.T) {
+			t.Parallel()
+
+			// Create a provider-specific instance to avoid race conditions.
+			providerRegion := newMultiRegion()
+			providerRegion.Region = operator.Region{
+				IsMultiRegion: true,
+				NodeCount:     3,
+				ReusingInfra:  false,
+			}
+			providerRegion.Clients = make(map[string]client.Client)
+			providerRegion.Namespace = make(map[string]string)
+
+			providerRegion.Provider = provider
+			for _, cluster := range operator.Clusters {
+				clusterName := fmt.Sprintf("%s-%s", providerRegion.Provider, cluster)
+				if providerRegion.Provider != infra.ProviderK3D {
+					clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
+				}
+				providerRegion.Clusters = append(providerRegion.Clusters, clusterName)
+			}
+
+			// Create and reuse the same provider instance for both setup and teardown.
+			cloudProvider := infra.ProviderFactory(providerRegion.Provider, &providerRegion.Region)
+			if cloudProvider == nil {
+				t.Fatalf("Unsupported provider: %s", provider)
+			}
+
+			// Use t.Cleanup for guaranteed cleanup even on test timeout/panic.
+			t.Cleanup(func() {
+				t.Logf("Starting infrastructure cleanup for provider: %s", provider)
+				cloudProvider.TeardownInfra(t)
+				t.Logf("Completed infrastructure cleanup for provider: %s", provider)
+			})
+
+			// Set up infrastructure for this provider once.
+			cloudProvider.SetUpInfra(t)
+
+			testCases := map[string]func(*testing.T){
+				"TestHelmInstall":           providerRegion.TestHelmInstall,
+				"TestHelmUpgrade":           providerRegion.TestHelmUpgrade,
+				"TestClusterRollingRestart": providerRegion.TestClusterRollingRestart,
+				"TestKillingCockroachNode":  providerRegion.TestKillingCockroachNode,
+				"TestClusterScaleUp":        func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) },
+			}
+
+			// Run tests sequentially within a provider.
+			for name, method := range testCases {
+				t.Run(name, func(t *testing.T) {
+					method(t)
+				})
+			}
+		})
+	}
 }
 
 // TestHelmInstall will install Operator and CockroachDB charts in multiple regions,
-// and verifies if CockroachDB has formed multi-region cluster.
+// and verifies if CockroachDB has formed a multi-region cluster.
 func (r *multiRegion) TestHelmInstall(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-
-	// Set up multi-region k3d infra.
-	r.SetUpInfra(t, corednsClusterOptions)
-
-	var clusters = operator.Clusters[:len(r.Clients)]
 
 	// Creating random namespace for each region.
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
 	}
+
+	// Update CoreDNS configuration with the test namespaces.
+	infra.UpdateCoreDNSWithNamespaces(t, &r.Region)
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
@@ -67,17 +121,17 @@ func (r *multiRegion) TestHelmInstall(t *testing.T) {
 	defer r.CleanUpCACertificate(t)
 
 	// Apply operator, CockroachDB charts on each cluster.
-	for i, cluster := range clusters {
+	for i, cluster := range r.Clusters {
 		r.InstallCharts(t, cluster, i)
 	}
 
-	// Get current context name.
+	// Get the current context name.
 	_, rawConfig := r.GetCurrentContext(t)
 
 	// Validate CockroachDB functionality in each cluster.
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
-			t.Fatal()
+			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
 		rawConfig.CurrentContext = cluster
 		// Validate CockroachDB cluster.
@@ -88,19 +142,16 @@ func (r *multiRegion) TestHelmInstall(t *testing.T) {
 }
 
 // TestHelmUpgrade will upgrade the existing charts in multiple regions,
-// and verifies the CockroachDB health in multi-region.
+// and verifies the CockroachDB health in a multi-region.
 func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-
-	// Set up multi-region k3d infra.
-	r.SetUpInfra(t, corednsClusterOptions)
-
-	var clusters = operator.Clusters[:len(r.Clients)]
 
 	// Creating random namespace for each region.
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
 	}
+
+	// Update CoreDNS configuration with the test namespaces.
+	infra.UpdateCoreDNSWithNamespaces(t, &r.Region)
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
@@ -112,17 +163,17 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 	defer r.CleanUpCACertificate(t)
 
 	// Apply operator, CockroachDB charts on each cluster.
-	for i, cluster := range clusters {
+	for i, cluster := range r.Clusters {
 		r.InstallCharts(t, cluster, i)
 	}
 
-	// Get current context name.
+	// Get the current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
 	// Validate CockroachDB functionality in each cluster.
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
-			t.Fatal()
+			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
 		rawConfig.CurrentContext = cluster
 		// Validate CockroachDB cluster.
@@ -131,15 +182,19 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 
 	// Get helm chart paths.
 	helmChartPath, _ := operator.HelmChartPaths()
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 		// Get the initial timestamp of the pods before the upgrade.
 		pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
 			LabelSelector: operator.LabelSelector,
 		})
 
-		// Capture the creation timestamp of the first pod.
-		initialTimestamp := pods[0].CreationTimestamp.Time
+		// Capture the creation timestamp of the last pod.
+		// Capture the creation timestamp of the last pod.
+		if len(pods) == 0 {
+			require.Fail(t, "No pods found for deployment")
+		}
+		initialTimestamp := pods[len(pods)-1].CreationTimestamp.Time
 		options := &helm.Options{
 			KubectlOptions: kubectlOptions,
 			ExtraArgs: map[string][]string{
@@ -157,36 +212,23 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 			DesiredNodes: r.NodeCount,
 		}
 		testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
-		pods = k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-			LabelSelector: operator.LabelSelector,
-		})
-		for _, pod := range pods {
-			containers := pod.Spec.Containers
-			for _, container := range containers {
-				if container.Name == operator.CockroachContainerName {
-					require.Equal(t, resource.MustParse("100m"), container.Resources.Requests["cpu"])
-				}
-			}
-		}
+		r.ValidateCRDBContainerResources(t, kubectlOptions)
 		r.ValidateCRDB(t, cluster)
 	}
 	r.ValidateMultiRegionSetup(t)
 }
 
 // TestClusterRollingRestart will do a rolling restart by updating
-// timestamp of each cockroachdb pod in multi region through helm upgrade and verifies the same.
+// the timestamp of each cockroachdb pod in a multi region through helm upgrade and verifies the same.
 func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-
-	// Set up multi-region k3d infra.
-	r.SetUpInfra(t, corednsClusterOptions)
-
-	var clusters = operator.Clusters[:len(r.Clients)]
 
 	// Creating random namespace for each region.
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
 	}
+
+	// Update CoreDNS configuration with the test namespaces.
+	infra.UpdateCoreDNSWithNamespaces(t, &r.Region)
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
@@ -198,17 +240,17 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 	defer r.CleanUpCACertificate(t)
 
 	// Apply operator, CockroachDB charts on each cluster.
-	for i, cluster := range clusters {
+	for i, cluster := range r.Clusters {
 		r.InstallCharts(t, cluster, i)
 	}
 
-	// Get current context name.
+	// Get the current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
 	// Validate CockroachDB functionality in each cluster.
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
-			t.Fatal()
+			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
 		rawConfig.CurrentContext = cluster
 		r.ValidateCRDB(t, cluster)
@@ -219,7 +261,7 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 
 	// Modify the timestamp value and apply helm upgrade.
 	var upgradeTime time.Time
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		// Helm upgrade with timestamp annotation.
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 		upgradeTime = time.Now().UTC()
@@ -241,7 +283,10 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 		}
 
 		// Capture the creation timestamp of the last pod.
-		initialTimestamp := pods[2].CreationTimestamp.Time
+		if len(pods) < 3 {
+			require.Fail(t, "Expected at least 3 pods but found %d", len(pods))
+		}
+		initialTimestamp := pods[len(pods)-1].CreationTimestamp.Time
 
 		// Verify if the pods are restarted after helm upgrade.
 		err = r.VerifyHelmUpgrade(t, initialTimestamp, kubectlOptions)
@@ -256,7 +301,7 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 		})
 		// Verify that each pod's creation timestamp is after the upgradeTime.
 		for _, pod := range pods {
-			require.False(t, pod.CreationTimestamp.Time.Before(upgradeTime), fmt.Errorf("pod %s was not restarted before %v", pod.Name, upgradeTime))
+			require.False(t, pod.CreationTimestamp.Time.Before(upgradeTime), "pod %s was not restarted after %v", pod.Name, upgradeTime)
 		}
 	}
 	r.ValidateMultiRegionSetup(t)
@@ -265,17 +310,14 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 // TestKillingCockroachNode will manually kill one cockroachdb node to verify
 // if the reconciliation is working as expected in multi region and verifies the same.
 func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-
-	// Set up multi-region k3d infra.
-	r.SetUpInfra(t, corednsClusterOptions)
-
-	var clusters = operator.Clusters[:len(r.Clients)]
 
 	// Creating random namespace for each region.
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
 	}
+
+	// Update CoreDNS configuration with the test namespaces.
+	infra.UpdateCoreDNSWithNamespaces(t, &r.Region)
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
@@ -287,24 +329,24 @@ func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
 	defer r.CleanUpCACertificate(t)
 
 	// Apply operator, CockroachDB charts on each cluster.
-	for i, cluster := range clusters {
+	for i, cluster := range r.Clusters {
 		r.InstallCharts(t, cluster, i)
 	}
 
-	// Get current context name.
+	// Get the current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
 	// Validate CockroachDB functionality in each cluster.
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
-			t.Fatal()
+			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
 		rawConfig.CurrentContext = cluster
 		r.ValidateCRDB(t, cluster)
 	}
 
-	// Kill a pod in each cluster and verify the reconciliation
-	for _, cluster := range clusters {
+	// Kill a pod in each cluster and verify the reconciliation.
+	for _, cluster := range r.Clusters {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 		pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
 			LabelSelector: operator.LabelSelector,
@@ -321,7 +363,7 @@ func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
 		testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
 		// Validate CockroachDB cluster.
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
-			t.Fatal()
+			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
 		rawConfig.CurrentContext = cluster
 		r.ValidateCRDB(t, cluster)
@@ -330,19 +372,16 @@ func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
 }
 
 // TestClusterScaleUp will scale the CockroachDB nodes in multiple regions
-// and verifies the CockroachDB cluster health and replicas in each region.
-func (r *multiRegion) TestClusterScaleUp(t *testing.T) {
-	var corednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
-
-	// Set up multi-region k3d infra.
-	r.SetUpInfra(t, corednsClusterOptions)
-
-	var clusters = operator.Clusters[:len(r.Clients)]
+// and verifies the CockroachDB cluster health and replicas using the provided cloudProvider.
+func (r *multiRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.CloudProvider) {
 
 	// Creating random namespace for each region.
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
 	}
+
+	// Update CoreDNS configuration with the test namespaces.
+	infra.UpdateCoreDNSWithNamespaces(t, &r.Region)
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
@@ -354,17 +393,17 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T) {
 	defer r.CleanUpCACertificate(t)
 
 	// Apply Operator, CockroachDB charts on each cluster.
-	for i, cluster := range clusters {
+	for i, cluster := range r.Clusters {
 		r.InstallCharts(t, cluster, i)
 	}
 
-	// Get current context name.
+	// Get the current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
 	// Validate CockroachDB functionality in each cluster.
-	for _, cluster := range clusters {
+	for _, cluster := range r.Clusters {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
-			t.Fatal()
+			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
 		rawConfig.CurrentContext = cluster
 
@@ -373,10 +412,19 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T) {
 	// Get helm chart paths.
 	helmChartPath, _ := operator.HelmChartPaths()
 
+	r.NodeCount += 1
 	// Modify the nodes in each region and apply helm upgrade.
-	for i, cluster := range clusters {
+	for i, cluster := range r.Clusters {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-		r.NodeCount = 4
+
+		// Check if scaling is supported by the cloud provider.
+		if cloudProvider.CanScale() {
+			t.Logf("Scaling node pool for provider: %s in region: %s", r.Provider, r.RegionCodes[i])
+			cloudProvider.ScaleNodePool(t, r.RegionCodes[i], r.NodeCount, i)
+		} else {
+			t.Logf("Provider %s does not support scaling", r.Provider)
+		}
+
 		options := &helm.Options{
 			KubectlOptions: kubectlOptions,
 			SetJsonValues: map[string]string{
@@ -392,11 +440,7 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T) {
 		crdbCluster := testutil.CockroachCluster{
 			DesiredNodes: r.NodeCount,
 		}
-		testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
-		pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-			LabelSelector: operator.LabelSelector,
-		})
-		require.True(t, len(pods) == 4)
+		testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 1200*time.Second)
 		// Validate CockroachDB cluster.
 		r.ValidateCRDB(t, cluster)
 	}
