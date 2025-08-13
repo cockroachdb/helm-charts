@@ -1,0 +1,17 @@
+# Values configuration for the multi region deployment.
+# Follow the docs for multi region deployment here: https://www.cockroachlabs.com/docs/stable/deploy-cockroachdb-with-cockroachdb-operator#deploy-across-multiple-regions
+
+cockroachdb:
+  clusterDomain: cluster.gke.gcp-us-east1
+  crdbCluster:
+    regions:
+      - code: us-central1
+        nodes: 3
+        cloudProvider: gcp
+        domain: cluster.gke.gcp-us-central1
+        namespace: cockroach-ns
+      - code: us-east1
+        nodes: 3
+        cloudProvider: gcp
+        domain: cluster.gke.gcp-us-east1
+        namespace: cockroach-ns

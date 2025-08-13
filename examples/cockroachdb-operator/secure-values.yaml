@@ -1,0 +1,8 @@
+# Values configuration for the self signer.
+
+cockroachdb:
+  clusterDomain: cluster.local
+  tls:
+    enabled: true
+    selfSigner:
+      enabled: true
