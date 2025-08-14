@@ -86,8 +86,25 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			}
 
 			// Run tests sequentially within a provider.
+			var testFailed bool
 			for name, method := range testCases {
+				// Skip remaining tests if a previous test failed to save time
+				if testFailed {
+					t.Logf("Skipping test %s due to previous test failure", name)
+					continue
+				}
+
 				t.Run(name, func(t *testing.T) {
+					// Add immediate cleanup trigger if this individual test fails
+					defer func() {
+						if t.Failed() {
+							testFailed = true
+							t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
+							cloudProvider.TeardownInfra(t)
+							t.Logf("Infrastructure cleanup completed due to test failure")
+						}
+					}()
+
 					method(t)
 				})
 			}

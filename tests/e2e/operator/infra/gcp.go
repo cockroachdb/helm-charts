@@ -197,9 +197,13 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 	}
 
 	// 5) Create firewall rules (IDEMPOTENT)
+	// Firewalls must be unique to a project, so create with unique names to avoid conflicts between parallel CI runs
+	webhookFirewallName := fmt.Sprintf("%s-%s", webhookFirewallRuleName, r.vpcName)
+	internalFirewallName := fmt.Sprintf("%s-%s", internalFirewallRuleName, r.vpcName)
+
 	// 5a) Allow port 9443
 	allow9443 := []*compute.FirewallAllowed{{IPProtocol: "tcp", Ports: []string{"9443"}}}
-	_, err = createFirewallRuleIfNotExists(ctx, computeService, getProjectID(), vpcSelfLink, webhookFirewallRuleName, allow9443, []string{defaultNodeTag}, allSubnetRanges)
+	_, err = createFirewallRuleIfNotExists(ctx, computeService, getProjectID(), vpcSelfLink, webhookFirewallName, allow9443, []string{defaultNodeTag}, allSubnetRanges)
 	require.NoError(t, err, "failed to create webhook firewall rule")
 
 	// 5b) Allow internal (TCP,UDP,ICMP)
@@ -210,7 +214,7 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 	allSources := make([]string, 0, len(allSubnetRanges)+len(allClusterIPV4CIDRs))
 	allSources = append(allSources, allSubnetRanges...)
 	allSources = append(allSources, allClusterIPV4CIDRs...)
-	_, err = createFirewallRuleIfNotExists(ctx, computeService, getProjectID(), vpcSelfLink, internalFirewallRuleName, internalAllow, []string{defaultNodeTag}, allSources)
+	_, err = createFirewallRuleIfNotExists(ctx, computeService, getProjectID(), vpcSelfLink, internalFirewallName, internalAllow, []string{defaultNodeTag}, allSources)
 	require.NoError(t, err, "failed to create internal firewall rule")
 
 	// 6) Create GKE clusters in parallel.
@@ -700,7 +704,9 @@ func (r *GcpRegion) deleteStaticIPsAndFirewallRules(ctx context.Context, t *test
 	}
 
 	// Firewall rule deletions (parallel)
-	firewallRules := []string{webhookFirewallRuleName, internalFirewallRuleName}
+	webhookFirewallName := fmt.Sprintf("%s-%s", webhookFirewallRuleName, r.vpcName)
+	internalFirewallName := fmt.Sprintf("%s-%s", internalFirewallRuleName, r.vpcName)
+	firewallRules := []string{webhookFirewallName, internalFirewallName}
 	for _, rule := range firewallRules {
 		wg.Add(1)
 		go func(ruleName string) {
