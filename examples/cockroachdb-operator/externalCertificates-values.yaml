@@ -1,0 +1,14 @@
+# Values configuration for the external certificates.
+
+cockroachdb:
+  clusterDomain: cluster.local
+  tls:
+    enabled: true
+    selfSigner:
+      enabled: false
+    externalCertificates:
+      enabled: true
+      certificates:
+        caConfigMapName: "cockroachdb-ca"
+        nodeSecretName: "cockroachdb.node"
+        rootSqlClientSecretName: "cockroachdb.client.root"

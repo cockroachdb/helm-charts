@@ -1,0 +1,20 @@
+# Values configuration for the cert Manager.
+
+certManager:
+  tls:
+    enabled: true
+    selfSigner:
+      enabled: false
+    certManager:
+      enabled: true
+      caConfigMap: cockroachdb-ca
+      nodeSecret: cockroachdb.node
+      clientRootSecret: cockroachdb.client.root
+      issuer:
+        group: cert-manager.io
+        kind: Issuer
+        name: cockroachdb
+        clientCertDuration: 672h
+        clientCertExpiryWindow: 48h
+        nodeCertDuration: 8760h
+        nodeCertExpiryWindow: 168h
