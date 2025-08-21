@@ -1,0 +1,8 @@
+# Values configuration for the insecure mode.
+
+cockroachdb:
+  clusterDomain: cluster.local
+  tls:
+    enabled: false
+    selfSigner:
+      enabled: false
