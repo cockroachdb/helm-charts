@@ -1,0 +1,28 @@
+# podTemplate can be used to overwrite the default configuration for the CockroachDB pods.
+# To learn more about it follow the docs https://www.cockroachlabs.com/docs/stable/override-templates-cockroachdb-operator#override-the-default-pod
+
+# Values configuration for the custom pod template.
+cockroachdb:
+  clusterDomain: cluster.local
+  tls:
+    enabled: true
+    selfSigner:
+      enabled: true
+  # crdbCluster captures the configuration for the CrdbCluster custom resource.
+  crdbCluster:
+    podTemplate:
+      metadata:
+        labels:
+          app: cockroachdb
+      spec:
+        initContainers:
+          - name: cockroachdb-init
+            image: private.registry.example.com/data-plane/init-container:c3e4ba851802a429c7f76c639a64b9152d206cebb31162c1760f05e98f7c4254
+        # containers captures the list of containers for CockroachDB pods.
+        containers:
+          - name: cockroachdb
+            image: private.registry.example.com/cockroachdb/cockroach:v25.2.2
+          - name: cert-reloader
+            image: private.registry.example.com/data-plane/inotifywait:87edf086db32734c7fa083a62d1055d664900840
+        # imagePullSecrets captures the secrets for fetching images from private registries.
+      #   imagePullSecrets: []

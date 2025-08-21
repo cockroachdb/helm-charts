@@ -1,0 +1,25 @@
+# Values configuration for the multi region deployment.
+# Before deploying the CockroachDB cluster with multi region deployment, you need to have the following:
+# 1. Multiple kubernetes clusters in different regions which have networking setup to allow for service discovery across regions.
+# 2. The same CA cert is used across all the regions.
+# 3. Need to install the operator in each cluster.
+# 4. Now, you can use this values.yaml file to deploy the CockroachDB cluster with multi region deployment.
+# 5. This values.yaml file is for the CockroachDB cluster for us-east1 region as ClusterDomain is set to cluster.gke.gcp-us-east1.
+
+# Follow the docs for multi region deployment here: https://www.cockroachlabs.com/docs/stable/deploy-cockroachdb-with-cockroachdb-operator#deploy-across-multiple-regions
+
+# Values configuration for the CockroachDB cluster with multi region deployment.
+cockroachdb:
+  clusterDomain: cluster.gke.gcp-us-east1
+  crdbCluster:
+    regions:
+      - code: us-central1
+        nodes: 3
+        cloudProvider: gcp
+        domain: cluster.gke.gcp-us-central1
+        namespace: cockroach-ns
+      - code: us-east1
+        nodes: 3
+        cloudProvider: gcp
+        domain: cluster.gke.gcp-us-east1
+        namespace: cockroach-ns

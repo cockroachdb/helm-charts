@@ -1,0 +1,25 @@
+# This enables the CockroachDB UI and SQL to be accessed via ingress.
+# To learn more about it follow the docs https://www.cockroachlabs.com/docs/stable/configure-cockroachdb-operator#ingress
+
+# Values configuration to deploy the CockroachDB cluster with ingress.
+cockroachdb:
+  clusterDomain: cluster.local
+  tls:
+    enabled: true
+    selfSigner:
+      enabled: true
+  # crdbCluster captures the configuration for the CrdbCluster custom resource.
+  crdbCluster:
+      # ingress captures the ingress configuration for CockroachDB UI and SQL.
+      ingress:
+        enabled: true
+        ui:
+          ingressClassName: "nginx"
+          annotations:
+            nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+          host: "ui.local.com"
+        sql:
+          ingressClassName: "nginx"
+          annotations:
+            nginx.ingress.kubernetes.io/backend-protocol: HTTPS
+          host: "sql.local.com"

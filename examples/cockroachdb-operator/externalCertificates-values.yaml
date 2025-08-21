@@ -1,0 +1,59 @@
+# Use following command to generate the certificates for CockroachDB and then store them in secrets and configmap.
+
+# mkdir certs my-safe-directory
+# cockroach cert create-ca \
+#   --certs-dir=certs \
+#   --ca-key=my-safe-directory/ca.key
+
+# cockroach cert create-client root \
+#   --certs-dir=certs \
+#   --ca-key=my-safe-directory/ca.key
+
+# kubectl create secret generic cockroachdb.client.root \
+#   --from-file=tls.key=certs/client.root.key \
+#   --from-file=tls.crt=certs/client.root.crt \
+#   --from-file=ca.crt=certs/ca.crt
+
+
+## Here "cockroachdb" is the release name
+# cockroach cert create-node \
+#   localhost \
+#   127.0.0.1 \
+#   cockroachdb-public \
+#   cockroachdb-public.default \
+#   cockroachdb-public.default.svc.cluster.local \
+#   "*.cockroachdb" \
+#   "*.cockroachdb.default" \
+#   "*.cockroachdb.default.svc.cluster.local" \
+#   cockroachdb-join \
+#   cockroachdb-join.default \
+#   cockroachdb-join.default.svc.cluster.local \
+#   --certs-dir=certs \
+#   --ca-key=my-safe-directory/ca.key \
+#   --overwrite
+
+
+# kubectl create secret generic cockroachdb.node \
+#   --from-file=tls.key=certs/node.key \
+#   --from-file=tls.crt=certs/node.crt \
+#   --from-file=ca.crt=certs/ca.crt
+
+# kubectl create configmap cockroachdb-ca \
+#   --from-file=ca.crt=./certs/ca.crt
+
+# To learn more about user provided certificates, refer to the docs https://www.cockroachlabs.com/docs/stable/deploy-cockroachdb-with-cockroachdb-operator#initialize-the-cluster
+# see section "All custom certificates"
+
+# Values configuration for the external certificates which are user provided certificates.
+cockroachdb:
+  clusterDomain: cluster.local
+  tls:
+    enabled: true
+    selfSigner:
+      enabled: false
+    externalCertificates:
+      enabled: true
+      certificates:
+        caConfigMapName: "cockroachdb-ca"
+        nodeSecretName: "cockroachdb.node"
+        rootSqlClientSecretName: "cockroachdb.client.root"

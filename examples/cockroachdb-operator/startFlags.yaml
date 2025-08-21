@@ -1,0 +1,15 @@
+# startFlags specify the cockroach start command flags that will be used for starting the CockroachDB cluster.
+# Within this field, you can specify flags to upsert and flags to omit:
+# Upserted flags are added to the cockroach start command, their values overriding any matching flags in the command.
+# Omitted flags are removed from the cockroach start command if they were present.
+
+# To learn more about it follow the docs https://www.cockroachlabs.com/docs/stable/override-templates-cockroachdb-operator#override-the-default-cockroach-start-flags
+
+# Values configuration for the start flags.
+cockroachdb:
+  crdbCluster:
+    startFlags:
+      upsert:
+        - "--cache=30%"
+      omit:
+        - "--max-sql-memory"

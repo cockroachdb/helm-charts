@@ -1,0 +1,9 @@
+# This is the default mode of the CockroachDB cluster helm chart.
+
+# Values configuration for the self signer.
+cockroachdb:
+  clusterDomain: cluster.local
+  tls:
+    enabled: true
+    selfSigner:
+      enabled: true

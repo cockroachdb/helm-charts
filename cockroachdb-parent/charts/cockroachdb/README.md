@@ -115,7 +115,7 @@ spec:
   sources:
     - secret:
         name: cockroachdb-ca
-        key: ca.crt
+        key: tls.crt
   target:
     configMap:
       key: ca.crt

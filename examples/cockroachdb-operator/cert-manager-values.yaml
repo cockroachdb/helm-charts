@@ -1,0 +1,22 @@
+# Follow Cert-manager section from the cockroachdb-parents/charts/cockroachdb/README.md to deploy the Secret, Issuer and Bundle resources.
+# Once it is deployed you can run this values.yaml file to deploy the CockroachDB cluster with cert-manager.
+
+# Values configuration for the cert-manager.
+certManager:
+  tls:
+    enabled: true
+    selfSigner:
+      enabled: false
+    certManager:
+      enabled: true
+      caConfigMap: cockroachdb-ca
+      nodeSecret: cockroachdb-node
+      clientRootSecret: cockroachdb-root
+      issuer:
+        group: cert-manager.io
+        kind: Issuer
+        name: cockroachdb
+        clientCertDuration: 672h
+        clientCertExpiryWindow: 48h
+        nodeCertDuration: 8760h
+        nodeCertExpiryWindow: 168h
