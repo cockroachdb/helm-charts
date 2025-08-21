@@ -83,7 +83,7 @@ If you wish to provision certificates using [cert-manager][1], follow the steps 
 
   * The trust-manager can be configured to copy the CA cert from a Secret to a ConfigMap automatically.
 
-  * If your CA Secret is in the cockroachdb namespace, your trust-manager deployment must also reference that namespace. You can set the trust namespace using the Helm value: --set app.trust.namespace=cockroachdb.
+  * If your CA Secret is in the cockroachdb namespace, your trust-manager deployment must also reference that namespace. You can set the trust namespace using the Helm value: --set app.trust.namespace=cockroachdb. Follow the [docs](https://cert-manager.io/docs/trust/trust-manager/installation/) to know more about it.
 
 Example Setup:
 
