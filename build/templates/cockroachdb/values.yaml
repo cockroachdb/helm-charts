@@ -874,7 +874,7 @@ operator:
 
   # Regions controls the number of CockroachDB nodes that are deployed per region.
   regions:
-      # Code corresponds to the cloud provider's identifier of this region (e.g.
+      # Code corresponds to the cloud infra's identifier of this region (e.g.
       # "us-east-1" for AWS, "us-east1" for GCP). This value is used to detect
       # which CrdbClusterRegion will be reconciled and must match the
       # "topology.kubernetes.io/region" label on Kubernetes Nodes in this
@@ -882,7 +882,7 @@ operator:
     - code: us-east-1
       # Nodes is the number of CRDB nodes that are in the region.
       nodes: 3
-      # CloudProvider sets the cloud provider for this region.
+      # CloudProvider sets the cloud infra for this region.
       cloudProvider: k3d
       # Namespace is the name of the Kubernetes namespace that this
       # CrdbClusterRegion is deployed within. It is used to compute the --join

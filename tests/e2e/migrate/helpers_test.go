@@ -51,7 +51,7 @@ func prepareForMigration(t *testing.T, stsName, namespace, caSecret, crdbDeploym
 			crdbDeploymentType,
 			fmt.Sprintf("%s=%s", cmdArg, stsName),
 			fmt.Sprintf("--namespace=%s", namespace),
-			"--cloud-provider=k3d",
+			"--cloud-infra=k3d",
 			"--cloud-region=us-east-1",
 			fmt.Sprintf("--output-dir=%s", manifestsDirPath),
 		},
