@@ -139,33 +139,7 @@ By enabling `tls.certs.tlsSecret` the tls secrets are projected on to the correc
 
 #### Cert-manager
 
-If you wish to supply certificates with [cert-manager][3], set
-
-* `tls.certs.certManager` to `yes`/`true`
-* `tls.certs.certManagerIssuer` to an IssuerRef (as they appear in certificate resources) pointing to a clusterIssuer or issuer, you have set up in the cluster
-
-Example issuer:
-
-```yaml
-apiVersion: v1
-kind: Secret
-metadata:
-  name: cockroachdb-ca
-  namespace: cockroachdb
-data:
-  tls.crt: [BASE64 Encoded ca.crt]
-  tls.key: [BASE64 Encoded ca.key]
-type: kubernetes.io/tls
----
-apiVersion: cert-manager.io/v1alpha3
-kind: Issuer
-metadata:
-  name: cockroachdb-cert-issuer
-  namespace: cockroachdb
-spec:
-  ca:
-    secretName: cockroachdb-ca
-```
+For instructions on using cert-manager to provision certificates for the statefulset-based Helm chart, see the [Installation of statefulset-based Helm Chart with Cert Manager](../docs/certificate-management/cert-manager.md#Installation-of-statefulset-based-helm-chart-with-cert-manager) section in the documentation.
 
 ## Upgrading the cluster
 
