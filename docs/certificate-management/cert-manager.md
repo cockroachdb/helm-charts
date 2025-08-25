@@ -1,4 +1,4 @@
-## Installation of Helm Chart with Cert Manager
+## Installation of statefulset-based Helm Chart with Cert Manager
 
 User should have [cert manager >=1.0](https://cert-manager.io/docs/installation/) version installed.
 
