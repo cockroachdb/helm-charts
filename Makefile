@@ -142,6 +142,9 @@ test/nightly-e2e/multi-region: bin/cockroach bin/kubectl bin/helm build/self-sig
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Multi region tests failed with exit code $$?" && exit 1)
 
 
+test/nightly-e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || EXIT_CODE=$$?; \
+
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && \
 	bin/helm lint cockroachdb && \

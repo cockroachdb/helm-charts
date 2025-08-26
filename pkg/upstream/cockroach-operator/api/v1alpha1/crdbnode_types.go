@@ -180,7 +180,7 @@ type CrdbNodeSpec struct {
 	EncryptionAtRest *EncryptionAtRest `json:"encryptionAtRest,omitempty"`
 
 	// NoCloudPrefixedLocalities indicates whether this node's locality flags
-	// are prefixed with its cloud provider's short code. See
+	// are prefixed with its cloud infra's short code. See
 	// IntrusionCrdbCluster.NoCloudPrefixedLocalities for more info. It is part
 	// of CrdbNodeSpec as opposed to CrdbClusterSpec since the init container
 	// is spawned from CrdbNodeSpec. This field is expected to be removed once

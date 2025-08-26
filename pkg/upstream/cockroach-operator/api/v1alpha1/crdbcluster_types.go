@@ -141,7 +141,7 @@ type CrdbClusterSpec struct {
 // is used to generate the --join flag passed to each CrdbNode within the
 // cluster.
 type CrdbClusterRegion struct {
-	// Code corresponds to the cloud provider's identifier of this region (e.g.
+	// Code corresponds to the cloud infra's identifier of this region (e.g.
 	// "us-east-1" for AWS, "us-east1" for GCP). This value is used to detect
 	// which CrdbClusterRegion will be reconciled and must match the
 	// "topology.kubernetes.io/region" label on Kubernetes Nodes in this
@@ -155,7 +155,7 @@ type CrdbClusterRegion struct {
 	// +kubebuilder:validation:Minimum:=0
 	Nodes int32 `json:"nodes"`
 
-	// CloudProvider sets the cloud provider for this region. When set, this value
+	// CloudProvider sets the cloud infra for this region. When set, this value
 	// is used to prefix the locality flag for all nodes in the region.
 	// +kubebuilder:validation:Optional
 	CloudProvider string `json:"cloudProvider,omitempty"`
@@ -394,8 +394,8 @@ type CrdbClusterStatus struct {
 	// the beta cluster controller.
 	ReconciledByBetaController bool `json:"reconciledByBetaController,omitempty"`
 
-	// Provider is the name of the cloud provider that this object's k8s server is in.
-	Provider string `json:"provider,omitempty"`
+	// Provider is the name of the cloud infra that this object's k8s server is in.
+	Provider string `json:"infra,omitempty"`
 
 	// Region is the name of the region that this crdbcluster object's k8s server is in.
 	// This is useful for consumers to determine if this region's crdb pods
