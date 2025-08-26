@@ -150,6 +150,13 @@ type CrdbNodeSpec struct {
 	// +kubebuilder:validation:Optional
 	LoggingConfigMapName string `json:"loggingConfigMapName,omitempty"`
 
+	// LoggingConfigVars specifies a list of environment variable names
+	// that will be expanded if present in the body of the
+	// logging configuration.
+	// Corresponding ENV values should be set via the `Env` field or `PodTemplate`.
+	// +kubebuilder:validation:Optional
+	LoggingConfigVars []string `json:"loggingConfigVars,omitempty"`
+
 	// Flags specify the flags that will be used for starting the cluster.
 	// Deprecated: use `StartFlags` instead.
 	// +kubebuilder:validation:Optional

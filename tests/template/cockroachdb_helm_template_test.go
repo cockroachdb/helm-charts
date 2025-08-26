@@ -2392,3 +2392,64 @@ func TestHelmOperatorPodTemplate(t *testing.T) {
 		})
 	}
 }
+
+func TestHelmOperatorLoggingConfigVars(t *testing.T) {
+	t.Parallel()
+
+	type expect struct {
+		loggingConfigMapName string
+		loggingConfigVars    []string
+	}
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect
+	}{
+		{
+			"Custom logging config vars",
+			map[string]string{
+				"cockroachdb.crdbCluster.loggingConfigMapName": "crdb-cluster-log-config",
+				"cockroachdb.crdbCluster.loggingConfigVars[0]": "HOST_IP",
+			},
+			expect{
+				loggingConfigMapName: "crdb-cluster-log-config",
+				loggingConfigVars:    []string{"HOST_IP"},
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			// Use cockroachdb chart path for operator tests.
+			chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+			output, err := helm.RenderTemplateE(
+				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
+			)
+			require.NoError(subT, err)
+
+			var crdbCluster crdbv1alpha1.CrdbCluster
+			helm.UnmarshalK8SYaml(t, output, &crdbCluster)
+
+			require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
+			require.Equal(subT, "crdb.cockroachlabs.com/v1alpha1", crdbCluster.APIVersion)
+
+			spec := crdbCluster.Spec
+
+			require.NotNil(subT, spec.Template.Spec.LoggingConfigMapName, "Expected logging configmap name field to exist")
+			require.Equal(subT, testCase.expect.loggingConfigMapName, spec.Template.Spec.LoggingConfigMapName)
+
+			require.NotNil(subT, spec.Template.Spec.LoggingConfigVars, "Expected logging config vars field to exist")
+			require.Equal(subT, testCase.expect.loggingConfigVars, spec.Template.Spec.LoggingConfigVars)
+
+		})
+	}
+}

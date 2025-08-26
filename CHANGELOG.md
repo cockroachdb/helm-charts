@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-25.3.0-preview] - 2025-08-26
+### Added
+- `loggingConfigVars` field for supporting multiple environment configuration variables in the `loggingConfigMap`.
+
 ## [cockroachdb-parent-25.2.2-preview] - 2025-07-28
 ### Added
 - `startFlags`, `podTemplate` fields for overriding CockroachDB start command and pod spec. 
