@@ -445,6 +445,11 @@ cockroachdb:
     # proper channels within CockroachDB.
     # The value of the ConfigMap should be specified under the key logs.yaml.
     loggingConfigMapName: ""
+    # loggingConfigVars defines a list of environment variable names
+    # that will be expanded if present in the body of the logging configuration.
+    loggingConfigVars: []
+      # - "HOST_IP"
+      # - "MAX_STALENESS"
     # godebug captures Go runtime debug settings for CockroachDB pods.
     godebug:
       # disablethp determines whether Transparent Huge Pages are disabled.

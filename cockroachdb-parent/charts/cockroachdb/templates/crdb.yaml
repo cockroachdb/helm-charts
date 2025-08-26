@@ -104,6 +104,9 @@ spec:
       {{- if .Values.cockroachdb.crdbCluster.loggingConfigMapName }}
       loggingConfigMapName: {{ .Values.cockroachdb.crdbCluster.loggingConfigMapName }}
       {{- end }}
+      {{- with .Values.cockroachdb.crdbCluster.loggingConfigVars }}
+      loggingConfigVars: {{- toYaml . | nindent 8 }}
+      {{- end }}
       {{- with .Values.cockroachdb.crdbCluster.sideCars }}
       sideCars: {{- toYaml . | nindent 8 }}
       {{- end }}
