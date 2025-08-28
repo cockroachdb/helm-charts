@@ -17,27 +17,7 @@ There are 3 ways to configure a secure cluster, with this chart. This all relate
 
 #### Self-signer
 
-This is the default behaviour, and requires no configuration beyond setting certificate durations if user wants to set custom duration.
-
-If you are running in this mode, self-signed certificates are created by self-signed utility for the nodes and root client and are stored in a secret.
-You can look for the certificates created:
-
-```shell
-$ kubectl get secrets
-
-crdb-cockroachdb-ca-secret                 Opaque                                2      23s
-crdb-cockroachdb-client-secret             kubernetes.io/tls                     3      22s
-crdb-cockroachdb-node-secret               kubernetes.io/tls                     3      23s
-```
-By default, the certs are created by the self-signer utility. In case of a custom CA cert, modify the configuration under the `tls` section:
-
-```
-  cockroachdb:
-    tls:
-      selfSigner:
-        caProvided: true
-        caSecret: <ca-secret-name>
-```
+See the [Installation of CockroachDB Operator with Self-Signed Certificates](../../../docs/certificate-management/self-signer.md#installation-of-cockroachdb-operator-with-self-signed-certificates) section in the documentation.
 
 #### Manual
 

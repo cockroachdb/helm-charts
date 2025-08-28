@@ -90,18 +90,7 @@ There are 3 ways to configure a secure cluster, with this chart. This all relate
 
 #### Self-signer
 
-This is the default behaviour, and requires no configuration beyond setting certificate durations if user wants to set custom duration.
-
-If you are running in this mode, self-signed certificates are created by self-signed utility for the nodes and root client and are stored in a secret.
-You can look for the certificates created:
-```shell
-$ kubectl get secrets
-
-crdb-cockroachdb-ca-secret                 Opaque                                2      23s
-crdb-cockroachdb-client-secret             kubernetes.io/tls                     3      22s
-crdb-cockroachdb-node-secret               kubernetes.io/tls                     3      23s
-```
-
+For instructions on using self-signer to provision certificates for the statefulset-based Helm chart, see the [Installation of statefulset-based Helm Chart with self-signer](../docs/certificate-management/self-signer.md#Installation-of-statefulset-based-helm-chart-with-self-signer) section in the documentation.
 
 #### Manual
 
