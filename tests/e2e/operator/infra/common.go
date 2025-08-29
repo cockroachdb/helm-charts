@@ -18,14 +18,18 @@ import (
 
 // Provider types.
 const (
-	ProviderK3D = "k3d"
-	ProviderGCP = "gcp"
+	ProviderK3D  = "k3d"
+	ProviderKind = "kind"
+	ProviderGCP  = "gcp"
 )
 
 // Common constants.
 const (
-	defaultRetries        = 30
-	defaultRetryInterval  = 10 * time.Second
+	defaultRetries       = 30
+	defaultRetryInterval = 10 * time.Second
+	// Load balancer specific retry settings (extended for AWS)
+	loadBalancerRetries   = 60 // 10 minutes total
+	loadBalancerInterval  = 10 * time.Second
 	coreDNSDeploymentName = "coredns"
 	coreDNSServiceName    = "crl-core-dns"
 	coreDNSNamespace      = "kube-system"
@@ -46,8 +50,9 @@ const (
 
 // RegionCodes maps provider types to their region codes
 var RegionCodes = map[string][]string{
-	ProviderK3D: {"us-east1", "us-east2"},
-	ProviderGCP: {"us-central1", "us-east1"},
+	ProviderK3D:  {"us-east1", "us-east2"},
+	ProviderKind: {"us-east1", "us-east2"},
+	ProviderGCP:  {"us-central1", "us-east1"},
 }
 
 // LoadBalancerAnnotations contains provider-specific service annotations.
@@ -57,7 +62,8 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 		"networking.gke.io/load-balancer-type":                         "Internal",
 		"cloud.google.com/load-balancer-type":                          "Internal",
 	},
-	ProviderK3D: {},
+	ProviderK3D:  {},
+	ProviderKind: {},
 }
 
 // NetworkConfigs defines standard network configurations for each provider and region.
@@ -237,7 +243,7 @@ func finalizeCoreDNSDeployment(t *testing.T, kubectlOpts *k8s.KubectlOptions) er
 func WaitForCoreDNSServiceIPs(t *testing.T, kubectlOpts *k8s.KubectlOptions) ([]string, error) {
 	var ips []string
 
-	_, err := retry.DoWithRetryE(t, "waiting for CoreDNS service IPs", defaultRetries, defaultRetryInterval,
+	_, err := retry.DoWithRetryE(t, "waiting for CoreDNS service IPs", loadBalancerRetries, loadBalancerInterval,
 		func() (string, error) {
 			svc, err := k8s.GetServiceE(t, kubectlOpts, coreDNSServiceName)
 			if err != nil {

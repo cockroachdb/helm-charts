@@ -127,7 +127,7 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	k8s.KubectlApply(t, kubectlOptions, filepath.Join(manifestsDirPath, "rbac.yaml"))
 
 	t.Log("Install the cockroachdb enterprise operator")
-	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions, nil)
 	defer func() {
 		t.Log("Uninstall the cockroachdb enterprise operator")
 		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)

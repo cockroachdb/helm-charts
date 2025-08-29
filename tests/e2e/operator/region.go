@@ -81,6 +81,8 @@ type Region struct {
 	VirtualClusterModePrimary bool
 	VirtualClusterModeStandby bool
 	IsOperatorInstalled       bool
+	// UseCustomNodeLabels indicates to have custom k3d node labels
+	UseCustomNodeLabels bool
 }
 
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
@@ -116,15 +118,15 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 		testutil.CreateBundle(t, kubectlOptions, testutil.CASecretName, testutil.CAConfigMapName)
 	} else {
 		// create CA Secret.
-		err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
-			"--from-file=ca.key")
+		err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, fmt.Sprintf("--from-file=ca.crt=%s-ca.crt", r.Provider),
+			fmt.Sprintf("--from-file=ca.key=%s-ca.key", r.Provider))
 		require.NoError(t, err)
 	}
 
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	if !r.IsOperatorInstalled {
-		InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+		InstallCockroachDBEnterpriseOperator(t, kubectlOptions, map[string]string{"cloudRegion": r.RegionCodes[index]})
 	}
 
 	if r.IsCertManager {
@@ -143,6 +145,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 			"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 		})
 	}
+
 	if r.VirtualClusterModePrimary {
 		crdbOp = PatchHelmValues(map[string]string{
 			"cockroachdb.clusterDomain":                   CustomDomains[index],
@@ -366,8 +369,9 @@ func (r *Region) ValidateCRDBContainerResources(t *testing.T, kubectlOptions *k8
 func (r *Region) CreateCACertificate(t *testing.T) error {
 	// Create CA secret in all regions.
 	cmd := shell.Command{
-		Command:    "cockroach",
-		Args:       []string{"cert", "create-ca", "--certs-dir=.", "--ca-key=ca.key"},
+		Command: "cockroach",
+		Args: []string{"cert", "create-ca", "--certs-dir=.", fmt.Sprintf("--ca-key=%s-ca.key", r.Provider),
+			"--allow-ca-key-reuse"},
 		WorkingDir: ".",
 		Env:        nil,
 		Logger:     nil,
@@ -375,13 +379,29 @@ func (r *Region) CreateCACertificate(t *testing.T) error {
 
 	certOutput, err := shell.RunCommandAndGetOutputE(t, cmd)
 	t.Log(certOutput)
+
+	// The cockroach cert create-ca command creates ca.crt by default
+	// We need to rename it to match the provider-specific naming
+	if err == nil {
+		// Rename the default ca.crt to a provider-specific name
+		renameCmd := shell.Command{
+			Command:    "mv",
+			Args:       []string{"ca.crt", fmt.Sprintf("%s-ca.crt", r.Provider)},
+			WorkingDir: ".",
+		}
+		_, renameErr := shell.RunCommandAndGetOutputE(t, renameCmd)
+		if renameErr != nil {
+			return renameErr
+		}
+	}
+
 	return err
 }
 
 func (r *Region) CleanUpCACertificate(t *testing.T) {
 	cmd := shell.Command{
 		Command:    "rm",
-		Args:       []string{"-rf", "ca.crt", "ca.key"},
+		Args:       []string{"-rf", fmt.Sprintf("%s-ca.crt", r.Provider), fmt.Sprintf("%s-ca.key", r.Provider)},
 		WorkingDir: ".",
 	}
 
@@ -522,12 +542,13 @@ func (r Region) VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8
 	require.Contains(t, logs, expected, "operator logs did not contain expected init command")
 }
 
-func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, values map[string]string) {
 	_, operatorChartPath := HelmChartPaths()
 
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ExtraArgs:      helmExtraArgs,
+		SetValues:      values,
 	}
 
 	// Install Operator on the cluster.
