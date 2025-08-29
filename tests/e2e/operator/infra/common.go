@@ -24,8 +24,11 @@ const (
 
 // Common constants.
 const (
-	defaultRetries        = 30
-	defaultRetryInterval  = 10 * time.Second
+	defaultRetries       = 30
+	defaultRetryInterval = 10 * time.Second
+	// Load balancer specific retry settings (extended for AWS)
+	loadBalancerRetries   = 60 // 10 minutes total
+	loadBalancerInterval  = 10 * time.Second
 	coreDNSDeploymentName = "coredns"
 	coreDNSServiceName    = "crl-core-dns"
 	coreDNSNamespace      = "kube-system"
@@ -237,7 +240,7 @@ func finalizeCoreDNSDeployment(t *testing.T, kubectlOpts *k8s.KubectlOptions) er
 func WaitForCoreDNSServiceIPs(t *testing.T, kubectlOpts *k8s.KubectlOptions) ([]string, error) {
 	var ips []string
 
-	_, err := retry.DoWithRetryE(t, "waiting for CoreDNS service IPs", defaultRetries, defaultRetryInterval,
+	_, err := retry.DoWithRetryE(t, "waiting for CoreDNS service IPs", loadBalancerRetries, loadBalancerInterval,
 		func() (string, error) {
 			svc, err := k8s.GetServiceE(t, kubectlOpts, coreDNSServiceName)
 			if err != nil {
