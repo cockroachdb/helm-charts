@@ -1,0 +1,92 @@
+name: CockroachDB Operator E2E (K8s Compatibility Matrix)
+
+on:
+  schedule:
+    # Every Monday at 00:00 UTC
+    - cron: "0 0 * * 1"
+  workflow_dispatch: # allow manual trigger
+
+jobs:
+  cockroachdb-operator-single-region-e2e:
+    name: CockroachDB Operator Single Region Test (k8s ${{ metrics.k8s-version }})
+    runs-on: ubuntu-latest-4-core
+
+    strategy:
+      fail-fast: false
+      metrics:
+        k8s-version:
+          - v1.27.16
+          - v1.28.15
+          - v1.29.15
+          - v1.30.14
+          - v1.31.12
+          - v1.32.8
+          - v1.33.4
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23
+
+      - name: Run E2E Test
+        env:
+          K3DVersion: ${{ metrics.k8s-version }}
+        run: |
+          set -e
+          echo "Using K3DVersion=$K3DVersion"
+          make test/e2e/single-region
+        continue-on-error: false
+
+      - name: Clean up Docker resources
+        shell: bash
+        run: |
+          docker container prune -f
+          docker image prune -a -f
+          docker volume prune -f
+ 
+  cockroachdb-operator-multi-region-e2e:
+    name: CockroachDB Operator Multi Region Test (k8s ${{ metrics.k8s-version }})
+    runs-on: ubuntu-latest-4-core
+
+    strategy:
+      fail-fast: false
+      metrics:
+        k8s-version:
+          - v1.27.16
+          - v1.30.14
+          - v1.33.4
+
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.ref }}
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23
+
+      - name: Run E2E Test
+        env:
+          K3DVersion: ${{ metrics.k8s-version }}
+        run: |
+          set -e
+          echo "Using K3DVersion=$K3DVersion"
+          make test/e2e/multi-region
+        continue-on-error: false
+
+      - name: Clean up Docker resources
+        shell: bash
+        run: |
+          docker container prune -f
+          docker image prune -a -f
+          docker volume prune -f

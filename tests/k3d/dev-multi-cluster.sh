@@ -129,10 +129,16 @@ create_clusters() {
         --agents ${nodes} # Number of agent nodes        # Use this Add more worker nodes
     )
 
-      if ! "${k3d_args[@]}"; then
+    # Only add --image if version is explicitly set by user
+    # else use the latest default k8s version
+    if [[ "${version}" != "${DEFAULT_K8S_VERSION}" ]]; then
+        k3d_args+=(--image "rancher/k3s:${version}-k3s1")
+    fi
+
+    if ! "${k3d_args[@]}"; then
         echo "Error creating K3D cluster: ${cluster_name}"
         return 1
-      fi
+    fi
 
      configure_node_labels "${cluster_name}" "${i}" "${region}"
      import_container_images "${cluster_name}"
