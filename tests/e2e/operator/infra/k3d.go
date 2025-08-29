@@ -3,6 +3,7 @@ package infra
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -240,6 +241,9 @@ func createK3DCluster(t *testing.T, clusterName string, nodeCount int) error {
 			fmt.Sprintf("nodes=%d", nodeCount),
 		},
 		WorkingDir: testutil.GetGitRoot(),
+	}
+	if version := os.Getenv("K3DVersion"); version != "" {
+		cmd.Args = append(cmd.Args, fmt.Sprintf("version=%s", version))
 	}
 
 	output, err := shell.RunCommandAndGetOutputE(t, cmd)

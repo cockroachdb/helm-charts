@@ -1,5 +1,16 @@
 
-**NOTE: This README is currently a work in progress**
+## Compatibility Metrics
+
+This operator is tested against a range of Kubernetes versions.  
+The table below indicates which versions are officially supported.
+
+| Operator Version  | Kubernetes Versions Tested                                    |
+|-------------------|---------------------------------------------------------------|
+| 25.3.0-preview+1  | 1.27, 1.28, 1.29, 1.30, 1.31, 1.32, 1.33                      |
+
+⚠️ **Note** → Older versions may still work, but **not officially tested**
+
+**NOTE: The below contents of this README are currently work in progress.**
 
 # CockroachDB Parent Helm Chart
 
