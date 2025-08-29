@@ -32,7 +32,7 @@ func newSingleRegion() *singleRegion {
 func TestOperatorInSingleRegion(t *testing.T) {
 	var providers []string
 	if os.Getenv(isNightlyEnvVar) == "true" {
-		providers = []string{infra.ProviderGCP}
+		providers = []string{infra.ProviderGCP, infra.ProviderKind}
 	} else {
 		providers = []string{infra.ProviderK3D}
 	}
@@ -55,7 +55,7 @@ func TestOperatorInSingleRegion(t *testing.T) {
 
 			providerRegion.Provider = provider
 			clusterName := fmt.Sprintf("%s-%s", providerRegion.Provider, operator.Clusters[0])
-			if provider != infra.ProviderK3D {
+			if provider != infra.ProviderK3D && provider != infra.ProviderKind {
 				clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
 			}
 			providerRegion.Clusters = append(providerRegion.Clusters, clusterName)
@@ -417,4 +417,5 @@ func (r *singleRegion) TestInstallWithCertManager(t *testing.T) {
 	}
 	rawConfig.CurrentContext = cluster
 	r.ValidateCRDB(t, cluster)
+	r.IsCertManager = false
 }

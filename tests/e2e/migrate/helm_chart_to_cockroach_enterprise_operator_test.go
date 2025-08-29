@@ -111,7 +111,7 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions, nil)
 	defer func() {
 		t.Log("Uninstall the cockroachdb enterprise operator")
 		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)
@@ -220,7 +220,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions, nil)
 	defer func() {
 		t.Log("Uninstall the cockroachdb enterprise operator")
 		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)
