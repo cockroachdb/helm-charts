@@ -223,17 +223,6 @@ You could confirm the regions using a SQL command as below:
 In order to access the DB console, follow the steps documented in https://www.cockroachlabs.com/docs/stable/deploy-cockroachdb-with-kubernetes?filters=helm#step-4-access-the-db-console.
 Use the corresponding Service name that is suffixed by `-public` (in this case, `$CRDBCLUSTER-public`).
 
-## Compatibility Matrix
-
-This operator is tested against a range of Kubernetes versions.  
-The table below indicates which versions are officially supported.
-
-| Operator Version  | Kubernetes Versions Tested                                    |
-|-------------------|---------------------------------------------------------------|
-| 25.3.0-preview+1  | 1.27.16, 1.28.15, 1.29.15, 1.30.14, 1.31.12, 1.32.8, 1.33.4   |
-
-⚠️ Note → Older versions may still work, but **not officially tested**  
-
 [1]: https://cert-manager.io/
 [2]: https://learn.microsoft.com/en-us/dotnet/api/azure.identity.environmentcredential?view=azure-dotnet
 [3]: https://cert-manager.io/docs/trust/trust-manager/

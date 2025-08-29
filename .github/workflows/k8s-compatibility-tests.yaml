@@ -8,12 +8,15 @@ on:
 
 jobs:
   cockroachdb-operator-single-region-e2e:
-    name: CockroachDB Operator Single Region Test (k8s ${{ metrics.k8s-version }})
+    name: CockroachDB Operator Single Region Test (k8s ${{ matrix.k8s-version }})
     runs-on: ubuntu-latest-4-core
 
     strategy:
       fail-fast: false
-      metrics:
+      # k8s-versions contains the list of kubernetes versions that are officially tested
+      # We officially test 7 Kubernetes versions with the operator and use the latest patch version of that minor version.
+      # Whenever a new Kubernetes version is released, we should add it to the list and remove the oldest one.        
+      matrix:
         k8s-version:
           - v1.27.16
           - v1.28.15
@@ -37,7 +40,7 @@ jobs:
 
       - name: Run E2E Test
         env:
-          K3DVersion: ${{ metrics.k8s-version }}
+          K3DVersion: ${{ matrix.k8s-version }}
         run: |
           set -e
           echo "Using K3DVersion=$K3DVersion"
@@ -52,12 +55,19 @@ jobs:
           docker volume prune -f
  
   cockroachdb-operator-multi-region-e2e:
-    name: CockroachDB Operator Multi Region Test (k8s ${{ metrics.k8s-version }})
+    name: CockroachDB Operator Multi Region Test (k8s ${{ matrix.k8s-version }})
     runs-on: ubuntu-latest-4-core
 
     strategy:
       fail-fast: false
-      metrics:
+      # k8s-versions contains the list of kubernetes versions that are officially tested
+      # We officially test 7 Kubernetes versions with the operator and use the latest patch version of that minor version.
+      # We have already tested the single region test will all the kubernetes versions in the list.
+      # We only test multi region with the oldest, median and latest kubernetes versions in the list.
+      # Whenever a new Kubernetes version is released, we should add it to the list and remove the oldest one.
+      # and recalulate the oldest, median and latest kubernetes versions in the list.
+        
+      matrix:
         k8s-version:
           - v1.27.16
           - v1.30.14
@@ -77,7 +87,7 @@ jobs:
 
       - name: Run E2E Test
         env:
-          K3DVersion: ${{ metrics.k8s-version }}
+          K3DVersion: ${{ matrix.k8s-version }}
         run: |
           set -e
           echo "Using K3DVersion=$K3DVersion"
