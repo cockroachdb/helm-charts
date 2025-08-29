@@ -35,7 +35,7 @@ func newMultiRegion() *multiRegion {
 func TestOperatorInMultiRegion(t *testing.T) {
 	var providers []string
 	if os.Getenv(isNightlyEnvVar) == "true" {
-		providers = []string{infra.ProviderGCP}
+		providers = []string{infra.ProviderGCP, infra.ProviderKind}
 	} else {
 		providers = []string{infra.ProviderK3D}
 	}
@@ -59,7 +59,7 @@ func TestOperatorInMultiRegion(t *testing.T) {
 			providerRegion.Provider = provider
 			for _, cluster := range operator.Clusters {
 				clusterName := fmt.Sprintf("%s-%s", providerRegion.Provider, cluster)
-				if providerRegion.Provider != infra.ProviderK3D {
+				if providerRegion.Provider != infra.ProviderK3D && providerRegion.Provider != infra.ProviderKind {
 					clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
 				}
 				providerRegion.Clusters = append(providerRegion.Clusters, clusterName)
