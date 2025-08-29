@@ -17,6 +17,7 @@ There are 3 ways to configure a secure cluster, with this chart. This all relate
 
 
 #### Self-signer
+
 See the [Installation of CockroachDB Operator with Self-Signed Certificates](../../../docs/certificate-management/self-signer.md#installation-of-cockroachdb-operator-with-self-signed-certificates) section in the documentation.
 
 #### Manual
@@ -54,7 +55,7 @@ Cockroachdb, however, expects the files to be named like this:
 
 #### Cert-manager
 
-See the ["Installation of CockroachDB Operator with Cert Manager"](../../../docs/certificate-management/cert-manager.md#Installation-of-cockroachdb-operator-with-cert-manager) section in the documentation.
+See the [Installation of CockroachDB Operator with Cert Manager](../../../docs/certificate-management/cert-manager.md#Installation-of-cockroachdb-operator-with-cert-manager) section in the documentation.
 
 # CockroachDB Helm Chart
 
