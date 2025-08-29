@@ -4,6 +4,7 @@ ifeq ($(UNAME_S),Linux)
   COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.linux-amd64.tgz
   HELM_BIN ?= https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz
   K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.7.4/k3d-linux-amd64
+  KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
   KUBECTL_BIN ?= https://dl.k8s.io/release/v1.29.1/bin/linux/amd64/kubectl
   YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_linux_amd64
   JQ_BIN ?= https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64
@@ -14,6 +15,7 @@ ifeq ($(UNAME_S),Darwin)
   COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.darwin-10.9-amd64.tgz
   HELM_BIN ?= https://get.helm.sh/helm-v3.14.0-darwin-amd64.tar.gz
   K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.7.4/k3d-darwin-arm64
+  KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.29.0/kind-darwin-arm64
   KUBECTL_BIN ?= https://dl.k8s.io/release/v1.29.1/bin/darwin/amd64/kubectl
   YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_darwin_amd64
   JQ_BIN ?= https://github.com/stedolan/jq/releases/download/jq-1.6/jq-osx-amd64
@@ -135,10 +137,10 @@ test/single-cluster/up: bin/k3d
 test/multi-cluster/down: bin/k3d
 	 ./tests/k3d/dev-multi-cluster.sh down
 
-test/nightly-e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer
+test/nightly-e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/kind
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Single region tests failed with exit code $$?" && exit 1)
 
-test/nightly-e2e/multi-region: bin/cockroach bin/kubectl bin/helm build/self-signer
+test/nightly-e2e/multi-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/kind
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Multi region tests failed with exit code $$?" && exit 1)
 
 
@@ -175,6 +177,11 @@ bin/k3d: ## install k3d
 	@mkdir -p bin
 	@curl -Lo bin/k3d $(K3D_BIN)
 	@chmod +x bin/k3d
+
+bin/kind: ## install kind
+	@mkdir -p bin
+	@curl -Lo bin/kind $(KIND_BIN)
+	@chmod +x bin/kind
 
 bin/kubectl: ## install kubectl
 	@mkdir -p bin

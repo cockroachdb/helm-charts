@@ -119,7 +119,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-	InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	InstallCockroachDBEnterpriseOperator(t, kubectlOptions, map[string]string{"cloudRegion": r.RegionCodes[index]})
 
 	if r.IsCertManager {
 		crdbOp = PatchHelmValues(map[string]string{
@@ -481,12 +481,13 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 	return regions
 }
 
-func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, values map[string]string) {
 	_, operatorChartPath := HelmChartPaths()
 
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ExtraArgs:      helmExtraArgs,
+		SetValues:      values,
 	}
 
 	// Install Operator on the cluster.
