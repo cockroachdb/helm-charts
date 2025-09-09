@@ -245,7 +245,7 @@ func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error)
 			if len(parts) == 1 {
 				if n, err := fmt.Sscanf(parts[0], "%s", &newBuild); n == 1 && err == nil {
 					var val int
-					fmt.Sscanf(parts[0], "%d", &val)
+					_, _ = fmt.Sscanf(parts[0], "%d", &val)
 					newBuild = fmt.Sprintf("%d", val+1)
 				}
 			}

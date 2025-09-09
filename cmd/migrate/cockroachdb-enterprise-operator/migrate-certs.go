@@ -56,7 +56,7 @@ func init() {
 	migrateCertsCmd.PersistentFlags().StringVar(&clientExpiry, "client-expiry", "48h", "expiry window for Client(root) cert. Defaults to 2 days")
 
 	migrateCertsCmd.PersistentFlags().StringVar(&clusterDomain, "cluster-domain", "cluster.local", "cluster domain")
-	migrateCertsCmd.MarkFlagRequired("statefulset-name")
+	_ = migrateCertsCmd.MarkFlagRequired("statefulset-name")
 
 	var err error
 	runtimeScheme := runtime.NewScheme()

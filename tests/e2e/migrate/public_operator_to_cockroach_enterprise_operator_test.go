@@ -10,7 +10,6 @@ import (
 	"time"
 
 	api "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
-	optestutil "github.com/cockroachdb/cockroach-operator/pkg/testutil"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/cockroachdb/helm-charts/tests/testutil/migration"
@@ -65,7 +64,7 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	}
 
 	crdbClusterName := "crdb-test"
-	o.CustomResourceBuilder = optestutil.NewBuilder(crdbClusterName).
+	o.CustomResourceBuilder = testutil.NewBuilder(crdbClusterName).
 		WithNodeCount(3).
 		WithTLS().
 		WithImage(migration.CockroachVersion).

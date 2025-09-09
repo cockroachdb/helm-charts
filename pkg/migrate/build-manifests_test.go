@@ -5,7 +5,6 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
-	"sigs.k8s.io/yaml"
 	"strconv"
 	"testing"
 
@@ -19,6 +18,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
+	"sigs.k8s.io/yaml"
 )
 
 var updateGolden = flag.Bool("update", false, "update golden files")
@@ -38,6 +38,7 @@ func TestFromHelmChart(t *testing.T) {
 	require.NoError(t, err)
 	// Create a StatefulSet
 	_, err = clientset.AppsV1().StatefulSets(namespace).Create(ctx, &sts, metav1.CreateOptions{})
+	require.NoError(t, err)
 	// Create Pods
 	for i := 0; i < 3; i++ {
 		pod := &corev1.Pod{
@@ -59,7 +60,7 @@ func TestFromHelmChart(t *testing.T) {
 	err = yaml.Unmarshal(manifestBytes, &svc)
 	require.NoError(t, err)
 	_, err = clientset.CoreV1().Services(namespace).Create(ctx, svc, metav1.CreateOptions{})
-
+	require.NoError(t, err)
 	// Create the Logging Config Secret
 	loggingConfigSecret := &corev1.Secret{
 		ObjectMeta: metav1.ObjectMeta{
@@ -71,7 +72,7 @@ func TestFromHelmChart(t *testing.T) {
 	}
 
 	_, err = clientset.CoreV1().Secrets(namespace).Create(ctx, loggingConfigSecret, metav1.CreateOptions{})
-
+	require.NoError(t, err)
 	// Create a Manifest instance
 	m := &Manifest{
 		cloudProvider: "gcp",

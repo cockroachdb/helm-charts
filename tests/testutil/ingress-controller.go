@@ -22,8 +22,8 @@ func InstallIngressAndMetalLB(t *testing.T) {
 	// 1. Add repo and install chart
 	options := &helm.Options{}
 
-	helm.RunHelmCommandAndGetOutputE(t, options, "repo", "add", "ingress-nginx", "https://kubernetes.github.io/ingress-nginx")
-	helm.RunHelmCommandAndGetOutputE(t, options, "repo", "update")
+	_, _ = helm.RunHelmCommandAndGetOutputE(t, options, "repo", "add", "ingress-nginx", "https://kubernetes.github.io/ingress-nginx")
+	_, _ = helm.RunHelmCommandAndGetOutputE(t, options, "repo", "update")
 
 	helm.Install(t, options, "ingress-nginx/ingress-nginx", "ingress-nginx")
 
@@ -100,7 +100,7 @@ func UninstallIngressAndMetalLB(t *testing.T) {
 
 	// Delete the IPAddressPool and L2Advertisement
 	t.Log("Deleting MetalLB IPAddressPool and L2Advertisement config")
-	k8s.KubectlDeleteFromStringE(t, kubectlOptionsMetallb, `
+	_ = k8s.KubectlDeleteFromStringE(t, kubectlOptionsMetallb, `
 apiVersion: metallb.io/v1beta1
 kind: IPAddressPool
 metadata:

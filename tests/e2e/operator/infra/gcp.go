@@ -653,13 +653,6 @@ func createGKERegionalCluster(ctx context.Context, client *container.Service, se
 	return nil
 }
 
-// scaleNodePool scales the node count in a GKE cluster's node pool
-func scaleNodePool(ctx context.Context, service *container.Service, projectID, location, clusterID, nodePoolID string, nodeCount int64) (*container.Operation, error) {
-	req := &container.SetNodePoolSizeRequest{NodeCount: nodeCount}
-	name := fmt.Sprintf("projects/%s/locations/%s/clusters/%s/nodePools/%s", projectID, location, clusterID, nodePoolID)
-	return service.Projects.Locations.Clusters.NodePools.SetSize(name, req).Context(ctx).Do()
-}
-
 // ─── DELETE RESOURCES ──────────────────────────────────────────────────────────
 
 // deleteStaticIPsAndFirewallRules handles deletion of static IPs and firewall rules in parallel
