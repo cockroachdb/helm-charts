@@ -83,13 +83,18 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	}
 	h.HelmOptions = &helm.Options{
 		SetValues: testutil.PatchHelmValues(map[string]string{
-			"operator.enabled":                         "false",
-			"conf.cluster-name":                        "test",
-			"init.provisioning.enabled":                "true",
-			"init.provisioning.databases[0].name":      migration.TestDBName,
-			"init.provisioning.databases[0].owners[0]": "root",
-			"statefulset.labels.app":                   "cockroachdb",
-			"conf.locality":                            "topology.kubernetes.io/region=us-east-1",
+			"operator.enabled":                           "false",
+			"conf.cluster-name":                          "test",
+			"init.provisioning.enabled":                  "true",
+			"init.provisioning.databases[0].name":        migration.TestDBName,
+			"init.provisioning.databases[0].owners[0]":   "root",
+			"statefulset.labels.app":                     "cockroachdb",
+			"conf.locality":                              "topology.kubernetes.io/region=us-east-1",
+			"storage.PersistentVolume.enabled":           "true",
+			"conf.wal-failover.value":                    "path=/cockroach/wal-failover",
+			"conf.wal-failover.persistentVolume.enabled": "true",
+			"conf.wal-failover.persistentVolume.path":    "wal-failover",
+			"conf.wal-failover.persistentVolume.size":    "1Gi",
 		}),
 	}
 
@@ -125,9 +130,18 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", filepath.Join(manifestsDirPath, "public-service.yaml"))
 	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", fmt.Sprintf("%s-budget", h.CrdbCluster.StatefulSetName))
 
+	t.Log("Verify WAL failover configuration in migrated values.yaml")
+	valuesFile := filepath.Join(manifestsDirPath, "values.yaml")
+	valuesContent, err := os.ReadFile(valuesFile)
+	require.NoError(t, err)
+	require.Contains(t, string(valuesContent), "walFailoverSpec:")
+	require.Contains(t, string(valuesContent), "path: /cockroach/wal-failover")
+	require.Contains(t, string(valuesContent), "size: 1Gi")
+	require.Contains(t, string(valuesContent), "status: enable")
+
 	t.Log("helm upgrade the cockroach enterprise operator")
 	helmPath, _ := operator.HelmChartPaths()
-	err := helm.UpgradeE(t, &helm.Options{
+	err = helm.UpgradeE(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 	}, helmPath, releaseName)
@@ -161,7 +175,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 
 	certManagerK8sOptions := k8s.NewKubectlOptions("", "", testutil.CertManagerNamespace)
 	testutil.InstallCertManager(t, certManagerK8sOptions)
-	//... and make sure to delete the helm release at the end of the test.
+	// ... and make sure to delete the helm release at the end of the test.
 	defer func() {
 		testutil.DeleteCertManager(t, certManagerK8sOptions)
 		k8s.DeleteNamespace(t, certManagerK8sOptions, testutil.CertManagerNamespace)

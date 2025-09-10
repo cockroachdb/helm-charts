@@ -265,6 +265,11 @@ cockroachdb:
           #
     # walFailoverSpec captures the configuration for WAL Failover.
     walFailoverSpec: {}
+      # name determines the prefix of the pvc name that we want to provide
+      # for the wal failover. This field was introduced during the migration process
+      # from the statefulset to the operator.
+      # name: failover-dir
+      #
       # status determines the possible values to WAL Failover configuration.
       # It has 3 possible values: "", "enable" and "disable".
       # status: ""
@@ -275,6 +280,14 @@ cockroachdb:
       # storageClassName defines the StorageClass for the PVC.
       # If not set, the default provisioner will be chosen (gp2 on AWS, standard on GKE).
       # storageClassName: ""
+      #
+      # path is the absolute mount path inside the CockroachDB container to use for WAL failover side disk.
+      # Examples: 
+      #   - /cockroach/cockroach-failover
+      #   - /cockroach/custom/path
+      # IMPORTANT: Set it only for fresh deployments. Changing it on upgrades might cause issues with the deployment.
+      #
+      # path: "/cockroach/cockroach-failover"
       #
     # podLabels captures additional labels to apply to CockroachDB pods.
     podLabels:

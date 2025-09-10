@@ -72,6 +72,7 @@ type parsedMigrationInput struct {
 	nodeSecretName    string
 	clientSecretName  string
 	pcrSpec           *v1alpha1.CrdbVirtualClusterSpec
+	walFailoverSpec   *v1alpha1.CrdbWalFailoverSpec
 	priorityClassName string
 	initContainers    []corev1.Container
 	customVolumes     []corev1.Volume
@@ -81,6 +82,12 @@ type parsedMigrationInput struct {
 type certManagerInput struct {
 	issuerName string
 	issuerKind string
+}
+
+type walFailoverPVCDetails struct {
+	name             string
+	size             string
+	storageClassName string
 }
 
 func To[T any](v T) *T {
@@ -372,13 +379,105 @@ func detectPCRFromInitJob(clientset kubernetes.Interface, stsName, namespace str
 	return nil
 }
 
+func getWalFailoverPVCDetails(ctx context.Context, clientset kubernetes.Interface, sts *appsv1.StatefulSet, nodeName string, nodeIdx int) (*walFailoverPVCDetails, error) {
+	// Get failover PVC name and size from the template
+	var failoverPVCName, failoverSize string
+	for _, vct := range sts.Spec.VolumeClaimTemplates {
+		if strings.Contains(strings.ToLower(vct.Name), "failover") {
+			failoverPVCName = vct.Name
+			// Extract size from the PVC spec
+			if storage := vct.Spec.Resources.Requests[corev1.ResourceStorage]; !storage.IsZero() {
+				failoverSize = storage.String()
+			}
+			break
+		}
+	}
+
+	// Get the pod for this node index
+	podName := fmt.Sprintf("%s-%d", sts.Name, nodeIdx)
+	pod, err := clientset.CoreV1().Pods(sts.Namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify this pod is on the correct node
+	if pod.Spec.NodeName != nodeName {
+		return nil, fmt.Errorf("pod %s is not on node %s", podName, nodeName)
+	}
+
+	// Look for failoverdir PVC in pod's volumes to get storage class
+	var failoverStorageClass string
+	for _, volume := range pod.Spec.Volumes {
+		if volume.PersistentVolumeClaim != nil && strings.HasPrefix(volume.Name, "failoverdir") {
+			pvcName := volume.PersistentVolumeClaim.ClaimName
+
+			// Get the actual PVC
+			pvc, err := clientset.CoreV1().PersistentVolumeClaims(sts.Namespace).Get(ctx, pvcName, metav1.GetOptions{})
+			if err != nil {
+				return nil, err
+			}
+
+			// Get storage class name
+			if pvc.Spec.StorageClassName != nil {
+				failoverStorageClass = *pvc.Spec.StorageClassName
+			}
+			break
+		}
+	}
+
+	if failoverPVCName == "" {
+		return nil, fmt.Errorf("no failoverdir PVC found for node %s", nodeName)
+	}
+
+	return &walFailoverPVCDetails{
+		name:             failoverPVCName,
+		size:             failoverSize,
+		storageClassName: failoverStorageClass,
+	}, nil
+}
+
+func buildWalFailoverSpec(ctx context.Context, clientset kubernetes.Interface, sts *appsv1.StatefulSet, nodeName string, nodeIdx int32, input *parsedMigrationInput) {
+	// Derive walFailoverSpec from --wal-failover flag if present and store it in input.
+	if input.startFlags != nil {
+		for _, f := range input.startFlags.Upsert {
+			if !strings.HasPrefix(f, "--wal-failover=") {
+				continue
+			}
+
+			val := strings.TrimPrefix(f, "--wal-failover=")
+			if val == "disabled" {
+				// do not include the walFailoverSpec - when the wal-failover is disabled
+				input.walFailoverSpec = nil
+			} else if val == "among-stores" {
+				panic("💥 PANIC: Multi-store configuration (among-stores) is not supported in the new operator")
+			} else if strings.HasPrefix(val, "path=") {
+				// Get the failover PVC details using the unified function
+				pvcDetails, err := getWalFailoverPVCDetails(ctx, clientset, sts, nodeName, int(nodeIdx))
+				if err != nil {
+					fmt.Printf("Warning: Failed to get WAL failover PVC details: %v\n", err)
+					continue
+				}
+
+				path := strings.TrimPrefix(val, "path=")
+				input.walFailoverSpec = &v1alpha1.CrdbWalFailoverSpec{
+					Name:             pvcDetails.name,
+					Status:           "enable",
+					Path:             path,
+					Size:             pvcDetails.size,
+					StorageClassName: pvcDetails.storageClassName,
+				}
+			}
+		}
+	}
+}
+
 // buildNodeSpecFromHelm builds a CrdbNodeSpec from a StatefulSet created by the CockroachDB Helm chart.
 func buildNodeSpecFromHelm(
 	sts *appsv1.StatefulSet,
 	nodeName string,
 	input parsedMigrationInput) v1alpha1.CrdbNodeSpec {
 
-	return v1alpha1.CrdbNodeSpec{
+	nodeSpec := v1alpha1.CrdbNodeSpec{
 		NodeName: nodeName,
 		PodTemplate: &v1alpha1.PodTemplateSpec{
 			Metadata: v1alpha1.PodMeta{
@@ -449,6 +548,12 @@ func buildNodeSpecFromHelm(
 		},
 		VirtualCluster: input.pcrSpec,
 	}
+
+	// Add WAL failover spec if present in input
+	if input.walFailoverSpec != nil {
+		nodeSpec.WALFailoverSpec = input.walFailoverSpec
+	}
+	return nodeSpec
 }
 
 // buildHelmValuesFromHelm builds a values.yaml for the CockroachDB Enterprise Operator Helm chart from a StatefulSet created by the CockroachDB Helm chart.
@@ -493,88 +598,101 @@ func buildHelmValuesFromHelm(
 		}
 	}
 
-	return map[string]interface{}{
-		"cockroachdb": map[string]interface{}{
-			"tls": tls,
-			"crdbCluster": map[string]interface{}{
-				"image": map[string]interface{}{
-					"name": sts.Spec.Template.Spec.Containers[0].Image,
+	crdbCluster := map[string]interface{}{
+		"image": map[string]interface{}{
+			"name": sts.Spec.Template.Spec.Containers[0].Image,
+		},
+		"localityLabels": input.localityLabels,
+		"startFlags":     input.startFlags,
+		"regions": []map[string]interface{}{
+			{
+				"namespace":     namespace,
+				"cloudProvider": cloudProvider,
+				"code":          cloudRegion,
+				"nodes":         sts.Spec.Replicas,
+				"domain":        "",
+			},
+		},
+		"dataStore": map[string]interface{}{
+			"volumeClaimTemplate": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "datadir",
 				},
-				"localityLabels": input.localityLabels,
-				"startFlags":     input.startFlags,
-				"regions": []map[string]interface{}{
+				"spec": sts.Spec.VolumeClaimTemplates[0].Spec,
+			},
+		},
+		"virtualCluster": input.pcrSpec,
+		"service": map[string]interface{}{
+			"ports": map[string]interface{}{
+				"grpc": map[string]interface{}{
+					"port": input.grpcPort,
+				},
+				"http": map[string]interface{}{
+					"port": input.httpPort,
+				},
+				"sql": map[string]interface{}{
+					"port": input.sqlPort,
+				},
+			},
+		},
+		"loggingConfigMapName": input.loggingConfigMap,
+		"podLabels":            sts.Spec.Template.Labels,
+		"podTemplate": map[string]interface{}{
+			"metadata": map[string]interface{}{
+				"labels":      sts.Spec.Template.Labels,
+				"annotations": sts.Spec.Template.Annotations,
+			},
+			"spec": map[string]interface{}{
+				"imagePullSecrets":              input.imagePullSecrets,
+				"priorityClassName":             input.priorityClassName,
+				"initContainers":                input.initContainers,
+				"volumes":                       input.customVolumes,
+				"affinity":                      sts.Spec.Template.Spec.Affinity,
+				"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
+				"tolerations":                   sts.Spec.Template.Spec.Tolerations,
+				"terminationGracePeriodSeconds": *sts.Spec.Template.Spec.TerminationGracePeriodSeconds,
+				"topologySpreadConstraints":     sts.Spec.Template.Spec.TopologySpreadConstraints,
+				"containers": []map[string]interface{}{
 					{
-						"namespace":     namespace,
-						"cloudProvider": cloudProvider,
-						"code":          cloudRegion,
-						"nodes":         sts.Spec.Replicas,
-						"domain":        "",
-					},
-				},
-				"dataStore": map[string]interface{}{
-					"volumeClaimTemplate": map[string]interface{}{
-						"metadata": map[string]interface{}{
-							"name": "datadir",
-						},
-						"spec": sts.Spec.VolumeClaimTemplates[0].Spec,
-					},
-				},
-				"virtualCluster": input.pcrSpec,
-				"service": map[string]interface{}{
-					"ports": map[string]interface{}{
-						"grpc": map[string]interface{}{
-							"port": input.grpcPort,
-						},
-						"http": map[string]interface{}{
-							"port": input.httpPort,
-						},
-						"sql": map[string]interface{}{
-							"port": input.sqlPort,
-						},
-					},
-				},
-				"loggingConfigMapName": input.loggingConfigMap,
-				"podLabels":            sts.Spec.Template.Labels,
-				"podTemplate": map[string]interface{}{
-					"metadata": map[string]interface{}{
-						"labels":      sts.Spec.Template.Labels,
-						"annotations": sts.Spec.Template.Annotations,
-					},
-					"spec": map[string]interface{}{
-						"imagePullSecrets":              input.imagePullSecrets,
-						"priorityClassName":             input.priorityClassName,
-						"initContainers":                input.initContainers,
-						"volumes":                       input.customVolumes,
-						"affinity":                      sts.Spec.Template.Spec.Affinity,
-						"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
-						"tolerations":                   sts.Spec.Template.Spec.Tolerations,
-						"terminationGracePeriodSeconds": *sts.Spec.Template.Spec.TerminationGracePeriodSeconds,
-						"topologySpreadConstraints":     sts.Spec.Template.Spec.TopologySpreadConstraints,
-						"containers": []map[string]interface{}{
+						"image": sts.Spec.Template.Spec.Containers[0].Image,
+						"env": append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
 							{
-								"image": sts.Spec.Template.Spec.Containers[0].Image,
-								"env": append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
-									{
-										Name: "HOST_IP",
-										ValueFrom: &corev1.EnvVarSource{
-											FieldRef: &corev1.ObjectFieldSelector{
-												APIVersion: "v1",
-												FieldPath:  "status.hostIP",
-											},
-										},
+								Name: "HOST_IP",
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
+										APIVersion: "v1",
+										FieldPath:  "status.hostIP",
 									},
-									{
-										Name:  "GODEBUG",
-										Value: "disablethp=1",
-									},
-								}...),
-								"resources": sts.Spec.Template.Spec.Containers[0].Resources,
-								"name":      "cockroachdb",
+								},
 							},
-						},
+							{
+								Name:  "GODEBUG",
+								Value: "disablethp=1",
+							},
+						}...),
+						"resources": sts.Spec.Template.Spec.Containers[0].Resources,
+						"name":      "cockroachdb",
 					},
 				},
 			},
+		},
+	}
+
+	// Add walFailoverSpec if present in input
+	if input.walFailoverSpec != nil {
+		crdbCluster["walFailoverSpec"] = map[string]interface{}{
+			"name":             input.walFailoverSpec.Name,
+			"path":             input.walFailoverSpec.Path,
+			"size":             input.walFailoverSpec.Size,
+			"status":           input.walFailoverSpec.Status,
+			"storageClassName": input.walFailoverSpec.StorageClassName,
+		}
+	}
+
+	return map[string]interface{}{
+		"cockroachdb": map[string]interface{}{
+			"tls":         tls,
+			"crdbCluster": crdbCluster,
 		},
 	}
 }

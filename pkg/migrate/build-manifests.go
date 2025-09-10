@@ -183,6 +183,8 @@ func (m *Manifest) FromHelmChart() error {
 			return errors.Newf("pod %s isn't scheduled to a node", podName)
 		}
 
+		// Build the walFailoverSpec if applicable
+		buildWalFailoverSpec(ctx, m.clientset, sts, pod.Spec.NodeName, nodeIdx, &input)
 		nodeSpec := buildNodeSpecFromHelm(sts, pod.Spec.NodeName, input)
 		crdbNode := v1alpha1.CrdbNode{
 			TypeMeta: metav1.TypeMeta{

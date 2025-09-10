@@ -468,7 +468,9 @@ const (
 )
 
 type CrdbWalFailoverSpec struct {
+	Name             string                `json:"name,omitempty"`
 	Size             string                `json:"size"`
 	StorageClassName string                `json:"storageClassName,omitempty"`
 	Status           CrdbWalFailoverStatus `json:"status"`
+	Path             string                `json:"path,omitempty"` // TODO: Add validation in the operator to prevent changing this value on upgrades.
 }
