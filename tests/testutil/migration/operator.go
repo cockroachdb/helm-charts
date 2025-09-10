@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	optestutil "github.com/cockroachdb/cockroach-operator/pkg/testutil"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/stretchr/testify/require"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -21,7 +21,7 @@ const (
 type PublicOperator struct {
 	Ctx context.Context
 
-	CustomResourceBuilder optestutil.ClusterBuilder
+	CustomResourceBuilder testutil.ClusterBuilder
 
 	HelmInstall
 }

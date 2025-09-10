@@ -510,7 +510,7 @@ func extractJoinStringAndFlags(
 	for _, arg := range args {
 		switch {
 		case strings.HasPrefix(arg, joinStrPrefix):
-			flags.Upsert = append(flags.Upsert, fmt.Sprintf("%s", arg))
+			flags.Upsert = append(flags.Upsert, arg)
 		case strings.HasPrefix(arg, portPrefix):
 			num, err := parseInt32(strings.TrimPrefix(arg, portPrefix))
 			if err != nil {

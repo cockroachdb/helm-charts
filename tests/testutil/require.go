@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/cockroach-operator/pkg/database"
-	"github.com/cockroachdb/cockroach-operator/pkg/kube"
+	"github.com/cockroachdb/helm-charts/pkg/database"
+	"github.com/cockroachdb/helm-charts/pkg/kube"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/stretchr/testify/require"
@@ -47,65 +47,78 @@ type CockroachCluster struct {
 
 // RequireClusterToBeReadyEventuallyTimeout waits for all the CRDB pods to come into running state.
 func RequireClusterToBeReadyEventuallyTimeout(t *testing.T, crdbCluster CockroachCluster, timeout time.Duration) {
-	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
-		ss, err := fetchStatefulSet(crdbCluster.K8sClient, crdbCluster.StatefulSetName, crdbCluster.Namespace)
-		if err != nil {
-			t.Logf("error fetching stateful set")
-			return false, err
-		}
+	ctx := context.Background()
+	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			ss, err := fetchStatefulSet(crdbCluster.K8sClient, crdbCluster.StatefulSetName, crdbCluster.Namespace)
+			if err != nil {
+				t.Logf("error fetching stateful set")
+				return false, err
+			}
 
-		if ss == nil {
-			t.Logf("stateful set is not found")
-			return false, nil
-		}
+			if ss == nil {
+				t.Logf("stateful set is not found")
+				return false, nil
+			}
 
-		if !statefulSetIsReady(ss) {
-			t.Logf("stateful set is not ready")
-			logPods(context.TODO(), ss, crdbCluster.Cfg, t)
-			return false, nil
-		}
-		return true, nil
-	})
+			if !statefulSetIsReady(ss) {
+				t.Logf("stateful set is not ready")
+				logPods(ctx, ss, crdbCluster.Cfg, t)
+				return false, nil
+			}
+
+			return true, nil
+		},
+	)
 	require.NoError(t, err)
 }
 
 // RequireCRDBClusterToBeReadyEventuallyTimeout waits for all the CockroachDB pods to come into running state.
 func RequireCRDBClusterToBeReadyEventuallyTimeout(t *testing.T, opts *k8s.KubectlOptions, crdbCluster CockroachCluster, timeout time.Duration) {
-	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
-		pods, err := k8s.ListPodsE(t, opts, metav1.ListOptions{
-			LabelSelector: "app=cockroachdb",
-		})
-		if len(pods) != crdbCluster.DesiredNodes {
-			t.Logf("expected %d crdb pods; found %d", crdbCluster.DesiredNodes, len(pods))
-			return false, nil
-		}
-		for _, pod := range pods {
-			if !k8s.IsPodAvailable(&pod) {
-				t.Logf("pod %s not ready", pod.Name)
+	ctx := context.Background()
+	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			pods, err := k8s.ListPodsE(t, opts, metav1.ListOptions{
+				LabelSelector: "app=cockroachdb",
+			})
+			if err != nil {
+				return false, err
+			}
+
+			if len(pods) != crdbCluster.DesiredNodes {
+				t.Logf("expected %d crdb pods; found %d", crdbCluster.DesiredNodes, len(pods))
 				return false, nil
 			}
-		}
-		if err != nil {
-			return false, err
-		}
-		require.True(t, len(pods) == crdbCluster.DesiredNodes)
-		return true, nil
-	})
+
+			for _, pod := range pods {
+				if !k8s.IsPodAvailable(&pod) {
+					t.Logf("pod %s not ready", pod.Name)
+					return false, nil
+				}
+			}
+
+			require.True(t, len(pods) == crdbCluster.DesiredNodes)
+			return true, nil
+		},
+	)
 	require.NoError(t, err)
 }
 
 func RequirePodToBeCreatedAndReady(t *testing.T, opts *k8s.KubectlOptions, podName string, timeout time.Duration) {
-	require.NoError(t, wait.Poll(10*time.Second, timeout, func() (done bool, err error) {
-		pod, err := k8s.GetPodE(t, opts, podName)
-		if err != nil {
-			return false, nil
-		}
-		if !k8s.IsPodAvailable(pod) {
-			t.Logf("pod %s not ready", pod.Name)
-			return false, nil
-		}
-		return true, nil
-	}))
+	ctx := context.Background()
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
+		func(ctx context.Context) (done bool, err error) {
+			pod, err := k8s.GetPodE(t, opts, podName)
+			if err != nil {
+				return false, nil
+			}
+			if !k8s.IsPodAvailable(pod) {
+				t.Logf("pod %s not ready", pod.Name)
+				return false, nil
+			}
+			return true, nil
+		},
+	))
 }
 
 func logPods(ctx context.Context, sts *appsv1.StatefulSet, cfg *rest.Config, t *testing.T) {
@@ -521,28 +534,31 @@ func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values ma
 
 // RequireCertRotateJobToBeCompleted waits for the certificate rotation job to complete.
 func RequireCertRotateJobToBeCompleted(t *testing.T, jobName string, crdbCluster CockroachCluster, timeout time.Duration) {
-	err := wait.Poll(10*time.Second, timeout, func() (bool, error) {
-		job, err := fetchJob(crdbCluster.K8sClient, jobName, crdbCluster.Namespace)
-		if err != nil {
-			t.Logf("error fetching job")
-			return false, err
-		}
+	ctx := context.Background()
+	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
+		func(ctx context.Context) (bool, error) {
+			job, err := fetchJob(crdbCluster.K8sClient, jobName, crdbCluster.Namespace)
+			if err != nil {
+				t.Logf("error fetching job: %v", err)
+				return false, err
+			}
 
-		if job == nil {
-			t.Logf("job is not found")
+			if job == nil {
+				t.Logf("job is not found")
+				return false, nil
+			}
+
+			if job.Status.Active > 0 {
+				t.Log("Waiting for certificate rotation job to complete")
+			}
+
+			if job.Status.Succeeded > 0 {
+				return true, nil
+			}
+
 			return false, nil
-		}
-
-		if job.Status.Active > 0 {
-			t.Log("Waiting for certificate rotation job to complete")
-		}
-
-		if job.Status.Succeeded > 0 {
-			return true, nil
-		}
-
-		return false, nil
-	})
+		},
+	)
 	require.NoError(t, err)
 }
 

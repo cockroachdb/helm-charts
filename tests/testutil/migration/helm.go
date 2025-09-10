@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/cockroach-operator/pkg/kube"
+	"github.com/cockroachdb/helm-charts/pkg/kube"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
@@ -148,7 +148,7 @@ func cleanupResources(
 			t.Fatalf("Error getting secret %s: %v", danglingSecrets[i], err)
 			t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
 		} else if err == nil {
-			k8s.RunKubectlE(t, kubectlOptions, "delete", "secret", danglingSecrets[i])
+			_ = k8s.RunKubectlE(t, kubectlOptions, "delete", "secret", danglingSecrets[i])
 		}
 	}
 

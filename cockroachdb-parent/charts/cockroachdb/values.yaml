@@ -65,7 +65,7 @@ cockroachdb:
         # repository defines the image repository for the self-signer container.
         repository: cockroachlabs-helm-charts/cockroach-self-signer-cert
         # tag defines the image tag for the self-signer container.
-        tag: "1.8"
+        tag: "1.9"
         # pullPolicy defines the image pull policy for the self-signer container.
         pullPolicy: IfNotPresent
         # registry defines the container registry host (e.g., gcr.io, docker.io).
