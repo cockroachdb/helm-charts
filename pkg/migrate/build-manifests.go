@@ -172,6 +172,9 @@ func (m *Manifest) FromHelmChart() error {
 	}
 
 	input.pcrSpec = detectPCRFromInitJob(m.clientset, sts.Name, m.namespace)
+
+	// Cluster level WalSpec
+	var clusterWalSpec *v1alpha1.CrdbWalFailoverSpec
 	for nodeIdx := int32(0); nodeIdx < *sts.Spec.Replicas; nodeIdx++ {
 		podName := fmt.Sprintf("%s-%d", sts.Name, nodeIdx)
 		pod, err := m.clientset.CoreV1().Pods(m.namespace).Get(ctx, podName, metav1.GetOptions{})
@@ -183,6 +186,11 @@ func (m *Manifest) FromHelmChart() error {
 			return errors.Newf("pod %s isn't scheduled to a node", podName)
 		}
 
+		// Build the walFailoverSpec if applicable
+		buildWalFailoverSpec(ctx, m.clientset, sts, pod.Spec.NodeName, nodeIdx, &input)
+		if input.walFailoverSpec != nil && clusterWalSpec == nil {
+			clusterWalSpec = input.walFailoverSpec
+		}
 		nodeSpec := buildNodeSpecFromHelm(sts, pod.Spec.NodeName, input)
 		crdbNode := v1alpha1.CrdbNode{
 			TypeMeta: metav1.TypeMeta{

@@ -54,7 +54,7 @@ spec:
         - -ecx
         - exec /cockroach/cockroach start --join=${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257
           --advertise-host=$(hostname).${STATEFULSET_FQDN} --certs-dir=/cockroach/cockroach-certs/
-          --http-port=8080 --port=26257 --cache=25% --max-sql-memory=25% --log-config-file=/cockroach/log-config/log-config.yaml --locality=country=us,region=us-central1
+          --http-port=8080 --port=26257 --cache=25% --max-sql-memory=25% --log-config-file=/cockroach/log-config/log-config.yaml --locality=country=us,region=us-central1 --wal-failover=path=/cockroach/wal-failover
         env:
         - name: STATEFULSET_NAME
           value: cockroachdb
@@ -112,6 +112,8 @@ spec:
         - mountPath: /cockroach/log-config
           name: log-config
           readOnly: true
+        - mountPath: /cockroach/wal-failover/
+          name: failoverdir
       dnsPolicy: ClusterFirst
       initContainers:
       - command:
@@ -208,6 +210,23 @@ spec:
       resources:
         requests:
           storage: 100Gi
+      volumeMode: Filesystem
+    status:
+      phase: Pending
+  - apiVersion: v1
+    kind: PersistentVolumeClaim
+    metadata:
+      creationTimestamp: null
+      labels:
+        app.kubernetes.io/instance: cockroachdb
+        app.kubernetes.io/name: cockroachdb
+      name: failoverdir
+    spec:
+      accessModes:
+      - ReadWriteOnce
+      resources:
+        requests:
+          storage: 10Gi
       volumeMode: Filesystem
     status:
       phase: Pending

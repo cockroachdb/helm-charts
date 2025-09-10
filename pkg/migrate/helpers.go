@@ -67,11 +67,18 @@ type parsedMigrationInput struct {
 	nodeSecretName   string
 	clientSecretName string
 	pcrSpec          *v1alpha1.CrdbVirtualClusterSpec
+	walFailoverSpec  *v1alpha1.CrdbWalFailoverSpec
 }
 
 type certManagerInput struct {
 	issuerName string
 	issuerKind string
+}
+
+type walFailoverPVCDetails struct {
+	name             string
+	size             string
+	storageClassName string
 }
 
 func To[T any](v T) *T {
@@ -316,13 +323,105 @@ func detectPCRFromInitJob(clientset kubernetes.Interface, stsName, namespace str
 	return nil
 }
 
+func getWalFailoverPVCDetails(ctx context.Context, clientset kubernetes.Interface, sts *appsv1.StatefulSet, nodeName string, nodeIdx int) (*walFailoverPVCDetails, error) {
+	// Get failover PVC name and size from the template
+	var failoverPVCName, failoverSize string
+	for _, vct := range sts.Spec.VolumeClaimTemplates {
+		if strings.Contains(strings.ToLower(vct.Name), "failover") {
+			failoverPVCName = vct.Name
+			// Extract size from the PVC spec
+			if storage := vct.Spec.Resources.Requests[corev1.ResourceStorage]; !storage.IsZero() {
+				failoverSize = storage.String()
+			}
+			break
+		}
+	}
+
+	// Get the pod for this node index
+	podName := fmt.Sprintf("%s-%d", sts.Name, nodeIdx)
+	pod, err := clientset.CoreV1().Pods(sts.Namespace).Get(ctx, podName, metav1.GetOptions{})
+	if err != nil {
+		return nil, err
+	}
+
+	// Verify this pod is on the correct node
+	if pod.Spec.NodeName != nodeName {
+		return nil, fmt.Errorf("pod %s is not on node %s", podName, nodeName)
+	}
+
+	// Look for failoverdir PVC in pod's volumes to get storage class
+	var failoverStorageClass string
+	for _, volume := range pod.Spec.Volumes {
+		if volume.PersistentVolumeClaim != nil && strings.HasPrefix(volume.Name, "failoverdir") {
+			pvcName := volume.PersistentVolumeClaim.ClaimName
+
+			// Get the actual PVC
+			pvc, err := clientset.CoreV1().PersistentVolumeClaims(sts.Namespace).Get(ctx, pvcName, metav1.GetOptions{})
+			if err != nil {
+				return nil, err
+			}
+
+			// Get storage class name
+			if pvc.Spec.StorageClassName != nil {
+				failoverStorageClass = *pvc.Spec.StorageClassName
+			}
+			break
+		}
+	}
+
+	if failoverPVCName == "" {
+		return nil, fmt.Errorf("no failoverdir PVC found for node %s", nodeName)
+	}
+
+	return &walFailoverPVCDetails{
+		name:             failoverPVCName,
+		size:             failoverSize,
+		storageClassName: failoverStorageClass,
+	}, nil
+}
+
+func buildWalFailoverSpec(ctx context.Context, clientset kubernetes.Interface, sts *appsv1.StatefulSet, nodeName string, nodeIdx int32, input *parsedMigrationInput) {
+	// Derive walFailoverSpec from --wal-failover flag if present and store it in input.
+	if input.startFlags != nil {
+		for _, f := range input.startFlags.Upsert {
+			if strings.HasPrefix(f, "--wal-failover=") {
+				val := strings.TrimPrefix(f, "--wal-failover=")
+				if val == "disabled" {
+					input.walFailoverSpec = &v1alpha1.CrdbWalFailoverSpec{
+						Status: "disable",
+					}
+				} else if val == "among-stores" {
+					fmt.Printf("Multi-store configuration (among-stores) is not supported in the new operator\n")
+				} else if strings.HasPrefix(val, "path=") {
+					// Get the failover PVC details using the unified function
+					pvcDetails, err := getWalFailoverPVCDetails(ctx, clientset, sts, nodeName, int(nodeIdx))
+					if err != nil {
+						fmt.Printf("Warning: Failed to get WAL failover PVC details: %v\n", err)
+						continue
+					}
+
+					path := strings.TrimPrefix(val, "path=")
+					input.walFailoverSpec = &v1alpha1.CrdbWalFailoverSpec{
+						Name:             pvcDetails.name,
+						Status:           "enable",
+						Path:             path,
+						Size:             pvcDetails.size,
+						StorageClassName: pvcDetails.storageClassName,
+					}
+				}
+				break
+			}
+		}
+	}
+}
+
 // buildNodeSpecFromHelm builds a CrdbNodeSpec from a StatefulSet created by the CockroachDB Helm chart.
 func buildNodeSpecFromHelm(
 	sts *appsv1.StatefulSet,
 	nodeName string,
 	input parsedMigrationInput) v1alpha1.CrdbNodeSpec {
 
-	return v1alpha1.CrdbNodeSpec{
+	nodeSpec := v1alpha1.CrdbNodeSpec{
 		NodeName:       nodeName,
 		PodLabels:      sts.Spec.Template.Labels,
 		PodAnnotations: sts.Spec.Template.Annotations,
@@ -373,6 +472,12 @@ func buildNodeSpecFromHelm(
 		TerminationGracePeriod:    &metav1.Duration{Duration: time.Duration(*sts.Spec.Template.Spec.TerminationGracePeriodSeconds) * time.Second},
 		TopologySpreadConstraints: sts.Spec.Template.Spec.TopologySpreadConstraints,
 	}
+
+	// Add WAL failover spec if present in input
+	if input.walFailoverSpec != nil {
+		nodeSpec.WALFailoverSpec = input.walFailoverSpec
+	}
+	return nodeSpec
 }
 
 // buildHelmValuesFromHelm builds a values.yaml for the CockroachDB Enterprise Operator Helm chart from a StatefulSet created by the CockroachDB Helm chart.
@@ -417,57 +522,70 @@ func buildHelmValuesFromHelm(
 		}
 	}
 
+	crdbCluster := map[string]interface{}{
+		"image": map[string]interface{}{
+			"name": sts.Spec.Template.Spec.Containers[0].Image,
+		},
+		"localityLabels": input.localityLabels,
+		"podLabels":      sts.Spec.Template.Labels,
+		"podAnnotations": sts.Spec.Template.Annotations,
+		"resources":      sts.Spec.Template.Spec.Containers[0].Resources,
+		"startFlags":     input.startFlags,
+		"regions": []map[string]interface{}{
+			{
+				"namespace":     namespace,
+				"cloudProvider": cloudProvider,
+				"code":          cloudRegion,
+				"nodes":         sts.Spec.Replicas,
+				"domain":        "",
+			},
+		},
+		"dataStore": map[string]interface{}{
+			"volumeClaimTemplate": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "datadir",
+				},
+				"spec": sts.Spec.VolumeClaimTemplates[0].Spec,
+			},
+		},
+		"virtualCluster": input.pcrSpec,
+		"service": map[string]interface{}{
+			"ports": map[string]interface{}{
+				"grpc": map[string]interface{}{
+					"port": input.grpcPort,
+				},
+				"http": map[string]interface{}{
+					"port": input.httpPort,
+				},
+				"sql": map[string]interface{}{
+					"port": input.sqlPort,
+				},
+			},
+		},
+		"affinity":                  sts.Spec.Template.Spec.Affinity,
+		"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
+		"tolerations":               sts.Spec.Template.Spec.Tolerations,
+		"terminationGracePeriod":    fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
+		"loggingConfigMapName":      input.loggingConfigMap,
+		"env":                       sts.Spec.Template.Spec.Containers[0].Env,
+		"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
+	}
+
+	// Add walFailoverSpec if present in input
+	if input.walFailoverSpec != nil {
+		crdbCluster["walFailoverSpec"] = map[string]interface{}{
+			"name":             input.walFailoverSpec.Name,
+			"path":             input.walFailoverSpec.Path,
+			"size":             input.walFailoverSpec.Size,
+			"status":           input.walFailoverSpec.Status,
+			"storageClassName": input.walFailoverSpec.StorageClassName,
+		}
+	}
+
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
-			"tls": tls,
-			"crdbCluster": map[string]interface{}{
-				"image": map[string]interface{}{
-					"name": sts.Spec.Template.Spec.Containers[0].Image,
-				},
-				"localityLabels": input.localityLabels,
-				"podLabels":      sts.Spec.Template.Labels,
-				"podAnnotations": sts.Spec.Template.Annotations,
-				"resources":      sts.Spec.Template.Spec.Containers[0].Resources,
-				"startFlags":     input.startFlags,
-				"regions": []map[string]interface{}{
-					{
-						"namespace":     namespace,
-						"cloudProvider": cloudProvider,
-						"code":          cloudRegion,
-						"nodes":         sts.Spec.Replicas,
-						"domain":        "",
-					},
-				},
-				"dataStore": map[string]interface{}{
-					"volumeClaimTemplate": map[string]interface{}{
-						"metadata": map[string]interface{}{
-							"name": "datadir",
-						},
-						"spec": sts.Spec.VolumeClaimTemplates[0].Spec,
-					},
-				},
-				"virtualCluster": input.pcrSpec,
-				"service": map[string]interface{}{
-					"ports": map[string]interface{}{
-						"grpc": map[string]interface{}{
-							"port": input.grpcPort,
-						},
-						"http": map[string]interface{}{
-							"port": input.httpPort,
-						},
-						"sql": map[string]interface{}{
-							"port": input.sqlPort,
-						},
-					},
-				},
-				"affinity":                  sts.Spec.Template.Spec.Affinity,
-				"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
-				"tolerations":               sts.Spec.Template.Spec.Tolerations,
-				"terminationGracePeriod":    fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
-				"loggingConfigMapName":      input.loggingConfigMap,
-				"env":                       sts.Spec.Template.Spec.Containers[0].Env,
-				"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
-			},
+			"tls":         tls,
+			"crdbCluster": crdbCluster,
 		},
 	}
 }
@@ -477,48 +595,48 @@ func generateParsedMigrationInput(
 	ctx context.Context,
 	clientset kubernetes.Interface,
 	sts *appsv1.StatefulSet) (parsedMigrationInput, error) {
-	var startCmd string
-	var parsedInput = parsedMigrationInput{
-		tlsEnabled: true,
-	}
+		var startCmd string
+		var parsedInput = parsedMigrationInput{
+			tlsEnabled: true,
+		}
 
-	// In the public Helm chart, logging configuration is provided as a secret to the StatefulSet.
-	// However, in the Cockroach Enterprise Operator, it is supplied as a ConfigMap.
-	for _, vol := range sts.Spec.Template.Spec.Volumes {
-		if vol.Name == logConfigVolumeName {
-			if vol.Secret != nil {
-				parsedInput.loggingConfigMap = vol.Secret.SecretName
-				if err := ConvertSecretToConfigMap(ctx, clientset, sts.Namespace, parsedInput.loggingConfigMap); err != nil {
-					return parsedInput, err
+		// In the public Helm chart, logging configuration is provided as a secret to the StatefulSet.
+		// However, in the Cockroach Enterprise Operator, it is supplied as a ConfigMap.
+		for _, vol := range sts.Spec.Template.Spec.Volumes {
+			if vol.Name == logConfigVolumeName {
+				if vol.Secret != nil {
+					parsedInput.loggingConfigMap = vol.Secret.SecretName
+					if err := ConvertSecretToConfigMap(ctx, clientset, sts.Namespace, parsedInput.loggingConfigMap); err != nil {
+						return parsedInput, err
+					}
 				}
 			}
 		}
-	}
 
-	for _, c := range sts.Spec.Template.Spec.Containers {
-		if c.Name == crdbContainerName {
-			startCmd = c.Args[2]
+		for _, c := range sts.Spec.Template.Spec.Containers {
+			if c.Name == crdbContainerName {
+				startCmd = c.Args[2]
+			}
 		}
-	}
 
-	if err := extractJoinStringAndFlags(&parsedInput, strings.Fields(startCmd)); err != nil {
-		return parsedInput, err
-	}
+		if err := extractJoinStringAndFlags(&parsedInput, strings.Fields(startCmd)); err != nil {
+			return parsedInput, err
+		}
 
-	return parsedInput, nil
-}
+		return parsedInput, nil
+	}
 
 // certificatesInput checks if the node certificate exists in the cluster and adds the certificate input based on
 // the presence of the node certificate. If the node certificate is present, it means the cert-manager manages the certificates.
 // If not, then certs are managed by self-signer utility
 func certificatesInput(ctx context.Context, dynamicClient dynamic.Interface, parsedInput *parsedMigrationInput, sts *appsv1.StatefulSet) error {
-	var (
+		var (
 		err error
 	)
 
-	nodeCertificateName := fmt.Sprintf("%s-node", sts.Name)
-	// if the node certificate is not present, then we assume that the cert-manager is not managing the certificates
-	// and we will use the self-signer utility to generate the certificates.
+		nodeCertificateName := fmt.Sprintf("%s-node", sts.Name)
+		// if the node certificate is not present, then we assume that the cert-manager is not managing the certificates
+		// and we will use the self-signer utility to generate the certificates.
 	nodeCertificate, err := getCertificate(ctx, dynamicClient, nodeCertificateName, sts.Namespace)
 	if err != nil {
 		parsedInput.caConfigMap = fmt.Sprintf("%s-ca-secret-crt", sts.Name)
@@ -549,72 +667,78 @@ func extractJoinStringAndFlags(
 	parsedInput *parsedMigrationInput,
 	args []string) error {
 
-	flags := &v1alpha1.Flags{}
-	// Regular expression to match flags (e.g., --advertise-host=something)
-	flagRegex := regexp.MustCompile(`--([\w-]+)=(.*)`)
+		flags := &v1alpha1.Flags{}
+		// Regular expression to match flags (e.g., --advertise-host=something)
+		flagRegex := regexp.MustCompile(`--([\w-]+)=(.*)`)
 
-	for _, arg := range args {
-		switch {
-		case strings.HasPrefix(arg, joinStrPrefix):
-			flags.Upsert = append(flags.Upsert, arg)
-		case strings.HasPrefix(arg, portPrefix):
-			num, err := parseInt32(strings.TrimPrefix(arg, portPrefix))
-			if err != nil {
-				return fmt.Errorf("invalid --port value: %w", err)
-			}
-			parsedInput.sqlPort = num
+		for _, arg := range args{
+		switch{
+	case strings.HasPrefix(arg, joinStrPrefix):
+		flags.Upsert = append(flags.Upsert, arg)
+	case strings.HasPrefix(arg, portPrefix):
+		num, err := parseInt32(strings.TrimPrefix(arg, portPrefix))
+		if err != nil{
+		return fmt.Errorf("invalid --port value: %w", err)
+	}
+		parsedInput.sqlPort = num
 
-		case strings.HasPrefix(arg, httpPortPrefix):
-			num, err := parseInt32(strings.TrimPrefix(arg, httpPortPrefix))
-			if err != nil {
-				return fmt.Errorf("invalid --http-port value: %w", err)
-			}
-			parsedInput.httpPort = num
+	case strings.HasPrefix(arg, httpPortPrefix):
+		num, err := parseInt32(strings.TrimPrefix(arg, httpPortPrefix))
+		if err != nil{
+		return fmt.Errorf("invalid --http-port value: %w", err)
+	}
+		parsedInput.httpPort = num
 
-		case strings.HasPrefix(arg, insecureFlag):
-			parsedInput.tlsEnabled = false
+	case strings.HasPrefix(arg, insecureFlag):
+		parsedInput.tlsEnabled = false
 
-		case strings.HasPrefix(arg, localityFlag):
-			value := strings.TrimPrefix(arg, localityFlag+"=")
-			labels := strings.Split(value, ",")
-			for i := range labels {
-				parsedInput.localityLabels = append(parsedInput.localityLabels, strings.Split(labels[i], "=")[0])
-			}
+	case strings.HasPrefix(arg, localityFlag):
+		value := strings.TrimPrefix(arg, localityFlag+"=")
+		labels := strings.Split(value, ",")
+		for i := range labels{
+		parsedInput.localityLabels = append(parsedInput.localityLabels, strings.Split(labels[i], "=")[0])
+	}
 
 		// CockroachDB Enterprise Operator automatically adds "--logs" flag if it is not present.
-		case strings.HasPrefix(arg, logtostderrFlag):
-			continue
+	case strings.HasPrefix(arg, logtostderrFlag):
+		continue
 
-		case strings.HasPrefix(arg, logFlag):
-			continue
+	case strings.HasPrefix(arg, logFlag):
+		continue
 
-		default:
-			if matches := flagRegex.FindStringSubmatch(arg); len(matches) == 3 {
-				flags.Upsert = append(flags.Upsert, fmt.Sprintf("--%s=%s", matches[1], matches[2]))
-			}
-			parsedInput.startFlags = flags
+	default:
+		if matches := flagRegex.FindStringSubmatch(arg); len(matches) == 3{
+		flags.Upsert = append(flags.Upsert, fmt.Sprintf("--%s=%s", matches[1], matches[2]))
+	}
+		parsedInput.startFlags = flags
+	}
+	}
+
+		// The helm chart configures crdb to listen for grpc and sql on one port and for http on another.
+		// The cloud operator uses three distinct ports for grpc, sql, and http.
+		// Default port for grpc is 26258
+		parsedInput.grpcPort = 26258
+
+		return nil
+	}
+
+	// parseInt32 safely converts a string to int32
+	func
+	parseInt32(value
+	string) (int32, error) {
+		num, err := strconv.ParseInt(value, 10, 32) // Base 10, 32-bit size
+		if err != nil {
+			return 0, err
 		}
+		return int32(num), nil
 	}
 
-	// The helm chart configures crdb to listen for grpc and sql on one port and for http on another.
-	// The cloud operator uses three distinct ports for grpc, sql, and http.
-	// Default port for grpc is 26258
-	parsedInput.grpcPort = 26258
-
-	return nil
-}
-
-// parseInt32 safely converts a string to int32
-func parseInt32(value string) (int32, error) {
-	num, err := strconv.ParseInt(value, 10, 32) // Base 10, 32-bit size
-	if err != nil {
-		return 0, err
-	}
-	return int32(num), nil
-}
-
-// ConvertSecretToConfigMap retrieves a secret and creates a ConfigMap with the same data.
-func ConvertSecretToConfigMap(ctx context.Context, clientset kubernetes.Interface, namespace, secretName string) error {
+	// ConvertSecretToConfigMap retrieves a secret and creates a ConfigMap with the same data.
+	func
+	ConvertSecretToConfigMap(ctx
+	context.Context, clientset
+	kubernetes.Interface, namespace, secretName
+	string) error{
 	// Get the Secret
 	secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
@@ -731,133 +855,133 @@ func generateUpdatedPublicServiceConfig(ctx context.Context, clientset kubernete
 func buildRBACFromPublicOperator(cluster publicv1.CrdbCluster, outputDir string) error {
 	clusterRole := &rbacv1.ClusterRole{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "rbac.authorization.k8s.io/v1",
-			Kind:       "ClusterRole",
-		},
+		APIVersion: "rbac.authorization.k8s.io/v1",
+		Kind:       "ClusterRole",
+	},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: cluster.Name,
-			Annotations: map[string]string{
-				"meta.helm.sh/release-name":      cluster.Name,
-				"meta.helm.sh/release-namespace": cluster.Namespace,
-			},
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "Helm",
-			},
-		},
+		Name: cluster.Name,
+		Annotations: map[string]string{
+		"meta.helm.sh/release-name":      cluster.Name,
+		"meta.helm.sh/release-namespace": cluster.Namespace,
+	},
+		Labels: map[string]string{
+		"app.kubernetes.io/managed-by": "Helm",
+	},
+	},
 		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{""},
-				Resources: []string{"nodes"},
-				Verbs:     []string{"get"},
-			},
-			{
-				APIGroups: []string{"certificates.k8s.io"},
-				Resources: []string{"certificatesigningrequests"},
-				Verbs:     []string{"create", "get", "watch"},
-			},
-		},
+	{
+		APIGroups: []string{""},
+		Resources: []string{"nodes"},
+		Verbs:     []string{"get"},
+	},
+	{
+		APIGroups: []string{"certificates.k8s.io"},
+		Resources: []string{"certificatesigningrequests"},
+		Verbs:     []string{"create", "get", "watch"},
+	},
+	},
 	}
 
-	clusterRoleBinding := &rbacv1.ClusterRoleBinding{
+		clusterRoleBinding := &rbacv1.ClusterRoleBinding{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "rbac.authorization.k8s.io/v1",
-			Kind:       "ClusterRoleBinding",
-		},
+		APIVersion: "rbac.authorization.k8s.io/v1",
+		Kind:       "ClusterRoleBinding",
+	},
 		ObjectMeta: metav1.ObjectMeta{
-			Name: cluster.Name,
-			Annotations: map[string]string{
-				"meta.helm.sh/release-name":      cluster.Name,
-				"meta.helm.sh/release-namespace": cluster.Namespace,
-			},
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "Helm",
-			},
-		},
+		Name: cluster.Name,
+		Annotations: map[string]string{
+		"meta.helm.sh/release-name":      cluster.Name,
+		"meta.helm.sh/release-namespace": cluster.Namespace,
+	},
+		Labels: map[string]string{
+		"app.kubernetes.io/managed-by": "Helm",
+	},
+	},
 		RoleRef: rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "ClusterRole",
-			Name:     cluster.Name,
-		},
+		APIGroup: "rbac.authorization.k8s.io",
+		Kind:     "ClusterRole",
+		Name:     cluster.Name,
+	},
 		Subjects: []rbacv1.Subject{
-			{
-				Kind:      "ServiceAccount",
-				Name:      cluster.Name,
-				Namespace: cluster.Namespace,
-			},
-		},
+	{
+		Kind:      "ServiceAccount",
+		Name:      cluster.Name,
+		Namespace: cluster.Namespace,
+	},
+	},
 	}
 
-	role := &rbacv1.Role{
+		role := &rbacv1.Role{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "rbac.authorization.k8s.io/v1",
-			Kind:       "Role",
-		},
+		APIVersion: "rbac.authorization.k8s.io/v1",
+		Kind:       "Role",
+	},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name,
-			Namespace: cluster.Namespace,
-			Annotations: map[string]string{
-				"meta.helm.sh/release-name":      cluster.Name,
-				"meta.helm.sh/release-namespace": cluster.Namespace,
-			},
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "Helm",
-			},
-		},
+		Name:      cluster.Name,
+		Namespace: cluster.Namespace,
+		Annotations: map[string]string{
+		"meta.helm.sh/release-name":      cluster.Name,
+		"meta.helm.sh/release-namespace": cluster.Namespace,
+	},
+		Labels: map[string]string{
+		"app.kubernetes.io/managed-by": "Helm",
+	},
+	},
 		Rules: []rbacv1.PolicyRule{
-			{
-				APIGroups: []string{""},
-				Resources: []string{"secrets"},
-				Verbs:     []string{"create", "get"},
-			},
-		},
+	{
+		APIGroups: []string{""},
+		Resources: []string{"secrets"},
+		Verbs:     []string{"create", "get"},
+	},
+	},
 	}
 
-	roleBinding := &rbacv1.RoleBinding{
+		roleBinding := &rbacv1.RoleBinding{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "rbac.authorization.k8s.io/v1",
-			Kind:       "RoleBinding",
-		},
+		APIVersion: "rbac.authorization.k8s.io/v1",
+		Kind:       "RoleBinding",
+	},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name,
-			Namespace: cluster.Namespace,
-			Annotations: map[string]string{
-				"meta.helm.sh/release-name":      cluster.Name,
-				"meta.helm.sh/release-namespace": cluster.Namespace,
-			},
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "Helm",
-			},
-		},
+		Name:      cluster.Name,
+		Namespace: cluster.Namespace,
+		Annotations: map[string]string{
+		"meta.helm.sh/release-name":      cluster.Name,
+		"meta.helm.sh/release-namespace": cluster.Namespace,
+	},
+		Labels: map[string]string{
+		"app.kubernetes.io/managed-by": "Helm",
+	},
+	},
 		RoleRef: rbacv1.RoleRef{
-			APIGroup: "rbac.authorization.k8s.io",
-			Kind:     "Role",
-			Name:     cluster.Name,
-		},
+		APIGroup: "rbac.authorization.k8s.io",
+		Kind:     "Role",
+		Name:     cluster.Name,
+	},
 		Subjects: []rbacv1.Subject{
-			{
-				Kind:      "ServiceAccount",
-				Name:      cluster.Name,
-				Namespace: cluster.Namespace,
-			},
-		},
+	{
+		Kind:      "ServiceAccount",
+		Name:      cluster.Name,
+		Namespace: cluster.Namespace,
+	},
+	},
 	}
 
-	serviceAccount := &corev1.ServiceAccount{
+		serviceAccount := &corev1.ServiceAccount{
 		TypeMeta: metav1.TypeMeta{
-			APIVersion: "v1",
-			Kind:       "ServiceAccount",
-		},
+		APIVersion: "v1",
+		Kind:       "ServiceAccount",
+	},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name,
-			Namespace: cluster.Namespace,
-			Annotations: map[string]string{
-				"meta.helm.sh/release-name":      cluster.Name,
-				"meta.helm.sh/release-namespace": cluster.Namespace,
-			},
-			Labels: map[string]string{
-				"app.kubernetes.io/managed-by": "Helm",
-			},
-		},
+		Name:      cluster.Name,
+		Namespace: cluster.Namespace,
+		Annotations: map[string]string{
+		"meta.helm.sh/release-name":      cluster.Name,
+		"meta.helm.sh/release-namespace": cluster.Namespace,
+	},
+		Labels: map[string]string{
+		"app.kubernetes.io/managed-by": "Helm",
+	},
+	},
 	}
 
 	return yamlToDisk(filepath.Join(outputDir, "rbac.yaml"), []any{clusterRole, clusterRoleBinding, role, roleBinding, serviceAccount})
@@ -869,14 +993,14 @@ func backupCAIssuerAndCert(ctx context.Context, dynamicClient dynamic.Interface,
 		name     string
 		resource string
 	}{
-		{
-			name:     fmt.Sprintf("%s-ca-issuer", sts.Name),
-			resource: issuersResource,
-		},
-		{
-			name:     fmt.Sprintf("%s-ca-cert", sts.Name),
-			resource: certificatesResource,
-		},
+	{
+		name:     fmt.Sprintf("%s-ca-issuer", sts.Name),
+		resource: issuersResource,
+	},
+	{
+		name:     fmt.Sprintf("%s-ca-cert", sts.Name),
+		resource: certificatesResource,
+	},
 	}
 
 	for i := range certManagerResources {
@@ -917,21 +1041,21 @@ func backupCAIssuerAndCert(ctx context.Context, dynamicClient dynamic.Interface,
 
 // getCertificate retrieves a certificate by name and namespace using the dynamic client.
 func getCertificate(ctx context.Context, dynamicClient dynamic.Interface, name, namespace string) (*certv1.Certificate, error) {
-	cert := &certv1.Certificate{}
-	certGVR := schema.GroupVersionResource{
-		Group:    certManagerGroup,
-		Version:  certManagerVersion,
-		Resource: certificatesResource,
-	}
+		cert := &certv1.Certificate{}
+		certGVR := schema.GroupVersionResource{
+			Group:    certManagerGroup,
+			Version:  certManagerVersion,
+			Resource: certificatesResource,
+		}
 
-	certUnstructured, err := dynamicClient.Resource(certGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
-	if err != nil {
-		return nil, err
-	}
+		certUnstructured, err := dynamicClient.Resource(certGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err != nil {
+			return nil, err
+		}
 
-	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(certUnstructured.Object, &cert); err != nil {
-		return nil, errors.Wrap(err, "unmarshalling public crdbcluster objectName")
-	}
+		if err := runtime.DefaultUnstructuredConverter.FromUnstructured(certUnstructured.Object, &cert); err != nil {
+			return nil, errors.Wrap(err, "unmarshalling public crdbcluster objectName")
+		}
 
-	return cert, nil
-}
+		return cert, nil
+	}

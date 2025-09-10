@@ -83,13 +83,18 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	}
 	h.HelmOptions = &helm.Options{
 		SetValues: testutil.PatchHelmValues(map[string]string{
-			"operator.enabled":                         "false",
-			"conf.cluster-name":                        "test",
-			"init.provisioning.enabled":                "true",
-			"init.provisioning.databases[0].name":      migration.TestDBName,
-			"init.provisioning.databases[0].owners[0]": "root",
-			"statefulset.labels.app":                   "cockroachdb",
-			"conf.locality":                            "topology.kubernetes.io/region=us-east-1",
+			"operator.enabled":                           "false",
+			"conf.cluster-name":                          "test",
+			"init.provisioning.enabled":                  "true",
+			"init.provisioning.databases[0].name":        migration.TestDBName,
+			"init.provisioning.databases[0].owners[0]":   "root",
+			"statefulset.labels.app":                     "cockroachdb",
+			"conf.locality":                              "topology.kubernetes.io/region=us-east-1",
+			"storage.PersistentVolume.enabled":           "true",
+			"conf.wal-failover.value":                    "path=/cockroach/wal-failover",
+			"conf.wal-failover.persistentVolume.enabled": "true",
+			"conf.wal-failover.persistentVolume.path":    "wal-failover",
+			"conf.wal-failover.persistentVolume.size":    "1Gi",
 		}),
 	}
 
@@ -152,6 +157,49 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 
 	h.ValidateExistingData = true
 	h.ValidateCRDB(t)
+
+	// 	t.Log("Validating WAL failover configuration after migration")
+	//
+	// 	// Verify WAL failover setting persists after migration
+	// 	sqlOutput, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "exec",
+	// 		fmt.Sprintf("%s-0", h.CrdbCluster.StatefulSetName), "--",
+	// 		"/cockroach/cockroach", "sql", "--certs-dir=/cockroach/cockroach-certs",
+	// 		"--host=localhost", "--execute=SHOW CLUSTER SETTING storage.wal_failover.path;")
+	// 	require.NoError(t, err)
+	// 	require.Contains(t, sqlOutput, "/cockroach/wal-failover",
+	// 		"WAL failover path should persist after migration")
+	//
+	// 	// Verify WAL failover volumes still exist and are mounted after migration
+	// 	for i := 0; i < h.CrdbCluster.DesiredNodes; i++ {
+	// 		podName := fmt.Sprintf("%s-%d", h.CrdbCluster.StatefulSetName, i)
+	//
+	// 		// Check volume mount exists
+	// 		volumeMounts, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "pod", podName,
+	// 			"-o", "jsonpath={.spec.containers[0].volumeMounts[*].mountPath}")
+	// 		require.NoError(t, err)
+	// 		require.Contains(t, volumeMounts, "/cockroach/wal-failover",
+	// 			"WAL failover volume should still be mounted at /cockroach/wal-failover after migration")
+	//
+	// 		// Verify WAL failover directory is still accessible and writable
+	// 		k8s.RunKubectl(t, kubectlOptions, "exec", podName, "--",
+	// 			"test", "-d", "/cockroach/wal-failover")
+	// 		k8s.RunKubectl(t, kubectlOptions, "exec", podName, "--",
+	// 			"touch", "/cockroach/wal-failover/test-migration-file")
+	// 		k8s.RunKubectl(t, kubectlOptions, "exec", podName, "--",
+	// 			"rm", "/cockroach/wal-failover/test-migration-file")
+	// 	}
+	//
+	// 	// Verify WAL failover PVCs still exist after migration
+	// 	walFailoverPVCs, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "pvc", "-l", "app.kubernetes.io/name=cockroachdb", "-o", "name")
+	// 	require.NoError(t, err)
+	// 	require.Contains(t, walFailoverPVCs, "wal-failover", "WAL failover PVC should persist after migration")
+	//
+	// 	// Verify PVC size is preserved after migration
+	// 	pvcDetails, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "pvc",
+	// 		fmt.Sprintf("%s-wal-failover-0", h.CrdbCluster.StatefulSetName),
+	// 		"-o", "jsonpath={.spec.resources.requests.storage}")
+	// 	require.NoError(t, err)
+	// 	require.Equal(t, "1Gi", pvcDetails, "WAL failover PVC size should be preserved after migration")
 }
 
 func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
@@ -161,7 +209,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 
 	certManagerK8sOptions := k8s.NewKubectlOptions("", "", testutil.CertManagerNamespace)
 	testutil.InstallCertManager(t, certManagerK8sOptions)
-	//... and make sure to delete the helm release at the end of the test.
+	// ... and make sure to delete the helm release at the end of the test.
 	defer func() {
 		testutil.DeleteCertManager(t, certManagerK8sOptions)
 		k8s.DeleteNamespace(t, certManagerK8sOptions, testutil.CertManagerNamespace)
