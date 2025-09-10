@@ -471,4 +471,5 @@ type CrdbWalFailoverSpec struct {
 	Size             string                `json:"size"`
 	StorageClassName string                `json:"storageClassName,omitempty"`
 	Status           CrdbWalFailoverStatus `json:"status"`
+	Path             string                `json:"path,omitempty"`
 }

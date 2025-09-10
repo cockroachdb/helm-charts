@@ -277,6 +277,15 @@ cockroachdb:
       # If not set, the default provisioner will be chosen (gp2 on AWS, standard on GKE).
       # storageClassName: ""
       #
+      # path is the absolute mount path inside the CockroachDB container to use for WAL failover side disk.
+      # Examples: 
+      #   - /cockroach/cockroach-failover
+      #   - /cockroach/custom/path
+      # IMPORTANT: Set it only for fresh deployments. Changing it on upgrades might cause issues with the deployment.
+      # TODO: Add validation in the operator to prevent changing this value on upgrades.
+      #
+      # path: "/cockroach/cockroach-failover"
+      #
     # podLabels captures additional labels to apply to CockroachDB pods.
     podLabels:
       app.kubernetes.io/component: cockroachdb

@@ -372,56 +372,90 @@ func buildHelmValuesFromHelm(
 		}
 	}
 
+	// Derive walFailoverSpec from --wal-failover flag if present.
+	var walSpec map[string]interface{}
+	if input.startFlags != nil {
+		for _, f := range input.startFlags.Upsert {
+			if strings.HasPrefix(f, "--wal-failover=") {
+				val := strings.TrimPrefix(f, "--wal-failover=")
+				if val == "disabled" {
+					walSpec = map[string]interface{}{
+						"status": "disable",
+					}
+				} else if strings.HasPrefix(val, "path=") {
+					path := strings.TrimPrefix(val, "path=")
+					walSpec = map[string]interface{}{
+						"status": "enable",
+						"path":   path,
+					}
+				} else if val == "among-stores" {
+					// among-stores is enabled but has no custom path
+					walSpec = map[string]interface{}{
+						"status": "enable",
+					}
+				}
+			}
+		}
+	}
+	crdbCluster := map[string]interface{}{
+		"image": map[string]interface{}{
+			"name": sts.Spec.Template.Spec.Containers[0].Image,
+		},
+		"localityLabels": input.localityLabels,
+		"podLabels":      sts.Spec.Template.Labels,
+		"podAnnotations": sts.Spec.Template.Annotations,
+		"resources":      sts.Spec.Template.Spec.Containers[0].Resources,
+		"startFlags":     input.startFlags,
+		"regions": []map[string]interface{}{
+			{
+				"namespace":     namespace,
+				"cloudProvider": cloudProvider,
+				"code":          cloudRegion,
+				"nodes":         sts.Spec.Replicas,
+				"domain":        "",
+			},
+		},
+		"dataStore": map[string]interface{}{
+			"volumeClaimTemplate": map[string]interface{}{
+				"metadata": map[string]interface{}{
+					"name": "datadir",
+				},
+				"spec": sts.Spec.VolumeClaimTemplates[0].Spec,
+			},
+		},
+		"service": map[string]interface{}{
+			"ports": map[string]interface{}{
+				"grpc": map[string]interface{}{
+					"port": input.grpcPort,
+				},
+				"http": map[string]interface{}{
+					"port": input.httpPort,
+				},
+				"sql": map[string]interface{}{
+					"port": input.sqlPort,
+				},
+			},
+		},
+		"affinity":                  sts.Spec.Template.Spec.Affinity,
+		"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
+		"tolerations":               sts.Spec.Template.Spec.Tolerations,
+		"terminationGracePeriod":    fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
+		"loggingConfigMapName":      input.loggingConfigMap,
+		"env":                       sts.Spec.Template.Spec.Containers[0].Env,
+		"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
+	}
+
+	if walSpec != nil {
+		if p, ok := walSpec["path"].(string); ok && p != "" && !strings.HasPrefix(p, "/") {
+			fmt.Printf("⚠️  WAL failover path is not absolute: %s. This may be ignored by the operator.\n", p)
+		}
+		crdbCluster["walFailoverSpec"] = walSpec
+	}
+
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
-			"tls": tls,
-			"crdbCluster": map[string]interface{}{
-				"image": map[string]interface{}{
-					"name": sts.Spec.Template.Spec.Containers[0].Image,
-				},
-				"localityLabels": input.localityLabels,
-				"podLabels":      sts.Spec.Template.Labels,
-				"podAnnotations": sts.Spec.Template.Annotations,
-				"resources":      sts.Spec.Template.Spec.Containers[0].Resources,
-				"startFlags":     input.startFlags,
-				"regions": []map[string]interface{}{
-					{
-						"namespace":     namespace,
-						"cloudProvider": cloudProvider,
-						"code":          cloudRegion,
-						"nodes":         sts.Spec.Replicas,
-						"domain":        "",
-					},
-				},
-				"dataStore": map[string]interface{}{
-					"volumeClaimTemplate": map[string]interface{}{
-						"metadata": map[string]interface{}{
-							"name": "datadir",
-						},
-						"spec": sts.Spec.VolumeClaimTemplates[0].Spec,
-					},
-				},
-				"service": map[string]interface{}{
-					"ports": map[string]interface{}{
-						"grpc": map[string]interface{}{
-							"port": input.grpcPort,
-						},
-						"http": map[string]interface{}{
-							"port": input.httpPort,
-						},
-						"sql": map[string]interface{}{
-							"port": input.sqlPort,
-						},
-					},
-				},
-				"affinity":                  sts.Spec.Template.Spec.Affinity,
-				"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
-				"tolerations":               sts.Spec.Template.Spec.Tolerations,
-				"terminationGracePeriod":    fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
-				"loggingConfigMapName":      input.loggingConfigMap,
-				"env":                       sts.Spec.Template.Spec.Containers[0].Env,
-				"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
-			},
+			"tls":         tls,
+			"crdbCluster": crdbCluster,
 		},
 	}
 }
