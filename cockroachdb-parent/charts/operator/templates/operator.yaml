@@ -254,6 +254,7 @@ rules:
       - admissionregistration.k8s.io
     resources:
       - validatingwebhookconfigurations
+      - mutatingwebhookconfigurations
     verbs:
       - create
   - apiGroups:
@@ -262,6 +263,15 @@ rules:
       - validatingwebhookconfigurations
     resourceNames:
       - cockroach-webhook-config
+    verbs:
+      - get
+      - patch
+  - apiGroups:
+      - admissionregistration.k8s.io
+    resources:
+      - mutatingwebhookconfigurations
+    resourceNames:
+      - cockroach-mutating-webhook-config
     verbs:
       - get
       - patch
