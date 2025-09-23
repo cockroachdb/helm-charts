@@ -77,6 +77,10 @@ type Region struct {
 	CorednsClusterOptions map[string]coredns.CoreDNSClusterOption
 	Provider              string
 	RegionCodes           []string
+
+	VirtualClusterModePrimary bool
+	VirtualClusterModeStandby bool
+	IsOperatorInstalled       bool
 }
 
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
@@ -119,7 +123,9 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-	InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	if !r.IsOperatorInstalled {
+		InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	}
 
 	if r.IsCertManager {
 		crdbOp = PatchHelmValues(map[string]string{
@@ -137,6 +143,17 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 			"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 		})
 	}
+	if r.VirtualClusterModePrimary {
+		crdbOp = PatchHelmValues(map[string]string{
+			"cockroachdb.crdbCluster.virtualCluster.mode": "primary",
+		})
+	}
+	if r.VirtualClusterModeStandby {
+		crdbOp = PatchHelmValues(map[string]string{
+			"cockroachdb.crdbCluster.virtualCluster.mode": "standby",
+		})
+	}
+
 	// Helm install cockroach CR with operator region config.
 	crdbOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
@@ -192,8 +209,13 @@ func (r *Region) ValidateCRDB(t *testing.T, cluster string) {
 	})
 	require.True(t, len(pods) > 0)
 	podName := fmt.Sprintf("%s.cockroachdb.%s", pods[0].Name, r.Namespace[cluster])
-	testutil.RequireCRDBClusterToFunction(t, crdbCluster, false, podName)
-	testutil.RequireCRDBDatabaseToFunction(t, crdbCluster, TestDBName, podName)
+
+	// In Virtual Cluster, the standby cluster does not serve SQL traffic until you promote it.
+	// Hence we are not testing database functions on it.
+	if !r.VirtualClusterModeStandby {
+		testutil.RequireCRDBClusterToFunction(t, crdbCluster, false, podName)
+		testutil.RequireCRDBDatabaseToFunction(t, crdbCluster, TestDBName, podName)
+	}
 }
 
 // VerifyHelmUpgrade waits till all the pods are restarted after the
@@ -479,6 +501,21 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 	}
 
 	return regions
+}
+func (r Region) VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOptions, expected string) {
+	// Get operator pods
+	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+		LabelSelector: OperatorLabelSelector,
+	})
+	require.NotEmpty(t, pods, "no operator pods found")
+
+	// Get logs from the first operator pod (adjust if multiple replicas)
+	logs, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"logs", pods[0].Name, "-n", kubectlOptions.Namespace)
+	require.NoError(t, err)
+
+	// Verify expected command is present in logs
+	require.Contains(t, logs, expected, "operator logs did not contain expected init command")
 }
 
 func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
