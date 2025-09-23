@@ -481,6 +481,12 @@ cockroachdb:
     persistentVolumeClaimRetentionPolicy: {}
     #  whenDeleted: Delete
 
+    virtualCluster: {}
+    #   # To enable the virtual cluster, you have to provide "primary" or "standby"
+    #   # depending on which cluster you want to initialise.
+    #   # Possible Values: disabled, primary, standby
+    #   mode: "disabled"
+
 k8s:
   # nameOverride overrides the name of the chart. If not set, the chart name will be used.
   # For example, if the chart name is "cockroachdb" and nameOverride is set to "crdb",
