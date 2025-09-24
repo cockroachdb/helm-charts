@@ -148,11 +148,12 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 	// Create CA certificate.
 	err := r.CreateCACertificate(t)
 	require.NoError(t, err)
-	var operatorNamespace string
+	var (
+		operatorNamespace, standByNamespace string
+	)
 
 	tests := []struct {
 		name                string
-		clusterIdx          int
 		isPrimary           bool
 		initCommand         string
 		IsOperatorInstalled bool
@@ -184,11 +185,15 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 				defer func() { r.VirtualClusterModePrimary = false }()
 			} else {
 				r.VirtualClusterModeStandby = true
-				defer func() { r.VirtualClusterModeStandby = false }()
+				standByNamespace = r.Namespace[cluster]
+				defer func() {
+					r.VirtualClusterModeStandby = false
+					r.IsOperatorInstalled = false
+				}()
 			}
 
 			// Install Operator and CockroachDB charts.
-			r.InstallCharts(t, cluster, tt.clusterIdx)
+			r.InstallCharts(t, cluster, 0)
 
 			// Get the current context name.
 			kubeConfig, rawConfig := r.GetCurrentContext(t)
@@ -208,6 +213,10 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 		})
 	}
 	defer r.CleanupResources(t)
+	defer func() {
+		kubectlOptions := k8s.NewKubectlOptions("", "", standByNamespace)
+		k8s.DeleteNamespace(t, kubectlOptions, standByNamespace)
+	}()
 	defer r.CleanUpCACertificate(t)
 
 }

@@ -145,11 +145,13 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	}
 	if r.VirtualClusterModePrimary {
 		crdbOp = PatchHelmValues(map[string]string{
+			"cockroachdb.clusterDomain":                   CustomDomains[index],
 			"cockroachdb.crdbCluster.virtualCluster.mode": "primary",
 		})
 	}
 	if r.VirtualClusterModeStandby {
 		crdbOp = PatchHelmValues(map[string]string{
+			"cockroachdb.clusterDomain":                   CustomDomains[index],
 			"cockroachdb.crdbCluster.virtualCluster.mode": "standby",
 		})
 	}
