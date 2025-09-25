@@ -18,14 +18,19 @@ import (
 
 // Provider types.
 const (
-	ProviderK3D = "k3d"
-	ProviderGCP = "gcp"
+	ProviderK3D  = "k3d"
+	ProviderKind = "kind"
+	ProviderGCP  = "gcp"
+	ProviderAWS  = "aws"
 )
 
 // Common constants.
 const (
-	defaultRetries        = 30
-	defaultRetryInterval  = 10 * time.Second
+	defaultRetries       = 30
+	defaultRetryInterval = 10 * time.Second
+	// Load balancer specific retry settings (extended for AWS)
+	loadBalancerRetries   = 60 // 10 minutes total
+	loadBalancerInterval  = 10 * time.Second
 	coreDNSDeploymentName = "coredns"
 	coreDNSServiceName    = "crl-core-dns"
 	coreDNSNamespace      = "kube-system"
@@ -38,16 +43,22 @@ const (
 	DefaultVPCCIDR = "172.28.0.0/16"
 
 	// Instance types for different cloud providers.
-	gcpDefaultMachineType = "e2-standard-4"
+	gcpDefaultMachineType  = "e2-standard-4"
+	AWSDefaultInstanceType = "m5.large"
 
 	// Default node counts
 	defaultNodesPerZone = 1
+	DefaultNodeCount    = int32(3)
+	DefaultMinNodeCount = int32(3)
+	DefaultMaxNodeCount = int32(4)
 )
 
 // RegionCodes maps provider types to their region codes
 var RegionCodes = map[string][]string{
-	ProviderK3D: {"us-east1", "us-east2"},
-	ProviderGCP: {"us-central1", "us-east1"},
+	ProviderK3D:  {"us-east1", "us-east2"},
+	ProviderKind: {"us-east1", "us-east2"},
+	ProviderGCP:  {"us-central1", "us-east1"},
+	ProviderAWS:  {"us-east-1", "us-east-2", "us-west-1"},
 }
 
 // LoadBalancerAnnotations contains provider-specific service annotations.
@@ -57,7 +68,8 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 		"networking.gke.io/load-balancer-type":                         "Internal",
 		"cloud.google.com/load-balancer-type":                          "Internal",
 	},
-	ProviderK3D: {},
+	ProviderK3D:  {},
+	ProviderKind: {},
 }
 
 // NetworkConfigs defines standard network configurations for each provider and region.
@@ -237,7 +249,7 @@ func finalizeCoreDNSDeployment(t *testing.T, kubectlOpts *k8s.KubectlOptions) er
 func WaitForCoreDNSServiceIPs(t *testing.T, kubectlOpts *k8s.KubectlOptions) ([]string, error) {
 	var ips []string
 
-	_, err := retry.DoWithRetryE(t, "waiting for CoreDNS service IPs", defaultRetries, defaultRetryInterval,
+	_, err := retry.DoWithRetryE(t, "waiting for CoreDNS service IPs", loadBalancerRetries, loadBalancerInterval,
 		func() (string, error) {
 			svc, err := k8s.GetServiceE(t, kubectlOpts, coreDNSServiceName)
 			if err != nil {
