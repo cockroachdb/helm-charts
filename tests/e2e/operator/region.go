@@ -504,6 +504,8 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 
 	return regions
 }
+
+// VerifyInitCommandInOperatorLogs verifies that the operator logs contain the expected init command.
 func (r Region) VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOptions, expected string) {
 	// Get operator pods
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
