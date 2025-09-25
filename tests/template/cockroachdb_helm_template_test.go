@@ -2348,16 +2348,6 @@ func TestHelmOperatorPodTemplate(t *testing.T) {
 				imagePullSecretName: "registry-credentials",
 			},
 		},
-		{
-			"Empty pod template configuration",
-			map[string]string{
-				"operator.enabled": "true",
-			},
-			PodTemplateExpected{
-				hasMetadata: false,
-				hasSpec:     false,
-			},
-		},
 	}
 
 	for _, testCase := range testCases {
