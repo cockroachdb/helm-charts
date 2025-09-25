@@ -77,12 +77,13 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			cloudProvider.SetUpInfra(t)
 
 			testCases := map[string]func(*testing.T){
-				"TestHelmInstall":            providerRegion.TestHelmInstall,
-				"TestHelmUpgrade":            providerRegion.TestHelmUpgrade,
-				"TestClusterRollingRestart":  providerRegion.TestClusterRollingRestart,
-				"TestKillingCockroachNode":   providerRegion.TestKillingCockroachNode,
-				"TestClusterScaleUp":         func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) },
-				"TestInstallWithCertManager": providerRegion.TestInstallWithCertManager,
+				"TestHelmInstall":               providerRegion.TestHelmInstall,
+				"TestHelmInstallVirtualCluster": providerRegion.TestHelmInstallVirtualCluster,
+				"TestHelmUpgrade":               providerRegion.TestHelmUpgrade,
+				"TestClusterRollingRestart":     providerRegion.TestClusterRollingRestart,
+				"TestKillingCockroachNode":      providerRegion.TestKillingCockroachNode,
+				"TestClusterScaleUp":            func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) },
+				"TestInstallWithCertManager":    providerRegion.TestInstallWithCertManager,
 			}
 
 			// Run tests sequentially within a provider.
@@ -138,6 +139,86 @@ func (r *singleRegion) TestHelmInstall(t *testing.T) {
 	}
 	rawConfig.CurrentContext = cluster
 	r.ValidateCRDB(t, cluster)
+}
+
+// TestHelmInstallVirtualCluster installs Operator and CockroachDB charts
+// for both primary and standby virtual clusters and verifies if
+// CockroachDB service is up and running.
+func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
+	// Create CA certificate.
+	err := r.CreateCACertificate(t)
+	require.NoError(t, err)
+	var (
+		operatorNamespace, standByNamespace string
+	)
+
+	tests := []struct {
+		name                string
+		isPrimary           bool
+		initCommand         string
+		IsOperatorInstalled bool
+	}{
+		{
+			name:                "primary",
+			isPrimary:           true,
+			initCommand:         "/cockroach/cockroach init --host :26258 --virtualized",
+			IsOperatorInstalled: false,
+		},
+		{
+			name:                "standby",
+			isPrimary:           false,
+			initCommand:         "/cockroach/cockroach init --host :26258 --virtualized-empty",
+			IsOperatorInstalled: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r.IsOperatorInstalled = tt.IsOperatorInstalled
+			cluster := r.Clusters[0]
+			namespace := fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
+			r.Namespace[cluster] = namespace
+
+			if tt.isPrimary {
+				r.VirtualClusterModePrimary = true
+				operatorNamespace = namespace
+				defer func() { r.VirtualClusterModePrimary = false }()
+			} else {
+				r.VirtualClusterModeStandby = true
+				standByNamespace = r.Namespace[cluster]
+				defer func() {
+					r.VirtualClusterModeStandby = false
+					r.IsOperatorInstalled = false
+				}()
+			}
+
+			// Install Operator and CockroachDB charts.
+			r.InstallCharts(t, cluster, 0)
+
+			// Get the current context name.
+			kubeConfig, rawConfig := r.GetCurrentContext(t)
+
+			if _, ok := rawConfig.Contexts[cluster]; !ok {
+				t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
+			}
+			rawConfig.CurrentContext = cluster
+
+			r.ValidateCRDB(t, cluster)
+
+			kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, operatorNamespace)
+
+			// Verify init command in logs
+			r.VerifyInitCommandInOperatorLogs(t, kubectlOptions, tt.initCommand)
+			r.Namespace[cluster] = operatorNamespace
+		})
+	}
+	defer r.CleanupResources(t)
+	defer func() {
+		kubectlOptions := k8s.NewKubectlOptions("", "", standByNamespace)
+		k8s.DeleteNamespace(t, kubectlOptions, standByNamespace)
+	}()
+	defer r.CleanUpCACertificate(t)
+
 }
 
 // TestHelmUpgrade will upgrade the existing charts in a single region
@@ -402,6 +483,9 @@ func (r *singleRegion) TestInstallWithCertManager(t *testing.T) {
 	cluster := r.Clusters[0]
 	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
 	r.IsCertManager = true
+	defer func() {
+		r.IsCertManager = false
+	}()
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
@@ -417,4 +501,5 @@ func (r *singleRegion) TestInstallWithCertManager(t *testing.T) {
 	}
 	rawConfig.CurrentContext = cluster
 	r.ValidateCRDB(t, cluster)
+
 }
