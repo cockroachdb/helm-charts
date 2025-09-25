@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	publicv1alpha1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
+	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -271,4 +272,201 @@ func TestBuildRBACFromPublicOperator(t *testing.T) {
 	assert.Equal(t, "rbac.authorization.k8s.io", clusterRoleBinding.RoleRef.APIGroup)
 	assert.Equal(t, "ClusterRole", clusterRoleBinding.RoleRef.Kind)
 	assert.Equal(t, "crdb-cluster", clusterRoleBinding.RoleRef.Name)
+}
+
+func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
+	namespace := "default"
+
+	// Create base StatefulSet for testing (using realistic values)
+	terminationGracePeriod := int64(60)
+	replicaCount := int32(3) // Standard CockroachDB cluster size
+
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cockroachdb",
+			Namespace: namespace,
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: &replicaCount,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels:      map[string]string{"app": "cockroachdb"},
+					Annotations: map[string]string{"annotation": "value"},
+				},
+				Spec: corev1.PodSpec{
+					TerminationGracePeriodSeconds: &terminationGracePeriod,
+					Containers: []corev1.Container{
+						{
+							Name:      "cockroachdb",
+							Image:     "cockroachdb/cockroach:v25.3.1",
+							Resources: corev1.ResourceRequirements{},
+							Env:       []corev1.EnvVar{},
+						},
+					},
+				},
+			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "datadir"},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					},
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		name           string
+		walFailoverArg string
+		expectedPath   string
+		expectedStatus string
+		expectWarning  bool
+	}{
+		{
+			name:           "WAL failover with absolute path",
+			walFailoverArg: "--wal-failover=path=/cockroach/custom-failover",
+			expectedPath:   "/cockroach/custom-failover",
+			expectedStatus: "enable",
+			expectWarning:  false,
+		},
+		{
+			name:           "WAL failover with relative path",
+			walFailoverArg: "--wal-failover=path=custom-failover",
+			expectedPath:   "custom-failover",
+			expectedStatus: "enable",
+			expectWarning:  true,
+		},
+		{
+			name:           "WAL failover disabled",
+			walFailoverArg: "--wal-failover=disabled",
+			expectedPath:   "",
+			expectedStatus: "disable",
+			expectWarning:  false,
+		},
+		{
+			name:           "WAL failover among stores",
+			walFailoverArg: "--wal-failover=among-stores",
+			expectedPath:   "",
+			expectedStatus: "enable",
+			expectWarning:  false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			// Create input with WAL failover flag
+			input := parsedMigrationInput{
+				tlsEnabled:     true,
+				sqlPort:        26257,
+				grpcPort:       26258,
+				httpPort:       8080,
+				localityLabels: []string{"region", "zone"},
+				startFlags: &v1alpha1.Flags{
+					Upsert: []string{
+						"--join=cockroachdb-0.cockroachdb:26257",
+						"--advertise-host=$(hostname).cockroachdb",
+						tc.walFailoverArg,
+					},
+				},
+			}
+
+			result := buildHelmValuesFromHelm(
+				sts, "gcp", "us-central1", namespace, input,
+			)
+
+			// Verify the result structure
+			require.NotNil(t, result)
+			cockroachdbConfig, ok := result["cockroachdb"].(map[string]interface{})
+			require.True(t, ok)
+
+			crdbCluster, ok := cockroachdbConfig["crdbCluster"].(map[string]interface{})
+			require.True(t, ok)
+
+			if tc.expectedStatus != "" {
+				walFailoverSpec, ok := crdbCluster["walFailoverSpec"].(map[string]interface{})
+				require.True(t, ok, "Expected walFailoverSpec to be present")
+
+				assert.Equal(t, tc.expectedStatus, walFailoverSpec["status"])
+
+				if tc.expectedPath != "" {
+					assert.Equal(t, tc.expectedPath, walFailoverSpec["path"])
+				} else {
+					// Path should not exist or be empty for disabled/among-stores
+					path, exists := walFailoverSpec["path"]
+					if exists {
+						assert.Empty(t, path)
+					}
+				}
+			} else {
+				// No WAL failover spec should be present
+				_, exists := crdbCluster["walFailoverSpec"]
+				assert.False(t, exists)
+			}
+		})
+	}
+}
+
+func TestExtractJoinStringAndFlags_WALFailover(t *testing.T) {
+	testCases := []struct {
+		name              string
+		args              []string
+		expectedWALFlag   string
+		shouldContainFlag bool
+	}{
+		{
+			name: "Args with WAL failover path",
+			args: []string{
+				"--join=host1:26257,host2:26257",
+				"--advertise-host=$(hostname)",
+				"--wal-failover=path=/custom/wal",
+				"--cache=25%",
+				"--http-port=8080",
+				"--port=26257",
+			},
+			expectedWALFlag:   "--wal-failover=path=/custom/wal",
+			shouldContainFlag: true,
+		},
+		{
+			name: "Args with WAL failover disabled",
+			args: []string{
+				"--join=host1:26257",
+				"--wal-failover=disabled",
+				"--max-sql-memory=25%",
+				"--http-port=8080",
+				"--port=26257",
+			},
+			expectedWALFlag:   "--wal-failover=disabled",
+			shouldContainFlag: true,
+		},
+		{
+			name: "Args without WAL failover",
+			args: []string{
+				"--join=host1:26257",
+				"--cache=25%",
+				"--max-sql-memory=25%",
+				"--http-port=8080",
+				"--port=26257",
+			},
+			shouldContainFlag: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := parsedMigrationInput{tlsEnabled: true}
+
+			err := extractJoinStringAndFlags(&input, tc.args)
+			assert.NoError(t, err)
+
+			if tc.shouldContainFlag {
+				assert.Contains(t, input.startFlags.Upsert, tc.expectedWALFlag)
+			} else {
+				// Verify no WAL failover flag exists
+				for _, flag := range input.startFlags.Upsert {
+					assert.NotContains(t, flag, "--wal-failover")
+				}
+			}
+		})
+	}
 }
