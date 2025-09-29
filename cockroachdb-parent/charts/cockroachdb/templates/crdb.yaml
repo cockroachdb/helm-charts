@@ -128,3 +128,6 @@ spec:
       {{- with .Values.cockroachdb.crdbCluster.persistentVolumeClaimRetentionPolicy }}
       persistentVolumeClaimRetentionPolicy: {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.cockroachdb.crdbCluster.virtualCluster }}
+      virtualCluster: {{- toYaml . | nindent 8 }}
+      {{- end }}
