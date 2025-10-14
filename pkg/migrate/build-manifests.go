@@ -171,6 +171,7 @@ func (m *Manifest) FromHelmChart() error {
 		return err
 	}
 
+	input.pcrSpec = detectPCRFromInitJob(m.clientset, sts.Name, m.namespace)
 	for nodeIdx := int32(0); nodeIdx < *sts.Spec.Replicas; nodeIdx++ {
 		podName := fmt.Sprintf("%s-%d", sts.Name, nodeIdx)
 		pod, err := m.clientset.CoreV1().Pods(m.namespace).Get(ctx, podName, metav1.GetOptions{})
@@ -209,9 +210,9 @@ func (m *Manifest) FromHelmChart() error {
 		}
 	}
 
-	helmValues := buildHelmValuesFromHelm(sts, m.cloudProvider, m.cloudRegion, m.namespace, input)
+	newHelmValues := buildHelmValuesFromHelm(sts, m.cloudProvider, m.cloudRegion, m.namespace, input)
 
-	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{helmValues}); err != nil {
+	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{newHelmValues}); err != nil {
 		return errors.Wrap(err, "writing helm values to disk")
 	}
 

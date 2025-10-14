@@ -105,5 +105,7 @@ spec:
     maxSkew: 1
     topologyKey: topology.kubernetes.io/zone
     whenUnsatisfiable: ScheduleAnyway
+  virtualCluster:
+    mode: primary
 status:
   observedGeneration: 0

@@ -12,6 +12,7 @@ import (
 
 	certv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
@@ -65,6 +66,7 @@ type parsedMigrationInput struct {
 	caConfigMap      string
 	nodeSecretName   string
 	clientSecretName string
+	pcrSpec          *v1alpha1.CrdbVirtualClusterSpec
 }
 
 type certManagerInput struct {
@@ -272,6 +274,48 @@ func buildIngressValue(cluster publicv1.CrdbCluster) map[string]interface{} {
 	return result
 }
 
+// detectPCRFromInitJob extracts PCR configuration from the init job command
+func detectPCRFromInitJob(clientset kubernetes.Interface, stsName, namespace string) *v1alpha1.CrdbVirtualClusterSpec {
+	ctx := context.TODO()
+	jobName := stsName + "-init"
+
+	// Get the init job
+	job, err := clientset.BatchV1().Jobs(namespace).Get(ctx, jobName, metav1.GetOptions{})
+	if err != nil {
+		// If job doesn't exist, return nil
+		return nil
+	}
+
+	// Ensure we have a valid job
+	var jobSpec batchv1.JobSpec
+	if job != nil {
+		jobSpec = job.Spec
+	}
+
+	// Check the init job command for PCR flags
+	if len(jobSpec.Template.Spec.Containers) == 0 {
+		return nil
+	}
+
+	// Look for --virtualized or --virtualized-empty flags in the command
+	command := jobSpec.Template.Spec.Containers[0].Command
+	for _, cmd := range command {
+		if strings.Contains(cmd, "--virtualized-empty") {
+			return &v1alpha1.CrdbVirtualClusterSpec{
+				Mode: v1alpha1.VirtualClusterStandby,
+			}
+		}
+		if strings.Contains(cmd, "--virtualized") {
+			return &v1alpha1.CrdbVirtualClusterSpec{
+				Mode: v1alpha1.VirtualClusterPrimary,
+			}
+		}
+	}
+
+	// If no PCR flags found, return nil
+	return nil
+}
+
 // buildNodeSpecFromHelm builds a CrdbNodeSpec from a StatefulSet created by the CockroachDB Helm chart.
 func buildNodeSpecFromHelm(
 	sts *appsv1.StatefulSet,
@@ -322,6 +366,7 @@ func buildNodeSpecFromHelm(
 		PersistentVolumeClaimRetentionPolicy: &v1alpha1.CrdbNodePersistentVolumeClaimRetentionPolicy{
 			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 		},
+		VirtualCluster:            input.pcrSpec,
 		Affinity:                  sts.Spec.Template.Spec.Affinity,
 		NodeSelector:              sts.Spec.Template.Spec.NodeSelector,
 		Tolerations:               sts.Spec.Template.Spec.Tolerations,
@@ -401,6 +446,7 @@ func buildHelmValuesFromHelm(
 						"spec": sts.Spec.VolumeClaimTemplates[0].Spec,
 					},
 				},
+				"virtualCluster": input.pcrSpec,
 				"service": map[string]interface{}{
 					"ports": map[string]interface{}{
 						"grpc": map[string]interface{}{

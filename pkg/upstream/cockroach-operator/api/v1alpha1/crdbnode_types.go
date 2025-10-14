@@ -18,6 +18,9 @@ type NodeConditionType string
 // 3. The finalization step has occurred.
 type NodeDecommissionState string
 
+// CrdbVirtualClusterMode defines the mode of operation for a virtual cluster in PCR setup.
+type CrdbVirtualClusterMode string
+
 const (
 	// CrdbNodeKind is the CrdbNode CRD kind string.
 	CrdbNodeKind = "CrdbNode"
@@ -65,6 +68,23 @@ const (
 	// decommissioned.
 	Decommissioned NodeDecommissionState = "decommissioned"
 )
+
+const (
+	// VirtualClusterDisabled indicates that virtual cluster is disabled.
+	VirtualClusterDisabled CrdbVirtualClusterMode = "disabled"
+	// VirtualClusterPrimary indicates that this cluster operates as the primary in PCR setup.
+	VirtualClusterPrimary CrdbVirtualClusterMode = "primary"
+	// VirtualClusterStandby indicates that this cluster operates as the standby in PCR setup.
+	VirtualClusterStandby CrdbVirtualClusterMode = "standby"
+)
+
+// CrdbVirtualClusterSpec defines the configuration for Physical Cluster Replication (PCR).
+type CrdbVirtualClusterSpec struct {
+	// Mode specifies the operation mode of the virtual cluster.
+	// +kubebuilder:validation:Required
+	// +kubebuilder:validation:Enum=disabled;primary;standby
+	Mode CrdbVirtualClusterMode `json:"mode"`
+}
 
 // CrdbNodeSpec defines the desired state of an individual
 // CockroachDB node process.
@@ -273,6 +293,11 @@ type CrdbNodeSpec struct {
 	// If not specified, defaults to "Delete" for backward compatibility.
 	// +kubebuilder:validation:Optional
 	PersistentVolumeClaimRetentionPolicy *CrdbNodePersistentVolumeClaimRetentionPolicy `json:"persistentVolumeClaimRetentionPolicy,omitempty"`
+
+	// VirtualCluster specifies the virtual cluster configuration for Physical Cluster Replication (PCR).
+	// This enables the cluster to operate as either a primary or standby cluster in a PCR setup.
+	// +kubebuilder:validation:Optional
+	VirtualCluster *CrdbVirtualClusterSpec `json:"virtualCluster,omitempty"`
 }
 
 // PodTemplateSpec is a structure allowing the user to set a template for Pod

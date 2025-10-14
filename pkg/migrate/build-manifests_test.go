@@ -13,6 +13,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -31,8 +32,16 @@ func TestFromHelmChart(t *testing.T) {
 	namespace := "default"
 	outputDir := t.TempDir()
 
+	job := &batchv1.Job{}
+	manifestBytes, err := os.ReadFile("testdata/helm/allInput/cockroachdb-init.yaml")
+	require.NoError(t, err)
+	err = yaml.Unmarshal(manifestBytes, &job)
+	require.NoError(t, err)
+	_, err = clientset.BatchV1().Jobs(namespace).Create(ctx, job, metav1.CreateOptions{})
+	require.NoError(t, err)
+
 	sts := appsv1.StatefulSet{}
-	manifestBytes, err := os.ReadFile("testdata/helm/allInput/cockroachdb-statefulset.yaml")
+	manifestBytes, err = os.ReadFile("testdata/helm/allInput/cockroachdb-statefulset.yaml")
 	require.NoError(t, err)
 	err = yaml.Unmarshal(manifestBytes, &sts)
 	require.NoError(t, err)

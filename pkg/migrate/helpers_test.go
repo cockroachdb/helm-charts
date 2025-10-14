@@ -8,9 +8,11 @@ import (
 	"testing"
 
 	publicv1alpha1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
+	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -271,4 +273,86 @@ func TestBuildRBACFromPublicOperator(t *testing.T) {
 	assert.Equal(t, "rbac.authorization.k8s.io", clusterRoleBinding.RoleRef.APIGroup)
 	assert.Equal(t, "ClusterRole", clusterRoleBinding.RoleRef.Kind)
 	assert.Equal(t, "crdb-cluster", clusterRoleBinding.RoleRef.Name)
+}
+
+func TestDetectPCRFromInitJob(t *testing.T) {
+	tests := []struct {
+		name         string
+		jobCommand   []string
+		expectedMode *v1alpha1.CrdbVirtualClusterSpec
+		jobExists    bool
+	}{
+		{
+			name:         "Job does not exist",
+			jobCommand:   nil,
+			expectedMode: nil,
+			jobExists:    false,
+		},
+		{
+			name:         "Job with --virtualized flag (primary)",
+			jobCommand:   []string{"/bin/bash", "-c", "cockroach init --virtualized --host=test:26257"},
+			expectedMode: &v1alpha1.CrdbVirtualClusterSpec{Mode: v1alpha1.VirtualClusterPrimary},
+			jobExists:    true,
+		},
+		{
+			name:         "Job with --virtualized-empty flag (standby)",
+			jobCommand:   []string{"/bin/bash", "-c", "cockroach init --virtualized-empty --host=test:26257"},
+			expectedMode: &v1alpha1.CrdbVirtualClusterSpec{Mode: v1alpha1.VirtualClusterStandby},
+			jobExists:    true,
+		},
+		{
+			name:         "Job without PCR flags",
+			jobCommand:   []string{"/bin/bash", "-c", "cockroach init --host=test:26257"},
+			expectedMode: nil,
+			jobExists:    true,
+		},
+		{
+			name:         "Job with empty containers",
+			jobCommand:   nil,
+			expectedMode: nil,
+			jobExists:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Create a fake clientset
+			clientset := fake.NewSimpleClientset()
+			ctx := context.TODO()
+			namespace := "test-namespace"
+			stsName := "test-cockroachdb"
+
+			if tt.jobExists {
+				// Create a job with the specified command
+				job := &batchv1.Job{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:      stsName + "-init",
+						Namespace: namespace,
+					},
+					Spec: batchv1.JobSpec{
+						Template: corev1.PodTemplateSpec{
+							Spec: corev1.PodSpec{
+								Containers: []corev1.Container{
+									{
+										Command: tt.jobCommand,
+									},
+								},
+							},
+						},
+					},
+				}
+				_, err := clientset.BatchV1().Jobs(namespace).Create(ctx, job, metav1.CreateOptions{})
+				require.NoError(t, err)
+			}
+
+			// Test the function
+			result := detectPCRFromInitJob(clientset, stsName, namespace)
+			if tt.expectedMode == nil {
+				require.Nil(t, result)
+			} else {
+				require.NotNil(t, result)
+				require.Equal(t, tt.expectedMode.Mode, result.Mode)
+			}
+		})
+	}
 }
