@@ -1,16 +1,5 @@
 cockroachdb:
   crdbCluster:
-    affinity:
-      podAntiAffinity:
-        preferredDuringSchedulingIgnoredDuringExecution:
-        - podAffinityTerm:
-            labelSelector:
-              matchLabels:
-                app.kubernetes.io/component: cockroachdb
-                app.kubernetes.io/instance: cockroachdb
-                app.kubernetes.io/name: cockroachdb
-            topologyKey: kubernetes.io/hostname
-          weight: 100
     dataStore:
       volumeClaimTemplate:
         metadata:
@@ -22,42 +11,73 @@ cockroachdb:
             requests:
               storage: 100Gi
           volumeMode: Filesystem
-    env:
-    - name: STATEFULSET_NAME
-      value: cockroachdb
-    - name: STATEFULSET_FQDN
-      value: cockroachdb.default.svc.cluster.local
-    - name: COCKROACH_CHANNEL
-      value: kubernetes-helm
-    - name: GODEBUG
-      value: disablethp=1
     image:
       name: cockroachdb/cockroach:v25.1.5
     localityLabels:
     - country
     - region
     loggingConfigMapName: cockroachdb-log-config
-    nodeSelector:
-      cloud.google.com/gke-nodepool: default-pool
-    podAnnotations:
-      crdb: is-cool
-    podLabels:
-      app.kubernetes.io/component: cockroachdb
-      app.kubernetes.io/instance: cockroachdb
-      app.kubernetes.io/name: cockroachdb
+    podTemplate:
+      metadata:
+        annotations:
+          crdb: is-cool
+        labels:
+          app.kubernetes.io/component: cockroachdb
+          app.kubernetes.io/instance: cockroachdb
+          app.kubernetes.io/name: cockroachdb
+      spec:
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: cockroachdb
+                    app.kubernetes.io/instance: cockroachdb
+                    app.kubernetes.io/name: cockroachdb
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+        containers:
+        - env:
+          - name: STATEFULSET_NAME
+            value: cockroachdb
+          - name: STATEFULSET_FQDN
+            value: cockroachdb.default.svc.cluster.local
+          - name: COCKROACH_CHANNEL
+            value: kubernetes-helm
+          - name: GODEBUG
+            value: disablethp=1
+          image: cockroachdb/cockroach:v25.1.5
+          name: cockroachdb
+          resources:
+            limits:
+              cpu: "2"
+              memory: 4Gi
+            requests:
+              cpu: "1"
+              memory: 2Gi
+        nodeSelector:
+          cloud.google.com/gke-nodepool: default-pool
+        terminationGracePeriodSeconds: 300
+        tolerations:
+        - effect: NoSchedule
+          key: non-crdb
+          operator: Exists
+        topologySpreadConstraints:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: cockroachdb
+              app.kubernetes.io/instance: cockroachdb
+              app.kubernetes.io/name: cockroachdb
+          maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
     regions:
     - cloudProvider: gcp
       code: us-central1
       domain: ""
       namespace: default
       nodes: 3
-    resources:
-      limits:
-        cpu: "2"
-        memory: 4Gi
-      requests:
-        cpu: "1"
-        memory: 2Gi
     service:
       ports:
         grpc:
@@ -74,20 +94,6 @@ cockroachdb:
       - --certs-dir=/cockroach/cockroach-certs/
       - --cache=25%
       - --max-sql-memory=25%
-    terminationGracePeriod: 300s
-    tolerations:
-    - effect: NoSchedule
-      key: non-crdb
-      operator: Exists
-    topologySpreadConstraints:
-    - labelSelector:
-        matchLabels:
-          app.kubernetes.io/component: cockroachdb
-          app.kubernetes.io/instance: cockroachdb
-          app.kubernetes.io/name: cockroachdb
-      maxSkew: 1
-      topologyKey: topology.kubernetes.io/zone
-      whenUnsatisfiable: ScheduleAnyway
     virtualCluster:
       mode: primary
   tls:

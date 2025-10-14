@@ -1,16 +1,5 @@
 cockroachdb:
   crdbCluster:
-    affinity:
-      podAntiAffinity:
-        preferredDuringSchedulingIgnoredDuringExecution:
-        - podAffinityTerm:
-            labelSelector:
-              matchLabels:
-                app.kubernetes.io/component: cockroachdb
-                app.kubernetes.io/instance: cockroachdb
-                app.kubernetes.io/name: cockroachdb
-            topologyKey: kubernetes.io/hostname
-          weight: 100
     dataStore:
       volumeClaimTemplate:
         metadata:
@@ -22,51 +11,82 @@ cockroachdb:
             requests:
               storage: 60Gi
           volumeMode: Filesystem
-    env:
-    - name: COCKROACH_CHANNEL
-      value: kubernetes-operator-gke
-    - name: POD_NAME
-      valueFrom:
-        fieldRef:
-          apiVersion: v1
-          fieldPath: metadata.name
-    - name: GOMAXPROCS
-      valueFrom:
-        resourceFieldRef:
-          divisor: "1"
-          resource: limits.cpu
-    - name: MEMORY_LIMIT_MIB
-      valueFrom:
-        resourceFieldRef:
-          divisor: 1Mi
-          resource: limits.memory
-    - name: MY_ENV_VAR
-      value: kubernetes-helm
     image:
       name: cockroachdb/cockroach:v25.1.5
     loggingConfigMapName: cockroachdb-log-config
-    nodeSelector:
-      cloud.google.com/gke-nodepool: default-pool
-    podAnnotations:
-      crdb: is-cool
-    podLabels:
-      app.kubernetes.io/component: database
-      app.kubernetes.io/instance: cockroachdb
-      app.kubernetes.io/name: cockroachdb
-      crdb: is-cool
+    podTemplate:
+      metadata:
+        annotations:
+          crdb: is-cool
+        labels:
+          app.kubernetes.io/component: database
+          app.kubernetes.io/instance: cockroachdb
+          app.kubernetes.io/name: cockroachdb
+          crdb: is-cool
+      spec:
+        affinity:
+          podAntiAffinity:
+            preferredDuringSchedulingIgnoredDuringExecution:
+            - podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app.kubernetes.io/component: cockroachdb
+                    app.kubernetes.io/instance: cockroachdb
+                    app.kubernetes.io/name: cockroachdb
+                topologyKey: kubernetes.io/hostname
+              weight: 100
+        containers:
+        - env:
+          - name: COCKROACH_CHANNEL
+            value: kubernetes-operator-gke
+          - name: POD_NAME
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: metadata.name
+          - name: GOMAXPROCS
+            valueFrom:
+              resourceFieldRef:
+                divisor: "1"
+                resource: limits.cpu
+          - name: MEMORY_LIMIT_MIB
+            valueFrom:
+              resourceFieldRef:
+                divisor: 1Mi
+                resource: limits.memory
+          - name: MY_ENV_VAR
+            value: kubernetes-helm
+          image: cockroachdb/cockroach:v25.1.5
+          name: cockroachdb
+          resources:
+            limits:
+              cpu: "2"
+              memory: 8Gi
+            requests:
+              cpu: 500m
+              memory: 2Gi
+        nodeSelector:
+          cloud.google.com/gke-nodepool: default-pool
+        terminationGracePeriodSeconds: 300
+        tolerations:
+        - effect: NoSchedule
+          key: non-crdb
+          operator: Exists
+        topologySpreadConstraints:
+        - labelSelector:
+            matchLabels:
+              app.kubernetes.io/component: cockroachdb
+              app.kubernetes.io/instance: cockroachdb
+              app.kubernetes.io/name: cockroachdb
+          maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: ScheduleAnyway
     regions:
     - cloudProvider: gcp
       code: us-central1
       domain: ""
       namespace: default
       nodes: 3
-    resources:
-      limits:
-        cpu: "2"
-        memory: 8Gi
-      requests:
-        cpu: 500m
-        memory: 2Gi
     service:
       ingress:
         enabled: true
@@ -99,20 +119,6 @@ cockroachdb:
       - --cache=30%
       - --max-sql-memory=30%
       - --join=cockroachdb-0.cockroachdb.default:26258,cockroachdb-1.cockroachdb.default:26258,cockroachdb-2.cockroachdb.default:26258
-    terminationGracePeriod: 300s
-    tolerations:
-    - effect: NoSchedule
-      key: non-crdb
-      operator: Exists
-    topologySpreadConstraints:
-    - labelSelector:
-        matchLabels:
-          app.kubernetes.io/component: cockroachdb
-          app.kubernetes.io/instance: cockroachdb
-          app.kubernetes.io/name: cockroachdb
-      maxSkew: 1
-      topologyKey: topology.kubernetes.io/zone
-      whenUnsatisfiable: ScheduleAnyway
   tls:
     enabled: true
     externalCertificates:
