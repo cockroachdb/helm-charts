@@ -88,6 +88,8 @@ cockroachdb:
       maxSkew: 1
       topologyKey: topology.kubernetes.io/zone
       whenUnsatisfiable: ScheduleAnyway
+    virtualCluster:
+      mode: primary
   tls:
     enabled: true
     externalCertificates:
