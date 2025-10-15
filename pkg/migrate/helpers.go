@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 
 	certv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
 	appsv1 "k8s.io/api/apps/v1"
@@ -113,12 +112,45 @@ func yamlToDisk(path string, data []any) error {
 
 // buildNodeSpecFromOperator builds a CrdbNodeSpec from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
 func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, startFlags *v1alpha1.Flags) v1alpha1.CrdbNodeSpec {
-
 	return v1alpha1.CrdbNodeSpec{
-		NodeName:       nodeName,
-		PodLabels:      sts.Spec.Template.Labels,
-		PodAnnotations: sts.Spec.Template.Annotations,
-		StartFlags:     startFlags,
+		NodeName:                  nodeName,
+		PodTemplate: &v1alpha1.PodTemplateSpec{
+			Metadata: v1alpha1.PodMeta{
+				Annotations: sts.Spec.Template.Annotations,
+				Labels:      sts.Spec.Template.Labels,
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Image:     sts.Spec.Template.Spec.Containers[0].Image,
+						Name:      "cockroachdb",
+						Resources: sts.Spec.Template.Spec.Containers[0].Resources,
+						Env: append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
+							{
+								Name: "HOST_IP",
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
+										APIVersion: "v1",
+										FieldPath:  "status.hostIP",
+									},
+								},
+							},
+							{
+								Name:  "GODEBUG",
+								Value: "disablethp=1",
+							},
+						}...),
+					},
+				},
+				ServiceAccountName:            cluster.Name,
+				Affinity:                      sts.Spec.Template.Spec.Affinity,
+				NodeSelector:                  sts.Spec.Template.Spec.NodeSelector,
+				Tolerations:                   sts.Spec.Template.Spec.Tolerations,
+				TerminationGracePeriodSeconds: &cluster.Spec.TerminationGracePeriodSecs,
+				TopologySpreadConstraints:     sts.Spec.Template.Spec.TopologySpreadConstraints,
+			},
+		},
+		StartFlags: startFlags,
 		DataStore: v1alpha1.DataStore{
 			VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
@@ -129,20 +161,7 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 		},
 		Domain:               "",
 		LoggingConfigMapName: cluster.Spec.LogConfigMap,
-		Env: append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
-			{
-				Name: "HOST_IP",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						APIVersion: "v1",
-						FieldPath:  "status.hostIP",
-					},
-				},
-			},
-		}...),
-		ResourceRequirements: sts.Spec.Template.Spec.Containers[0].Resources,
 		Image:                sts.Spec.Template.Spec.Containers[0].Image,
-		ServiceAccountName:   cluster.Name,
 		GRPCPort:             cluster.Spec.GRPCPort,
 		SQLPort:              cluster.Spec.SQLPort,
 		HTTPPort:             cluster.Spec.HTTPPort,
@@ -156,11 +175,6 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 		PersistentVolumeClaimRetentionPolicy: &v1alpha1.CrdbNodePersistentVolumeClaimRetentionPolicy{
 			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 		},
-		Affinity:                  sts.Spec.Template.Spec.Affinity,
-		NodeSelector:              sts.Spec.Template.Spec.NodeSelector,
-		Tolerations:               sts.Spec.Template.Spec.Tolerations,
-		TerminationGracePeriod:    &metav1.Duration{Duration: time.Duration(cluster.Spec.TerminationGracePeriodSecs) * time.Second},
-		TopologySpreadConstraints: sts.Spec.Template.Spec.TopologySpreadConstraints,
 	}
 }
 
@@ -174,6 +188,21 @@ func buildHelmValuesFromOperator(
 	flags *v1alpha1.Flags) map[string]interface{} {
 
 	ingressValue := buildIngressValue(cluster)
+	envVars := append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
+		{
+			Name: "HOST_IP",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					APIVersion: "v1",
+					FieldPath:  "status.hostIP",
+				},
+			},
+		},
+		{
+			Name:  "GODEBUG",
+			Value: "disablethp=1",
+		},
+	}...)
 
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
@@ -195,10 +224,7 @@ func buildHelmValuesFromOperator(
 				"image": map[string]interface{}{
 					"name": cluster.Spec.Image.Name,
 				},
-				"podLabels":      sts.Spec.Template.Labels,
-				"podAnnotations": sts.Spec.Template.Annotations,
-				"resources":      cluster.Spec.Resources,
-				"startFlags":     flags,
+				"startFlags": flags,
 				"regions": []map[string]interface{}{
 					{
 						"namespace":     namespace,
@@ -233,13 +259,29 @@ func buildHelmValuesFromOperator(
 					},
 					"ingress": ingressValue,
 				},
-				"affinity":                  sts.Spec.Template.Spec.Affinity,
-				"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
-				"tolerations":               sts.Spec.Template.Spec.Tolerations,
-				"terminationGracePeriod":    fmt.Sprintf("%ds", cluster.Spec.TerminationGracePeriodSecs),
 				"loggingConfigMapName":      cluster.Spec.LogConfigMap,
-				"env":                       sts.Spec.Template.Spec.Containers[0].Env,
-				"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
+				"podLabels":                 sts.Spec.Template.Labels,
+				"podTemplate": map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"labels":      sts.Spec.Template.Labels,
+						"annotations": sts.Spec.Template.Annotations,
+					},
+					"spec": map[string]interface{}{
+						"containers": []map[string]interface{}{
+							{
+								"image":     cluster.Spec.Image.Name,
+								"env":       envVars,
+								"resources": sts.Spec.Template.Spec.Containers[0].Resources,
+								"name":      "cockroachdb",
+							},
+						},
+						"affinity":                      sts.Spec.Template.Spec.Affinity,
+						"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
+						"tolerations":                   sts.Spec.Template.Spec.Tolerations,
+						"terminationGracePeriodSeconds": cluster.Spec.TerminationGracePeriodSecs,
+						"topologySpreadConstraints":     sts.Spec.Template.Spec.TopologySpreadConstraints,
+					},
+				},
 			},
 		},
 		"k8s": map[string]interface{}{
@@ -323,10 +365,44 @@ func buildNodeSpecFromHelm(
 	input parsedMigrationInput) v1alpha1.CrdbNodeSpec {
 
 	return v1alpha1.CrdbNodeSpec{
-		NodeName:       nodeName,
-		PodLabels:      sts.Spec.Template.Labels,
-		PodAnnotations: sts.Spec.Template.Annotations,
-		StartFlags:     input.startFlags,
+		NodeName:                  nodeName,
+		PodTemplate: &v1alpha1.PodTemplateSpec{
+			Metadata: v1alpha1.PodMeta{
+				Labels:      sts.Spec.Template.Labels,
+				Annotations: sts.Spec.Template.Annotations,
+			},
+			Spec: corev1.PodSpec{
+				Containers: []corev1.Container{
+					{
+						Image:     sts.Spec.Template.Spec.Containers[0].Image,
+						Name:      "cockroachdb",
+						Resources: sts.Spec.Template.Spec.Containers[0].Resources,
+						Env: append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
+							{
+								Name: "HOST_IP",
+								ValueFrom: &corev1.EnvVarSource{
+									FieldRef: &corev1.ObjectFieldSelector{
+										APIVersion: "v1",
+										FieldPath:  "status.hostIP",
+									},
+								},
+							},
+							{
+								Name:  "GODEBUG",
+								Value: "disablethp=1",
+							},
+						}...),
+					},
+				},
+				ServiceAccountName:            sts.Name,
+				Affinity:                      sts.Spec.Template.Spec.Affinity,
+				NodeSelector:                  sts.Spec.Template.Spec.NodeSelector,
+				Tolerations:                   sts.Spec.Template.Spec.Tolerations,
+				TerminationGracePeriodSeconds: sts.Spec.Template.Spec.TerminationGracePeriodSeconds,
+				TopologySpreadConstraints:     sts.Spec.Template.Spec.TopologySpreadConstraints,
+			},
+		},
+		StartFlags: input.startFlags,
 		DataStore: v1alpha1.DataStore{
 			VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
@@ -338,20 +414,7 @@ func buildNodeSpecFromHelm(
 		Domain:               "",
 		LocalityLabels:       input.localityLabels,
 		LoggingConfigMapName: input.loggingConfigMap,
-		Env: append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
-			{
-				Name: "HOST_IP",
-				ValueFrom: &corev1.EnvVarSource{
-					FieldRef: &corev1.ObjectFieldSelector{
-						APIVersion: "v1",
-						FieldPath:  "status.hostIP",
-					},
-				},
-			},
-		}...),
-		ResourceRequirements: sts.Spec.Template.Spec.Containers[0].Resources,
 		Image:                sts.Spec.Template.Spec.Containers[0].Image,
-		ServiceAccountName:   sts.Name,
 		GRPCPort:             &input.grpcPort,
 		SQLPort:              &input.sqlPort,
 		HTTPPort:             &input.httpPort,
@@ -366,12 +429,7 @@ func buildNodeSpecFromHelm(
 		PersistentVolumeClaimRetentionPolicy: &v1alpha1.CrdbNodePersistentVolumeClaimRetentionPolicy{
 			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 		},
-		VirtualCluster:            input.pcrSpec,
-		Affinity:                  sts.Spec.Template.Spec.Affinity,
-		NodeSelector:              sts.Spec.Template.Spec.NodeSelector,
-		Tolerations:               sts.Spec.Template.Spec.Tolerations,
-		TerminationGracePeriod:    &metav1.Duration{Duration: time.Duration(*sts.Spec.Template.Spec.TerminationGracePeriodSeconds) * time.Second},
-		TopologySpreadConstraints: sts.Spec.Template.Spec.TopologySpreadConstraints,
+		VirtualCluster: input.pcrSpec,
 	}
 }
 
@@ -425,9 +483,6 @@ func buildHelmValuesFromHelm(
 					"name": sts.Spec.Template.Spec.Containers[0].Image,
 				},
 				"localityLabels": input.localityLabels,
-				"podLabels":      sts.Spec.Template.Labels,
-				"podAnnotations": sts.Spec.Template.Annotations,
-				"resources":      sts.Spec.Template.Spec.Containers[0].Resources,
 				"startFlags":     input.startFlags,
 				"regions": []map[string]interface{}{
 					{
@@ -460,13 +515,43 @@ func buildHelmValuesFromHelm(
 						},
 					},
 				},
-				"affinity":                  sts.Spec.Template.Spec.Affinity,
-				"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
-				"tolerations":               sts.Spec.Template.Spec.Tolerations,
-				"terminationGracePeriod":    fmt.Sprintf("%ds", *sts.Spec.Template.Spec.TerminationGracePeriodSeconds),
 				"loggingConfigMapName":      input.loggingConfigMap,
-				"env":                       sts.Spec.Template.Spec.Containers[0].Env,
-				"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
+				"podLabels":                 sts.Spec.Template.Labels,
+				"podTemplate": map[string]interface{}{
+					"metadata": map[string]interface{}{
+						"labels":      sts.Spec.Template.Labels,
+						"annotations": sts.Spec.Template.Annotations,
+					},
+					"spec": map[string]interface{}{
+						"affinity":                      sts.Spec.Template.Spec.Affinity,
+						"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
+						"tolerations":                   sts.Spec.Template.Spec.Tolerations,
+						"terminationGracePeriodSeconds": *sts.Spec.Template.Spec.TerminationGracePeriodSeconds,
+						"topologySpreadConstraints":     sts.Spec.Template.Spec.TopologySpreadConstraints,
+						"containers": []map[string]interface{}{
+							{
+								"image": sts.Spec.Template.Spec.Containers[0].Image,
+								"env": append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
+									{
+										Name: "HOST_IP",
+										ValueFrom: &corev1.EnvVarSource{
+											FieldRef: &corev1.ObjectFieldSelector{
+												APIVersion: "v1",
+												FieldPath:  "status.hostIP",
+											},
+										},
+									},
+									{
+										Name:  "GODEBUG",
+										Value: "disablethp=1",
+									},
+								}...),
+								"resources": sts.Spec.Template.Spec.Containers[0].Resources,
+								"name":      "cockroachdb",
+							},
+						},
+					},
+				},
 			},
 		},
 	}
