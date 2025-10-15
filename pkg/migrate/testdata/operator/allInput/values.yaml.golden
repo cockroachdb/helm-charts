@@ -14,6 +14,11 @@ cockroachdb:
     image:
       name: cockroachdb/cockroach:v25.1.5
     loggingConfigMapName: cockroachdb-log-config
+    podLabels:
+      app.kubernetes.io/component: database
+      app.kubernetes.io/instance: cockroachdb
+      app.kubernetes.io/name: cockroachdb
+      crdb: is-cool
     podTemplate:
       metadata:
         annotations:
@@ -56,6 +61,13 @@ cockroachdb:
                 resource: limits.memory
           - name: MY_ENV_VAR
             value: kubernetes-helm
+          - name: HOST_IP
+            valueFrom:
+              fieldRef:
+                apiVersion: v1
+                fieldPath: status.hostIP
+          - name: GODEBUG
+            value: disablethp=1
           image: cockroachdb/cockroach:v25.1.5
           name: cockroachdb
           resources:

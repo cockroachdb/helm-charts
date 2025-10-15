@@ -113,7 +113,7 @@ func yamlToDisk(path string, data []any) error {
 // buildNodeSpecFromOperator builds a CrdbNodeSpec from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
 func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, startFlags *v1alpha1.Flags) v1alpha1.CrdbNodeSpec {
 	return v1alpha1.CrdbNodeSpec{
-		NodeName: nodeName,
+		NodeName:                  nodeName,
 		PodTemplate: &v1alpha1.PodTemplateSpec{
 			Metadata: v1alpha1.PodMeta{
 				Annotations: sts.Spec.Template.Annotations,
@@ -135,6 +135,10 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 									},
 								},
 							},
+							{
+								Name:  "GODEBUG",
+								Value: "disablethp=1",
+							},
 						}...),
 					},
 				},
@@ -146,8 +150,6 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 				TopologySpreadConstraints:     sts.Spec.Template.Spec.TopologySpreadConstraints,
 			},
 		},
-		// PodLabels:      sts.Spec.Template.Labels,
-		// PodAnnotations: sts.Spec.Template.Annotations,
 		StartFlags: startFlags,
 		DataStore: v1alpha1.DataStore{
 			VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
@@ -186,6 +188,21 @@ func buildHelmValuesFromOperator(
 	flags *v1alpha1.Flags) map[string]interface{} {
 
 	ingressValue := buildIngressValue(cluster)
+	envVars := append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
+		{
+			Name: "HOST_IP",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					APIVersion: "v1",
+					FieldPath:  "status.hostIP",
+				},
+			},
+		},
+		{
+			Name:  "GODEBUG",
+			Value: "disablethp=1",
+		},
+	}...)
 
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
@@ -242,7 +259,8 @@ func buildHelmValuesFromOperator(
 					},
 					"ingress": ingressValue,
 				},
-				"loggingConfigMapName": cluster.Spec.LogConfigMap,
+				"loggingConfigMapName":      cluster.Spec.LogConfigMap,
+				"podLabels":                 sts.Spec.Template.Labels,
 				"podTemplate": map[string]interface{}{
 					"metadata": map[string]interface{}{
 						"labels":      sts.Spec.Template.Labels,
@@ -252,8 +270,8 @@ func buildHelmValuesFromOperator(
 						"containers": []map[string]interface{}{
 							{
 								"image":     cluster.Spec.Image.Name,
-								"env":       sts.Spec.Template.Spec.Containers[0].Env,
-								"resources": cluster.Spec.Resources,
+								"env":       envVars,
+								"resources": sts.Spec.Template.Spec.Containers[0].Resources,
 								"name":      "cockroachdb",
 							},
 						},
@@ -347,7 +365,7 @@ func buildNodeSpecFromHelm(
 	input parsedMigrationInput) v1alpha1.CrdbNodeSpec {
 
 	return v1alpha1.CrdbNodeSpec{
-		NodeName: nodeName,
+		NodeName:                  nodeName,
 		PodTemplate: &v1alpha1.PodTemplateSpec{
 			Metadata: v1alpha1.PodMeta{
 				Labels:      sts.Spec.Template.Labels,
@@ -368,6 +386,10 @@ func buildNodeSpecFromHelm(
 										FieldPath:  "status.hostIP",
 									},
 								},
+							},
+							{
+								Name:  "GODEBUG",
+								Value: "disablethp=1",
 							},
 						}...),
 					},
@@ -407,7 +429,7 @@ func buildNodeSpecFromHelm(
 		PersistentVolumeClaimRetentionPolicy: &v1alpha1.CrdbNodePersistentVolumeClaimRetentionPolicy{
 			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 		},
-		VirtualCluster:            input.pcrSpec,
+		VirtualCluster: input.pcrSpec,
 	}
 }
 
@@ -493,7 +515,8 @@ func buildHelmValuesFromHelm(
 						},
 					},
 				},
-				"loggingConfigMapName": input.loggingConfigMap,
+				"loggingConfigMapName":      input.loggingConfigMap,
+				"podLabels":                 sts.Spec.Template.Labels,
 				"podTemplate": map[string]interface{}{
 					"metadata": map[string]interface{}{
 						"labels":      sts.Spec.Template.Labels,
@@ -507,8 +530,22 @@ func buildHelmValuesFromHelm(
 						"topologySpreadConstraints":     sts.Spec.Template.Spec.TopologySpreadConstraints,
 						"containers": []map[string]interface{}{
 							{
-								"image":     sts.Spec.Template.Spec.Containers[0].Image,
-								"env":       sts.Spec.Template.Spec.Containers[0].Env,
+								"image": sts.Spec.Template.Spec.Containers[0].Image,
+								"env": append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
+									{
+										Name: "HOST_IP",
+										ValueFrom: &corev1.EnvVarSource{
+											FieldRef: &corev1.ObjectFieldSelector{
+												APIVersion: "v1",
+												FieldPath:  "status.hostIP",
+											},
+										},
+									},
+									{
+										Name:  "GODEBUG",
+										Value: "disablethp=1",
+									},
+								}...),
 								"resources": sts.Spec.Template.Spec.Containers[0].Resources,
 								"name":      "cockroachdb",
 							},

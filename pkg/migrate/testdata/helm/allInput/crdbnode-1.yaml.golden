@@ -75,6 +75,8 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: status.hostIP
+        - name: GODEBUG
+          value: disablethp=1
         image: cockroachdb/cockroach:v25.1.5
         name: cockroachdb
         resources:
