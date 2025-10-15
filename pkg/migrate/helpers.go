@@ -722,10 +722,8 @@ func extractJoinStringAndFlags(
 		return nil
 	}
 
-	// parseInt32 safely converts a string to int32
-	func
-	parseInt32(value
-	string) (int32, error) {
+// parseInt32 safely converts a string to int32
+func parseInt32(value string) (int32, error) {
 		num, err := strconv.ParseInt(value, 10, 32) // Base 10, 32-bit size
 		if err != nil {
 			return 0, err
@@ -733,12 +731,8 @@ func extractJoinStringAndFlags(
 		return int32(num), nil
 	}
 
-	// ConvertSecretToConfigMap retrieves a secret and creates a ConfigMap with the same data.
-	func
-	ConvertSecretToConfigMap(ctx
-	context.Context, clientset
-	kubernetes.Interface, namespace, secretName
-	string) error{
+// ConvertSecretToConfigMap retrieves a secret and creates a ConfigMap with the same data.
+func ConvertSecretToConfigMap(ctx context.Context, clientset kubernetes.Interface, namespace, secretName string) error {
 	// Get the Secret
 	secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {

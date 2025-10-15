@@ -517,9 +517,7 @@ func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
 					}
 				}
 
-				func
-				TestExtractJoinStringAndFlags_WALFailover(t * testing.T)
-				{
+func TestExtractJoinStringAndFlags_WALFailover(t *testing.T) {
 					testCases := []struct {
 						name              string
 						args              []string
@@ -583,9 +581,7 @@ func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
 					}
 				}
 
-				func
-				TestGetWalFailoverPVCDetails(t * testing.T)
-				{
+func TestGetWalFailoverPVCDetails(t *testing.T) {
 					clientset := fake.NewSimpleClientset()
 					ctx := context.TODO()
 					namespace := "default"
@@ -698,9 +694,7 @@ func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
 					assert.Contains(t, err.Error(), "no failoverdir PVC found")
 				}
 
-				func
-				TestBuildWalFailoverSpec(t * testing.T)
-				{
+func TestBuildWalFailoverSpec(t *testing.T) {
 					clientset := fake.NewSimpleClientset()
 					ctx := context.TODO()
 					namespace := "default"
@@ -826,9 +820,7 @@ func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
 					}
 				}
 
-				func
-				TestBuildNodeSpecFromHelm_WithWalFailover(t * testing.T)
-				{
+func TestBuildNodeSpecFromHelm_WithWalFailover(t *testing.T) {
 					namespace := "default"
 					nodeName := "test-node"
 
