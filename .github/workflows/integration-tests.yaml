@@ -2,7 +2,7 @@ name: integration-tests
 
 on:
   schedule:
-    - cron: "15 6 * * *"  # Run at 6:15 AM UTC to avoid peak times
+    - cron: "15 6 * * 1"  # Run at 6:15 AM on every Monday UTC to avoid peak times
   # Allow manual trigger on any branch
   workflow_dispatch:
 
