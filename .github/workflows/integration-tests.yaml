@@ -33,14 +33,94 @@ jobs:
       - name: Install gke-gcloud-auth-plugin
         run: |
           gcloud components install gke-gcloud-auth-plugin
-      - name: Run tests
+      - name: Run tests (multi-region)
         env:
           isNightly: true
           USE_GKE_GCLOUD_AUTH_PLUGIN: True
         run: |
           set -e
-          make test/nightly-e2e/multi-region
-        continue-on-error: false
+          make test/nightly-e2e/multi-region | tee test_output.log || true
+      - name: Archive test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: multi-region-test-results
+          path: |
+            test_output.log
+            test_output.json
+      - name: Slack notification (multi-region)
+        if: ${{ always() }}
+        run: |
+          echo "Preparing Slack message for multi-region tests..."
+
+          if [ ! -f test_output.json ]; then
+            echo "Generating test_output.json from log..."
+            grep -E "=== RUN|--- PASS:|--- FAIL:" test_output.log | awk '
+              /=== RUN/ {
+                test_name = $3
+                tests[test_name] = "running"
+              }
+              /--- PASS:/ {
+                test_name = $3
+                if (test_name in tests) {
+                  print "{\"Action\":\"pass\",\"Test\":\"" test_name "\"}"
+                }
+              }
+              /--- FAIL:/ {
+                test_name = $3
+                if (test_name in tests) {
+                  print "{\"Action\":\"fail\",\"Test\":\"" test_name "\"}"
+                }
+              }' > test_output.json
+          fi
+
+          PASSED_TESTS=$(jq -r 'select(.Action=="pass") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | head -n 20 | paste -sd ", " -)
+          FAILED_TESTS=$(jq -r 'select(.Action=="fail") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | head -n 20 | paste -sd ", " -)
+          PASSED_COUNT=$(jq -r 'select(.Action=="pass") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | wc -l)
+          FAILED_COUNT=$(jq -r 'select(.Action=="fail") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | wc -l)
+
+          if [ "$FAILED_COUNT" -gt 0 ]; then
+            STATUS="❌ *Multi-region integration tests failed!*"
+            COLOR="#ff0000"
+          else
+            STATUS="✅ *Multi-region integration tests passed!*"
+            COLOR="#36a64f"
+          fi
+
+          REPO_NAME="helm-charts"
+
+          PAYLOAD=$(jq -n \
+            --arg text "$STATUS" \
+            --arg color "$COLOR" \
+            --arg repo "$REPO_NAME" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg workflow "${{ github.workflow }}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg passed "$PASSED_COUNT" \
+            --arg failed "$FAILED_COUNT" \
+            --arg passed_tests "$PASSED_TESTS" \
+            --arg failed_tests "$FAILED_TESTS" \
+            '{
+              text: $text,
+              attachments: [
+                {
+                  color: $color,
+                  fields: [
+                    {"title": "Repository", "value": $repo, "short": true},
+                    {"title": "Branch", "value": $branch, "short": true},
+                    {"title": "✅ Passed", "value": $passed, "short": true},
+                    {"title": "❌ Failed", "value": $failed, "short": true},
+                    {"title": "❌ Failed Tests", "value": (if $failed_tests == "" then "None" else $failed_tests end), "short": false},
+                    {"title": "✅ Passed Tests", "value": (if $passed_tests == "" then "None" else $passed_tests end), "short": false},
+                    {"title": "Run URL", "value": $url, "short": false}
+                  ]
+                }
+              ]
+            }')
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
   integration-tests-single-region:
     runs-on: ubuntu-latest-4-core
     timeout-minutes: 90
@@ -68,11 +148,91 @@ jobs:
       - name: Install gke-gcloud-auth-plugin
         run: |
           gcloud components install gke-gcloud-auth-plugin
-      - name: Run tests
+      - name: Run tests (single-region)
         env:
           isNightly: true
           USE_GKE_GCLOUD_AUTH_PLUGIN: True
         run: |
           set -e
-          make test/nightly-e2e/single-region
-        continue-on-error: false
+          make test/nightly-e2e/single-region | tee test_output.log || true
+      - name: Archive test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: single-region-test-results
+          path: |
+            test_output.log
+            test_output.json
+      - name: Slack notification (single-region)
+        if: ${{ always() }}
+        run: |
+          echo "Preparing Slack message for single-region tests..."
+
+          if [ ! -f test_output.json ]; then
+            echo "Generating test_output.json from log..."
+            grep -E "=== RUN|--- PASS:|--- FAIL:" test_output.log | awk '
+              /=== RUN/ {
+                test_name = $3
+                tests[test_name] = "running"
+              }
+              /--- PASS:/ {
+                test_name = $3
+                if (test_name in tests) {
+                  print "{\"Action\":\"pass\",\"Test\":\"" test_name "\"}"
+                }
+              }
+              /--- FAIL:/ {
+                test_name = $3
+                if (test_name in tests) {
+                  print "{\"Action\":\"fail\",\"Test\":\"" test_name "\"}"
+                }
+              }' > test_output.json
+          fi
+
+          PASSED_TESTS=$(jq -r 'select(.Action=="pass") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | head -n 20 | paste -sd ", " -)
+          FAILED_TESTS=$(jq -r 'select(.Action=="fail") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | head -n 20 | paste -sd ", " -)
+          PASSED_COUNT=$(jq -r 'select(.Action=="pass") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | wc -l)
+          FAILED_COUNT=$(jq -r 'select(.Action=="fail") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | wc -l)
+
+          if [ "$FAILED_COUNT" -gt 0 ]; then
+            STATUS="❌ *Single-region integration tests failed!*"
+            COLOR="#ff0000"
+          else
+            STATUS="✅ *Single-region integration tests passed!*"
+            COLOR="#36a64f"
+          fi
+
+          REPO_NAME="helm-charts"
+
+          PAYLOAD=$(jq -n \
+            --arg text "$STATUS" \
+            --arg color "$COLOR" \
+            --arg repo "$REPO_NAME" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg workflow "${{ github.workflow }}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg passed "$PASSED_COUNT" \
+            --arg failed "$FAILED_COUNT" \
+            --arg passed_tests "$PASSED_TESTS" \
+            --arg failed_tests "$FAILED_TESTS" \
+            '{
+              text: $text,
+              attachments: [
+                {
+                  color: $color,
+                  fields: [
+                    {"title": "Repository", "value": $repo, "short": true},
+                    {"title": "Branch", "value": $branch, "short": true},
+                    {"title": "✅ Passed", "value": $passed, "short": true},
+                    {"title": "❌ Failed", "value": $failed, "short": true},
+                    {"title": "❌ Failed Tests", "value": (if $failed_tests == "" then "None" else $failed_tests end), "short": false},
+                    {"title": "✅ Passed Tests", "value": (if $passed_tests == "" then "None" else $passed_tests end), "short": false},
+                    {"title": "Run URL", "value": $url, "short": false}
+                  ]
+                }
+              ]
+            }')
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
