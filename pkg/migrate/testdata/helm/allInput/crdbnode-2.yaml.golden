@@ -88,6 +88,7 @@ spec:
             memory: 2Gi
       nodeSelector:
         cloud.google.com/gke-nodepool: default-pool
+      priorityClassName: crdb-critical
       serviceAccountName: cockroachdb
       terminationGracePeriodSeconds: 300
       tolerations:

@@ -16,8 +16,10 @@ import (
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	resource "k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 type PublicOperatorToCockroachEnterpriseOperator struct {
@@ -41,6 +43,12 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	defer func() {
 		t.Log("uninstall ingress and metalLB")
 		testutil.UninstallIngressAndMetalLB(t)
+	}()
+
+	k8s.RunKubectl(t, kubectlOptions, "create", "priorityclass", "operator-critical", "--value", "500000000")
+	defer func() {
+		t.Log("Delete the priority class operator-critical")
+		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "operator-critical")
 	}()
 
 	// Create cluster with different logging config than the default one.
@@ -78,7 +86,8 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 				corev1.ResourceMemory: resource.MustParse("256Mi"),
 			},
 		}).WithClusterLogging("logging-config").
-		WithIngress(ingress)
+		WithIngress(ingress).
+		WithPriorityClass("operator-critical")
 
 	o.Ctx = context.Background()
 	o.CrdbCluster = testutil.CockroachCluster{
@@ -160,5 +169,22 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	o.ValidateExistingData = true
 	o.ValidateCRDB(t)
 
+	t.Log("Verify Operator Migration")
+	// Verify priority class migration
+	verifyOperatorMigration(t, kubectlOptions, o.CustomResourceBuilder.Cr())
+
 	testutil.TestIngressRoutingDirect(t, "ui.local.com")
+}
+
+// verifyOperatorMigration verifies that the operator has been correctly migrated
+// from the original operator to the running pods
+func verifyOperatorMigration(t *testing.T, kubectlOptions *k8s.KubectlOptions, crdbCluster *api.CrdbCluster) {
+	// Get all pods for this cluster
+	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+		LabelSelector: operator.LabelSelector,
+	})
+
+	require.Equal(t, len(pods), int(crdbCluster.Spec.Nodes))
+	require.Equal(t, crdbCluster.Spec.PriorityClassName, pods[0].Spec.PriorityClassName)
+	require.Equal(t, crdbCluster.Spec.TerminationGracePeriodSecs, *pods[0].Spec.TerminationGracePeriodSeconds)
 }
