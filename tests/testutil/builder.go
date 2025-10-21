@@ -94,6 +94,11 @@ func (b ClusterBuilder) WithResources(resources corev1.ResourceRequirements) Clu
 	return b
 }
 
+func (b ClusterBuilder) WithPriorityClass(priorityClass string) ClusterBuilder {
+	b.cluster.Spec.PriorityClassName = priorityClass
+	return b
+}
+
 func (b ClusterBuilder) Cr() *api.CrdbCluster {
 	cluster := b.cluster.DeepCopy()
 

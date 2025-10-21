@@ -69,6 +69,7 @@ cockroachdb:
               memory: 2Gi
         nodeSelector:
           cloud.google.com/gke-nodepool: default-pool
+        priorityClassName: crdb-critical
         terminationGracePeriodSeconds: 300
         tolerations:
         - effect: NoSchedule

@@ -164,6 +164,7 @@ func TestGenerateParsedMigrationInput(t *testing.T) {
 	assert.Equal(t, true, input.tlsEnabled)
 	assert.Equal(t, secretName, input.loggingConfigMap)
 	assert.Equal(t, []string{"country", "region"}, input.localityLabels)
+	assert.Equal(t, "crdb-critical", input.priorityClassName)
 	expectedJoinString := "${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257"
 	expectedFlags := []string{
 		fmt.Sprintf("--join=%s", expectedJoinString),

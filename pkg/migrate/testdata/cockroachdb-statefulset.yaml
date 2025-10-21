@@ -37,6 +37,7 @@ spec:
         app.kubernetes.io/instance: cockroachdb
         app.kubernetes.io/name: cockroachdb
     spec:
+      priorityClassName: crdb-critical
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

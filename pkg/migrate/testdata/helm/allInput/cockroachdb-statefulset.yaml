@@ -38,6 +38,7 @@ spec:
         app.kubernetes.io/instance: cockroachdb
         app.kubernetes.io/name: cockroachdb
     spec:
+      priorityClassName: crdb-critical
       nodeSelector:
         cloud.google.com/gke-nodepool: default-pool
       affinity:

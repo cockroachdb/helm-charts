@@ -54,18 +54,19 @@ const (
 )
 
 type parsedMigrationInput struct {
-	sqlPort          int32
-	grpcPort         int32
-	httpPort         int32
-	tlsEnabled       bool
-	localityLabels   []string
-	loggingConfigMap string
-	startFlags       *v1alpha1.Flags
-	certManagerInput *certManagerInput
-	caConfigMap      string
-	nodeSecretName   string
-	clientSecretName string
-	pcrSpec          *v1alpha1.CrdbVirtualClusterSpec
+	sqlPort           int32
+	grpcPort          int32
+	httpPort          int32
+	tlsEnabled        bool
+	localityLabels    []string
+	loggingConfigMap  string
+	startFlags        *v1alpha1.Flags
+	certManagerInput  *certManagerInput
+	caConfigMap       string
+	nodeSecretName    string
+	clientSecretName  string
+	pcrSpec           *v1alpha1.CrdbVirtualClusterSpec
+	priorityClassName string
 }
 
 type certManagerInput struct {
@@ -113,7 +114,7 @@ func yamlToDisk(path string, data []any) error {
 // buildNodeSpecFromOperator builds a CrdbNodeSpec from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
 func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, startFlags *v1alpha1.Flags) v1alpha1.CrdbNodeSpec {
 	return v1alpha1.CrdbNodeSpec{
-		NodeName:                  nodeName,
+		NodeName: nodeName,
 		PodTemplate: &v1alpha1.PodTemplateSpec{
 			Metadata: v1alpha1.PodMeta{
 				Annotations: sts.Spec.Template.Annotations,
@@ -145,6 +146,7 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 				ServiceAccountName:            cluster.Name,
 				Affinity:                      sts.Spec.Template.Spec.Affinity,
 				NodeSelector:                  sts.Spec.Template.Spec.NodeSelector,
+				PriorityClassName:             sts.Spec.Template.Spec.PriorityClassName,
 				Tolerations:                   sts.Spec.Template.Spec.Tolerations,
 				TerminationGracePeriodSeconds: &cluster.Spec.TerminationGracePeriodSecs,
 				TopologySpreadConstraints:     sts.Spec.Template.Spec.TopologySpreadConstraints,
@@ -259,8 +261,8 @@ func buildHelmValuesFromOperator(
 					},
 					"ingress": ingressValue,
 				},
-				"loggingConfigMapName":      cluster.Spec.LogConfigMap,
-				"podLabels":                 sts.Spec.Template.Labels,
+				"loggingConfigMapName": cluster.Spec.LogConfigMap,
+				"podLabels":            sts.Spec.Template.Labels,
 				"podTemplate": map[string]interface{}{
 					"metadata": map[string]interface{}{
 						"labels":      sts.Spec.Template.Labels,
@@ -277,6 +279,7 @@ func buildHelmValuesFromOperator(
 						},
 						"affinity":                      sts.Spec.Template.Spec.Affinity,
 						"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
+						"priorityClassName":             sts.Spec.Template.Spec.PriorityClassName,
 						"tolerations":                   sts.Spec.Template.Spec.Tolerations,
 						"terminationGracePeriodSeconds": cluster.Spec.TerminationGracePeriodSecs,
 						"topologySpreadConstraints":     sts.Spec.Template.Spec.TopologySpreadConstraints,
@@ -365,7 +368,7 @@ func buildNodeSpecFromHelm(
 	input parsedMigrationInput) v1alpha1.CrdbNodeSpec {
 
 	return v1alpha1.CrdbNodeSpec{
-		NodeName:                  nodeName,
+		NodeName: nodeName,
 		PodTemplate: &v1alpha1.PodTemplateSpec{
 			Metadata: v1alpha1.PodMeta{
 				Labels:      sts.Spec.Template.Labels,
@@ -395,6 +398,7 @@ func buildNodeSpecFromHelm(
 					},
 				},
 				ServiceAccountName:            sts.Name,
+				PriorityClassName:             input.priorityClassName,
 				Affinity:                      sts.Spec.Template.Spec.Affinity,
 				NodeSelector:                  sts.Spec.Template.Spec.NodeSelector,
 				Tolerations:                   sts.Spec.Template.Spec.Tolerations,
@@ -515,14 +519,15 @@ func buildHelmValuesFromHelm(
 						},
 					},
 				},
-				"loggingConfigMapName":      input.loggingConfigMap,
-				"podLabels":                 sts.Spec.Template.Labels,
+				"loggingConfigMapName": input.loggingConfigMap,
+				"podLabels":            sts.Spec.Template.Labels,
 				"podTemplate": map[string]interface{}{
 					"metadata": map[string]interface{}{
 						"labels":      sts.Spec.Template.Labels,
 						"annotations": sts.Spec.Template.Annotations,
 					},
 					"spec": map[string]interface{}{
+						"priorityClassName":             input.priorityClassName,
 						"affinity":                      sts.Spec.Template.Spec.Affinity,
 						"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
 						"tolerations":                   sts.Spec.Template.Spec.Tolerations,
@@ -579,6 +584,9 @@ func generateParsedMigrationInput(
 			}
 		}
 	}
+
+	// Extract priority class from StatefulSet
+	parsedInput.priorityClassName = sts.Spec.Template.Spec.PriorityClassName
 
 	for _, c := range sts.Spec.Template.Spec.Containers {
 		if c.Name == crdbContainerName {
