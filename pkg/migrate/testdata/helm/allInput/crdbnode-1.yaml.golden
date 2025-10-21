@@ -86,6 +86,18 @@ spec:
           requests:
             cpu: "1"
             memory: 2Gi
+      initContainers:
+      - command:
+        - /bin/sh
+        - -c
+        - echo "Custom init container setup"; sleep 2
+        image: alpine:latest
+        imagePullPolicy: IfNotPresent
+        name: custom-init
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
       nodeSelector:
         cloud.google.com/gke-nodepool: default-pool
       priorityClassName: crdb-critical
@@ -104,6 +116,13 @@ spec:
         maxSkew: 1
         topologyKey: topology.kubernetes.io/zone
         whenUnsatisfiable: ScheduleAnyway
+      volumes:
+      - configMap:
+          items:
+          - key: config.yaml
+            path: custom-config.yaml
+          name: custom-config-map
+        name: custom-config
   resourceRequirements: {}
   sideCars: {}
   sqlPort: 26257

@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -53,6 +54,11 @@ const (
 	issuersResource                = "issuers"
 )
 
+var (
+	ignoreInitContainers = []string{"copy-certs"}
+	ignoreVolumes        = []string{"datadir", "certs", "certs-secret", "client-secret", "emptydir", "failoverdir", "logsdir", "log-config"}
+)
+
 type parsedMigrationInput struct {
 	sqlPort           int32
 	grpcPort          int32
@@ -67,6 +73,8 @@ type parsedMigrationInput struct {
 	clientSecretName  string
 	pcrSpec           *v1alpha1.CrdbVirtualClusterSpec
 	priorityClassName string
+	initContainers    []corev1.Container
+	customVolumes     []corev1.Volume
 }
 
 type certManagerInput struct {
@@ -375,6 +383,7 @@ func buildNodeSpecFromHelm(
 				Annotations: sts.Spec.Template.Annotations,
 			},
 			Spec: corev1.PodSpec{
+				InitContainers: input.initContainers,
 				Containers: []corev1.Container{
 					{
 						Image:     sts.Spec.Template.Spec.Containers[0].Image,
@@ -397,6 +406,7 @@ func buildNodeSpecFromHelm(
 						}...),
 					},
 				},
+				Volumes:                       input.customVolumes,
 				ServiceAccountName:            sts.Name,
 				PriorityClassName:             input.priorityClassName,
 				Affinity:                      sts.Spec.Template.Spec.Affinity,
@@ -528,6 +538,8 @@ func buildHelmValuesFromHelm(
 					},
 					"spec": map[string]interface{}{
 						"priorityClassName":             input.priorityClassName,
+						"initContainers":                input.initContainers,
+						"volumes":                       input.customVolumes,
 						"affinity":                      sts.Spec.Template.Spec.Affinity,
 						"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
 						"tolerations":                   sts.Spec.Template.Spec.Tolerations,
@@ -587,6 +599,20 @@ func generateParsedMigrationInput(
 
 	// Extract priority class from StatefulSet
 	parsedInput.priorityClassName = sts.Spec.Template.Spec.PriorityClassName
+	// Extract init containers from StatefulSet (excluding the default cockroach init container)
+	for _, initContainer := range sts.Spec.Template.Spec.InitContainers {
+		// Skip the default cockroach init container as it's handled separately
+		if !slices.Contains(ignoreInitContainers, initContainer.Name) {
+			parsedInput.initContainers = append(parsedInput.initContainers, initContainer)
+		}
+	}
+
+	// Extract custom volumes from StatefulSet (excluding default cockroach volumes)
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if !slices.Contains(ignoreVolumes, volume.Name) {
+			parsedInput.customVolumes = append(parsedInput.customVolumes, volume)
+		}
+	}
 
 	for _, c := range sts.Spec.Template.Spec.Containers {
 		if c.Name == crdbContainerName {
