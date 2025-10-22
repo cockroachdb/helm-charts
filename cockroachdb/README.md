@@ -189,10 +189,10 @@ my-release-cockroachdb-init-nwjkh   0/1       ContainerCreating   0          6s
 $ kubectl get pods \
 -o jsonpath='{range .items[*]}{.metadata.name}{"\t"}{.spec.containers[0].image}{"\n"}'
 
-my-release-cockroachdb-0    cockroachdb/cockroach:v25.3.2
-my-release-cockroachdb-1    cockroachdb/cockroach:v25.3.2
-my-release-cockroachdb-2    cockroachdb/cockroach:v25.3.2
-my-release-cockroachdb-3    cockroachdb/cockroach:v25.3.2
+my-release-cockroachdb-0    cockroachdb/cockroach:v25.3.3
+my-release-cockroachdb-1    cockroachdb/cockroach:v25.3.3
+my-release-cockroachdb-2    cockroachdb/cockroach:v25.3.3
+my-release-cockroachdb-3    cockroachdb/cockroach:v25.3.3
 ```
 
 Resume normal operations. Once you are comfortable that the stability and performance of the cluster is what you'd expect post-upgrade, finalize the upgrade:
@@ -277,7 +277,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `conf.store.attrs`                                        | CockroachDB storage attributes                                                                                                                                                                                                                                                                                                           | `""`                                                   |
 | `conf.wal-failover`                                       | CockroachDB WAL Failover configuration                                                                                                                                                                                                                                                                                                   | `{}`                                                   |
 | `image.repository`                                        | Container image name                                                                                                                                                                                                                                                                                                                     | `cockroachdb/cockroach`                                |
-| `image.tag`                                               | Container image tag                                                                                                                                                                                                                                                                                                                      | `v25.3.2`                                   |
+| `image.tag`                                               | Container image tag                                                                                                                                                                                                                                                                                                                      | `v25.3.3`                                   |
 | `image.pullPolicy`                                        | Container pull policy                                                                                                                                                                                                                                                                                                                    | `IfNotPresent`                                         |
 | `image.credentials`                                       | `registry`, `user` and `pass` credentials to pull private image                                                                                                                                                                                                                                                                          | `{}`                                                   |
 | `statefulset.replicas`                                    | StatefulSet replicas number                                                                                                                                                                                                                                                                                                              | `3`                                                    |
