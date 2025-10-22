@@ -163,6 +163,17 @@ func TestGenerateParsedMigrationInput(t *testing.T) {
 	assert.Equal(t, int32(8080), input.httpPort)
 	assert.Equal(t, true, input.tlsEnabled)
 	assert.Equal(t, secretName, input.loggingConfigMap)
+	if len(input.initContainers) > 0 {
+		assert.Equal(t, "custom-init", input.initContainers[0].Name)
+		assert.Equal(t, "alpine:latest", input.initContainers[0].Image)
+	}
+
+	// Verify custom volumes extraction (should exclude default cockroach volumes)
+	if len(input.customVolumes) > 0 {
+		assert.Equal(t, "custom-config", input.customVolumes[0].Name)
+		assert.NotNil(t, input.customVolumes[0].ConfigMap)
+		assert.Equal(t, "custom-config-map", input.customVolumes[0].ConfigMap.Name)
+	}
 	assert.Equal(t, []string{"country", "region"}, input.localityLabels)
 	assert.Equal(t, "crdb-critical", input.priorityClassName)
 	expectedJoinString := "${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257"

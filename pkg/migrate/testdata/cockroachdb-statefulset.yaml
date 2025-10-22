@@ -128,7 +128,6 @@ spec:
         image: busybox
         imagePullPolicy: IfNotPresent
         name: copy-certs
-        resources: {}
         securityContext:
           allowPrivilegeEscalation: false
           capabilities:

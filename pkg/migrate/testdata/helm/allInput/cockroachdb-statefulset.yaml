@@ -152,6 +152,17 @@ spec:
           name: certs
         - mountPath: /certs/
           name: certs-secret
+      - command:
+        - /bin/sh
+        - -c
+        - echo "Custom init container setup"; sleep 2
+        image: alpine:latest
+        imagePullPolicy: IfNotPresent
+        name: custom-init
+        resources:
+          requests:
+            memory: "64Mi"
+            cpu: "100m"
       restartPolicy: Always
       schedulerName: default-scheduler
       securityContext:
@@ -203,6 +214,12 @@ spec:
         secret:
           defaultMode: 420
           secretName: cockroachdb-log-config
+      - name: custom-config
+        configMap:
+          name: custom-config-map
+          items:
+          - key: config.yaml
+            path: custom-config.yaml
       - emptyDir: {}
         name: logsdir
   updateStrategy:
