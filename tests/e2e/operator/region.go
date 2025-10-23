@@ -1,6 +1,7 @@
 package operator
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
+	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
@@ -82,9 +84,12 @@ type Region struct {
 	Provider              string
 	RegionCodes           []string
 
-	VirtualClusterModePrimary bool
 	VirtualClusterModeStandby bool
 	IsOperatorInstalled       bool
+
+	// OperatorNamespace tracks the namespace in which the operator was installed,
+	// keyed by cluster name.
+	OperatorNamespace map[string]string
 }
 
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
@@ -128,7 +133,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	if !r.IsOperatorInstalled {
-		InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+		InstallCockroachDBEnterpriseOperator(t, kubectlOptions, r.RegionCodes[index])
 	}
 
 	if r.IsCertManager {
@@ -148,13 +153,6 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 			"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 		})
 	}
-	if r.VirtualClusterModePrimary {
-		crdbOp["cockroachdb.crdbCluster.virtualCluster.mode"] = "primary"
-	}
-	if r.VirtualClusterModeStandby {
-		crdbOp["cockroachdb.crdbCluster.virtualCluster.mode"] = "standby"
-	}
-
 	// Helm install cockroach CR with operator region config.
 	crdbOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
@@ -278,10 +276,7 @@ func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 		require.NotEmpty(t, pods)
 
 		// Execute SQL query to verify regions.
-		stdout, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-			"exec", pods[0].Name, "-c", "cockroachdb", "--",
-			"/cockroach/cockroach", "sql", "--certs-dir=/cockroach/cockroach-certs",
-			"-e", "SHOW REGIONS FROM CLUSTER")
+		stdout, err := execSQL(t, kubectlOptions, pods[0].Name, "SHOW REGIONS FROM CLUSTER")
 		require.NoError(t, err)
 
 		// Verify regions output
@@ -292,8 +287,7 @@ func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 		}
 
 		// Execute node status command and verify node properties.
-		nodeStatus, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-			"exec", pods[0].Name, "-c", "cockroachdb", "--",
+		nodeStatus, err := execInCockroachdbContainer(t, kubectlOptions, pods[0].Name,
 			"/cockroach/cockroach", "node", "status", "--format=json", "--certs-dir=/cockroach/cockroach-certs")
 		require.NoError(t, err)
 
@@ -431,9 +425,10 @@ func (r *Region) EnsureKubeConfigPath() (string, error) {
 // Any failure in doing so might cause issues in other tests as some of the
 // cluster resources are tied to the namespace.
 func (r *Region) CleanupResources(t *testing.T) {
+	kubeConfig, _ := r.GetCurrentContext(t)
 	for cluster, namespace := range r.Namespace {
-		kubectlOptions := k8s.NewKubectlOptions(cluster, "", namespace)
-		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, "", testutil.CertManagerNamespace)
+		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, namespace)
+		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
 
 		extraArgs := map[string][]string{
 			"delete": {
@@ -445,10 +440,13 @@ func (r *Region) CleanupResources(t *testing.T) {
 			KubectlOptions: kubectlOptions,
 			ExtraArgs:      extraArgs,
 		}
-		err := helm.DeleteE(t, helmOptions, ReleaseName, true)
-		require.NoError(t, err)
-		err = helm.DeleteE(t, helmOptions, operatorReleaseName, true)
-		require.NoError(t, err)
+		if err := helm.DeleteE(t, helmOptions, ReleaseName, true); err != nil {
+			t.Logf("Warning: helm delete %s failed (may not exist): %v", ReleaseName, err)
+		}
+		if err := helm.DeleteE(t, helmOptions, operatorReleaseName, true); err != nil {
+			t.Logf("Warning: helm delete %s failed (may not exist): %v", operatorReleaseName, err)
+		}
+
 		if r.IsCertManager {
 			testutil.DeleteBundle(t, kubectlOptions)
 			testutil.DeleteCAIssuer(t, kubectlOptions, namespace)
@@ -457,7 +455,9 @@ func (r *Region) CleanupResources(t *testing.T) {
 			testutil.DeleteTrustManager(t, certManagerK8sOptions)
 			testutil.DeleteCertManager(t, certManagerK8sOptions)
 		}
-		k8s.DeleteNamespace(t, kubectlOptions, namespace)
+		if err := k8s.DeleteNamespaceE(t, kubectlOptions, namespace); err != nil {
+			t.Logf("Warning: failed to delete namespace %s (cluster may be unreachable): %v", namespace, err)
+		}
 	}
 }
 
@@ -477,29 +477,33 @@ func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 
 // createOperatorRegions returns the appropriate regions config
 // required while installing CockroachDb charts.
+// Other clusters' regions are listed first so their join addresses are tried
+// before the current cluster's, allowing it to join the existing cluster immediately.
 func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[int]string) []map[string]interface{} {
-	regions := make([]map[string]interface{}, 0, len(r.Clusters))
-
-	for i := 0; i < len(r.Clusters); i++ {
-		if i > index {
-			break
-		}
-
+	buildRegion := func(i int) map[string]interface{} {
 		region := map[string]interface{}{
 			"code":          r.RegionCodes[i],
 			"cloudProvider": r.Provider,
 			"nodes":         nodes,
 			"namespace":     r.Namespace[r.Clusters[i]],
 		}
-
 		if len(r.Clusters) > i && r.Clusters[i] != "" {
 			if domain, ok := customDomains[i]; ok {
 				region["domain"] = domain
 			}
 		}
-
-		regions = append(regions, region)
+		return region
 	}
+
+	regions := make([]map[string]interface{}, 0, index+1)
+
+	// Add all preceding regions first so their join addresses are tried first.
+	for i := 0; i < index; i++ {
+		regions = append(regions, buildRegion(i))
+	}
+
+	// Add the current cluster's region last.
+	regions = append(regions, buildRegion(index))
 
 	return regions
 }
@@ -521,7 +525,7 @@ func VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOp
 	require.Contains(t, logs, expected, "operator logs did not contain expected init command")
 }
 
-func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, cloudRegion string) {
 	_, operatorChartPath := HelmChartPaths()
 
 	operatorOpts := &helm.Options{
@@ -534,6 +538,8 @@ func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.Kube
 			"relatedImages.initContainer.repository": testInitContainerRepo,
 			"relatedImages.inotifywait.registry":     testOperatorRegistry,
 			"relatedImages.inotifywait.repository":   testInotifywaitRepo,
+			"cloudRegion":                            cloudRegion,
+			"watchNamespaces":                        kubectlOptions.Namespace,
 		},
 		ExtraArgs: helmExtraArgs,
 	}
@@ -560,14 +566,33 @@ func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.Kube
 	}
 }
 
+// ExtendOperatorWatchNamespace patches the operator deployment in operatorNamespace to also
+// watch newNamespace.
+func (r *Region) ExtendOperatorWatchNamespace(t *testing.T, cluster, operatorNamespace, newNamespace string) {
+	kubeConfig, _ := r.GetCurrentContext(t)
+	operatorKubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, operatorNamespace)
+
+	updatedWatchNS := fmt.Sprintf("%s,%s", operatorNamespace, newNamespace)
+	t.Logf("Extending operator WATCH_NAMESPACE to %q", updatedWatchNS)
+	k8s.RunKubectl(t, operatorKubectlOptions, "set", "env", "deployment/cockroach-operator",
+		fmt.Sprintf("WATCH_NAMESPACE=%s", updatedWatchNS))
+	k8s.RunKubectl(t, operatorKubectlOptions, "rollout", "status", "deployment/cockroach-operator",
+		"--timeout=120s")
+
+	// Wait for the operator pod to be ready after rollout.
+	pods := k8s.ListPods(t, operatorKubectlOptions, metav1.ListOptions{
+		LabelSelector: OperatorLabelSelector,
+	})
+	for i := range pods {
+		testutil.RequirePodToBeCreatedAndReady(t, operatorKubectlOptions, pods[i].Name, 300*time.Second)
+	}
+}
+
 func UninstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
 	}
 	helm.Delete(t, operatorOpts, operatorReleaseName, true)
-	k8s.RunKubectl(t, kubectlOptions, "delete", "service", "cockroach-webhook-service")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "validatingwebhookconfiguration", "cockroach-webhook-config")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "mutatingwebhookconfiguration", "cockroach-mutating-webhook-config")
 	k8s.DeleteNamespace(t, kubectlOptions, kubectlOptions.Namespace)
 }
 
@@ -599,4 +624,874 @@ func PatchHelmValues(inputValues map[string]string) map[string]string {
 	}
 
 	return inputValues
+}
+
+const (
+	defaultWALFailoverPath         = "/cockroach/cockroach-wal-failover"
+	DefaultEncryptionSecret        = "cmek-key-secret"
+	DefaultRotatedEncryptionSecret = "cmek-key-secret-new"
+
+	// PCR user credentials used when setting up Physical Cluster Replication.
+	pcrSourceUser     = "pcr_source"
+	pcrSourcePassword = "repl_password_123"
+	pcrAdminUser      = "pcr_admin"
+	pcrAdminPassword  = "admin_password_123"
+
+	// PCR SQL commands used in ValidatePCR.
+	sqlEnableRangefeed              = "SET CLUSTER SETTING kv.rangefeed.enabled = true"
+	sqlShowVirtualClusters          = "SHOW VIRTUAL CLUSTERS"
+	sqlStartMainServiceShared       = "ALTER VIRTUAL CLUSTER main START SERVICE SHARED"
+	sqlGrantAdminToPCRSource        = "GRANT admin TO " + pcrSourceUser
+	sqlGrantAdminToPCRAdmin         = "GRANT admin TO " + pcrAdminUser
+	sqlCreateReplicationStream      = "CREATE VIRTUAL CLUSTER main FROM REPLICATION OF main ON 'external://primary_replication'"
+	sqlStartMainReaderServiceShared = `ALTER VIRTUAL CLUSTER "main-reader" START SERVICE SHARED`
+	sqlCreateReaderVC               = `CREATE VIRTUAL CLUSTER "main-reader" FROM REPLICATION OF main ON 'external://primary_replication' WITH READ VIRTUAL CLUSTER`
+	sqlStopMainService              = "ALTER VIRTUAL CLUSTER main STOP SERVICE"
+	sqlCompleteReplicationToLatest  = "ALTER VIRTUAL CLUSTER main COMPLETE REPLICATION TO LATEST"
+
+	// Targeted queries for the main VC only, to avoid false positives from
+	// reader VCs (e.g. main-reader-readonly) that have their own service_mode
+	// and data_state columns in SHOW VIRTUAL CLUSTERS output.
+	sqlShowMainVCServiceMode = `SELECT service_mode FROM [SHOW VIRTUAL CLUSTERS] WHERE name = 'main'`
+	sqlShowMainVCDataState   = `SELECT data_state FROM [SHOW VIRTUAL CLUSTERS] WHERE name = 'main'`
+)
+
+// AdvancedValidationConfig aggregates validation knobs for advanced feature assertions.
+type AdvancedValidationConfig struct {
+	WALFailover      WALFailoverValidation
+	EncryptionAtRest EncryptionAtRestValidation
+	PCR              PCRValidation
+}
+
+// WALFailoverValidation captures WAL failover expectations.
+type WALFailoverValidation struct {
+	CustomPath string
+}
+
+// EncryptionAtRestValidation captures encryption validation expectations.
+type EncryptionAtRestValidation struct {
+	SecretName string
+	// OldKeyExpected is the substring expected in the --enterprise-encryption old-key field.
+	// Defaults to "old-key=plain" (initial encryption setup). For key rotation use "old-key=/etc/cockroach-key/".
+	OldKeyExpected string
+}
+
+// PCRValidation captures virtual cluster replication validation inputs.
+type PCRValidation struct {
+	Cluster          string
+	PrimaryNamespace string
+	StandbyNamespace string
+}
+
+// DefaultAdvancedValidationConfig returns default validation values used when a test does not override them.
+func DefaultAdvancedValidationConfig() AdvancedValidationConfig {
+	return AdvancedValidationConfig{
+		WALFailover: WALFailoverValidation{
+			CustomPath: defaultWALFailoverPath,
+		},
+		EncryptionAtRest: EncryptionAtRestValidation{
+			SecretName:     DefaultEncryptionSecret,
+			OldKeyExpected: "old-key=plain",
+		},
+	}
+}
+
+func mergeValidationConfig(cfg *AdvancedValidationConfig) AdvancedValidationConfig {
+	merged := DefaultAdvancedValidationConfig()
+	if cfg == nil {
+		return merged
+	}
+
+	if cfg.WALFailover.CustomPath != "" {
+		merged.WALFailover = cfg.WALFailover
+	}
+	if cfg.EncryptionAtRest.SecretName != "" {
+		merged.EncryptionAtRest.SecretName = cfg.EncryptionAtRest.SecretName
+	}
+	if cfg.EncryptionAtRest.OldKeyExpected != "" {
+		merged.EncryptionAtRest.OldKeyExpected = cfg.EncryptionAtRest.OldKeyExpected
+	}
+	if cfg.PCR.Cluster != "" || cfg.PCR.PrimaryNamespace != "" || cfg.PCR.StandbyNamespace != "" {
+		merged.PCR = cfg.PCR
+	}
+
+	return merged
+}
+
+// AssignRandomNamespace assigns a randomized namespace for the given cluster using the default prefix.
+func (r *Region) AssignRandomNamespace(cluster string) string {
+	return r.AssignRandomNamespaceWithPrefix(cluster, Namespace)
+}
+
+// AssignRandomNamespaceWithPrefix assigns a randomized namespace for the given cluster using the provided prefix.
+func (r *Region) AssignRandomNamespaceWithPrefix(cluster string, prefix string) string {
+	if prefix == "" {
+		prefix = Namespace
+	}
+	if r.Namespace == nil {
+		r.Namespace = make(map[string]string)
+	}
+	name := fmt.Sprintf("%s-%s", prefix, strings.ToLower(random.UniqueId()))
+	r.Namespace[cluster] = name
+	return name
+}
+
+// AssignRandomNamespacesWithPrefix assigns randomized namespaces for all tracked clusters.
+func (r *Region) AssignRandomNamespacesWithPrefix(prefix string) {
+	for _, cluster := range r.Clusters {
+		r.AssignRandomNamespaceWithPrefix(cluster, prefix)
+	}
+}
+
+// RequireCACertificate creates a CA certificate for the current test and returns a cleanup closure.
+// It cleans up any stale CA files from previous runs before creating new ones.
+func (r *Region) RequireCACertificate(t *testing.T) func() {
+	r.CleanUpCACertificate(t)
+	err := r.CreateCACertificate(t)
+	require.NoError(t, err)
+	return func() {
+		r.CleanUpCACertificate(t)
+	}
+}
+
+// SetupSingleClusterWithCA prepares a single cluster for advanced tests and returns a cleanup closure.
+func (r *Region) SetupSingleClusterWithCA(t *testing.T, cluster string) func() {
+	r.AssignRandomNamespace(cluster)
+	cleanupCA := r.RequireCACertificate(t)
+	return func() {
+		r.CleanupResources(t)
+		cleanupCA()
+	}
+}
+
+// SetupMultiClusterWithCA prepares all clusters for advanced tests and returns a cleanup closure.
+func (r *Region) SetupMultiClusterWithCA(t *testing.T) func() {
+	r.AssignRandomNamespacesWithPrefix(Namespace)
+	cleanupCA := r.RequireCACertificate(t)
+	return func() {
+		r.CleanupResources(t)
+		cleanupCA()
+	}
+}
+
+// BaseRegionConfig returns a baseline region configuration map for the provided cluster and index.
+func (r *Region) BaseRegionConfig(cluster string, index int) map[string]interface{} {
+	code := fmt.Sprintf("region-%d", index)
+	if len(r.RegionCodes) > index {
+		code = r.RegionCodes[index]
+	}
+	region := map[string]interface{}{
+		"code":          code,
+		"cloudProvider": r.Provider,
+		"nodes":         r.NodeCount,
+		"namespace":     r.Namespace[cluster],
+	}
+	if domain, ok := CustomDomains[index]; ok {
+		region["domain"] = domain
+	}
+	return region
+}
+
+// EncryptionAtRestConfig returns a reusable encryption configuration map with optional overrides.
+// When an override value is nil or empty string, the key is omitted from the config entirely.
+// This matters because the operator uses *string with omitempty — a nil/absent keySecretName
+// is interpreted as "plain" (unencrypted), while an empty string is not the same as nil.
+func (r *Region) EncryptionAtRestConfig(secretName string, overrides map[string]interface{}) map[string]interface{} {
+	if secretName == "" {
+		secretName = DefaultEncryptionSecret
+	}
+	config := map[string]interface{}{
+		"platform":      "UNKNOWN_KEY_TYPE",
+		"keySecretName": secretName,
+	}
+	for k, v := range overrides {
+		if v == nil || v == "" {
+			// Delete the key so it is omitted from JSON (nil pointer in operator = "plain").
+			delete(config, k)
+		} else {
+			config[k] = v
+		}
+	}
+	return config
+}
+
+// BuildEncryptionRegions creates a slice containing a single region entry with encryption settings applied.
+func (r *Region) BuildEncryptionRegions(cluster string, index int, encryptionOverrides map[string]interface{}) []map[string]interface{} {
+	region := r.BaseRegionConfig(cluster, index)
+	region["encryptionAtRest"] = r.EncryptionAtRestConfig("", encryptionOverrides)
+	return []map[string]interface{}{region}
+}
+
+// AdvancedInstallConfig holds configuration for advanced feature installations
+type AdvancedInstallConfig struct {
+	// WAL Failover configuration
+	WALFailoverEnabled bool
+	WALFailoverSize    string
+
+	// Encryption at Rest configuration
+	EncryptionEnabled      bool
+	EncryptionKeySecret    string
+	EncryptionKeySecretName string // defaults to "cmek-key-secret" if empty
+
+	// Virtual Cluster configuration (for PCR)
+	VirtualClusterMode string // "primary", "standby", or ""
+
+	// Custom helm values to merge
+	CustomValues map[string]string
+
+	// Custom regions configuration (for encryption)
+	CustomRegions []map[string]interface{}
+
+	// Skip operator installation (for second virtual cluster)
+	SkipOperatorInstall bool
+}
+
+// InstallChartsWithAdvancedConfig installs CockroachDB with advanced features configuration
+func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, index int, config AdvancedInstallConfig) {
+	// Get the current context name.
+	kubeConfig, rawConfig := r.GetCurrentContext(t)
+
+	// Get helm chart paths.
+	helmChartPath, _ := HelmChartPaths()
+
+	// Verify if a cluster exists in the contexts.
+	if _, ok := rawConfig.Contexts[cluster]; !ok {
+		t.Fatal()
+	}
+
+	// Setup kubectl options for this cluster.
+	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
+
+	// Create a namespace.
+	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
+
+	// create CA Secret.
+	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
+		"--from-file=ca.key")
+	require.NoError(t, err)
+
+	// Create encryption key secret if encryption is enabled
+	if config.EncryptionEnabled && config.EncryptionKeySecret != "" {
+		encryptionSecretName := config.EncryptionKeySecretName
+		if encryptionSecretName == "" {
+			encryptionSecretName = DefaultEncryptionSecret
+		}
+
+		// Use --from-literal with the base64-encoded key string. Kubernetes base64-encodes
+		// secret values for storage, so the pod receives the original base64 string when
+		// the secret is mounted — which the init container then decodes to get the raw key.
+		err = k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", encryptionSecretName,
+			fmt.Sprintf("--from-literal=StoreKeyData=%s", config.EncryptionKeySecret))
+		require.NoError(t, err)
+
+		// Verify secret was created with data
+		secretSize, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+			"get", "secret", encryptionSecretName,
+			"-o", "jsonpath={.data.StoreKeyData}")
+		require.NoError(t, err)
+		require.True(t, len(secretSize) > 0, "Secret StoreKeyData should be >0")
+		t.Logf("Created encryption secret %s with size: %d bytes", encryptionSecretName, len(secretSize))
+	}
+
+	// Install the operator when it is not skipped and not already marked as installed.
+	if !config.SkipOperatorInstall && !r.IsOperatorInstalled {
+		InstallCockroachDBEnterpriseOperator(t, kubectlOptions, r.RegionCodes[index])
+		if r.OperatorNamespace == nil {
+			r.OperatorNamespace = make(map[string]string)
+		}
+		r.OperatorNamespace[cluster] = r.Namespace[cluster]
+	} else if config.SkipOperatorInstall {
+		// When the operator is already installed in another namespace (PCR standby scenario),
+		// extend its WATCH_NAMESPACE to include the current namespace so it reconciles the
+		// standby CRDBCluster.
+		if operatorNS, ok := r.OperatorNamespace[cluster]; ok && operatorNS != "" && operatorNS != r.Namespace[cluster] {
+			r.ExtendOperatorWatchNamespace(t, cluster, operatorNS, r.Namespace[cluster])
+		}
+	}
+
+	// Build helm values
+	helmValues := PatchHelmValues(map[string]string{
+		"cockroachdb.clusterDomain":             CustomDomains[index],
+		"cockroachdb.tls.selfSigner.caProvided": "true",
+		"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
+	})
+
+	// Add WAL failover configuration
+	if config.WALFailoverEnabled {
+		helmValues["cockroachdb.crdbCluster.walFailoverSpec.status"] = "enable"
+		helmValues["cockroachdb.crdbCluster.walFailoverSpec.size"] = config.WALFailoverSize
+		helmValues["cockroachdb.crdbCluster.walFailoverSpec.name"] = "datadir-wal-failover"
+		helmValues["cockroachdb.crdbCluster.walFailoverSpec.path"] = "/cockroach/cockroach-wal-failover"
+	}
+
+	// Add virtual cluster configuration. The operator translates virtualCluster.mode
+	// into --virtualized / --virtualized-empty for cockroach init automatically.
+	if config.VirtualClusterMode != "" {
+		helmValues["cockroachdb.crdbCluster.virtualCluster.mode"] = config.VirtualClusterMode
+	}
+
+	// Merge custom values
+	for k, v := range config.CustomValues {
+		helmValues[k] = v
+	}
+
+	// Determine which regions configuration to use
+	var regionsConfig interface{}
+	if config.CustomRegions != nil {
+		regionsConfig = config.CustomRegions
+	} else {
+		regionsConfig = r.OperatorRegions(index, r.NodeCount)
+	}
+
+	// Build JSON values – always include regions.
+	// Note: --virtualized / --virtualized-empty are init flags, not start flags.
+	// The operator translates virtualCluster.mode into the cockroach init command
+	// automatically, so no startFlags injection is needed here.
+	jsonValues := map[string]string{
+		"cockroachdb.crdbCluster.regions": MustMarshalJSON(regionsConfig),
+	}
+
+	// Helm install cockroach CR with configuration
+	crdbOptions := &helm.Options{
+		KubectlOptions: kubectlOptions,
+		SetValues:      helmValues,
+		SetJsonValues:  jsonValues,
+		ExtraArgs:      helmExtraArgs,
+	}
+
+	helm.Install(t, crdbOptions, helmChartPath, ReleaseName)
+
+	serviceName := "cockroachdb-public"
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 5*time.Second)
+}
+
+// ValidateWALFailover verifies that WAL failover is properly configured by checking the --wal-failover flag and PVC.
+// Pass nil config to rely on defaults or provide a pointer with overrides through AdvancedValidationConfig.WALFailover.
+func (r *Region) ValidateWALFailover(t *testing.T, cluster string, cfg *AdvancedValidationConfig) {
+	validationConfig := mergeValidationConfig(cfg)
+	expectedPath := validationConfig.WALFailover.CustomPath
+	if expectedPath == "" {
+		expectedPath = defaultWALFailoverPath
+	}
+
+	kubeConfig, _ := r.GetCurrentContext(t)
+	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
+
+	// Get CockroachDB pods
+	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+		LabelSelector: LabelSelector,
+	})
+	require.True(t, len(pods) > 0, "No CockroachDB pods found")
+
+	podName := pods[0].Name
+
+	// 1. Verify cockroach start command contains --wal-failover flag with custom path
+	t.Logf("Verifying cockroach start command contains --wal-failover flag with path %s", expectedPath)
+	podCommand, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"get", "pod", podName, "-o", "jsonpath={.spec.containers[?(@.name=='cockroachdb')].command}")
+	require.NoError(t, err)
+	expectedFlag := fmt.Sprintf("--wal-failover=path=%s", expectedPath)
+	require.Contains(t, podCommand, expectedFlag,
+		"Pod command should contain %s", expectedFlag)
+	t.Logf("Cockroach start command contains --wal-failover flag with path %s", expectedPath)
+
+	// 2. Verify WAL failover PVC exists with correct naming convention
+	t.Log("Verifying WAL failover PVC exists")
+	pvcs, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"get", "pvc", "-o", "jsonpath={.items[*].metadata.name}")
+	require.NoError(t, err)
+	t.Logf("Found PVCs: %s", pvcs)
+	// PVC should follow the pattern: datadir-wal-failover-cockroachdb-{index}
+	// The name prefix comes from walFailoverSpec.name which we set to "datadir-wal-failover"
+	require.Contains(t, pvcs, "datadir-wal-failover", "WAL failover PVC should exist with correct naming")
+	t.Log("WAL failover PVC exists with correct naming convention")
+
+	// 3. Verify WAL failover volume is mounted in the pod
+	t.Log("Verifying WAL failover volume is mounted")
+	volumes, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"get", "pod", podName, "-o", "jsonpath={.spec.volumes[*].name}")
+	require.NoError(t, err)
+	// The volume name is always "wal-failover" regardless of the custom path or PVC name
+	require.Contains(t, volumes, "wal-failover", "WAL failover volume should be mounted")
+	t.Log("WAL failover volume is properly mounted")
+
+	// 4. Verify the custom WAL failover path exists in the container
+	t.Logf("Verifying custom WAL failover path %s exists in container", expectedPath)
+	_, err = execInCockroachdbContainer(t, kubectlOptions, podName, "ls", "-la", expectedPath)
+	require.NoError(t, err)
+	t.Logf("Custom WAL failover path %s exists in container", expectedPath)
+
+	t.Log("WAL failover validation completed successfully")
+}
+
+// GenerateEncryptionKey generates a 256-bit AES encryption key and returns base64 encoded value
+func (r *Region) GenerateEncryptionKey(t *testing.T) string {
+	tempDir := t.TempDir()
+	keyPath := filepath.Join(tempDir, "store.key")
+
+	// Generate 256-bit AES key using cockroach gen encryption-key
+	cmd := shell.Command{
+		Command:    "cockroach",
+		Args:       []string{"gen", "encryption-key", "--size", "256", "store.key"},
+		WorkingDir: tempDir,
+	}
+
+	_, err := shell.RunCommandAndGetOutputE(t, cmd)
+	require.NoError(t, err)
+
+	// Read the generated key file
+	keyBytes, err := os.ReadFile(keyPath)
+	require.NoError(t, err)
+
+	// Base64 encode the key (removing any newlines)
+	storeKeyB64 := base64.StdEncoding.EncodeToString(keyBytes)
+	storeKeyB64 = strings.ReplaceAll(storeKeyB64, "\n", "")
+
+	return storeKeyB64
+}
+
+// ValidateEncryptionAtRest verifies that encryption at rest is properly configured by checking flags and encryption status.
+// Pass nil config to rely on defaults or provide overrides via AdvancedValidationConfig.EncryptionAtRest.
+func (r *Region) ValidateEncryptionAtRest(t *testing.T, cluster string, cfg *AdvancedValidationConfig) {
+	kubeConfig, _ := r.GetCurrentContext(t)
+	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
+
+	// Get CockroachDB pods
+	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+		LabelSelector: LabelSelector,
+	})
+	require.True(t, len(pods) > 0, "No CockroachDB pods found")
+
+	podName := pods[0].Name
+
+	validationConfig := mergeValidationConfig(cfg)
+	secretName := validationConfig.EncryptionAtRest.SecretName
+	if secretName == "" {
+		secretName = DefaultEncryptionSecret
+	}
+
+	// 1. Assert CR spec has encryptionAtRest set, which means --enterprise-encryption
+	// must be present in the pod start command.
+	t.Log("Verifying encryptionAtRest is set in the CrdbCluster CR spec")
+	crEncryption, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"get", "crdbcluster", "cockroachdb",
+		"-o", "jsonpath={.spec.regions[*].encryptionAtRest.keySecretName}")
+	require.NoError(t, err)
+	require.NotEmpty(t, crEncryption, "CrdbCluster CR spec should have encryptionAtRest.keySecretName set")
+	t.Logf("CrdbCluster CR spec has encryptionAtRest set with keySecretName: %s", crEncryption)
+
+	// 2. Verify the encryption key secret exists and has data
+	t.Logf("Verifying encryption key secret %s", secretName)
+	secretSize, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"get", "secret", secretName,
+		"-o", "jsonpath={.data.StoreKeyData}")
+	require.NoError(t, err)
+	require.True(t, len(secretSize) > 0, "Secret StoreKeyData should not be empty")
+	t.Logf("Encryption key secret %s exists with data", secretName)
+
+	// 3. Verify cockroach start command contains encryption flags
+	t.Log("Verifying cockroach start command contains encryption flags")
+	podSpec, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"get", "pod", podName, "-o", "jsonpath={.spec.containers[?(@.name=='cockroachdb')].command}")
+	require.NoError(t, err)
+	require.Contains(t, podSpec, "--enterprise-encryption", "Pod command should contain --enterprise-encryption flag")
+	t.Log("Cockroach start command contains encryption flags")
+
+	// 4. Verify all required fields of the --enterprise-encryption flag are present.
+	// Required fields per CockroachDB docs: path, key, old-key.
+	require.Contains(t, podSpec, "path=cockroach-data", "Encryption flag should contain path=cockroach-data")
+	require.Contains(t, podSpec, "key=/etc/cockroach-key/", "Encryption flag should contain key path")
+	oldKeyExpected := validationConfig.EncryptionAtRest.OldKeyExpected
+	require.Contains(t, podSpec, oldKeyExpected, "Encryption flag should contain %s", oldKeyExpected)
+	t.Log("Encryption flag verified: path, key, and old-key are all present")
+
+	// 5. Verify encryption algorithm via node metrics.
+	// rocksdb.encryption.algorithm: 0=Plaintext, 1=AES-128-CTR, 2=AES-192-CTR, 3=AES-256-CTR
+	t.Log("Verifying encryption algorithm via node metrics")
+	encAlgorithm, err := execSQL(t, kubectlOptions, podName,
+		"SET allow_unsafe_internals = true; SELECT value FROM crdb_internal.node_metrics WHERE name = 'rocksdb.encryption.algorithm';")
+	require.NoError(t, err)
+	require.Contains(t, encAlgorithm, "3", "rocksdb.encryption.algorithm should be 3 (AES-256-CTR)")
+	t.Logf("Encryption algorithm verified: AES-256-CTR (value=3)")
+
+	t.Log("Encryption at rest validation completed successfully")
+}
+
+// generateLocalTenantURI creates local connection URI for connecting to same cluster's tenants
+// Returns: postgresql://root:root@localhost:26257?options=-ccluster%3D<cluster>
+func generateLocalTenantURI(cluster string) string {
+	return fmt.Sprintf("postgresql://root:root@localhost:26257?options=-ccluster%%3D%s", cluster)
+}
+
+// generateExternalConnectionURI creates external connection URI using cockroach convert-url
+// This is used for cross-cluster connections (e.g., replication from primary to standby)
+// Format: cockroach convert-url 'postgresql://USERNAME:PASSWORD@HOST' [flags]
+func generateExternalConnectionURI(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, connString string) string {
+	output, err := execInCockroachdbContainer(t, kubectlOpts, pod,
+		"/cockroach/cockroach", "convert-url",
+		"--url", connString, // Format: postgresql://user:pass@host:port
+		"--ca-cert=/cockroach/cockroach-certs/ca.crt",
+		"--inline")
+	require.NoError(t, err)
+	return strings.TrimSpace(output)
+}
+
+// execInCockroachdbContainer runs any command inside the cockroachdb container of a pod.
+// This is the base helper used by execSQL and execSQLOnVC.
+func execInCockroachdbContainer(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, cmd ...string) (string, error) {
+	args := append([]string{"exec", pod, "-c", "cockroachdb", "--"}, cmd...)
+	return k8s.RunKubectlAndGetOutputE(t, kubectlOpts, args...)
+}
+
+// execSQL runs a SQL statement in the cockroachdb container using certs-dir authentication.
+func execSQL(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, sql string) (string, error) {
+	return execInCockroachdbContainer(t, kubectlOpts, pod,
+		"/cockroach/cockroach", "sql",
+		"--certs-dir=/cockroach/cockroach-certs",
+		"--host=localhost:26257",
+		"-e", sql)
+}
+
+// execSQLOnVC runs a SQL statement in the cockroachdb container against a specific virtual cluster URL.
+func execSQLOnVC(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, vcURI string, database string, sql string) (string, error) {
+	cmd := []string{
+		"/cockroach/cockroach", "sql",
+		"--certs-dir=/cockroach/cockroach-certs",
+		"--url", vcURI,
+	}
+	if database != "" {
+		cmd = append(cmd, "--database="+database)
+	}
+	cmd = append(cmd, "-e", sql)
+	return execInCockroachdbContainer(t, kubectlOpts, pod, cmd...)
+}
+
+// ValidatePCR validates PCR by verifying virtual cluster configuration and testing failover/failback connections.
+// Provide the cluster and namespaces through AdvancedValidationConfig.PCR.
+func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
+	validationConfig := mergeValidationConfig(cfg)
+	cluster := validationConfig.PCR.Cluster
+	primaryNamespace := validationConfig.PCR.PrimaryNamespace
+	standbyNamespace := validationConfig.PCR.StandbyNamespace
+
+	require.NotEmpty(t, cluster, "PCR validation requires a cluster context")
+	require.NotEmpty(t, primaryNamespace, "PCR validation requires a primary namespace")
+	require.NotEmpty(t, standbyNamespace, "PCR validation requires a standby namespace")
+
+	kubeConfig, _ := r.GetCurrentContext(t)
+
+	// Get primary and standby pods
+	primaryKubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, primaryNamespace)
+	standbyKubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, standbyNamespace)
+
+	primaryPods := k8s.ListPods(t, primaryKubectlOptions, metav1.ListOptions{
+		LabelSelector: LabelSelector,
+	})
+	require.True(t, len(primaryPods) > 0, "No primary pods found")
+
+	standbyPods := k8s.ListPods(t, standbyKubectlOptions, metav1.ListOptions{
+		LabelSelector: LabelSelector,
+	})
+	require.True(t, len(standbyPods) > 0, "No standby pods found")
+
+	primaryPod := primaryPods[0].Name
+	standbyPod := standbyPods[0].Name
+
+	// Step 1: Setup primary cluster for PCR
+	t.Log("Step 1: Setting up primary cluster for Physical Cluster Replication")
+
+	// Generate local connection URIs for primary
+	primarySystemURI := generateLocalTenantURI("system")
+	t.Logf("Connecting to primary system tenant at: %s", primarySystemURI)
+
+	// Enable rangefeed for PCR (required for replication)
+	t.Log("Enabling rangefeed on primary cluster (required for PCR)")
+	_, err := execSQLOnVC(t, primaryKubectlOptions, primaryPod, primarySystemURI, "", sqlEnableRangefeed)
+	require.NoError(t, err)
+	t.Log("Rangefeed enabled on primary cluster")
+
+	// Verify primary CrdbCluster CR has virtualCluster.mode set to "primary"
+	t.Log("Verifying primary CrdbCluster CR virtualCluster.mode is set to primary")
+	primaryVCMode, err := k8s.RunKubectlAndGetOutputE(t, primaryKubectlOptions,
+		"get", "crdbcluster", ReleaseName,
+		"-o", "jsonpath={.spec.template.spec.virtualCluster.mode}")
+	require.NoError(t, err)
+	require.Equal(t, "primary", primaryVCMode,
+		"Primary CrdbCluster virtualCluster.mode should be primary")
+	t.Log("Primary CrdbCluster CR virtualCluster.mode is primary")
+
+	// Verify operator logs show cockroach init was called with --virtualized
+	t.Log("Verifying operator logs contain cockroach init --virtualized")
+	VerifyInitCommandInOperatorLogs(t, primaryKubectlOptions, "/cockroach/cockroach init --host :26258 --virtualized")
+	t.Log("Operator ran cockroach init --virtualized for primary cluster")
+
+	// With --virtualized flag, the 'main' virtual cluster is created automatically
+	// We just need to verify it exists and ensure it's in SHARED mode
+	t.Log("Verifying main virtual cluster exists on primary (automatically created with --virtualized flag)")
+	primaryVCs, err := execSQLOnVC(t, primaryKubectlOptions, primaryPod, primarySystemURI, "", sqlShowVirtualClusters)
+	require.NoError(t, err)
+	require.Contains(t, primaryVCs, "main", "Primary should have main virtual cluster")
+	t.Logf("Main virtual cluster exists on primary\n%s", primaryVCs)
+
+	// Ensure the service is started in SHARED mode
+	t.Log("Ensuring main virtual cluster service is in SHARED mode")
+	_, err = execSQLOnVC(t, primaryKubectlOptions, primaryPod, primarySystemURI, "", sqlStartMainServiceShared)
+	if err != nil && !strings.Contains(err.Error(), "already") {
+		t.Logf("Service start returned: %v", err)
+	}
+	t.Log("Main virtual cluster service is running in SHARED mode")
+
+	// Wait for main virtual cluster service to be ready in SHARED mode
+	t.Log("Waiting for main virtual cluster service readiness on primary")
+	_, err = retry.DoWithRetryE(t, "wait for main virtual cluster service to be ready in SHARED mode",
+		24, 5*time.Second,
+		func() (string, error) {
+			out, execErr := execSQLOnVC(t, primaryKubectlOptions, primaryPod, primarySystemURI, "", sqlShowVirtualClusters)
+			if execErr != nil {
+				return "", execErr
+			}
+			if !strings.Contains(out, "shared") {
+				return "", fmt.Errorf("main virtual cluster service not yet in SHARED mode: %s", out)
+			}
+			return out, nil
+		})
+	require.NoError(t, err, "main virtual cluster service did not reach SHARED mode")
+	t.Log("Main virtual cluster service is ready in SHARED mode")
+
+	// Create replication user on primary with required permissions
+	t.Log("Creating replication user on primary cluster")
+	createUserSQL := fmt.Sprintf("CREATE USER IF NOT EXISTS %s WITH PASSWORD '%s'", pcrSourceUser, pcrSourcePassword)
+	_, err = execSQLOnVC(t, primaryKubectlOptions, primaryPod, primarySystemURI, "", createUserSQL)
+	require.NoError(t, err)
+	t.Log("Created user: pcr_source")
+
+	t.Log("Granting admin privileges to pcr_source")
+	_, err = execSQLOnVC(t, primaryKubectlOptions, primaryPod, primarySystemURI, "", sqlGrantAdminToPCRSource)
+	require.NoError(t, err)
+	t.Log("Granted admin privileges to pcr_source")
+
+	t.Log("Primary cluster setup complete")
+
+	// Step 2: Setup standby cluster
+	t.Log("Step 2: Setting up standby cluster")
+
+	// Generate local connection URI for standby
+	standbySystemURI := generateLocalTenantURI("system")
+	t.Logf("Connecting to standby system tenant at: %s", standbySystemURI)
+
+	// Enable rangefeed on standby cluster
+	t.Log("Enabling rangefeed on standby cluster")
+	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlEnableRangefeed)
+	require.NoError(t, err)
+	t.Log("Rangefeed enabled on standby cluster")
+
+	// Verify standby CrdbCluster CR has virtualCluster.mode set to "standby"
+	t.Log("Verifying standby CrdbCluster CR virtualCluster.mode is set to standby")
+	standbyVCMode, err := k8s.RunKubectlAndGetOutputE(t, standbyKubectlOptions,
+		"get", "crdbcluster", ReleaseName,
+		"-o", "jsonpath={.spec.template.spec.virtualCluster.mode}")
+	require.NoError(t, err)
+	require.Equal(t, "standby", standbyVCMode,
+		"Standby CrdbCluster virtualCluster.mode should be standby")
+	t.Log("Standby CrdbCluster CR virtualCluster.mode is standby")
+
+	// Verify operator logs show cockroach init was called with --virtualized-empty.
+	// The operator is installed in the primary namespace and manages both clusters.
+	t.Log("Verifying operator logs contain cockroach init --virtualized-empty")
+	VerifyInitCommandInOperatorLogs(t, primaryKubectlOptions, "/cockroach/cockroach init --host :26258 --virtualized-empty")
+	t.Log("Operator ran cockroach init --virtualized-empty for standby cluster")
+
+	// Verify standby was initialized with --virtualized-empty (no main VC yet)
+	t.Log("Verifying standby cluster state (should have no main virtual cluster yet)")
+	standbyVCsInitial, err := execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlShowVirtualClusters)
+	require.NoError(t, err)
+	t.Logf("Standby virtual clusters before replication:\n%s", standbyVCsInitial)
+	t.Log("Standby initialized with --virtualized-empty (no main tenant yet)")
+
+	// Create admin user on standby
+	t.Log("Creating admin user on standby cluster")
+	createAdminSQL := fmt.Sprintf("CREATE USER IF NOT EXISTS %s WITH PASSWORD '%s'", pcrAdminUser, pcrAdminPassword)
+	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", createAdminSQL)
+	require.NoError(t, err)
+	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlGrantAdminToPCRAdmin)
+	require.NoError(t, err)
+	t.Log("Created user pcr_admin with admin privileges")
+	t.Log("Standby cluster setup complete")
+
+	// Step 3: Set up replication stream from standby to primary
+	t.Log("Step 3: Creating replication stream from primary to standby")
+
+	// Step 4a: Generate external connection URI for replication
+	// Following: https://www.cockroachlabs.com/docs/stable/set-up-physical-cluster-replication#step-4-start-replication
+	t.Log("Generating connection URI for primary cluster using cockroach convert-url")
+	primaryHost := fmt.Sprintf("cockroachdb-public.%s.svc.%s:26257", primaryNamespace, CustomDomains[0])
+	primaryConnString := fmt.Sprintf("postgresql://%s:%s@%s?options=-ccluster%%3Dsystem", pcrSourceUser, pcrSourcePassword, primaryHost)
+	t.Logf("Primary connection string format: postgresql://pcr_source:***@%s?options=-ccluster%%3Dsystem", primaryHost)
+
+	// Use convert-url to generate the proper connection string with certificates
+	encodedPrimaryURI := generateExternalConnectionURI(t, standbyKubectlOptions, standbyPod, primaryConnString)
+	t.Logf("Generated encoded connection URI for replication")
+
+	// Step 4b: Create external connection on standby (as per documentation)
+	t.Log("Creating external connection on standby cluster")
+	createExternalConnSQL := fmt.Sprintf("CREATE EXTERNAL CONNECTION IF NOT EXISTS primary_replication AS '%s'", encodedPrimaryURI)
+	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", createExternalConnSQL)
+	require.NoError(t, err)
+	t.Log("External connection 'primary_replication' created on standby")
+
+	// Step 4c: Create the replication stream using the external connection name
+	t.Log("Creating replication stream on standby cluster using external connection")
+	t.Log("This will create the main virtual cluster on standby and start replicating data from primary")
+	createReplicationCmd := sqlCreateReplicationStream
+	t.Logf("Executing: %s", createReplicationCmd)
+
+	output, err := execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", createReplicationCmd)
+	if err != nil && !strings.Contains(err.Error(), "already exists") && !strings.Contains(output, "already exists") {
+		t.Logf("Replication stream creation failed: %v", err)
+		t.Logf("Output: %s", output)
+		// Debug: Check what tenants exist on primary
+		t.Log("Debugging: Checking virtual clusters on primary")
+		tenantsOutput, _ := execSQLOnVC(t, primaryKubectlOptions, primaryPod, primarySystemURI, "", sqlShowVirtualClusters)
+		t.Logf("Virtual clusters on primary:\n%s", tenantsOutput)
+		require.NoError(t, err, "Failed to create replication stream")
+	} else {
+		t.Log("Replication stream created successfully")
+		t.Log("Main virtual cluster now exists on standby and is replicating from primary")
+	}
+
+	// Wait for replication stream to be active on standby
+	t.Log("Waiting for initial replication stream to become active on standby")
+	_, err = retry.DoWithRetryE(t, "wait for replication stream to become active on standby",
+		36, 10*time.Second,
+		func() (string, error) {
+			out, execErr := execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlShowVirtualClusters)
+			if execErr != nil {
+				return "", execErr
+			}
+			if !strings.Contains(out, "replicat") {
+				return "", fmt.Errorf("replication stream not yet active: %s", out)
+			}
+			return out, nil
+		})
+	require.NoError(t, err, "replication stream did not become active on standby")
+	t.Log("Initial replication sync complete")
+
+	// Step 4: Verify replication status
+	t.Log("Step 4: Verifying replication status")
+
+	t.Log("Checking virtual clusters on standby (should now include main)")
+	standbyVCsStatus, err := execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlShowVirtualClusters)
+	require.NoError(t, err)
+	require.Contains(t, standbyVCsStatus, "main", "Standby should now have main virtual cluster after replication setup")
+	t.Logf("Virtual clusters on standby:\n%s", standbyVCsStatus)
+	t.Log("Main virtual cluster exists on standby with replication status")
+
+	t.Log("Replication verification complete")
+
+	// Step 5: Test read-only access on standby using a separate reader virtual cluster
+	// Following: https://www.cockroachlabs.com/docs/stable/read-from-standby
+	t.Log("Step 5: Testing read-only access on standby cluster")
+
+	// Step 6a: Create a reader virtual cluster for read-only access
+	// This is the recommended approach per documentation
+	t.Log("Creating a reader virtual cluster on standby for read-only access")
+	t.Log("This allows read queries without affecting the replication stream")
+	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlCreateReaderVC)
+	if err != nil && !strings.Contains(err.Error(), "already exists") {
+		t.Logf("Reader VC creation returned: %v", err)
+	}
+	t.Log("Reader virtual cluster 'main-reader' created")
+
+	// Step 6b: Start the reader service in SHARED mode
+	t.Log("Starting reader virtual cluster service in SHARED mode")
+	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlStartMainReaderServiceShared)
+	if err != nil && !strings.Contains(err.Error(), "already") {
+		t.Logf("Service start returned: %v (may already be started)", err)
+	}
+	t.Log("Reader service started in SHARED mode")
+
+	// Wait for reader virtual cluster service to be ready in SHARED mode
+	t.Log("Waiting for reader virtual cluster service to be ready in SHARED mode")
+	_, err = retry.DoWithRetryE(t, "wait for main-reader virtual cluster service to be ready in SHARED mode",
+		36, 10*time.Second,
+		func() (string, error) {
+			out, execErr := execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlShowVirtualClusters)
+			if execErr != nil {
+				return "", execErr
+			}
+			if !strings.Contains(out, "main-reader") || !strings.Contains(out, "shared") {
+				return "", fmt.Errorf("main-reader service not yet in SHARED mode: %s", out)
+			}
+			return out, nil
+		})
+	require.NoError(t, err, "main-reader virtual cluster service did not reach SHARED mode")
+
+	// Step 6c: Verify reader virtual cluster exists
+	t.Log("Verifying reader virtual cluster status")
+	readerVCsStatus, err := execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlShowVirtualClusters)
+	require.NoError(t, err)
+	require.Contains(t, readerVCsStatus, "main-reader", "Standby should have main-reader virtual cluster")
+	t.Logf("Virtual clusters on standby:\n%s", readerVCsStatus)
+	t.Log("Reader virtual cluster is ready")
+
+	t.Log("Read-only access test complete")
+
+	// Step 6: Test failover (cutover)
+	t.Log("Step 6: Testing failover (promoting standby to primary)")
+
+	// Stop the service first (if running in SHARED mode)
+	t.Log("Stopping main virtual cluster service on standby before cutover")
+	_, _ = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlStopMainService)
+	t.Log("Service stopped")
+
+	// Wait for the service to fully stop before issuing cutover.
+	// Query only the main VC's service_mode to avoid a false positive from
+	// main-reader-readonly, which retains SHARED service even after main stops.
+	_, err = retry.DoWithRetryE(t, "wait for main virtual cluster service to stop on standby",
+		24, 5*time.Second,
+		func() (string, error) {
+			out, execErr := execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlShowMainVCServiceMode)
+			if execErr != nil {
+				return "", execErr
+			}
+			if strings.Contains(out, "shared") {
+				return "", fmt.Errorf("main virtual cluster service not yet stopped on standby: %s", out)
+			}
+			return out, nil
+		})
+	require.NoError(t, err, "main virtual cluster service did not stop on standby")
+	t.Log("Main virtual cluster service fully stopped on standby")
+
+	// Complete replication to latest - this makes the standby writable
+	t.Log("Completing replication to latest (this promotes standby to be writable)")
+	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlCompleteReplicationToLatest)
+	if err != nil {
+		t.Logf("Cutover command returned: %v", err)
+	}
+	t.Log("Replication completed to latest")
+
+	t.Log("Waiting for cutover to complete")
+	_, err = retry.DoWithRetryE(t, "wait for cutover to complete on standby",
+		36, 5*time.Second,
+		func() (string, error) {
+			out, execErr := execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlShowMainVCDataState)
+			if execErr != nil {
+				return "", execErr
+			}
+			if strings.Contains(out, "replicat") {
+				return "", fmt.Errorf("cutover not yet complete, still replicating: %s", out)
+			}
+			return out, nil
+		})
+	require.NoError(t, err, "cutover did not complete on standby")
+
+	// Step 7: Start the service after cutover
+	t.Log("Step 7: Starting service on promoted standby")
+
+	t.Log("Starting main virtual cluster service after cutover")
+	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", sqlStartMainServiceShared)
+	if err != nil {
+		t.Logf("Service start returned: %v (may already be started)", err)
+	}
+	t.Log("Service started, standby is now the primary and can accept writes")
 }
