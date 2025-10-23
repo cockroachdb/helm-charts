@@ -1,0 +1,131 @@
+name: advanced-features-tests
+
+on:
+  schedule:
+    - cron: "15 6 * * 1"  # Run at 6:15 AM on every Monday UTC to avoid peak times
+  # Allow manual trigger on any branch
+  workflow_dispatch:
+
+jobs:
+  integration-tests-advanced-features:
+    runs-on: ubuntu-latest-4-core
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [k3d, kind]
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.23
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        id: auth
+        with:
+          token_format: access_token
+          project_id: 'cockroach-helm-testing'
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+      - name: Run tests (advanced features)
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          TEST_ADVANCED_FEATURES: true
+          USE_GKE_GCLOUD_AUTH_PLUGIN: True
+        run: |
+          set -euo pipefail
+          make test/nightly-e2e/advanced | tee test_output.log
+      - name: Archive test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: advanced-features-test-results-${{ matrix.provider }}
+          path: |
+            test_output.log
+            test_output.json
+      - name: Slack notification (advanced features)
+        if: ${{ always() }}
+        run: |
+          echo "Preparing Slack message for advanced features tests..."
+
+          if [ ! -f test_output.json ]; then
+            echo "Generating test_output.json from log..."
+            grep -E "=== RUN|--- PASS:|--- FAIL:" test_output.log | awk '
+              /=== RUN/ {
+                test_name = $3
+                tests[test_name] = "running"
+              }
+              /--- PASS:/ {
+                test_name = $3
+                if (test_name in tests) {
+                  print "{\"Action\":\"pass\",\"Test\":\"" test_name "\"}"
+                }
+              }
+              /--- FAIL:/ {
+                test_name = $3
+                if (test_name in tests) {
+                  print "{\"Action\":\"fail\",\"Test\":\"" test_name "\"}"
+                }
+              }' > test_output.json
+          fi
+
+          PASSED_TESTS=$(jq -r 'select(.Action=="pass") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | head -n 20 | paste -sd ", " -)
+          FAILED_TESTS=$(jq -r 'select(.Action=="fail") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | head -n 20 | paste -sd ", " -)
+          PASSED_COUNT=$(jq -r 'select(.Action=="pass") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | wc -l)
+          FAILED_COUNT=$(jq -r 'select(.Action=="fail") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | wc -l)
+
+          if [ "$FAILED_COUNT" -gt 0 ]; then
+            STATUS="❌ *Advanced features integration tests failed!*"
+            COLOR="#ff0000"
+          else
+            STATUS="✅ *Advanced features integration tests passed!*"
+            COLOR="#36a64f"
+          fi
+
+          REPO_NAME="helm-charts"
+
+          PAYLOAD=$(jq -n \
+            --arg text "$STATUS" \
+            --arg color "$COLOR" \
+            --arg repo "$REPO_NAME" \
+            --arg branch "${{ github.ref_name }}" \
+            --arg workflow "${{ github.workflow }}" \
+            --arg provider "${{ matrix.provider }}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg passed "$PASSED_COUNT" \
+            --arg failed "$FAILED_COUNT" \
+            --arg passed_tests "$PASSED_TESTS" \
+            --arg failed_tests "$FAILED_TESTS" \
+            '{
+              text: $text,
+              attachments: [
+                {
+                  color: $color,
+                  fields: [
+                    {"title": "Repository", "value": $repo, "short": true},
+                    {"title": "Branch", "value": $branch, "short": true},
+                    {"title": "Provider", "value": $provider, "short": true},
+                    {"title": "✅ Passed", "value": $passed, "short": true},
+                    {"title": "❌ Failed", "value": $failed, "short": true},
+                    {"title": "❌ Failed Tests", "value": (if $failed_tests == "" then "None" else $failed_tests end), "short": false},
+                    {"title": "✅ Passed Tests", "value": (if $passed_tests == "" then "None" else $passed_tests end), "short": false},
+                    {"title": "Run URL", "value": $url, "short": false}
+                  ]
+                }
+              ]
+            }')
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}"
