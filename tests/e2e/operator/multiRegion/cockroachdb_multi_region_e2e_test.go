@@ -55,7 +55,7 @@ func TestOperatorInMultiRegion(t *testing.T) {
 		providerRegion.Region = operator.Region{
 			IsMultiRegion: true,
 			NodeCount:     3,
-			ReusingInfra:  false,
+			ReusingInfra:  os.Getenv("REUSE_INFRA") == "true",
 		}
 		providerRegion.Clients = make(map[string]client.Client)
 		providerRegion.Namespace = make(map[string]string)
@@ -79,27 +79,43 @@ func TestOperatorInMultiRegion(t *testing.T) {
 		// test failure (or always, for validation runs). By default teardown runs.
 		preserveInfra := os.Getenv("PRESERVE_INFRA_ON_FAILURE") == "true"
 
+		skipCleanup := os.Getenv("SKIP_CLEANUP") == "true" ||
+			os.Getenv("REUSE_INFRA") == "true" ||
+			os.Getenv("INFRA_ONLY") == "true"
+
+		// Use t.Cleanup for guaranteed cleanup even on test timeout/panic.
 		t.Cleanup(func() {
 			if preserveInfra {
 				t.Logf("PRESERVE_INFRA_ON_FAILURE=true: skipping infrastructure teardown for provider: %s", provider)
 				return
 			}
 			t.Logf("Starting infrastructure cleanup for provider: %s", provider)
-			cloudProvider.TeardownInfra(t)
+			if skipCleanup {
+				t.Logf("Skipping infrastructure teardown (SKIP_CLEANUP/REUSE_INFRA/INFRA_ONLY is set)")
+			} else {
+				cloudProvider.TeardownInfra(t)
+			}
 			t.Logf("Completed infrastructure cleanup for provider: %s", provider)
 		})
 
 		// Set up infrastructure for this provider once.
 		cloudProvider.SetUpInfra(t)
 
-		testCases := map[string]func(*testing.T){
-			"TestHelmInstall":           providerRegion.TestHelmInstall,
-			"TestHelmUpgrade":           providerRegion.TestHelmUpgrade,
-			"TestClusterRollingRestart": providerRegion.TestClusterRollingRestart,
-			"TestKillingCockroachNode":  providerRegion.TestKillingCockroachNode,
-			"TestClusterScaleUp":        func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) },
-		}
+		// Build test cases based on TEST_ADVANCED_FEATURES environment variable
+		testCases := make(map[string]func(*testing.T))
 
+		// Run only advanced test cases when TEST_ADVANCED_FEATURES is enabled
+		if os.Getenv("TEST_ADVANCED_FEATURES") == "true" {
+			testCases["TestWALFailoverMultiRegion"] = providerRegion.TestWALFailoverMultiRegion
+			testCases["TestEncryptionAtRestMultiRegion"] = providerRegion.TestEncryptionAtRestMultiRegion
+			testCases["TestPCRMultiRegion"] = providerRegion.TestPCRMultiRegion
+		} else {
+			testCases["TestHelmInstall"] = providerRegion.TestHelmInstall
+			testCases["TestHelmUpgrade"] = providerRegion.TestHelmUpgrade
+			testCases["TestClusterRollingRestart"] = providerRegion.TestClusterRollingRestart
+			testCases["TestKillingCockroachNode"] = providerRegion.TestKillingCockroachNode
+			testCases["TestClusterScaleUp"] = func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) }
+		}
 		// Run tests sequentially within a provider.
 		var testFailed bool
 		for name, method := range testCases {
@@ -118,7 +134,11 @@ func TestOperatorInMultiRegion(t *testing.T) {
 							return
 						}
 						t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
-						cloudProvider.TeardownInfra(t)
+						if skipCleanup {
+							t.Logf("Skipping infrastructure teardown (SKIP_CLEANUP/REUSE_INFRA/INFRA_ONLY is set)")
+						} else {
+							cloudProvider.TeardownInfra(t)
+						}
 						t.Logf("Infrastructure cleanup completed due to test failure")
 					}
 				}()
@@ -163,7 +183,6 @@ func (r *multiRegion) TestHelmInstall(t *testing.T) {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
 		// Validate CockroachDB cluster.
 		r.ValidateCRDB(t, cluster)
 	}
@@ -205,7 +224,6 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
 		// Validate CockroachDB cluster.
 		r.ValidateCRDB(t, cluster)
 	}
@@ -286,7 +304,6 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
 		r.ValidateCRDB(t, cluster)
 	}
 
@@ -375,7 +392,6 @@ func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
 		r.ValidateCRDB(t, cluster)
 	}
 
@@ -399,7 +415,6 @@ func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
 		r.ValidateCRDB(t, cluster)
 	}
 	r.ValidateMultiRegionSetup(t)
@@ -439,8 +454,6 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Cloud
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
-
 		r.ValidateCRDB(t, cluster)
 	}
 	// Get helm chart paths.
