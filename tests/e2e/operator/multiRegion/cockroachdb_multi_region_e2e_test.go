@@ -2,20 +2,22 @@ package multiRegion
 
 import (
 	"fmt"
+	"os"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator/utils"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/utils"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 // Region codes for each provider are now centralized in infra.RegionCodes
@@ -74,15 +76,25 @@ func TestOperatorInMultiRegion(t *testing.T) {
 		// Set up infrastructure for this provider once.
 		cloudProvider.SetUpInfra(t)
 
+		// Build test cases based on TEST_ADVANCED_FEATURES environment variable
+		testCases := make(map[string]func(*testing.T))
+
+		// Run only advanced test cases when TEST_ADVANCED_FEATURES is enabled
+		if os.Getenv("TEST_ADVANCED_FEATURES") == "true" {
+			testCases["TestWALFailoverMultiRegion"] = providerRegion.TestWALFailoverMultiRegion
+			testCases["TestEncryptionAtRestMultiRegion"] = providerRegion.TestEncryptionAtRestMultiRegion
+			testCases["TestPCRMultiRegion"] = providerRegion.TestPCRMultiRegion
+		} else {
+			testCases["TestHelmInstall"] = providerRegion.TestHelmInstall
+			testCases["TestHelmUpgrade"] = providerRegion.TestHelmUpgrade
+			testCases["TestClusterRollingRestart"] = providerRegion.TestClusterRollingRestart
+			testCases["TestKillingCockroachNode"] = providerRegion.TestKillingCockroachNode
+			testCases["TestClusterScaleUp"] = func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) }
+		}
+
 		// Run tests sequentially within a provider.
 		var testFailed bool
-		for name, method := range map[string]func(*testing.T){
-			"TestHelmInstall":           providerRegion.TestHelmInstall,
-			"TestHelmUpgrade":           providerRegion.TestHelmUpgrade,
-			"TestClusterRollingRestart": providerRegion.TestClusterRollingRestart,
-			"TestKillingCockroachNode":  providerRegion.TestKillingCockroachNode,
-			"TestClusterScaleUp":        func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) },
-		} {
+		for name, method := range testCases {
 			// Skip remaining tests if a previous test failed to save time
 			if testFailed {
 				t.Logf("Skipping test %s due to previous test failure", name)
@@ -128,7 +140,6 @@ func (r *multiRegion) TestHelmInstall(t *testing.T) {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
 		// Validate CockroachDB cluster.
 		r.ValidateCRDB(t, cluster)
 	}
@@ -170,7 +181,6 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
 		// Validate CockroachDB cluster.
 		r.ValidateCRDB(t, cluster)
 	}
@@ -251,7 +261,6 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
 		r.ValidateCRDB(t, cluster)
 	}
 
@@ -340,7 +349,6 @@ func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
 		r.ValidateCRDB(t, cluster)
 	}
 
@@ -364,7 +372,6 @@ func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
 		r.ValidateCRDB(t, cluster)
 	}
 	r.ValidateMultiRegionSetup(t)
@@ -404,8 +411,6 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Cloud
 		if _, ok := rawConfig.Contexts[cluster]; !ok {
 			t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 		}
-		rawConfig.CurrentContext = cluster
-
 		r.ValidateCRDB(t, cluster)
 	}
 	// Get helm chart paths.
