@@ -18,9 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Environment variable name to check if running in nightly mode
-const isNightlyEnvVar = "isNightly"
-
 type singleRegion struct {
 	operator.OperatorUseCases
 	operator.Region
@@ -82,14 +79,25 @@ func TestOperatorInSingleRegion(t *testing.T) {
 		// Set up infrastructure for this provider once.
 		cloudProvider.SetUpInfra(t)
 
-		testCases := map[string]func(*testing.T){
-			"TestHelmInstall":               providerRegion.TestHelmInstall,
-			"TestHelmInstallVirtualCluster": providerRegion.TestHelmInstallVirtualCluster,
-			"TestHelmUpgrade":               providerRegion.TestHelmUpgrade,
-			"TestClusterRollingRestart":     providerRegion.TestClusterRollingRestart,
-			"TestKillingCockroachNode":      providerRegion.TestKillingCockroachNode,
-			"TestClusterScaleUp":            func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) },
-			"TestInstallWithCertManager":    providerRegion.TestInstallWithCertManager,
+		testCases := make(map[string]func(*testing.T))
+
+		// Run only advanced test cases when TEST_ADVANCED_FEATURES is enabled
+		if os.Getenv("TEST_ADVANCED_FEATURES") == "true" {
+			testCases["TestWALFailover"] = providerRegion.TestWALFailover
+			testCases["TestWALFailoverDisable"] = providerRegion.TestWALFailoverDisable
+			testCases["TestEncryptionAtRestEnable"] = providerRegion.TestEncryptionAtRestEnable
+			testCases["TestEncryptionAtRestDisable"] = providerRegion.TestEncryptionAtRestDisable
+			testCases["TestEncryptionAtRestModifySecret"] = providerRegion.TestEncryptionAtRestModifySecret
+			testCases["TestWALFailoverWithEncryption"] = providerRegion.TestWALFailoverWithEncryption
+			testCases["TestPCR"] = providerRegion.TestPCR
+		} else {
+			testCases["TestHelmInstall"] = providerRegion.TestHelmInstall
+			testCases["TestHelmInstallVirtualCluster"] = providerRegion.TestHelmInstallVirtualCluster
+			testCases["TestHelmUpgrade"] = providerRegion.TestHelmUpgrade
+			testCases["TestClusterRollingRestart"] = providerRegion.TestClusterRollingRestart
+			testCases["TestKillingCockroachNode"] = providerRegion.TestKillingCockroachNode
+			testCases["TestClusterScaleUp"] = func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) }
+			testCases["TestInstallWithCertManager"] = providerRegion.TestInstallWithCertManager
 		}
 
 		// Run tests sequentially within a provider.
@@ -111,7 +119,6 @@ func TestOperatorInSingleRegion(t *testing.T) {
 						t.Logf("Infrastructure cleanup completed due to test failure")
 					}
 				}()
-
 				method(t)
 			})
 		}
@@ -142,7 +149,6 @@ func (r *singleRegion) TestHelmInstall(t *testing.T) {
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
 		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
-	rawConfig.CurrentContext = cluster
 	r.ValidateCRDB(t, cluster)
 }
 
@@ -206,7 +212,6 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 			if _, ok := rawConfig.Contexts[cluster]; !ok {
 				t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 			}
-			rawConfig.CurrentContext = cluster
 
 			r.ValidateCRDB(t, cluster)
 
@@ -250,7 +255,6 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
 		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
-	rawConfig.CurrentContext = cluster
 
 	// Validate CockroachDB cluster.
 	r.ValidateCRDB(t, cluster)
@@ -318,7 +322,6 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
 		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
-	rawConfig.CurrentContext = cluster
 
 	// Validate CockroachDB cluster.
 	r.ValidateCRDB(t, cluster)
@@ -397,7 +400,6 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
 		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
-	rawConfig.CurrentContext = cluster
 
 	// Validate CockroachDB cluster.
 	r.ValidateCRDB(t, cluster)
@@ -421,7 +423,6 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
 		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
-	rawConfig.CurrentContext = cluster
 
 	// Validate CockroachDB cluster.
 	r.ValidateCRDB(t, cluster)
@@ -450,7 +451,6 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Clou
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
 		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
-	rawConfig.CurrentContext = cluster
 
 	// Validate CockroachDB cluster.
 	r.ValidateCRDB(t, cluster)
@@ -508,7 +508,5 @@ func (r *singleRegion) TestInstallWithCertManager(t *testing.T) {
 	if _, ok := rawConfig.Contexts[cluster]; !ok {
 		t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 	}
-	rawConfig.CurrentContext = cluster
 	r.ValidateCRDB(t, cluster)
-
 }
