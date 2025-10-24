@@ -173,6 +173,11 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 	// Verify priority class migration
 	verifyOperatorMigration(t, kubectlOptions, o.CustomResourceBuilder.Cr())
 
+	// Wait for ingress controller to sync the updated ingress configuration
+	// after Helm install modified the ingress resources
+	t.Log("Waiting for ingress controller to sync after migration")
+	time.Sleep(20 * time.Second)
+
 	testutil.TestIngressRoutingDirect(t, "ui.local.com")
 }
 

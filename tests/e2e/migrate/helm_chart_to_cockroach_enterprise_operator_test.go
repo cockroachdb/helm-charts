@@ -83,13 +83,18 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	}
 	h.HelmOptions = &helm.Options{
 		SetValues: testutil.PatchHelmValues(map[string]string{
-			"operator.enabled":                         "false",
-			"conf.cluster-name":                        "test",
-			"init.provisioning.enabled":                "true",
-			"init.provisioning.databases[0].name":      migration.TestDBName,
-			"init.provisioning.databases[0].owners[0]": "root",
-			"statefulset.labels.app":                   "cockroachdb",
-			"conf.locality":                            "topology.kubernetes.io/region=us-east-1",
+			"operator.enabled":                           "false",
+			"conf.cluster-name":                          "test",
+			"init.provisioning.enabled":                  "true",
+			"init.provisioning.databases[0].name":        migration.TestDBName,
+			"init.provisioning.databases[0].owners[0]":   "root",
+			"statefulset.labels.app":                     "cockroachdb",
+			"conf.locality":                              "topology.kubernetes.io/region=us-east-1",
+			"storage.PersistentVolume.enabled":           "true",
+			"conf.wal-failover.value":                    "path=/cockroach/wal-failover",
+			"conf.wal-failover.persistentVolume.enabled": "true",
+			"conf.wal-failover.persistentVolume.path":    "wal-failover",
+			"conf.wal-failover.persistentVolume.size":    "1Gi",
 		}),
 	}
 
@@ -161,7 +166,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 
 	certManagerK8sOptions := k8s.NewKubectlOptions("", "", testutil.CertManagerNamespace)
 	testutil.InstallCertManager(t, certManagerK8sOptions)
-	//... and make sure to delete the helm release at the end of the test.
+	// ... and make sure to delete the helm release at the end of the test.
 	defer func() {
 		testutil.DeleteCertManager(t, certManagerK8sOptions)
 		k8s.DeleteNamespace(t, certManagerK8sOptions, testutil.CertManagerNamespace)
