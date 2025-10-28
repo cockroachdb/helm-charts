@@ -67,6 +67,8 @@ cockroachdb:
             requests:
               cpu: "1"
               memory: 2Gi
+        imagePullSecrets:
+        - name: myregistrykey
         initContainers:
         - command:
           - /bin/sh

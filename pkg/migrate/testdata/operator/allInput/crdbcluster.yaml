@@ -41,6 +41,7 @@ spec:
   image:
     name: cockroachdb/cockroach:v25.1.5
     pullPolicy: IfNotPresent
+    pullSecret: myregistrykey
   logConfigMap: cockroachdb-log-config
   maxSQLMemory: 30%
   maxUnavailable: 1
