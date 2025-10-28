@@ -49,7 +49,7 @@ jobs:
             test_output.log
             test_output.json
       - name: Slack notification (multi-region)
-        if: ${{ always() }}
+        if: ${{ always() && github.ref_name == 'master' }}
         run: |
           echo "Preparing Slack message for multi-region tests..."
 
@@ -164,7 +164,7 @@ jobs:
             test_output.log
             test_output.json
       - name: Slack notification (single-region)
-        if: ${{ always() }}
+        if: ${{ always() && github.ref_name == 'master' }}
         run: |
           echo "Preparing Slack message for single-region tests..."
 
