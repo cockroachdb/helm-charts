@@ -64,6 +64,8 @@ spec:
                 topologyKey: kubernetes.io/hostname
               weight: 100
       automountServiceAccountToken: false
+      imagePullSecrets:
+      - name: myregistrykey
       containers:
       - command:
         - /bin/bash

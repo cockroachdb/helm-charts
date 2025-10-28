@@ -75,6 +75,7 @@ type parsedMigrationInput struct {
 	priorityClassName string
 	initContainers    []corev1.Container
 	customVolumes     []corev1.Volume
+	imagePullSecrets  []corev1.LocalObjectReference
 }
 
 type certManagerInput struct {
@@ -129,6 +130,7 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 				Labels:      sts.Spec.Template.Labels,
 			},
 			Spec: corev1.PodSpec{
+				ImagePullSecrets: sts.Spec.Template.Spec.ImagePullSecrets,
 				Containers: []corev1.Container{
 					{
 						Image:     sts.Spec.Template.Spec.Containers[0].Image,
@@ -277,6 +279,7 @@ func buildHelmValuesFromOperator(
 						"annotations": sts.Spec.Template.Annotations,
 					},
 					"spec": map[string]interface{}{
+						"imagePullSecrets": sts.Spec.Template.Spec.ImagePullSecrets,
 						"containers": []map[string]interface{}{
 							{
 								"image":     cluster.Spec.Image.Name,
@@ -383,7 +386,8 @@ func buildNodeSpecFromHelm(
 				Annotations: sts.Spec.Template.Annotations,
 			},
 			Spec: corev1.PodSpec{
-				InitContainers: input.initContainers,
+				ImagePullSecrets: input.imagePullSecrets,
+				InitContainers:   input.initContainers,
 				Containers: []corev1.Container{
 					{
 						Image:     sts.Spec.Template.Spec.Containers[0].Image,
@@ -537,6 +541,7 @@ func buildHelmValuesFromHelm(
 						"annotations": sts.Spec.Template.Annotations,
 					},
 					"spec": map[string]interface{}{
+						"imagePullSecrets":              input.imagePullSecrets,
 						"priorityClassName":             input.priorityClassName,
 						"initContainers":                input.initContainers,
 						"volumes":                       input.customVolumes,
@@ -613,6 +618,9 @@ func generateParsedMigrationInput(
 			parsedInput.customVolumes = append(parsedInput.customVolumes, volume)
 		}
 	}
+
+	// Extract image pull secrets from StatefulSet
+	parsedInput.imagePullSecrets = sts.Spec.Template.Spec.ImagePullSecrets
 
 	for _, c := range sts.Spec.Template.Spec.Containers {
 		if c.Name == crdbContainerName {

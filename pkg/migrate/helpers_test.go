@@ -174,6 +174,12 @@ func TestGenerateParsedMigrationInput(t *testing.T) {
 		assert.NotNil(t, input.customVolumes[0].ConfigMap)
 		assert.Equal(t, "custom-config-map", input.customVolumes[0].ConfigMap.Name)
 	}
+
+	// Verify image pull secrets extraction
+	if len(input.imagePullSecrets) > 0 {
+		assert.Equal(t, "myregistrykey", input.imagePullSecrets[0].Name)
+	}
+
 	assert.Equal(t, []string{"country", "region"}, input.localityLabels)
 	assert.Equal(t, "crdb-critical", input.priorityClassName)
 	expectedJoinString := "${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257"

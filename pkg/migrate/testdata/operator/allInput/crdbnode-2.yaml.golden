@@ -94,6 +94,8 @@ spec:
           requests:
             cpu: 500m
             memory: 2Gi
+      imagePullSecrets:
+      - name: myregistrykey
       nodeSelector:
         cloud.google.com/gke-nodepool: default-pool
       serviceAccountName: cockroachdb
