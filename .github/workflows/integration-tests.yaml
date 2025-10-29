@@ -9,6 +9,10 @@ on:
 jobs:
   integration-tests-multi-region:
     runs-on: ubuntu-latest-4-core
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [kind, gcp]
     timeout-minutes: 90
     permissions:
       contents: 'read'
@@ -35,11 +39,11 @@ jobs:
           gcloud components install gke-gcloud-auth-plugin
       - name: Run tests (multi-region)
         env:
-          isNightly: true
+          PROVIDER: ${{ matrix.provider }}
           USE_GKE_GCLOUD_AUTH_PLUGIN: True
         run: |
-          set -e
-          make test/nightly-e2e/multi-region | tee test_output.log || true
+          set -euo pipefail
+          make test/e2e/multi-region | tee test_output.log
       - name: Archive test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -123,6 +127,10 @@ jobs:
             "${{ secrets.SLACK_WEBHOOK_URL }}"
   integration-tests-single-region:
     runs-on: ubuntu-latest-4-core
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [kind, gcp]
     timeout-minutes: 90
     permissions:
       contents: read
@@ -150,11 +158,11 @@ jobs:
           gcloud components install gke-gcloud-auth-plugin
       - name: Run tests (single-region)
         env:
-          isNightly: true
+          PROVIDER: ${{ matrix.provider }}
           USE_GKE_GCLOUD_AUTH_PLUGIN: True
         run: |
-          set -e
-          make test/nightly-e2e/single-region | tee test_output.log || true
+          set -euo pipefail
+          make test/e2e/single-region | tee test_output.log
       - name: Archive test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
