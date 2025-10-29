@@ -28,7 +28,7 @@ type CloudProvider interface {
 func ProviderFactory(providerType string, region *operator.Region) CloudProvider {
 	switch providerType {
 	case ProviderK3D:
-		provider := K3dRegion{Region: region}
+		provider := LocalRegion{Region: region, ProviderType: ProviderK3D}
 		provider.RegionCodes = GetRegionCodes(providerType)
 		return &provider
 	case ProviderGCP:

@@ -155,12 +155,17 @@ configure_node_labels() {
 
     # Label server node with region.
     server_node=$(kubectl --context "k3d-${cluster_name}" get nodes -l node-role.kubernetes.io/control-plane=true -o jsonpath='{.items[0].metadata.name}')
-    kubectl --context "k3d-${cluster_name}" label node "$server_node" "topology.kubernetes.io/region=${region}"
 
     # Label server node with a default zone, e.g. using the first zone from the list.
     # We want the server node also to be a schedulable node for cockroachdb pod.
     server_zone="${region}${AVAILABILITY_ZONES[0]}"
-    kubectl --context "k3d-${cluster_name}" label node "$server_node" "topology.kubernetes.io/zone=${server_zone}"
+    if [[ "${PROVIDER:-}" == "k3d" ]]; then
+        kubectl --context "k3d-${cluster_name}" label node "$server_node" "topology.kubernetes.io/dc=${region}"
+        kubectl --context "k3d-${cluster_name}" label node "$server_node" "topology.kubernetes.io/rack=${server_zone}"
+    else
+        kubectl --context "k3d-${cluster_name}" label node "$server_node" "topology.kubernetes.io/region=${region}"
+        kubectl --context "k3d-${cluster_name}" label node "$server_node" "topology.kubernetes.io/zone=${server_zone}"
+    fi
 
     # Remove the zone labeled for server node.
     available_agent_zones=("${AVAILABILITY_ZONES[@]:1}")
@@ -174,9 +179,15 @@ configure_node_labels() {
         zone_suffix="${available_agent_zones[$(( (cluster_index * zones) + agent_index )) % ${#available_agent_zones[@]}]}"
         zone="${region}${zone_suffix}"
 
-        kubectl --context "k3d-${cluster_name}" label node "$node" \
-            "topology.kubernetes.io/region=${region}" \
-            "topology.kubernetes.io/zone=${zone}"
+        if [[ "${PROVIDER:-}" == "k3d" ]]; then
+            kubectl --context "k3d-${cluster_name}" label node "$node" \
+                "topology.kubernetes.io/dc=${region}" \
+                "topology.kubernetes.io/rack=${zone}"
+        else
+            kubectl --context "k3d-${cluster_name}" label node "$node" \
+                "topology.kubernetes.io/region=${region}" \
+                "topology.kubernetes.io/zone=${zone}"
+        fi
 
         agent_index=$((agent_index + 1))
     done
