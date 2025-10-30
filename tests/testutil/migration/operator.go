@@ -34,11 +34,12 @@ func (o *PublicOperator) InstallOperator(t *testing.T) {
 	t.Logf("Installing cockroach-operator")
 	k8s.KubectlApply(t, kubectlOptions, "https://raw.githubusercontent.com/cockroachdb/cockroach-operator/master/install/operator.yaml")
 
+	t.Log("Waiting for cockroach-operator to be ready")
 	// Sleep for 10 seconds to check for the deployment to be ready
 	time.Sleep(10 * time.Second)
 	waitForOperatorToBeReady(t)
 
-	t.Log("Waiting for cockroach-operator to be ready")
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator-webhook-service", 10, 10*time.Second)
 	t.Log("Installing crdbcluster custom resource")
 	if _, err := k8s.GetNamespaceE(t, k8s.NewKubectlOptions("", "", o.Namespace), o.Namespace); err != nil && apierrors.IsNotFound(err) {
 		k8s.CreateNamespace(t, k8s.NewKubectlOptions("", "", o.Namespace), o.Namespace)

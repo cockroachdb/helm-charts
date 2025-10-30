@@ -559,6 +559,7 @@ func UninstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.Ku
 	helm.Delete(t, operatorOpts, operatorReleaseName, true)
 	k8s.RunKubectl(t, kubectlOptions, "delete", "service", "cockroach-webhook-service")
 	k8s.RunKubectl(t, kubectlOptions, "delete", "validatingwebhookconfiguration", "cockroach-webhook-config")
+	k8s.RunKubectl(t, kubectlOptions, "delete", "mutatingwebhookconfiguration", "cockroach-mutating-webhook-config")
 	k8s.DeleteNamespace(t, kubectlOptions, kubectlOptions.Namespace)
 }
 

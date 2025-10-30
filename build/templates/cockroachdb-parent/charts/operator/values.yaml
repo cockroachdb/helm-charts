@@ -9,7 +9,7 @@ image:
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
   # tag is the image tag.
-  tag: "6f62639e9fee99d99b0387a9dccda84daa1a489b592b008f2f354ec57eae09ac"
+  tag: "9975a200e1e046a067e0350b970174ef6590468a2d07d7565b34d4eff16a032f"
 # certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.
