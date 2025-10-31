@@ -34,7 +34,7 @@ spec:
   selector:
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
-  {{- with .Values.cockroachdb.crdbCluster.podLabels }}
+  {{- with .Values.cockroachdb.crdbCluster.podTemplate.metadata.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
   # Cockroach Cloud operator doesn't provide a way to change the sql,grpc and http ports for the pods. Hence, making these

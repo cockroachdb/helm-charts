@@ -279,7 +279,6 @@ func buildHelmValuesFromOperator(
 					"ingress": ingressValue,
 				},
 				"loggingConfigMapName": cluster.Spec.LogConfigMap,
-				"podLabels":            sts.Spec.Template.Labels,
 				"podTemplate": map[string]interface{}{
 					"metadata": map[string]interface{}{
 						"labels":      sts.Spec.Template.Labels,
@@ -636,7 +635,6 @@ func buildHelmValuesFromHelm(
 			},
 		},
 		"loggingConfigMapName": input.loggingConfigMap,
-		"podLabels":            sts.Spec.Template.Labels,
 		"podTemplate": map[string]interface{}{
 			"metadata": map[string]interface{}{
 				"labels":      sts.Spec.Template.Labels,

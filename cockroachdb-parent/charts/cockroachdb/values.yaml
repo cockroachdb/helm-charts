@@ -169,14 +169,6 @@ cockroachdb:
     clusterSettings: ~
     # timestamp captures the annotation timestamp used for rolling restarts.
     timestamp: "2021-10-18T00:00:00Z"
-    # resources captures the resource requests and limits for CockroachDB pods.
-    resources: ~
-      # limits:
-      #   cpu: 4000m
-      #   memory: 16Gi
-      # requests:
-      #   cpu: 4000m
-      #   memory: 16Gi
     # dataStore captures the disk configuration for CockroachDB storage.
     dataStore:
       # volumeClaimTemplate captures the PVC template for storage.
@@ -283,16 +275,13 @@ cockroachdb:
       # storageClassName: ""
       #
       # path is the absolute mount path inside the CockroachDB container to use for WAL failover side disk.
-      # Examples: 
+      # Examples:
       #   - /cockroach/cockroach-failover
       #   - /cockroach/custom/path
       # IMPORTANT: Set it only for fresh deployments. Changing it on upgrades might cause issues with the deployment.
       #
       # path: "/cockroach/cockroach-failover"
       #
-    # podLabels captures additional labels to apply to CockroachDB pods.
-    podLabels:
-      app.kubernetes.io/component: cockroachdb
     # startFlags specify the flags that will be used for starting the cluster.
     # Any flag defined in here will take precedence over the first-class
     # fields responsible for setting the same flags.
@@ -304,25 +293,8 @@ cockroachdb:
       # # omit defines a set of flags which will be omitted from the start command.
       # omit:
       #   - ""
-    # env captures environment variables set on CockroachDB pods.
-    env: []
-      # - name: APP_NAME
-      #   value: "CRDB"
-      # - name: POD_NAME
-      #   valueFrom:
-      #     fieldRef:
-      #       fieldPath: metadata.name
     # rollingRestartDelay specifies the delay between rolling restarts of CockroachDB pods.
     rollingRestartDelay: 30s
-    # topologySpreadConstraints captures pod topology spread constraints.
-    # It is recommended to spread CockroachDB pods across zones to ensure high availability.
-    topologySpreadConstraints:
-        # maxSkew defines the degree to which the pods can be unevenly distributed.
-      - maxSkew: 1
-        # topologyKey defines the key for topology spread.
-        topologyKey: topology.kubernetes.io/zone
-        # whenUnsatisfiable defines the behavior when constraints cannot be met.
-        whenUnsatisfiable: DoNotSchedule
     # service captures the Kubernetes Service configurations for CockroachDB pods.
     service:
       # ports captures the service port definitions.
@@ -369,43 +341,6 @@ cockroachdb:
           ingressClassName: ""
           annotations: {}
           host: ""
-    # podAnnotations captures annotations to apply to CockroachDB pods.
-    podAnnotations: {}
-    # terminationGracePeriod determines the time available to CockroachDB for graceful drain.
-    # It follows the metav1.Duration format, e.g., "300s", "5m" or "1h".
-    # terminationGracePeriod: "300s"
-    # nodeSelector captures the node selector labels for scheduling pods.
-    nodeSelector: {}
-    # affinity captures scheduling affinity rules for CockroachDB pods.
-    affinity:
-      # nodeAffinity:
-      #   requiredDuringSchedulingIgnoredDuringExecution:
-      #     nodeSelectorTerms:
-      #       - matchExpressions:
-      #           - key: kubernetes.io/os
-      #             operator: In
-      #             values:
-      #               - linux
-      # podAffinity:
-      #   requiredDuringSchedulingIgnoredDuringExecution:
-      #     - labelSelector:
-      #         matchExpressions:
-      #           - key: security
-      #             operator: In
-      #             values:
-      #               - S1
-      #       topologyKey: topology.kubernetes.io/zone
-      # podAntiAffinity:
-      #   preferredDuringSchedulingIgnoredDuringExecution:
-      #     - weight: 100
-      #       podAffinityTerm:
-      #         labelSelector:
-      #           matchExpressions:
-      #             - key: security
-      #               operator: In
-      #               values:
-      #                 - S2
-      #         topologyKey: topology.kubernetes.io/zone
       #
     # sideCars captures the configuration for sidecar containers.
     sideCars:
@@ -415,8 +350,6 @@ cockroachdb:
       containers: []
       # volumes captures additional volumes for CockroachDB pods.
       volumes: []
-    # tolerations captures the tolerations for scheduling CockroachDB pods.
-    tolerations: []
     # localityLabels captures labels used to determine node locality.
     # It is an ordered, comma-separated list of keys that which must be present as labels on the nodes.
     # For region and zone to be part of the locality, the labels (topology.kubernetes.io/region, topology.kubernetes.io/region) must be set on the nodes.
@@ -471,23 +404,83 @@ cockroachdb:
     # podTemplate is an optional pod specification that overrides the default pod specification configured by the operator.
     # If specified, podTemplate is merged with the default pod specification, with settings in podTemplate taking precedence.
     # This can be used to add or update containers, volumes, and other settings of the CockroachDB pod.
-    podTemplate: {}
-      # # metadata captures the pod metadata for CockroachDB pods.
-      # metadata: {}
-      # # spec captures the pod specification for CockroachDB pods.
-      # spec:
-      #   # initContainers captures the list of init containers for CockroachDB pods.
-      #   initContainers:
-      #     - name : cockroachdb-init
-      #       image: us-docker.pkg.dev/cockroach-cloud-images/data-plane/init-container@sha256:c3e4ba851802a429c7f76c639a64b9152d206cebb31162c1760f05e98f7c4254
-      #   # containers captures the list of containers for CockroachDB pods.
-      #   containers:
-      #     - name: cockroachdb
-      #       image: cockroachdb/cockroach:v25.2.2
-      #     - name: cert-reloader
-      #       image: us-docker.pkg.dev/cockroach-cloud-images/data-plane/inotifywait:87edf086db32734c7fa083a62d1055d664900840
-      #   # imagePullSecrets captures the secrets for fetching images from private registries.
-      #   imagePullSecrets: []
+    podTemplate:
+      # metadata captures the pod metadata for CockroachDB pods.
+      metadata:
+        labels:
+          app.kubernetes.io/component: cockroachdb
+        annotations: {}
+      # spec captures the pod specification for CockroachDB pods.
+      spec:
+        # imagePullSecrets captures the secrets for fetching images from private registries.
+      # imagePullSecrets: []
+        # initContainers captures the list of init containers for CockroachDB pods.
+      # initContainers:
+      #   - name : cockroachdb-init
+      #     image: us-docker.pkg.dev/cockroach-cloud-images/data-plane/init-container@sha256:c3e4ba851802a429c7f76c639a64b9152d206cebb31162c1760f05e98f7c4254
+        # containers captures the list of containers for CockroachDB pods.
+        containers:
+          - name: cockroachdb
+            # env captures environment variables set on CockroachDB pods.
+            env: []
+            # - name: APP_NAME
+            #   value: "CRDB"
+            # - name: POD_NAME
+            #   valueFrom:
+            #     fieldRef:
+            #       fieldPath: metadata.name
+            resources: {}
+           # image: cockroachdb/cockroach:v25.2.2
+        # - name: cert-reloader
+        #   image: us-docker.pkg.dev/cockroach-cloud-images/data-plane/inotifywait:87edf086db32734c7fa083a62d1055d664900840
+        
+        # topologySpreadConstraints captures pod topology spread constraints.
+        # It is recommended to spread CockroachDB pods across zones to ensure high availability.
+        topologySpreadConstraints:
+            # maxSkew defines the degree to which the pods can be unevenly distributed.
+          - maxSkew: 1
+            # topologyKey defines the key for topology spread.
+            topologyKey: topology.kubernetes.io/zone
+            # whenUnsatisfiable defines the behavior when constraints cannot be met.
+            whenUnsatisfiable: DoNotSchedule
+        # terminationGracePeriodSeconds determines the time available to CockroachDB for graceful drain.
+      # terminationGracePeriodSeconds: 300
+        # tolerations captures the tolerations for pods of the self-signer job.
+        # https://kubernetes.io/docs/concepts/configuration/taint-and-toleration/
+      # tolerations: []
+        # nodeSelector captures the node selector labels for scheduling pods.
+      # nodeSelector: {}
+        # affinity captures scheduling affinity rules for CockroachDB pods.
+      # affinity:
+          # nodeAffinity:
+          #   requiredDuringSchedulingIgnoredDuringExecution:
+          #     nodeSelectorTerms:
+          #       - matchExpressions:
+          #           - key: kubernetes.io/os
+          #             operator: In
+          #             values:
+          #               - linux
+          # podAffinity:
+          #   requiredDuringSchedulingIgnoredDuringExecution:
+          #     - labelSelector:
+          #         matchExpressions:
+          #           - key: security
+          #             operator: In
+          #             values:
+          #               - S1
+          #       topologyKey: topology.kubernetes.io/zone
+          # podAntiAffinity:
+          #   preferredDuringSchedulingIgnoredDuringExecution:
+          #     - weight: 100
+          #       podAffinityTerm:
+          #         labelSelector:
+          #           matchExpressions:
+          #             - key: security
+          #               operator: In
+          #               values:
+          #                 - S2
+          #         topologyKey: topology.kubernetes.io/zone
+          #
 
     # persistentVolumeClaimRetentionPolicy is used to Retain or Delete the PVCs when the node is deleted.
     # If not specified, the PVCs will be deleted when the node is deleted.
