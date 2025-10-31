@@ -2166,14 +2166,6 @@ func (v *podTemplateValidators) validateImagePullSecret(expectedName string) {
 	require.Equal(v.subT, expectedName, imagePullSecret.Name)
 }
 
-func (v *podTemplateValidators) validateEmptyPodTemplate() {
-	if v.spec != nil {
-		require.Empty(v.subT, v.spec.Metadata.Labels, "Expected podTemplate labels to be empty when no configuration is provided")
-		require.Empty(v.subT, v.spec.Metadata.Annotations, "Expected podTemplate annotations to be empty when no configuration is provided")
-		require.Empty(v.subT, v.spec.Spec.Containers, "Expected podTemplate containers to be empty when no configuration is provided")
-	}
-}
-
 // PodTemplateExpected represents expected validation criteria for pod template tests.
 type PodTemplateExpected struct {
 	hasMetadata         bool
@@ -2224,8 +2216,6 @@ func validatePodTemplateConfiguration(
 				validator.validateImagePullSecret(expected.imagePullSecretName)
 			}
 		}
-	} else {
-		validator.validateEmptyPodTemplate()
 	}
 }
 

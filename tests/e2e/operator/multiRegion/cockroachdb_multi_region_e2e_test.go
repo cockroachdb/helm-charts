@@ -216,7 +216,11 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 		options := &helm.Options{
 			KubectlOptions: kubectlOptions,
 			ExtraArgs: map[string][]string{
-				"upgrade": {"--reuse-values", "--set", fmt.Sprintf("cockroachdb.crdbCluster.resources.requests.cpu=%s", "100m")},
+				"upgrade": {
+					"--reuse-values",
+					"--set", "cockroachdb.crdbCluster.podTemplate.spec.containers[0].name=cockroachdb",
+					"--set", fmt.Sprintf("cockroachdb.crdbCluster.podTemplate.spec.containers[0].resources.requests.cpu=%s", "100m"),
+				},
 			},
 		}
 		// Apply Helm upgrade with updated values.

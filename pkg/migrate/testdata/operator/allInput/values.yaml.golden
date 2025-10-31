@@ -14,11 +14,6 @@ cockroachdb:
     image:
       name: cockroachdb/cockroach:v25.1.5
     loggingConfigMapName: cockroachdb-log-config
-    podLabels:
-      app.kubernetes.io/component: database
-      app.kubernetes.io/instance: cockroachdb
-      app.kubernetes.io/name: cockroachdb
-      crdb: is-cool
     podTemplate:
       metadata:
         annotations:

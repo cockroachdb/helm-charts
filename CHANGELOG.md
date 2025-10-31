@@ -2,6 +2,19 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-25.3.3-preview+1] 2025-10-29
+- Remove the following deprecated fields in favor of the corresponding podTemplate fields::
+    - cockroachdb.crdbcluster.resources
+    - cockroachdb.crdbcluster.podLabels
+    - cockroachdb.crdbcluster.env
+    - cockroachdb.crdbcluster.topologySpreadConstraints
+    - cockroachdb.crdbcluster.podAnnotations
+    - cockroachdb.crdbcluster.nodeSelector
+    - cockroachdb.crdbcluster.affinity
+    - cockroachdb.crdbcluster.tolerations
+- Add WAL failover custom path support in CockroachDB operator.
+- Add virtual cluster support in CockroachDB operator
+
 ## [cockroachdb-parent-25.3.0-preview] - 2025-08-26
 ### Added
 - `loggingConfigVars` field for supporting multiple environment configuration variables in the `loggingConfigMap`.
