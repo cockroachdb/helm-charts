@@ -48,7 +48,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: multi-region-test-results
+          name: multi-region-test-results-${{ matrix.provider }}
           path: |
             test_output.log
             test_output.json
@@ -167,7 +167,7 @@ jobs:
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: single-region-test-results
+          name: single-region-test-results-${{ matrix.provider }}
           path: |
             test_output.log
             test_output.json
