@@ -84,10 +84,10 @@ jobs:
           FAILED_COUNT=$(jq -r 'select(.Action=="fail") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | wc -l)
 
           if [ "$FAILED_COUNT" -gt 0 ]; then
-            STATUS="❌ *Multi-region integration tests failed!*"
+            STATUS="❌ *Multi-region e2e tests failed!*"
             COLOR="#ff0000"
           else
-            STATUS="✅ *Multi-region integration tests passed!*"
+            STATUS="✅ *Multi-region e2e tests passed!*"
             COLOR="#36a64f"
           fi
 
@@ -203,10 +203,10 @@ jobs:
           FAILED_COUNT=$(jq -r 'select(.Action=="fail") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | wc -l)
 
           if [ "$FAILED_COUNT" -gt 0 ]; then
-            STATUS="❌ *Single-region integration tests failed!*"
+            STATUS="❌ *Single-region e2e tests failed!*"
             COLOR="#ff0000"
           else
-            STATUS="✅ *Single-region integration tests passed!*"
+            STATUS="✅ *Single-region e2e tests passed!*"
             COLOR="#36a64f"
           fi
 
