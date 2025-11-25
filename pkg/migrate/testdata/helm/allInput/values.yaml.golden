@@ -17,10 +17,6 @@ cockroachdb:
     - country
     - region
     loggingConfigMapName: cockroachdb-log-config
-    podLabels:
-      app.kubernetes.io/component: cockroachdb
-      app.kubernetes.io/instance: cockroachdb
-      app.kubernetes.io/name: cockroachdb
     podTemplate:
       metadata:
         annotations:

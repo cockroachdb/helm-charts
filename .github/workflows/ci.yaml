@@ -164,7 +164,7 @@ jobs:
 
   helm-rotate-cert-e2e:
     name: Helm-rotate-cert-Test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest-4-core
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
