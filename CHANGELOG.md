@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-25.4.0-preview] 2025-11-25
+### Changed
+- Updated the CockroachDB version to v25.4.0.
+
 ## [cockroachdb-parent-25.3.4-preview+1] 2025-11-25
 ### Added
 - Added WAL failover custom path support in CockroachDB operator.
