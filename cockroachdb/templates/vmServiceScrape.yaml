@@ -1,8 +1,8 @@
-{{- $serviceMonitor := .Values.serviceMonitor -}}
+{{- $vmServiceScrape := .Values.vmServiceScrape -}}
 {{- $ports := .Values.service.ports -}}
-{{- if $serviceMonitor.enabled }}
-apiVersion: monitoring.coreos.com/v1
-kind: ServiceMonitor
+{{- if $vmServiceScrape.enabled }}
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
 metadata:
   name: {{ template "cockroachdb.fullname" . }}
   namespace: {{ .Release.Namespace | quote }}
@@ -11,15 +11,15 @@ metadata:
     app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-  {{- if $serviceMonitor.labels }}
-    {{- toYaml $serviceMonitor.labels | nindent 4 }}
+  {{- if $vmServiceScrape.labels }}
+    {{- toYaml $vmServiceScrape.labels | nindent 4 }}
   {{- end }}
   {{- with .Values.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- if $serviceMonitor.annotations }}
+  {{- if $vmServiceScrape.annotations }}
   annotations:
-    {{- toYaml $serviceMonitor.annotations | nindent 4 }}
+    {{- toYaml $vmServiceScrape.annotations | nindent 4 }}
   {{- end }}
 spec:
   selector:
@@ -33,35 +33,35 @@ spec:
       {{- toYaml . | nindent 6 }}
     {{- end }}
   namespaceSelector:
-  {{- if $serviceMonitor.namespaced }}
+  {{- if $vmServiceScrape.namespaced }}
     matchNames:
       - {{ .Release.Namespace }}
   {{- else }}
     any: true
   {{- end }}
   endpoints:
-    - port: {{ $ports.http.name | quote }}
-      path: /_status/vars
-    {{- if $serviceMonitor.interval }}
-      interval: {{ $serviceMonitor.interval }}
+  - port: {{ $ports.http.name | quote }}
+    path: /_status/vars
+    {{- if $vmServiceScrape.interval }}
+    interval: {{ $vmServiceScrape.interval }}
     {{- end }}
-    {{- if $serviceMonitor.scrapeTimeout }}
-      scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
+    {{- if $vmServiceScrape.scrapeTimeout }}
+    scrapeTimeout: {{ $vmServiceScrape.scrapeTimeout }}
     {{- end }}
-    {{- if .Values.serviceMonitor.tlsConfig }}
-      tlsConfig: {{ toYaml .Values.serviceMonitor.tlsConfig | nindent 6 }}
+    {{- if .Values.vmServiceScrape.tlsConfig }}
+    tlsConfig: {{ toYaml .Values.vmServiceScrape.tlsConfig | nindent 6 }}
     {{- end }}
   {{- if .Values.visus.enabled }}
-    - port: visus-http
-      path: /_status/vars
-    {{- if $serviceMonitor.interval }}
-      interval: {{ $serviceMonitor.interval }}
+  - port: visus-http
+    path: /_status/vars
+    {{- if $vmServiceScrape.interval }}
+    interval: {{ $vmServiceScrape.interval }}
     {{- end }}
-    {{- if $serviceMonitor.scrapeTimeout }}
-      scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
+    {{- if $vmServiceScrape.scrapeTimeout }}
+    scrapeTimeout: {{ $vmServiceScrape.scrapeTimeout }}
     {{- end }}
-    {{- if and (not .Values.visus.insecure) .Values.serviceMonitor.tlsConfig }}
-      tlsConfig: {{ toYaml .Values.serviceMonitor.tlsConfig | nindent 6 }}
+    {{- if and (not .Values.visus.insecure) .Values.vmServiceScrape.tlsConfig }}
+    tlsConfig: {{ toYaml .Values.vmServiceScrape.tlsConfig | nindent 6 }}
     {{- end }}
   {{- end }}
 {{- if .Values.visus.enabled }}
@@ -76,15 +76,15 @@ metadata:
     app.kubernetes.io/name: "{{ template "cockroachdb.name" . }}-visus"
     app.kubernetes.io/instance: {{ .Release.Name | quote }}
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-  {{- if $serviceMonitor.labels }}
-    {{- toYaml $serviceMonitor.labels | nindent 4 }}
+  {{- if $vmServiceScrape.labels }}
+    {{- toYaml $vmServiceScrape.labels | nindent 4 }}
   {{- end }}
   {{- with .Values.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  {{- if $serviceMonitor.annotations }}
+  {{- if $vmServiceScrape.annotations }}
   annotations:
-    {{- toYaml $serviceMonitor.annotations | nindent 4 }}
+    {{- toYaml $vmServiceScrape.annotations | nindent 4 }}
   {{- end }}
 spec:
   selector:
@@ -98,7 +98,7 @@ spec:
       {{- toYaml . | nindent 6 }}
     {{- end }}
   namespaceSelector:
-  {{- if $serviceMonitor.namespaced }}
+  {{- if $vmServiceScrape.namespaced }}
     matchNames:
       - {{ .Release.Namespace }}
   {{- else }}
@@ -107,14 +107,14 @@ spec:
   endpoints:
     - port: visus-http
       path: /_status/vars
-    {{- if $serviceMonitor.interval }}
-      interval: {{ $serviceMonitor.interval }}
+    {{- if $vmServiceScrape.interval }}
+      interval: {{ $vmServiceScrape.interval }}
     {{- end }}
-    {{- if $serviceMonitor.scrapeTimeout }}
-      scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
+    {{- if $vmServiceScrape.scrapeTimeout }}
+      scrapeTimeout: {{ $vmServiceScrape.scrapeTimeout }}
     {{- end }}
-    {{- if and (not .Values.visus.insecure) .Values.serviceMonitor.tlsConfig }}
-      tlsConfig: {{ toYaml .Values.serviceMonitor.tlsConfig | nindent 8 }}
+    {{- if and (not .Values.visus.insecure) .Values.vmServiceScrape.tlsConfig }}
+      tlsConfig: {{ toYaml .Values.vmServiceScrape.tlsConfig | nindent 8 }}
     {{- end }}
 {{- end }}
 {{- end }}
