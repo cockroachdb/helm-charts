@@ -51,19 +51,6 @@ spec:
     {{- if .Values.vmServiceScrape.tlsConfig }}
     tlsConfig: {{ toYaml .Values.vmServiceScrape.tlsConfig | nindent 6 }}
     {{- end }}
-  {{- if .Values.visus.enabled }}
-  - port: visus-http
-    path: /_status/vars
-    {{- if $vmServiceScrape.interval }}
-    interval: {{ $vmServiceScrape.interval }}
-    {{- end }}
-    {{- if $vmServiceScrape.scrapeTimeout }}
-    scrapeTimeout: {{ $vmServiceScrape.scrapeTimeout }}
-    {{- end }}
-    {{- if and (not .Values.visus.insecure) .Values.vmServiceScrape.tlsConfig }}
-    tlsConfig: {{ toYaml .Values.vmServiceScrape.tlsConfig | nindent 6 }}
-    {{- end }}
-  {{- end }}
 {{- if .Values.visus.enabled }}
 ---
 apiVersion: operator.victoriametrics.com/v1beta1

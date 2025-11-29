@@ -51,23 +51,10 @@ spec:
     {{- if .Values.serviceMonitor.tlsConfig }}
       tlsConfig: {{ toYaml .Values.serviceMonitor.tlsConfig | nindent 6 }}
     {{- end }}
-  {{- if .Values.visus.enabled }}
-    - port: visus-http
-      path: /_status/vars
-    {{- if $serviceMonitor.interval }}
-      interval: {{ $serviceMonitor.interval }}
-    {{- end }}
-    {{- if $serviceMonitor.scrapeTimeout }}
-      scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
-    {{- end }}
-    {{- if and (not .Values.visus.insecure) .Values.serviceMonitor.tlsConfig }}
-      tlsConfig: {{ toYaml .Values.serviceMonitor.tlsConfig | nindent 6 }}
-    {{- end }}
-  {{- end }}
 {{- if .Values.visus.enabled }}
 ---
-apiVersion: operator.victoriametrics.com/v1beta1
-kind: VMServiceScrape
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
 metadata:
   name: "{{ template "cockroachdb.fullname" . }}-visus"
   namespace: {{ .Release.Namespace | quote }}
