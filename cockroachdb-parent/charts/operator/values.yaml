@@ -10,12 +10,12 @@ image:
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
   # tag is the image tag.
-  tag: "9975a200e1e046a067e0350b970174ef6590468a2d07d7565b34d4eff16a032f"
+  tag: "c76c24c2a9f4b2a0af5bcea28731c282fcbf1c6e16307795d8a9d57392f6b574"
 # certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.
   validForDays: ""
 # numReplicas specifies the number of replicas for the Operator.
-numReplicas: 1
+numReplicas: 3
 # cloudRegion specifies the cloud region for the Operator.
 cloudRegion: "us-east1"
