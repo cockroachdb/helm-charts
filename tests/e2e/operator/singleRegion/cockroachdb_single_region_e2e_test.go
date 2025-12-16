@@ -213,7 +213,7 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 			kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, operatorNamespace)
 
 			// Verify init command in logs
-			r.VerifyInitCommandInOperatorLogs(t, kubectlOptions, tt.initCommand)
+			operator.VerifyInitCommandInOperatorLogs(t, kubectlOptions, tt.initCommand)
 			r.Namespace[cluster] = operatorNamespace
 		})
 	}

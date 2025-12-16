@@ -506,7 +506,7 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 }
 
 // VerifyInitCommandInOperatorLogs verifies that the operator logs contain the expected init command.
-func (r Region) VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOptions, expected string) {
+func VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOptions, expected string) {
 	// Get operator pods
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: OperatorLabelSelector,
@@ -527,7 +527,10 @@ func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.Kube
 
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
-		ExtraArgs:      helmExtraArgs,
+		SetValues: map[string]string{
+			"numReplicas": "1",
+		},
+		ExtraArgs: helmExtraArgs,
 	}
 
 	// Install Operator on the cluster.
