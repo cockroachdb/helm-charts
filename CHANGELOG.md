@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-25.4.2-preview+3] 2025-12-22
+### Fixed
+- Updated the Operator image to fix pkill command failures within the cert-reloader container.
+
 ## [cockroachdb-parent-25.4.0-preview] 2025-11-25
 ### Changed
 - Updated the CockroachDB version to v25.4.0.
