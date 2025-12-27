@@ -57,7 +57,7 @@ spec:
           command:
             - /bin/sh
             - -c
-            - "cp -f /certs/* /cockroach-certs/; chmod 0400 /cockroach-certs/*.key"
+            - "cp -f /certs/* /cockroach-certs/; cp -f /client-certs/* /cockroach-certs/; chmod 0400 /cockroach-certs/*.key"
           env:
             - name: POD_NAMESPACE
               valueFrom:
@@ -77,6 +77,8 @@ spec:
               mountPath: /cockroach-certs/
             - name: certs-secret
               mountPath: /certs/
+            - name: client-secret
+              mountPath: /client-certs/
         {{- with .Values.tls.copyCerts.resources }}
           resources: {{- toYaml . | nindent 12 }}
         {{- end }}
