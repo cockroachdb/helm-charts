@@ -71,7 +71,7 @@ func TestConvertSecretToConfigMap(t *testing.T) {
 
 	configMap, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, "value1", configMap.Data[enterpriseOperatorLogConfigKey])
+	assert.Equal(t, "value1", configMap.Data[cockroachdbOperatorLogConfigKey])
 }
 
 func TestMoveLoggingConfig(t *testing.T) {
@@ -97,7 +97,7 @@ func TestMoveLoggingConfig(t *testing.T) {
 
 	updateLogCM, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
 	require.NoError(t, err)
-	assert.Equal(t, "value1", updateLogCM.Data[enterpriseOperatorLogConfigKey])
+	assert.Equal(t, "value1", updateLogCM.Data[cockroachdbOperatorLogConfigKey])
 
 }
 

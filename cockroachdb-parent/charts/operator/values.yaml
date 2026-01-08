@@ -10,7 +10,7 @@ image:
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
   # tag is the image tag.
-  tag: "1cf224626cbd631fddc87f36eb6e4624f268061f5437fe8e7cdcfae5b5ee7805"
+  tag: "1ddd85df7707895b227ffd2f228ba858dc177d09777ccc02d990512c67b0fd10"
 # certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.
@@ -19,3 +19,7 @@ certificate:
 numReplicas: 3
 # cloudRegion specifies the cloud region for the Operator.
 cloudRegion: "us-east1"
+# clusterRole defines the cluster role settings for the Operator.
+clusterRole:
+  # name specifies the name of the ClusterRole and ClusterRoleBinding.
+  name: "cockroachdb-operator-default"

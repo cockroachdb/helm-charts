@@ -29,28 +29,28 @@ import (
 )
 
 const (
-	logConfigVolumeName            = "log-config"
-	crdbContainerName              = "db"
-	joinStrPrefix                  = "--join="
-	portPrefix                     = "--port="
-	httpPortPrefix                 = "--http-port="
-	insecureFlag                   = "--insecure"
-	localityFlag                   = "--locality"
-	logtostderrFlag                = "--logtostderr"
-	logFlag                        = "--log"
-	grpcName                       = "grpc"
-	grpcPort                       = 26258
-	sqlName                        = "sql"
-	sqlPort                        = 26257
-	ProtocolName                   = "TCP"
-	publicSvcYaml                  = "public-service.yaml"
-	helmLogConfigKey               = "log-config.yaml"
-	publicOperatorLogConfigKey     = "logging.yaml"
-	enterpriseOperatorLogConfigKey = "logs.yaml"
-	certManagerGroup               = "cert-manager.io"
-	certManagerVersion             = "v1"
-	certificatesResource           = "certificates"
-	issuersResource                = "issuers"
+	logConfigVolumeName             = "log-config"
+	crdbContainerName               = "db"
+	joinStrPrefix                   = "--join="
+	portPrefix                      = "--port="
+	httpPortPrefix                  = "--http-port="
+	insecureFlag                    = "--insecure"
+	localityFlag                    = "--locality"
+	logtostderrFlag                 = "--logtostderr"
+	logFlag                         = "--log"
+	grpcName                        = "grpc"
+	grpcPort                        = 26258
+	sqlName                         = "sql"
+	sqlPort                         = 26257
+	ProtocolName                    = "TCP"
+	publicSvcYaml                   = "public-service.yaml"
+	helmLogConfigKey                = "log-config.yaml"
+	publicOperatorLogConfigKey      = "logging.yaml"
+	cockroachdbOperatorLogConfigKey = "logs.yaml"
+	certManagerGroup                = "cert-manager.io"
+	certManagerVersion              = "v1"
+	certificatesResource            = "certificates"
+	issuersResource                 = "issuers"
 )
 
 var (
@@ -239,6 +239,7 @@ func buildHelmValuesFromOperator(
 				},
 			},
 			"crdbCluster": map[string]interface{}{
+				"mode": "MutableOnly",
 				"image": map[string]interface{}{
 					"name": cluster.Spec.Image.Name,
 				},
@@ -554,7 +555,7 @@ func buildNodeSpecFromHelm(
 	return nodeSpec
 }
 
-// buildHelmValuesFromHelm builds a values.yaml for the CockroachDB Enterprise Operator Helm chart from a StatefulSet created by the CockroachDB Helm chart.
+// buildHelmValuesFromHelm builds a values.yaml for the CockroachDB Operator Helm chart from a StatefulSet created by the CockroachDB Helm chart.
 func buildHelmValuesFromHelm(
 	sts *appsv1.StatefulSet,
 	cloudProvider string,
@@ -597,6 +598,7 @@ func buildHelmValuesFromHelm(
 	}
 
 	crdbCluster := map[string]interface{}{
+		"mode": "MutableOnly",
 		"image": map[string]interface{}{
 			"name": sts.Spec.Template.Spec.Containers[0].Image,
 		},
@@ -705,7 +707,7 @@ func generateParsedMigrationInput(
 	}
 
 	// In the public Helm chart, logging configuration is provided as a secret to the StatefulSet.
-	// However, in the Cockroach Enterprise Operator, it is supplied as a ConfigMap.
+	// However, in the CockroachDB Operator, it is supplied as a ConfigMap.
 	for _, vol := range sts.Spec.Template.Spec.Volumes {
 		if vol.Name == logConfigVolumeName {
 			if vol.Secret != nil {
@@ -791,7 +793,10 @@ func extractJoinStringAndFlags(
 	parsedInput *parsedMigrationInput,
 	args []string) error {
 
-	flags := &v1beta1.Flags{}
+	flags := &v1beta1.Flags{
+		Upsert: []string{},
+		Omit:   []string{},
+	}
 	// Regular expression to match flags (e.g., --advertise-host=something)
 	flagRegex := regexp.MustCompile(`--([\w-]+)=(.*)`)
 
@@ -823,7 +828,7 @@ func extractJoinStringAndFlags(
 				parsedInput.localityLabels = append(parsedInput.localityLabels, strings.Split(labels[i], "=")[0])
 			}
 
-		// CockroachDB Enterprise Operator automatically adds "--logs" flag if it is not present.
+		// CockroachDB Operator automatically adds "--logs" flag if it is not present.
 		case strings.HasPrefix(arg, logtostderrFlag):
 			continue
 
@@ -867,7 +872,7 @@ func ConvertSecretToConfigMap(ctx context.Context, clientset kubernetes.Interfac
 	configMapData := make(map[string]string)
 	for key, value := range secret.Data {
 		if key == helmLogConfigKey {
-			configMapData[enterpriseOperatorLogConfigKey] = string(value)
+			configMapData[cockroachdbOperatorLogConfigKey] = string(value)
 		}
 	}
 
@@ -891,8 +896,8 @@ func ConvertSecretToConfigMap(ctx context.Context, clientset kubernetes.Interfac
 }
 
 // moveConfigMapKey moves the "logging.yaml" key to "logs.yaml" in the ConfigMap.
-// This is a solution to support the migration from the public operator to the Cockroach Enterprise Operator.
-// The public operator uses "logging.yaml" and the Cockroach Enterprise Operator uses "logs.yaml".
+// This is a solution to support the migration from the public operator to the Cockroach CockroachDB Operator.
+// The public operator uses "logging.yaml" and the CockroachDB Operator uses "logs.yaml".
 func moveConfigMapKey(ctx context.Context, clientset kubernetes.Interface, namespace, configMapName string) error {
 	configMap, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
 	if err != nil {
@@ -901,7 +906,7 @@ func moveConfigMapKey(ctx context.Context, clientset kubernetes.Interface, names
 
 	for key, val := range configMap.Data {
 		if key == publicOperatorLogConfigKey {
-			configMap.Data[enterpriseOperatorLogConfigKey] = val
+			configMap.Data[cockroachdbOperatorLogConfigKey] = val
 		}
 	}
 
@@ -969,7 +974,7 @@ func generateUpdatedPublicServiceConfig(ctx context.Context, clientset kubernete
 	return nil
 }
 
-// buildRBACFromPublicOperator builds the RBAC resources from the public operator which is used by the cockroachdb enterprise operator.
+// buildRBACFromPublicOperator builds the RBAC resources from the public operator which is used by the CockroachDB operator.
 func buildRBACFromPublicOperator(cluster publicv1.CrdbCluster, outputDir string) error {
 	clusterRole := &rbacv1.ClusterRole{
 		TypeMeta: metav1.TypeMeta{

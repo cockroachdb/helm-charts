@@ -12,7 +12,7 @@ value: 500000000
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: cockroach-operator-role
+  name: {{ .Values.clusterRole.name | default "cockroachdb-operator-default" }}
 rules:
   # Namespace permissions should be dropped once this K8s bug is fixed.
   # https://github.com/kubernetes/kubernetes/issues/115819
@@ -109,6 +109,7 @@ rules:
       - networking.k8s.io
     resources:
       - networkpolicies
+      - ingresses
     verbs:
       - create
       - delete
@@ -164,6 +165,7 @@ rules:
       - list
       - patch
       - watch
+      - update
   - apiGroups:
       - ""
     resources:
@@ -285,6 +287,7 @@ rules:
     verbs:
       - create
       - list
+      - get
   - apiGroups:
       - apiextensions.k8s.io
     resources:
@@ -319,6 +322,7 @@ rules:
       - list
       - patch
       - watch
+      - update
   - apiGroups:
       - ""
     resources:
@@ -424,13 +428,13 @@ metadata:
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: cockroach-operator-default
+  name: {{ .Values.clusterRole.name | default "cockroachdb-operator-default" }}
   labels:
     app: cockroach-operator
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: cockroach-operator-role
+  name: {{ .Values.clusterRole.name | default "cockroachdb-operator-default" }}
 subjects:
   - name: cockroach-operator-default
     namespace: {{ .Release.Namespace }}

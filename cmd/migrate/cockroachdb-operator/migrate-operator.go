@@ -1,4 +1,4 @@
-package cockroachdb_enterprise_operator
+package cockroachdb_operator
 
 import (
 	"fmt"
@@ -13,16 +13,16 @@ var (
 
 var buildManifestFromOperator = &cobra.Command{
 	Use:   "operator",
-	Short: "Generate migration manifests for cockroach-enterprise-operator from cockroach-operator(https://github.com/cockroachdb/cockroach-operator)",
-	Long: `Generate the required Kubernetes manifests to assist in migrating from the CockroachDB Operator 
-to the CockroachDB Enterprise Operator.
+	Short: "Generate migration manifests for the CockroachDB Operator from the Public Operator (https://github.com/cockroachdb/cockroach-operator)",
+	Long: `Generate the required Kubernetes manifests to assist in migrating from the Public Operator 
+to the CockroachDB Operator.
 
 This command is designed to simplify the migration process by generating manifests that are compatible 
-with the Cockroach Enterprise Operator, including resources such as CRDBNode and values.yaml
+with the CockroachDB Operator, including resources such as CRDBNode and values.yaml
 
-It is intended for users who initially deployed CockroachDB via the Cockroach Operator(https://github.com/cockroachdb/cockroach-operator) 
+It is intended for users who initially deployed CockroachDB via the Public Operator (https://github.com/cockroachdb/cockroach-operator) 
 and now wish to take advantage of the additional capabilities and lifecycle management features offered 
-by the Cockroach Enterprise Operator.
+by the CockroachDB Operator.
 
 Always review the generated manifests thoroughly and test in a staging environment before applying changes 
 to a production cluster.
