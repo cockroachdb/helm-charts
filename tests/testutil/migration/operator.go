@@ -50,21 +50,11 @@ func (o *PublicOperator) InstallOperator(t *testing.T) {
 	require.NoError(t, o.CrdbCluster.K8sClient.Create(o.Ctx, crdbCluster))
 }
 
-func (o *PublicOperator) UninstallOperator(t *testing.T) {
+func (o *PublicOperator) UninstallConflictingResources(t *testing.T) {
 	kubectlOptions := k8s.NewKubectlOptions("", "", OperatorNamespace)
-	crdbCluster := o.CustomResourceBuilder.Cr()
-	crdbCluster.Namespace = o.Namespace
-	k8s.RunKubectl(t, kubectlOptions, "delete", "clusterrolebinding", "cockroach-operator-rolebinding")
-	k8s.RunKubectl(t, k8s.NewKubectlOptions("", "", o.Namespace), "delete", "crdbcluster", crdbCluster.Name, "--cascade=orphan")
 
-	t.Logf("Uninstalling cockroach-operator")
-	k8s.KubectlDelete(t, kubectlOptions, "https://raw.githubusercontent.com/cockroachdb/cockroach-operator/master/install/crds.yaml")
+	k8s.RunKubectl(t, kubectlOptions, "delete", "clusterrolebinding", "cockroach-operator-rolebinding")
 	k8s.RunKubectl(t, kubectlOptions, "delete", "clusterrole", "cockroach-operator-role")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "serviceaccount", "cockroach-operator-sa")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "deployment", "cockroach-operator-manager")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "service", "cockroach-operator-webhook-service")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "mutatingwebhookconfigurations", "cockroach-operator-mutating-webhook-configuration")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "validatingwebhookconfigurations", "cockroach-operator-validating-webhook-configuration")
 }
 
 func waitForOperatorToBeReady(t *testing.T) {

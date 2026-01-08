@@ -243,7 +243,7 @@ jobs:
           docker volume prune -f
 
   migration-e2e:
-    name: cockroach-enterprise-operator-migration-e2e
+    name: cockroachdb-operator-migration-e2e
     runs-on: ubuntu-latest-4-core
     steps:
       - name: Checkout sources

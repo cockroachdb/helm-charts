@@ -12,6 +12,7 @@ import (
 
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
+	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -23,16 +24,18 @@ import (
 
 func prepareForMigration(t *testing.T, stsName, namespace, caSecret, crdbDeploymentType string) {
 	t.Log("Updating the existing certs")
-	certGeneration := shell.Command{
-		Command: migrationHelperPath,
-		Args: []string{
-			"migrate-certs",
-			"--statefulset-name", stsName,
-			"--namespace", namespace,
-			"--ca-secret", caSecret,
-		},
-	}
-	t.Log(shell.RunCommandAndGetOutput(t, certGeneration))
+	retry.DoWithRetry(t, "Running migrate-certs", 5, 2*time.Second, func() (string, error) {
+		certGeneration := shell.Command{
+			Command: migrationHelperPath,
+			Args: []string{
+				"migrate-certs",
+				"--statefulset-name", stsName,
+				"--namespace", namespace,
+				"--ca-secret", caSecret,
+			},
+		}
+		return shell.RunCommandAndGetOutputE(t, certGeneration)
+	})
 
 	require.NoError(t, os.Mkdir(manifestsDirPath, 0700))
 
@@ -43,25 +46,43 @@ func prepareForMigration(t *testing.T, stsName, namespace, caSecret, crdbDeploym
 		cmdArg = "--crdb-cluster"
 	}
 
-	generateManifestsCmd := shell.Command{
-		Command: migrationHelperPath,
-		Args: []string{
-			"build-manifest",
-			crdbDeploymentType,
-			fmt.Sprintf("%s=%s", cmdArg, stsName),
-			fmt.Sprintf("--namespace=%s", namespace),
-			"--cloud-provider=k3d",
-			"--cloud-region=us-east-1",
-			fmt.Sprintf("--output-dir=%s", manifestsDirPath),
-		},
-	}
-	t.Log(shell.RunCommandAndGetOutput(t, generateManifestsCmd))
+	retry.DoWithRetry(t, "Running build-manifest", 5, 2*time.Second, func() (string, error) {
+		generateManifestsCmd := shell.Command{
+			Command: migrationHelperPath,
+			Args: []string{
+				"build-manifest",
+				crdbDeploymentType,
+				fmt.Sprintf("%s=%s", cmdArg, stsName),
+				fmt.Sprintf("--namespace=%s", namespace),
+				"--cloud-provider=k3d",
+				"--cloud-region=us-east-1",
+				fmt.Sprintf("--output-dir=%s", manifestsDirPath),
+			},
+		}
+		return shell.RunCommandAndGetOutputE(t, generateManifestsCmd)
+	})
 }
 
 func migratePodsToCrdbNodes(t *testing.T, crdbCluster testutil.CockroachCluster, namespace string) {
 	t.Log("Migrating the pods to CrdbNodes")
 
 	kubectlOptions := k8s.NewKubectlOptions("", "", namespace)
+
+	// Add the crdb.io/skip-reconcile label to prevent the public operator from scaling up
+	// This is only needed if a CrdbCluster CR exists (i.e., migrating from public operator)
+	// For Helm chart migrations, there is no CrdbCluster CR initially
+	t.Log("Checking if CrdbCluster exists to add crdb.io/skip-reconcile label")
+	retry.DoWithRetry(t, "Adding crdb.io/skip-reconcile label", 5, 2*time.Second, func() (string, error) {
+		_, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "crdbcluster", crdbCluster.StatefulSetName)
+		if err == nil {
+			// CrdbCluster exists, add the migration label
+			t.Log("Adding crdb.io/skip-reconcile label to CrdbCluster")
+			return "Successfully labeled CrdbCluster", k8s.RunKubectlE(t, kubectlOptions, "label", "crdbcluster", crdbCluster.StatefulSetName, "crdb.io/skip-reconcile=true", "--overwrite")
+		}
+		t.Log("No CrdbCluster found (normal for Helm chart migrations)")
+		return "No CrdbCluster found, skipping label", nil
+	})
+
 	var crdbSts = appsv1.StatefulSet{}
 	err := k8sClient.Get(context.TODO(), types.NamespacedName{Name: crdbCluster.StatefulSetName, Namespace: namespace}, &crdbSts)
 	require.NoError(t, err)
