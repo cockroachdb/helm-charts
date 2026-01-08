@@ -14,6 +14,7 @@ cockroachdb:
     image:
       name: cockroachdb/cockroach:v25.1.5
     loggingConfigMapName: cockroachdb-log-config
+    mode: MutableOnly
     podTemplate:
       metadata:
         annotations:

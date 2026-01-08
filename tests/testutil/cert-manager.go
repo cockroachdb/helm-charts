@@ -66,7 +66,26 @@ func InstallTrustManager(t *testing.T, kubectlOptions *k8s.KubectlOptions, trust
 		k8s.IsPodAvailable(&pod)
 	}
 
-	// Sleeping for 10 seconds to ensure that the trust-manager is ready.
+	// Wait for Bundle CRD to be installed (CRDs are cluster-scoped, so use default namespace)
+	t.Log("Waiting for Bundle CRD to be available...")
+	defaultKubectlOptions := k8s.NewKubectlOptions("", "", "default")
+	maxRetries := 60
+	crdFound := false
+	for i := 0; i < maxRetries; i++ {
+		_, err := k8s.RunKubectlAndGetOutputE(t, defaultKubectlOptions, "get", "crd", "bundles.trust.cert-manager.io")
+		if err == nil {
+			t.Log("Bundle CRD is now available")
+			crdFound = true
+			break
+		}
+		t.Logf("Waiting for Bundle CRD... (%d/%d)", i+1, maxRetries)
+		time.Sleep(2 * time.Second)
+	}
+	if !crdFound {
+		require.FailNow(t, "Bundle CRD not found after waiting 120 seconds")
+	}
+
+	// Additional wait for CRD to be fully established and ready
 	time.Sleep(10 * time.Second)
 }
 
@@ -84,6 +103,9 @@ func DeleteTrustManager(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 		KubectlOptions: kubectlOptions,
 	}
 	helm.Delete(t, certManagerHelmOptions, "trust-manager", true)
+
+	// Clean up Bundle CRD if it still exists
+	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "bundles.trust.cert-manager.io", "--ignore-not-found=true")
 }
 
 // CreateSelfSignedIssuer creates a self-signed issuer which is used to sign the self signed CA certificate.

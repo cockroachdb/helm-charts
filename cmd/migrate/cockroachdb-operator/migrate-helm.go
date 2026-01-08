@@ -1,7 +1,8 @@
-package cockroachdb_enterprise_operator
+package cockroachdb_operator
 
 import (
 	"fmt"
+
 	"github.com/cockroachdb/helm-charts/pkg/migrate"
 	"github.com/spf13/cobra"
 )
@@ -13,16 +14,16 @@ var (
 // buildManifestFromHelm only supports migrating the CockroachDB StatefulSet deployed via the official Helm chart.
 var buildManifestFromHelm = &cobra.Command{
 	Use:   "helm",
-	Short: "Generate migration manifests for Cockroach Enterprise Operator from Official CockroachDB Helm chart(https://artifacthub.io/packages/helm/cockroachdb/cockroachdb)",
+	Short: "Generate migration manifests for the CockroachDB Operator from the Official CockroachDB Helm chart (https://artifacthub.io/packages/helm/cockroachdb/cockroachdb)",
 	Long: `Generate the necessary Kubernetes manifests to migrate from a CockroachDB deployment created using 
-the official CockroachDB Helm chart to one managed by the Cockroach Enterprise Operator.
+the official CockroachDB Helm chart to one managed by the CockroachDB Operator.
 
 This command is designed to simplify the migration process by generating manifests that are compatible 
-with the Cockroach Enterprise Operator, including resources such as CRDBNode and values.yaml
+with the CockroachDB Operator, including resources such as CRDBNode and values.yaml
 
 It is intended for users who initially deployed CockroachDB via the Helm chart provided by Cockroach Labs 
 and now wish to take advantage of the additional capabilities and lifecycle management features offered 
-by the Cockroach Enterprise Operator.
+by the CockroachDB Operator.
 
 Before running this command, ensure that your Helm-based deployment closely follows the official Helm chart 
 structure.

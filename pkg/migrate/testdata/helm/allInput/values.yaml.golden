@@ -17,6 +17,7 @@ cockroachdb:
     - country
     - region
     loggingConfigMapName: cockroachdb-log-config
+    mode: MutableOnly
     podTemplate:
       metadata:
         annotations:
