@@ -18,6 +18,7 @@ metadata:
     {{- end }}
 spec:
   tlsEnabled: {{ .Values.cockroachdb.tls.enabled }}
+  mode: {{ .Values.cockroachdb.crdbCluster.mode | default "MutableOnly" | quote }}
   {{- with .Values.cockroachdb.crdbCluster.clusterSettings }}
   clusterSettings: {{- toYaml . | nindent 4 }}
   {{- end }}
