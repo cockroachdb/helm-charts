@@ -9,7 +9,7 @@ set -euo pipefail
 DEFAULT_REGION="us-east-1"
 DEFAULT_ZONES=3
 DEFAULT_NODES=1
-DEFAULT_K8S_VERSION="1.30.6"
+DEFAULT_K8S_VERSION="v1.32.9"
 DEFAULT_CLUSTER_NAME="local"
 
 # Binary paths
@@ -29,7 +29,7 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/trust-manager:v0.17.1"
     "quay.io/jetstack/trust-pkg-debian-bookworm:20230311.0"
     "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
-    "cockroachdb/cockroach-operator:v2.18.1"
+    "cockroachdb/cockroach-operator:v2.18.3"
     "bash:latest"
     "${REGISTRY}/${REPOSITORY}:$(bin/yq '.cockroachdb.tls.selfSigner.image.tag' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
 )

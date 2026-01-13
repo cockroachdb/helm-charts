@@ -19,7 +19,7 @@ metadata:
   name: cockroachdb
   namespace: default
   ownerReferences:
-  - apiVersion: crdb.cockroachlabs.com/v1alpha1
+  - apiVersion: crdb.cockroachlabs.com/v1beta1
     blockOwnerDeletion: true
     controller: true
     kind: CrdbCluster

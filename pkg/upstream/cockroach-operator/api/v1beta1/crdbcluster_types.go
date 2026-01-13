@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	corev1 "k8s.io/api/core/v1"
@@ -80,17 +80,6 @@ type CrdbClusterSpec struct {
 	// +kubebuilder:validation:Optional
 	ClusterSettings map[string]string `json:"clusterSettings,omitempty"`
 
-	// DataStore specifies the disk configuration for CRDB nodes.
-	// TODO(andyk): Add the other DataStore options offered by the public
-	// operator.
-	// TODO(jmcarp) Remove this definition. Use DataStore.Template
-	// instead:
-	// * [x] Mark field as optional
-	// * [x] Stop setting field in intrusion
-	// * [ ] Drop field from spec
-	// +kubebuilder:validation:Optional
-	DataStore corev1.PersistentVolumeClaimSpec `json:"dataStore"`
-
 	// Regions specifies the regions in which this cluster is deployed, along
 	// with information about how each region is configured.
 	// +kubebuilder:validation:Required
@@ -112,15 +101,7 @@ type CrdbClusterSpec struct {
 
 	// Features specifies the enabled ClusterFeatures for this cluster.
 	// +kubebuilder:validation:Optional
-	Features []ClusterFeature `json:"features,omitempty"`
-
-	// Flags specifies the flags that will be used for starting the cluster.
-	// TODO(jmcarp): Deprecate this field in favor of the equivalent field on CrdbNodeSpec:
-	// [x] Reference crdbnode flags throughout the operator.
-	// [x] Stop setting crdbcluster flags in intrusion.
-	// [ ] Drop the flags field from the crdbcluster.
-	// +kubebuilder:validation:Optional
-	Flags map[string]string `json:"flags,omitempty"`
+	//Features []ClusterFeature `json:"features,omitempty"`
 
 	// RollingRestartDelay is the delay between node restarts during a rolling
 	// update. Defaults to 1 minute.
@@ -133,8 +114,6 @@ type CrdbClusterSpec struct {
 	// informative more than anything.
 	// +kubebuilder:validation:Optional
 	IsClusterDisrupted bool `json:"isClusterDisrupted,omitempty"`
-
-	WalFailoverSpec *CrdbWalFailoverSpec `json:"walFailoverSpec,omitempty"`
 }
 
 // CrdbClusterRegion describes a region in which CRDB cluster nodes operate. It
@@ -193,7 +172,8 @@ type EncryptionAtRest struct {
 	// new Customer-Managed Encryption Key (CMEK). This string value can
 	// be mapped to CMEKKeyType with the CMEKKeyType_value map.
 	// +kubebuilder:validation:Required
-	Platform string `json:"platform"`
+	// +kubebuilder:validation:Enum=UNKNOWN_KEY_TYPE;AWS_KMS;GCP_CLOUD_KMS;AZURE_KEY_VAULT
+	Platform EncryptionPlatform `json:"platform"`
 
 	// CMEKCredentialsSecretName is the name of the k8s secret containing
 	// our credentials that are needed to authenticate into he customer's
@@ -205,6 +185,32 @@ type EncryptionAtRest struct {
 	// store key. If nil, this will be interpreted as "plain" i.e. unencrypted.
 	// +kubebuilder:validation:Optional
 	OldKeySecretName *string `json:"oldKeySecretName,omitempty"`
+}
+
+type EncryptionPlatform string
+
+const (
+	EncryptionPlatformUnknown       = EncryptionPlatform("UNKNOWN_KEY_TYPE")
+	EncryptionPlatformAwsKms        = EncryptionPlatform("AWS_KMS")
+	EncryptionPlatformGcpCloudKms   = EncryptionPlatform("GCP_CLOUD_KMS")
+	EncryptionPlatformAzureKeyVault = EncryptionPlatform("AZURE_KEY_VAULT")
+)
+
+func ParseEncryptionPlatform(name string) EncryptionPlatform {
+	switch name {
+	case string(EncryptionPlatformAwsKms):
+		return EncryptionPlatformAwsKms
+	case string(EncryptionPlatformGcpCloudKms):
+		return EncryptionPlatformGcpCloudKms
+	case string(EncryptionPlatformAzureKeyVault):
+		return EncryptionPlatformAzureKeyVault
+	default:
+		return EncryptionPlatformUnknown
+	}
+}
+
+func (p EncryptionPlatform) String() string {
+	return string(p)
 }
 
 // TenantPool defines the desired runtime attributes of the Pods that
@@ -409,6 +415,16 @@ type CrdbClusterStatus struct {
 	// PreviousRevision is the fingerprint of the last revision that was
 	// successfully rolled out to this CrdbCluster's CrdbNodes.
 	PreviousRevision string `json:"previousRevision,omitempty"`
+
+	// Image is the CockroachDB image currently running in this cluster.
+	// +kubebuilder:validation:Optional
+	Image string `json:"image,omitempty"`
+
+	// Version is the version of CockroachDB currently running in this cluster.
+	// This is populated by specifing the version where version is the output of executing
+	// `cockroach version` command on running pods.
+	// +kubebuilder:validation:Optional
+	Version string `json:"version,omitempty"`
 }
 
 // ClusterCondition describes the current state of some aspect of the cluster's
@@ -421,7 +437,7 @@ type CrdbClusterStatus struct {
 type ClusterCondition struct {
 	// Type is the kind of this condition.
 	// +kubebuilder:validation:Required
-	Type ClusterConditionType `json:"type"`
+	//Type ClusterConditionType `json:"type"`
 	// Status is the current state of the condition: True, False or Unknown.
 	// +kubebuilder:validation:Required
 	Status metav1.ConditionStatus `json:"status"`
@@ -446,6 +462,7 @@ type ClusterAction struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 
 // CrdbCluster is the Schema for the crdbclusters API.
 // NOTE: Don't add new fields to this struct. Instead, add fields describing
@@ -457,6 +474,13 @@ type CrdbCluster struct {
 
 	Spec   CrdbClusterSpec   `json:"spec,omitempty"`
 	Status CrdbClusterStatus `json:"status,omitempty"`
+}
+
+// CrdbClusterList contains a list of CrdbCluster.
+type CrdbClusterList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []CrdbCluster `json:"items"`
 }
 
 type CrdbWalFailoverStatus string
@@ -472,5 +496,5 @@ type CrdbWalFailoverSpec struct {
 	Size             string                `json:"size"`
 	StorageClassName string                `json:"storageClassName,omitempty"`
 	Status           CrdbWalFailoverStatus `json:"status"`
-	Path             string                `json:"path,omitempty"` // TODO: Add validation in the operator to prevent changing this value on upgrades.
+	Path             string                `json:"path,omitempty"`
 }

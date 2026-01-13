@@ -2,7 +2,7 @@
 {{- if .Release.IsUpgrade -}}
 {{ template "cockroachdb.isUpgradeAllowed" . }}
 {{- end -}}
-apiVersion: crdb.cockroachlabs.com/v1alpha1
+apiVersion: crdb.cockroachlabs.com/v1beta1
 kind: CrdbCluster
 metadata:
   name: {{ template "cockroachdb.fullname" . }}

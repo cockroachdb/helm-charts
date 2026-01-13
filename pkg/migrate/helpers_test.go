@@ -9,7 +9,7 @@ import (
 	"testing"
 
 	publicv1alpha1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
-	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
+	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -301,7 +301,7 @@ func TestDetectPCRFromInitJob(t *testing.T) {
 	tests := []struct {
 		name         string
 		jobCommand   []string
-		expectedMode *v1alpha1.CrdbVirtualClusterSpec
+		expectedMode *v1beta1.CrdbVirtualClusterSpec
 		jobExists    bool
 	}{
 		{
@@ -313,13 +313,13 @@ func TestDetectPCRFromInitJob(t *testing.T) {
 		{
 			name:         "Job with --virtualized flag (primary)",
 			jobCommand:   []string{"/bin/bash", "-c", "cockroach init --virtualized --host=test:26257"},
-			expectedMode: &v1alpha1.CrdbVirtualClusterSpec{Mode: v1alpha1.VirtualClusterPrimary},
+			expectedMode: &v1beta1.CrdbVirtualClusterSpec{Mode: v1beta1.VirtualClusterModePrimary},
 			jobExists:    true,
 		},
 		{
 			name:         "Job with --virtualized-empty flag (standby)",
 			jobCommand:   []string{"/bin/bash", "-c", "cockroach init --virtualized-empty --host=test:26257"},
-			expectedMode: &v1alpha1.CrdbVirtualClusterSpec{Mode: v1alpha1.VirtualClusterStandby},
+			expectedMode: &v1beta1.CrdbVirtualClusterSpec{Mode: v1beta1.VirtualClusterModeStandby},
 			jobExists:    true,
 		},
 		{
@@ -462,7 +462,7 @@ func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
 				grpcPort:       26258,
 				httpPort:       8080,
 				localityLabels: []string{"region", "zone"},
-				startFlags: &v1alpha1.Flags{
+				startFlags: &v1beta1.Flags{
 					Upsert: []string{
 						"--join=cockroachdb-0.cockroachdb:26257",
 						"--advertise-host=$(hostname).cockroachdb",
@@ -476,7 +476,7 @@ func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
 			if tc.walFailoverArg != "" && strings.Contains(tc.walFailoverArg, "path=") {
 				// Manually set the walFailoverSpec for path-based tests since we can't mock k8s calls
 				path := strings.TrimPrefix(tc.walFailoverArg, "--wal-failover=path=")
-				input.walFailoverSpec = &v1alpha1.CrdbWalFailoverSpec{
+				input.walFailoverSpec = &v1beta1.CrdbWalFailoverSpec{
 					Name:             "failoverdir",
 					Status:           "enable",
 					Path:             path,
@@ -505,7 +505,7 @@ func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
 				walFailoverSpec, ok := crdbCluster["walFailoverSpec"].(map[string]interface{})
 				require.True(t, ok, "Expected walFailoverSpec to be present")
 
-				assert.Equal(t, tc.expectedStatus, string(walFailoverSpec["status"].(v1alpha1.CrdbWalFailoverStatus)))
+				assert.Equal(t, tc.expectedStatus, string(walFailoverSpec["status"].(v1beta1.CrdbWalFailoverStatus)))
 
 				if tc.expectedPath != "" {
 					assert.Equal(t, tc.expectedPath, walFailoverSpec["path"])
@@ -770,7 +770,7 @@ func TestBuildWalFailoverSpec(t *testing.T) {
 	testCases := []struct {
 		name              string
 		walFailoverFlag   string
-		expectedStatus    v1alpha1.CrdbWalFailoverStatus
+		expectedStatus    v1beta1.CrdbWalFailoverStatus
 		expectedPath      string
 		shouldHaveWalSpec bool
 	}{
@@ -804,7 +804,7 @@ func TestBuildWalFailoverSpec(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			input := &parsedMigrationInput{}
 			if tc.walFailoverFlag != "" {
-				input.startFlags = &v1alpha1.Flags{
+				input.startFlags = &v1beta1.Flags{
 					Upsert: []string{tc.walFailoverFlag},
 				}
 			}
@@ -877,7 +877,7 @@ func TestBuildNodeSpecFromHelm_WithWalFailover(t *testing.T) {
 	testCases := []struct {
 		name            string
 		hasWalFailover  bool
-		walFailoverSpec *v1alpha1.CrdbWalFailoverSpec
+		walFailoverSpec *v1beta1.CrdbWalFailoverSpec
 	}{
 		{
 			name:            "Node spec without WAL failover",
@@ -887,7 +887,7 @@ func TestBuildNodeSpecFromHelm_WithWalFailover(t *testing.T) {
 		{
 			name:           "Node spec with WAL failover enabled",
 			hasWalFailover: true,
-			walFailoverSpec: &v1alpha1.CrdbWalFailoverSpec{
+			walFailoverSpec: &v1beta1.CrdbWalFailoverSpec{
 				Name:             "failoverdir",
 				Status:           "enable",
 				Path:             "/custom/wal",
@@ -914,7 +914,7 @@ func TestBuildNodeSpecFromHelm_WithWalFailover(t *testing.T) {
 				caConfigMap:      "ca-config",
 				nodeSecretName:   "node-secret",
 				clientSecretName: "client-secret",
-				startFlags: &v1alpha1.Flags{
+				startFlags: &v1beta1.Flags{
 					Upsert: []string{"--join=host:26257"},
 				},
 			}

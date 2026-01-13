@@ -8,7 +8,7 @@ set -euo pipefail
 # Default configuration
 DEFAULT_NODES=1
 DEFAULT_CLUSTERS=1
-DEFAULT_K8S_VERSION="1.30.6"
+DEFAULT_K8S_VERSION="v1.32.9"
 DEFAULT_CLUSTER_NAME="local"
 
 # Region and networking configuration

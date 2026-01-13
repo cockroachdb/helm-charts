@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"testing"
 
-	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
+	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -385,12 +385,12 @@ func TestFromHelmChart_WithWalFailover(t *testing.T) {
 		nodeBytes, err := os.ReadFile(filepath.Join(outputDir, "crdbnode-"+strconv.Itoa(i)+".yaml"))
 		require.NoError(t, err)
 
-		var nodeData v1alpha1.CrdbNode
+		var nodeData v1beta1.CrdbNode
 		err = yaml.Unmarshal(nodeBytes, &nodeData)
 		require.NoError(t, err)
 
 		require.NotNil(t, nodeData.Spec.WALFailoverSpec, "WAL failover spec should be present in node %d", i)
-		assert.Equal(t, v1alpha1.CrdbWalFailoverStatus("enable"), nodeData.Spec.WALFailoverSpec.Status)
+		assert.Equal(t, v1beta1.CrdbWalFailoverStatus("enable"), nodeData.Spec.WALFailoverSpec.Status)
 		assert.Equal(t, "/custom/wal", nodeData.Spec.WALFailoverSpec.Path)
 		assert.Equal(t, "failoverdir", nodeData.Spec.WALFailoverSpec.Name)
 		assert.Equal(t, "50Gi", nodeData.Spec.WALFailoverSpec.Size)
@@ -530,7 +530,7 @@ func TestFromHelmChart_WithWalFailoverDisabled(t *testing.T) {
 		nodeBytes, err := os.ReadFile(filepath.Join(outputDir, "crdbnode-"+strconv.Itoa(i)+".yaml"))
 		require.NoError(t, err)
 
-		var nodeData v1alpha1.CrdbNode
+		var nodeData v1beta1.CrdbNode
 		err = yaml.Unmarshal(nodeBytes, &nodeData)
 		require.NoError(t, err)
 

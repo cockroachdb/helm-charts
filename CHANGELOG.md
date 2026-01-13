@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-25.4.3-preview+1] 2026-01-19
+### Changed
+- **API Version Migration (v1alpha1 to v1beta1)**: The CockroachDB custom resources are migrating from `v1alpha1` to `v1beta1`. CockroachDB chart now uses `v1beta1` templates.
+  - **IMPORTANT**: Operator MUST be upgraded before CockroachDB chart.
+  - **See [MIGRATION_v1alpha1_to_v1beta1.md](cockroachdb-parent/MIGRATION_v1alpha1_to_v1beta1.md) for upgrade instructions.**
+- Updated the Operator to support multiple CRD versions (v1alpha1, v1beta1) simultaneously.
+### Added
+- Pre-upgrade validation hook to ensure smooth upgrades owing to CR version updates and prevent upgrade order issues.
+### Fixed
+- Relaxed the K8s secret dependency during initial deployment on Azure.
+
 ## [cockroachdb-parent-25.4.2-preview+3] 2025-12-22
 ### Fixed
 - Updated the Operator image to fix pkill command failures within the cert-reloader container.
