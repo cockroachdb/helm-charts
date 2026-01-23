@@ -3,7 +3,7 @@ NC := $(shell tput sgr0) # No Color
 ifeq ($(UNAME_S),Linux)
   COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.linux-amd64.tgz
   HELM_BIN ?= https://get.helm.sh/helm-v3.14.0-linux-amd64.tar.gz
-  K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.7.4/k3d-linux-amd64
+  K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-linux-amd64
   KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
   KUBECTL_BIN ?= https://dl.k8s.io/release/v1.29.1/bin/linux/amd64/kubectl
   YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_linux_amd64
@@ -14,7 +14,7 @@ endif
 ifeq ($(UNAME_S),Darwin)
   COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.darwin-10.9-amd64.tgz
   HELM_BIN ?= https://get.helm.sh/helm-v3.14.0-darwin-amd64.tar.gz
-  K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.7.4/k3d-darwin-arm64
+  K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-darwin-arm64
   KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.29.0/kind-darwin-arm64
   KUBECTL_BIN ?= https://dl.k8s.io/release/v1.29.1/bin/darwin/amd64/kubectl
   YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_darwin_amd64

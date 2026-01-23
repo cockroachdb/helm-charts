@@ -10,6 +10,9 @@ import (
 	"strconv"
 	"strings"
 
+	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
+	"github.com/cockroachdb/errors"
+	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 	certv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
@@ -23,10 +26,6 @@ import (
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/yaml"
-
-	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
-	"github.com/cockroachdb/errors"
-	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
 )
 
 const (
@@ -66,13 +65,13 @@ type parsedMigrationInput struct {
 	tlsEnabled        bool
 	localityLabels    []string
 	loggingConfigMap  string
-	startFlags        *v1alpha1.Flags
+	startFlags        *v1beta1.Flags
 	certManagerInput  *certManagerInput
 	caConfigMap       string
 	nodeSecretName    string
 	clientSecretName  string
-	pcrSpec           *v1alpha1.CrdbVirtualClusterSpec
-	walFailoverSpec   *v1alpha1.CrdbWalFailoverSpec
+	pcrSpec           *v1beta1.CrdbVirtualClusterSpec
+	walFailoverSpec   *v1beta1.CrdbWalFailoverSpec
 	priorityClassName string
 	initContainers    []corev1.Container
 	customVolumes     []corev1.Volume
@@ -128,11 +127,11 @@ func yamlToDisk(path string, data []any) error {
 }
 
 // buildNodeSpecFromOperator builds a CrdbNodeSpec from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
-func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, startFlags *v1alpha1.Flags) v1alpha1.CrdbNodeSpec {
-	return v1alpha1.CrdbNodeSpec{
+func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, startFlags *v1beta1.Flags) v1beta1.CrdbNodeSpec {
+	return v1beta1.CrdbNodeSpec{
 		NodeName: nodeName,
-		PodTemplate: &v1alpha1.PodTemplateSpec{
-			Metadata: v1alpha1.PodMeta{
+		PodTemplate: &v1beta1.PodTemplateSpec{
+			Metadata: v1beta1.PodMeta{
 				Annotations: sts.Spec.Template.Annotations,
 				Labels:      sts.Spec.Template.Labels,
 			},
@@ -170,7 +169,7 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 			},
 		},
 		StartFlags: startFlags,
-		DataStore: v1alpha1.DataStore{
+		DataStore: v1beta1.DataStore{
 			VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "datadir",
@@ -184,14 +183,14 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 		GRPCPort:             cluster.Spec.GRPCPort,
 		SQLPort:              cluster.Spec.SQLPort,
 		HTTPPort:             cluster.Spec.HTTPPort,
-		Certificates: v1alpha1.Certificates{
-			ExternalCertificates: &v1alpha1.ExternalCertificates{
+		Certificates: v1beta1.Certificates{
+			ExternalCertificates: &v1beta1.ExternalCertificates{
 				CAConfigMapName:         cluster.Name + "-ca-crt",
 				NodeSecretName:          cluster.Name + "-node-secret",
 				RootSQLClientSecretName: cluster.Name + "-client-secret",
 			},
 		},
-		PersistentVolumeClaimRetentionPolicy: &v1alpha1.CrdbNodePersistentVolumeClaimRetentionPolicy{
+		PersistentVolumeClaimRetentionPolicy: &v1beta1.CrdbNodePersistentVolumeClaimRetentionPolicy{
 			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 		},
 	}
@@ -204,7 +203,7 @@ func buildHelmValuesFromOperator(
 	cloudProvider string,
 	cloudRegion string,
 	namespace string,
-	flags *v1alpha1.Flags) map[string]interface{} {
+	flags *v1beta1.Flags) map[string]interface{} {
 
 	ingressValue := buildIngressValue(cluster)
 	envVars := append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
@@ -337,7 +336,7 @@ func buildIngressValue(cluster publicv1.CrdbCluster) map[string]interface{} {
 }
 
 // detectPCRFromInitJob extracts PCR configuration from the init job command
-func detectPCRFromInitJob(clientset kubernetes.Interface, stsName, namespace string) *v1alpha1.CrdbVirtualClusterSpec {
+func detectPCRFromInitJob(clientset kubernetes.Interface, stsName, namespace string) *v1beta1.CrdbVirtualClusterSpec {
 	ctx := context.TODO()
 	jobName := stsName + "-init"
 
@@ -363,13 +362,13 @@ func detectPCRFromInitJob(clientset kubernetes.Interface, stsName, namespace str
 	command := jobSpec.Template.Spec.Containers[0].Command
 	for _, cmd := range command {
 		if strings.Contains(cmd, "--virtualized-empty") {
-			return &v1alpha1.CrdbVirtualClusterSpec{
-				Mode: v1alpha1.VirtualClusterStandby,
+			return &v1beta1.CrdbVirtualClusterSpec{
+				Mode: v1beta1.VirtualClusterModeStandby,
 			}
 		}
 		if strings.Contains(cmd, "--virtualized") {
-			return &v1alpha1.CrdbVirtualClusterSpec{
-				Mode: v1alpha1.VirtualClusterPrimary,
+			return &v1beta1.CrdbVirtualClusterSpec{
+				Mode: v1beta1.VirtualClusterModePrimary,
 			}
 		}
 	}
@@ -458,7 +457,7 @@ func buildWalFailoverSpec(ctx context.Context, clientset kubernetes.Interface, s
 				}
 
 				path := strings.TrimPrefix(val, "path=")
-				input.walFailoverSpec = &v1alpha1.CrdbWalFailoverSpec{
+				input.walFailoverSpec = &v1beta1.CrdbWalFailoverSpec{
 					Name:             pvcDetails.name,
 					Status:           "enable",
 					Path:             path,
@@ -474,12 +473,12 @@ func buildWalFailoverSpec(ctx context.Context, clientset kubernetes.Interface, s
 func buildNodeSpecFromHelm(
 	sts *appsv1.StatefulSet,
 	nodeName string,
-	input parsedMigrationInput) v1alpha1.CrdbNodeSpec {
+	input parsedMigrationInput) v1beta1.CrdbNodeSpec {
 
-	nodeSpec := v1alpha1.CrdbNodeSpec{
+	nodeSpec := v1beta1.CrdbNodeSpec{
 		NodeName: nodeName,
-		PodTemplate: &v1alpha1.PodTemplateSpec{
-			Metadata: v1alpha1.PodMeta{
+		PodTemplate: &v1beta1.PodTemplateSpec{
+			Metadata: v1beta1.PodMeta{
 				Labels:      sts.Spec.Template.Labels,
 				Annotations: sts.Spec.Template.Annotations,
 			},
@@ -519,7 +518,7 @@ func buildNodeSpecFromHelm(
 			},
 		},
 		StartFlags: input.startFlags,
-		DataStore: v1alpha1.DataStore{
+		DataStore: v1beta1.DataStore{
 			VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
 				ObjectMeta: metav1.ObjectMeta{
 					Name: "datadir",
@@ -534,15 +533,15 @@ func buildNodeSpecFromHelm(
 		GRPCPort:             &input.grpcPort,
 		SQLPort:              &input.sqlPort,
 		HTTPPort:             &input.httpPort,
-		Certificates: v1alpha1.Certificates{
-			ExternalCertificates: &v1alpha1.ExternalCertificates{
+		Certificates: v1beta1.Certificates{
+			ExternalCertificates: &v1beta1.ExternalCertificates{
 				CAConfigMapName:         input.caConfigMap,
 				NodeSecretName:          input.nodeSecretName,
 				RootSQLClientSecretName: input.clientSecretName,
 				HTTPSecretName:          input.clientSecretName,
 			},
 		},
-		PersistentVolumeClaimRetentionPolicy: &v1alpha1.CrdbNodePersistentVolumeClaimRetentionPolicy{
+		PersistentVolumeClaimRetentionPolicy: &v1beta1.CrdbNodePersistentVolumeClaimRetentionPolicy{
 			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 		},
 		VirtualCluster: input.pcrSpec,
@@ -792,7 +791,7 @@ func extractJoinStringAndFlags(
 	parsedInput *parsedMigrationInput,
 	args []string) error {
 
-	flags := &v1alpha1.Flags{}
+	flags := &v1beta1.Flags{}
 	// Regular expression to match flags (e.g., --advertise-host=something)
 	flagRegex := regexp.MustCompile(`--([\w-]+)=(.*)`)
 

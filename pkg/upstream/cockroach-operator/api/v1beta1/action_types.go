@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 type ActionType string
 
@@ -12,4 +12,8 @@ const (
 	// AwaitFinalization action type represents a post upgrade but
 	// pre-finalization state for the cluster.
 	AwaitFinalization ActionType = "AwaitFinalization"
+
+	// ValidateVersion action type represents the validation of the cockroach version
+	// running on the cluster.
+	ValidateVersion ActionType = "ValidateVersion"
 )

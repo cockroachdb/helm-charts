@@ -15,7 +15,7 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
 
-	crdbv1alpha1 "github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
+	crdbv1beta1 "github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -2079,11 +2079,11 @@ func TestHelmOperatorStartFlags(t *testing.T) {
 			)
 			require.NoError(subT, err)
 
-			var crdbCluster crdbv1alpha1.CrdbCluster
+			var crdbCluster crdbv1beta1.CrdbCluster
 			helm.UnmarshalK8SYaml(t, output, &crdbCluster)
 
 			require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
-			require.Equal(subT, "crdb.cockroachlabs.com/v1alpha1", crdbCluster.APIVersion)
+			require.Equal(subT, "crdb.cockroachlabs.com/v1beta1", crdbCluster.APIVersion)
 
 			spec := crdbCluster.Spec
 
@@ -2114,7 +2114,7 @@ func TestHelmOperatorStartFlags(t *testing.T) {
 
 type podTemplateValidators struct {
 	subT *testing.T
-	spec *crdbv1alpha1.PodTemplateSpec
+	spec *crdbv1beta1.PodTemplateSpec
 }
 
 // Helper functions for pod template validation
@@ -2186,7 +2186,7 @@ type PodTemplateExpected struct {
 
 // Helper function to validate pod template configuration.
 func validatePodTemplateConfiguration(
-	subT *testing.T, spec crdbv1alpha1.CrdbClusterSpec, expected PodTemplateExpected,
+	subT *testing.T, spec crdbv1beta1.CrdbClusterSpec, expected PodTemplateExpected,
 ) {
 	validator := &podTemplateValidators{subT: subT, spec: spec.Template.Spec.PodTemplate}
 
@@ -2368,12 +2368,12 @@ func TestHelmOperatorPodTemplate(t *testing.T) {
 			)
 			require.NoError(subT, err)
 
-			var crdbCluster crdbv1alpha1.CrdbCluster
+			var crdbCluster crdbv1beta1.CrdbCluster
 			helm.UnmarshalK8SYaml(t, output, &crdbCluster)
 
 			// Verify the resource type
 			require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
-			require.Equal(subT, "crdb.cockroachlabs.com/v1alpha1", crdbCluster.APIVersion)
+			require.Equal(subT, "crdb.cockroachlabs.com/v1beta1", crdbCluster.APIVersion)
 
 			// Navigate to spec.template.spec.podTemplate
 			spec := crdbCluster.Spec
@@ -2426,11 +2426,11 @@ func TestHelmOperatorLoggingConfigVars(t *testing.T) {
 			)
 			require.NoError(subT, err)
 
-			var crdbCluster crdbv1alpha1.CrdbCluster
+			var crdbCluster crdbv1beta1.CrdbCluster
 			helm.UnmarshalK8SYaml(t, output, &crdbCluster)
 
 			require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
-			require.Equal(subT, "crdb.cockroachlabs.com/v1alpha1", crdbCluster.APIVersion)
+			require.Equal(subT, "crdb.cockroachlabs.com/v1beta1", crdbCluster.APIVersion)
 
 			spec := crdbCluster.Spec
 

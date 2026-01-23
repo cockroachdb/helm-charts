@@ -1,4 +1,4 @@
-apiVersion: crdb.cockroachlabs.com/v1alpha1
+apiVersion: crdb.cockroachlabs.com/v1beta1
 kind: CrdbNode
 metadata:
   annotations:
@@ -129,7 +129,6 @@ spec:
   sideCars: {}
   sqlPort: 26257
   startFlags:
-    omit: null
     upsert:
     - --join=${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257
     - --advertise-host=$(hostname).${STATEFULSET_FQDN}

@@ -1,4 +1,4 @@
-package v1alpha1
+package v1beta1
 
 import (
 	appsv1 "k8s.io/api/apps/v1"
@@ -18,8 +18,9 @@ type NodeConditionType string
 // 3. The finalization step has occurred.
 type NodeDecommissionState string
 
-// CrdbVirtualClusterMode defines the mode of operation for a virtual cluster in PCR setup.
-type CrdbVirtualClusterMode string
+// VirtualClusterMode enumerates the possible virtual cluster modes that a
+// node can be in.
+type VirtualClusterMode string
 
 const (
 	// CrdbNodeKind is the CrdbNode CRD kind string.
@@ -29,7 +30,19 @@ const (
 	// should be prioritized when picking a node to decommission.
 	CrdbNodeDecommissionAnnotation = "crdb.cockroachlabs.com/decommission"
 
+	// K8sNodeStartDecommissionAnnotation is an annotation applied to a k8s node
+	// indicating that crdb nodes scheduled to the k8s node should be
+	// decommissioned.
+	K8sNodeStartDecommissionAnnotation = "crdb.cockroachlabs.com/decommission"
+
 	CrdbNodeStartDecommissionAnnotation = "internal.crdb.cockroachlabs.com/decommission"
+
+	// CrdbNodeStartPendingDecommissionAnnotation is an annotation where the CRDB node is in
+	// a non-running state and prioritized for decommissioning during scale down operation.
+	CrdbNodeStartPendingDecommissionAnnotation = "internal.crdb.cockroachlabs.com/pending-decommission"
+
+	CrdbNodeSuspendAnnotation = "crdb.cockroachlabs.com/suspend"
+	CrdbNodeExcludeAnnotation = "crdb.cockroachlabs.com/excluded"
 
 	// PodReady is a duplicate of Kubernetes' Pod's Ready Condition but
 	// reported from the CrdbNode controller. If true, it implies that
@@ -43,6 +56,18 @@ const (
 	// PodNeedsUpdate indicates that the nodectrl has determined that the
 	// underlying Pod of this CrdbNode should be updated to a new PodSpec.
 	PodNeedsUpdate NodeConditionType = "PodNeedsUpdate"
+
+	// Default ports.
+	DefaultCockroachGRPCPort = 26258
+	DefaultCockroachHTTPPort = 8080
+	DefaultCockroachSQLPort  = 26257
+
+	// VirtualClusterModeNone is the VirtualClusterMode where the virtual cluster is disabled.
+	VirtualClusterModeNone VirtualClusterMode = "disabled"
+	// VirtualClusterModePrimary is the VirtualClusterMode where the virtual cluster is primary.
+	VirtualClusterModePrimary VirtualClusterMode = "primary"
+	// VirtualClusterModeStandby is the VirtualClusterMode where the virtual cluster is standby.
+	VirtualClusterModeStandby VirtualClusterMode = "standby"
 )
 
 // Decommissioning related constants.
@@ -69,21 +94,12 @@ const (
 	Decommissioned NodeDecommissionState = "decommissioned"
 )
 
-const (
-	// VirtualClusterDisabled indicates that virtual cluster is disabled.
-	VirtualClusterDisabled CrdbVirtualClusterMode = "disabled"
-	// VirtualClusterPrimary indicates that this cluster operates as the primary in PCR setup.
-	VirtualClusterPrimary CrdbVirtualClusterMode = "primary"
-	// VirtualClusterStandby indicates that this cluster operates as the standby in PCR setup.
-	VirtualClusterStandby CrdbVirtualClusterMode = "standby"
-)
-
-// CrdbVirtualClusterSpec defines the configuration for Physical Cluster Replication (PCR).
+// CrdbVirtualClusterSpec defines the configuration to set up the virtual cluster.
 type CrdbVirtualClusterSpec struct {
-	// Mode specifies the operation mode of the virtual cluster.
 	// +kubebuilder:validation:Required
+	// +kubebuilder:default=disabled
 	// +kubebuilder:validation:Enum=disabled;primary;standby
-	Mode CrdbVirtualClusterMode `json:"mode"`
+	Mode VirtualClusterMode `json:"mode,omitempty"`
 }
 
 // CrdbNodeSpec defines the desired state of an individual
@@ -294,10 +310,16 @@ type CrdbNodeSpec struct {
 	// +kubebuilder:validation:Optional
 	PersistentVolumeClaimRetentionPolicy *CrdbNodePersistentVolumeClaimRetentionPolicy `json:"persistentVolumeClaimRetentionPolicy,omitempty"`
 
-	// VirtualCluster specifies the virtual cluster configuration for Physical Cluster Replication (PCR).
-	// This enables the cluster to operate as either a primary or standby cluster in a PCR setup.
+	// VirtualCluster specifies the configuration to set up the virtual cluster.
+	// You can read more about virtual clusters here: https://www.cockroachlabs.com/docs/v25.3/set-up-physical-cluster-replication
 	// +kubebuilder:validation:Optional
 	VirtualCluster *CrdbVirtualClusterSpec `json:"virtualCluster,omitempty"`
+
+	// ReadinessProbe specifies the readiness probe configuration for the CRDB container.
+	// If not specified, uses default values (InitialDelaySeconds: 10, PeriodSeconds: 10, etc.)
+	// +kubebuilder:validation:Optional
+	// Deprecated: use `PodTemplate` instead.
+	ReadinessProbe *corev1.Probe `json:"readinessProbe,omitempty"`
 }
 
 // PodTemplateSpec is a structure allowing the user to set a template for Pod
@@ -327,18 +349,11 @@ type Flags struct {
 	// Upsert defines a set of flags that are given higher precedence
 	// in the start command.
 	// +kubebuilder:validation:Optional
-	Upsert []string `json:"upsert"`
+	Upsert []string `json:"upsert,omitempty"`
 	// Omit defines a set of flags which will be omitted
 	// from the start command.
 	// +kubebuilder:validation:Optional
-	Omit []string `json:"omit"`
-}
-
-// LocalityMapping represents a mapping between a k8s node label and a crdb
-// locality label.
-type LocalityMapping struct {
-	NodeLabel     string `json:"nodeLabel,omitempty"`
-	LocalityLabel string `json:"localityLabel,omitempty"`
+	Omit []string `json:"omit,omitempty"`
 }
 
 // ConditionalResourceRequirements describes compute resource requirements for
@@ -385,13 +400,20 @@ type CrdbNodeSideCars struct {
 	Volumes []corev1.Volume `json:"volumes,omitempty"`
 }
 
+// LocalityMapping represents a mapping between a k8s node label and a crdb
+// locality label.
+type LocalityMapping struct {
+	NodeLabel     string `json:"nodeLabel,omitempty"`
+	LocalityLabel string `json:"localityLabel,omitempty"`
+}
+
 // DataStore is the specification for the disk configuration of a CrdbNode.
 // Exactly one of VolumeSource or VolumeClaimTemplate must be specified.
 type DataStore struct {
 	// VolumeSource specifies a pre-existing VolumeSource to be mounted to this
 	// CrdbNode.
 	// +kubebuilder:validation:Optional
-	VolumeSource *corev1.VolumeSource `json:"dataStore,omitempty"`
+	VolumeSource *corev1.VolumeSource `json:"volumeSource,omitempty"`
 	// VolumeClaimTemplate specifies a that a new PersistentVolumeClaim should
 	// be created for this CrdbNode.
 	// +kubebuilder:validation:Optional
@@ -480,6 +502,9 @@ type CrdbNodeStatus struct {
 	// Conditions are the set of current status indicators for the node.
 	Conditions []NodeCondition `json:"conditions,omitempty"`
 
+	// NodeID is the numerical ID of this node according to the CRDB cluster
+	NodeID *int64 `json:"nodeID,omitempty"`
+
 	// Decommission indicates the current decommissioning state (if any).
 	Decommission NodeDecommissionState `json:"decommission,omitempty"`
 
@@ -504,6 +529,7 @@ type NodeCondition struct {
 
 // +kubebuilder:object:root=true
 // +kubebuilder:subresource:status
+// +kubebuilder:storageversion
 
 // CrdbNode is the Schema for the crdbnode API.
 // NOTE: Don't add new fields to this struct. Instead, add fields describing
@@ -515,4 +541,11 @@ type CrdbNode struct {
 
 	Spec   CrdbNodeSpec   `json:"spec,omitempty"`
 	Status CrdbNodeStatus `json:"status,omitempty"`
+}
+
+// CrdbNodeList contains a list of CrdbCluster.
+type CrdbNodeList struct {
+	metav1.TypeMeta `json:",inline"`
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []CrdbNode `json:"items"`
 }

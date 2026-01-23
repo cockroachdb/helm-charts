@@ -6,16 +6,15 @@ import (
 	"path/filepath"
 	"strings"
 
+	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
+	"github.com/cockroachdb/errors"
+	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/tools/clientcmd"
-
-	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
-	"github.com/cockroachdb/errors"
-	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1alpha1"
 )
 
 type Manifest struct {
@@ -105,10 +104,10 @@ func (m *Manifest) FromPublicOperator() error {
 		}
 
 		nodeSpec := buildNodeSpecFromOperator(publicCluster, sts, pod.Spec.NodeName, input.startFlags)
-		crdbNode := v1alpha1.CrdbNode{
+		crdbNode := v1beta1.CrdbNode{
 			TypeMeta: metav1.TypeMeta{
 				Kind:       "CrdbNode",
-				APIVersion: "crdb.cockroachlabs.com/v1alpha1",
+				APIVersion: "crdb.cockroachlabs.com/v1beta1",
 			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:         fmt.Sprintf("%s-%d", crdbCluster, nodeIdx),
@@ -186,10 +185,10 @@ func (m *Manifest) FromHelmChart() error {
 		// Build the walFailoverSpec if applicable
 		buildWalFailoverSpec(ctx, m.clientset, sts, pod.Spec.NodeName, nodeIdx, &input)
 		nodeSpec := buildNodeSpecFromHelm(sts, pod.Spec.NodeName, input)
-		crdbNode := v1alpha1.CrdbNode{
+		crdbNode := v1beta1.CrdbNode{
 			TypeMeta: metav1.TypeMeta{
 				Kind:       "CrdbNode",
-				APIVersion: "crdb.cockroachlabs.com/v1alpha1",
+				APIVersion: "crdb.cockroachlabs.com/v1beta1",
 			},
 			ObjectMeta: metav1.ObjectMeta{
 				Name:         fmt.Sprintf("%s-%d", sts.Name, nodeIdx),

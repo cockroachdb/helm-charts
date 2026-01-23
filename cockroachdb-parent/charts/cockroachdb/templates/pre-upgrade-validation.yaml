@@ -1,0 +1,164 @@
+{{- if .Release.IsUpgrade }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ include "cockroachdb.fullname" . }}-pre-upgrade-validation"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "cluster.labels" . | nindent 4 }}
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        app: pre-upgrade-validation
+    spec:
+      serviceAccountName: {{ include "cockroachdb.serviceAccount.name" . }}
+      restartPolicy: Never
+      containers:
+      - name: validation
+        image: bitnami/kubectl:latest
+        command:
+        - /bin/bash
+        - -c
+        - |
+          set -e
+          echo "Running pre-upgrade validation..."
+          
+          # Check if CRD exists
+          if ! kubectl get crd crdbclusters.crdb.cockroachlabs.com &>/dev/null; then
+            echo ""
+            echo "❌ UPGRADE BLOCKED"
+            echo ""
+            echo "The CrdbCluster CRD does not exist in the cluster."
+            echo "This chart requires the CockroachDB operator to be installed first."
+            echo ""
+            echo "Required action:"
+            echo "  1. Install/upgrade the operator first:"
+            echo "     helm upgrade {{ .Release.Name }}-operator ./cockroachdb-parent/charts/operator -n {{ .Release.Namespace }}"
+            echo ""
+            echo "  2. Then retry this cockroachdb chart upgrade:"
+            echo "     helm upgrade {{ .Release.Name }} ./cockroachdb-parent/charts/cockroachdb -n {{ .Release.Namespace }}"
+            echo ""
+            exit 1
+          fi
+          
+          # CRITICAL: Verify v1beta1 is served and is the storage version
+          echo "Validating CRD v1beta1 support..."
+          V1BETA1_SERVED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[?(@.name=="v1beta1")].served}' 2>/dev/null || echo "false")
+          V1BETA1_STORAGE=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[?(@.name=="v1beta1")].storage}' 2>/dev/null || echo "false")
+          
+          if [ "$V1BETA1_SERVED" != "true" ] || [ "$V1BETA1_STORAGE" != "true" ]; then
+            echo ""
+            echo "❌ UPGRADE BLOCKED"
+            echo ""
+            echo "The CRD does not support v1beta1 as served and storage version."
+            echo "This chart uses v1beta1 templates and requires v1beta1 CRD support."
+            echo ""
+            echo "Current CRD state:"
+            echo "  v1beta1 served: $V1BETA1_SERVED"
+            echo "  v1beta1 storage: $V1BETA1_STORAGE"
+            echo ""
+            echo "Required action:"
+            echo "  1. Upgrade the operator first to enable v1beta1 support:"
+            echo "     helm upgrade {{ .Release.Name }}-operator ./cockroachdb-parent/charts/operator"
+            echo ""
+            echo "  2. Then retry this cockroachdb chart upgrade:"
+            echo "     helm upgrade {{ .Release.Name }} ./cockroachdb-parent/charts/cockroachdb"
+            echo ""
+            echo "Alternatively, use cockroachdb-parent chart to upgrade both together:"
+            echo "  helm upgrade {{ .Release.Name }} ./cockroachdb-parent"
+            echo ""
+            exit 1
+          fi
+          
+          echo "✅ CRD supports v1beta1 (served: true, storage: true)"
+          
+          # Check storedVersions to determine if validation is needed
+          STORED_VERSIONS=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.status.storedVersions}' 2>/dev/null || echo "[]")
+          echo "CRD storedVersions: $STORED_VERSIONS"
+          
+          # If only v1beta1 in storedVersions, skip validation (new installation)
+          if [[ "$STORED_VERSIONS" == '["v1beta1"]' ]]; then
+            echo "✅ New installation detected (only v1beta1 stored)"
+            echo "✅ No migration validation needed"
+            exit 0
+          fi
+          
+          # If v1alpha1 is in storedVersions, this is an existing installation that needs validation
+          if echo "$STORED_VERSIONS" | grep -q "v1alpha1"; then
+            echo "Existing installation detected (v1alpha1 in storedVersions)"
+            echo "Running migration validation..."
+            
+            # Verify CRD serves both v1alpha1 and v1beta1
+            V1ALPHA1_SERVED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[?(@.name=="v1alpha1")].served}' 2>/dev/null || echo "false")
+            V1BETA1_SERVED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[?(@.name=="v1beta1")].served}' 2>/dev/null || echo "false")
+            
+            if [ "$V1ALPHA1_SERVED" != "true" ] || [ "$V1BETA1_SERVED" != "true" ]; then
+              echo "❌ ERROR: CRD must serve both v1alpha1 and v1beta1 for migration"
+              echo "   v1alpha1 served: $V1ALPHA1_SERVED"
+              echo "   v1beta1 served: $V1BETA1_SERVED"
+              exit 1
+            fi
+            echo "✅ CRD serves both API versions"
+            
+            # Check if resources exist
+            CRDB_CLUSTERS=$(kubectl get crdbclusters -n {{ .Release.Namespace }} 2>/dev/null | grep -v NAME | wc -l || echo "0")
+            
+            if [ "$CRDB_CLUSTERS" -gt 0 ]; then
+              echo "Found $CRDB_CLUSTERS CrdbCluster resource(s)"
+              
+              # Verify v1alpha1 API access works
+              if kubectl get crdbclusters.v1alpha1.crdb.cockroachlabs.com -n {{ .Release.Namespace }} &>/dev/null; then
+                echo "✅ v1alpha1 API access verified"
+              else
+                echo "❌ ERROR: Cannot access CrdbCluster via v1alpha1 API"
+                exit 1
+              fi
+              
+              # Verify v1beta1 API access works
+              if kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com -n {{ .Release.Namespace }} &>/dev/null; then
+                echo "✅ v1beta1 API access verified"
+              else
+                echo "❌ ERROR: Cannot access CrdbCluster via v1beta1 API"
+                exit 1
+              fi
+              
+              # Rewrite resources to ensure v1beta1 storage
+              echo "Rewriting CrdbCluster resources..."
+              kubectl get crdbclusters -n {{ .Release.Namespace }} -o yaml | kubectl apply -f - || {
+                echo "⚠️  Warning: Could not rewrite CrdbCluster resources"
+              }
+            fi
+            
+            # Same checks for CrdbNode if it exists
+            if kubectl get crd crdbnodes.crdb.cockroachlabs.com &>/dev/null; then
+              CRDB_NODES=$(kubectl get crdbnodes -n {{ .Release.Namespace }} 2>/dev/null | grep -v NAME | wc -l || echo "0")
+              
+              if [ "$CRDB_NODES" -gt 0 ]; then
+                echo "Found $CRDB_NODES CrdbNode resource(s)"
+                
+                # Verify both API versions work for CrdbNode
+                if kubectl get crdbnodes.v1alpha1.crdb.cockroachlabs.com -n {{ .Release.Namespace }} &>/dev/null && \
+                   kubectl get crdbnodes.v1beta1.crdb.cockroachlabs.com -n {{ .Release.Namespace }} &>/dev/null; then
+                  echo "✅ CrdbNode accessible via both API versions"
+                fi
+                
+                echo "Rewriting CrdbNode resources..."
+                kubectl get crdbnodes -n {{ .Release.Namespace }} -o yaml | kubectl apply -f - || {
+                  echo "⚠️  Warning: Could not rewrite CrdbNode resources"
+                }
+              fi
+            fi
+            
+            echo "✅ Migration validation completed successfully"
+          else
+            echo "⚠️  Unexpected storedVersions state: $STORED_VERSIONS"
+            echo "✅ Proceeding with upgrade"
+          fi
+  backoffLimit: 3
+{{- end }}

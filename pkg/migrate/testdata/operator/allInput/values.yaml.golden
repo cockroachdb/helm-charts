@@ -120,7 +120,6 @@ cockroachdb:
       public:
         name: cockroachdb-public
     startFlags:
-      omit: null
       upsert:
       - --advertise-host=$(POD_NAME).cockroachdb.default
       - --certs-dir=/cockroach/cockroach-certs/

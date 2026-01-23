@@ -8,6 +8,10 @@ import (
 	"testing"
 	"time"
 
+	api "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
+	"github.com/cockroachdb/helm-charts/tests/testutil/migration"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -17,11 +21,6 @@ import (
 	"k8s.io/client-go/rest"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	api "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
-	"github.com/cockroachdb/helm-charts/tests/testutil/migration"
 )
 
 var (
@@ -99,6 +98,33 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	}
 
 	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+
+	// Clean up any CRDs from previous test runs to avoid storedVersions conflicts
+	t.Log("Cleaning up CRDs and instances from previous test runs")
+
+	// Helper to patch finalizers and delete resources
+	cleanupResources := func(resourceType string) {
+		// Get all resources of this type
+		output, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", resourceType, "--all-namespaces", "-o", "jsonpath={.items[*].metadata.name}")
+		if err == nil && output != "" {
+			resources := strings.Split(output, " ")
+			for _, res := range resources {
+				// Patch finalizers to empty to ensure deletion doesn't hang
+				k8s.RunKubectl(t, kubectlOptions, "patch", resourceType, res, "-p", "{\"metadata\":{\"finalizers\":[]}}", "--type=merge")
+				// Delete the resource
+				k8s.RunKubectl(t, kubectlOptions, "delete", resourceType, res, "--ignore-not-found=true")
+			}
+		}
+	}
+
+	// Clean up instances first
+	cleanupResources("crdbclusters.crdb.cockroachlabs.com")
+	cleanupResources("crdbnodes.crdb.cockroachlabs.com")
+	cleanupResources("crdbtenants.crdb.cockroachlabs.com")
+
+	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "crdbclusters.crdb.cockroachlabs.com", "--ignore-not-found=true", "--wait")
+	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "crdbnodes.crdb.cockroachlabs.com", "--ignore-not-found=true", "--wait")
+	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "crdbtenants.crdb.cockroachlabs.com", "--ignore-not-found=true", "--wait")
 
 	h.InstallHelm(t)
 	h.ValidateCRDB(t)

@@ -1,4 +1,4 @@
-apiVersion: crdb.cockroachlabs.com/v1alpha1
+apiVersion: crdb.cockroachlabs.com/v1beta1
 kind: CrdbNode
 metadata:
   annotations:
@@ -117,7 +117,6 @@ spec:
   sideCars: {}
   sqlPort: 26257
   startFlags:
-    omit: null
     upsert:
     - --advertise-host=$(POD_NAME).cockroachdb.default
     - --certs-dir=/cockroach/cockroach-certs/
