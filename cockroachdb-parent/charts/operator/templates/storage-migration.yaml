@@ -1,0 +1,267 @@
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ .Release.Name }}-operator-storage-migration"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    "helm.sh/hook": post-install,post-upgrade
+    "helm.sh/hook-weight": "5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        app: operator-post-upgrade-storage-migration
+    spec:
+      serviceAccountName: cockroach-operator-default
+      restartPolicy: Never
+      containers:
+        - name: storage-migration
+          image: dtzar/helm-kubectl:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              #!/bin/bash
+              set -e
+
+              RELEASE_NAME="{{ .Release.Name }}"
+              RELEASE_NAMESPACE="{{ .Release.Namespace }}"
+
+              echo "=========================================="
+              echo "  Storage Version Migration"
+              echo "=========================================="
+              echo "Release: $RELEASE_NAME"
+              echo "Namespace: $RELEASE_NAMESPACE"
+              echo ""
+
+              # Wait for operator webhook to be ready
+              echo "Waiting for operator webhook to be ready..."
+              WEBHOOK_SERVICE="cockroach-webhook-service"
+              MAX_WAIT=60  # 60 attempts
+              RETRY_DELAY=5  # 5 seconds between attempts (total: 5 minutes max)
+              
+              for i in $(seq 1 $MAX_WAIT); do
+                # Check if webhook service exists and has endpoints
+                if kubectl get service $WEBHOOK_SERVICE -n $RELEASE_NAMESPACE &>/dev/null; then
+                  # Check if service has endpoints (webhook pods are ready)
+                  ENDPOINTS=$(kubectl get endpoints $WEBHOOK_SERVICE -n $RELEASE_NAMESPACE -o jsonpath='{.subsets[*].addresses[*].ip}' 2>/dev/null)
+                  if [ -n "$ENDPOINTS" ]; then
+                    echo "✅ Webhook endpoints ready: $ENDPOINTS"
+                    # Wait for certificates to be ready (extra 10 seconds)
+                    echo "Waiting for webhook certificates to propagate..."
+                    sleep 10
+                    break
+                  fi
+                fi
+                
+                if [ $i -eq $MAX_WAIT ]; then
+                  echo "⚠️  Warning: Webhook not ready after $((MAX_WAIT * RETRY_DELAY)) seconds"
+                  echo "Proceeding with retries..."
+                  break
+                fi
+                
+                if [ $((i % 6)) -eq 0 ]; then
+                  echo "  Waiting for webhook... ($((i * RETRY_DELAY))s elapsed)"
+                fi
+                sleep $RETRY_DELAY
+              done
+              echo ""
+
+              if ! kubectl get crd crdbclusters.crdb.cockroachlabs.com &>/dev/null; then
+                echo "✅ CRD not found - no migration needed"
+                exit 0
+              fi
+
+              STORED_VERSIONS=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.status.storedVersions}' 2>/dev/null || echo "[]")
+              echo "storedVersions: $STORED_VERSIONS"
+
+              if [[ "$STORED_VERSIONS" == '["v1beta1"]' ]]; then
+                echo "✅ Already using v1beta1 storage"
+                exit 0
+              fi
+
+              if ! echo "$STORED_VERSIONS" | grep -q "v1alpha1"; then
+                echo "✅ No v1alpha1 in storage"
+                exit 0
+              fi
+
+              echo ""
+              echo "Migrating resources from v1alpha1 to v1beta1..."
+              echo ""
+
+              # Step 1: Migrate CrdbCluster resources
+              echo "Step 1: Migrating CrdbCluster resources..."
+              ALL_CLUSTERS=$(kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com -A -o json 2>/dev/null || echo '{"items":[]}')
+              CLUSTER_COUNT=$(echo "$ALL_CLUSTERS" | jq -r '.items | length')
+              
+              if [ "$CLUSTER_COUNT" -gt 0 ]; then
+                echo "  Found $CLUSTER_COUNT resource(s)"
+                
+                echo "$ALL_CLUSTERS" | jq -c '.items[]' | while read -r cluster; do
+                  CLUSTER_NAME=$(echo "$cluster" | jq -r '.metadata.name')
+                  CLUSTER_NS=$(echo "$cluster" | jq -r '.metadata.namespace')
+                  echo "  Migrating: $CLUSTER_NAME (namespace: $CLUSTER_NS)"
+                  
+                  MIGRATE_SUCCESS=false
+                  for attempt in 1 2 3 4 5; do
+                    if echo "$cluster" | kubectl apply -f - 2>&1 | grep -v "Warning:"; then
+                      MIGRATE_SUCCESS=true
+                      break
+                    fi
+                    if [ $attempt -lt 5 ]; then
+                      WAIT_TIME=$((5 + attempt * 2))
+                      echo "    Retry $attempt failed, waiting ${WAIT_TIME}s..."
+                      sleep $WAIT_TIME
+                    fi
+                  done
+                  
+                  if [ "$MIGRATE_SUCCESS" = "false" ]; then
+                    echo "    ⚠️  Failed to migrate $CLUSTER_NAME after 5 attempts"
+                  fi
+                done
+                
+                echo "  ✅ CrdbCluster migration complete"
+              else
+                echo "  No resources found"
+              fi
+              echo ""
+
+              # Step 2: Migrate CrdbNode resources
+              if kubectl get crd crdbnodes.crdb.cockroachlabs.com &>/dev/null; then
+                echo "Step 2: Migrating CrdbNode resources..."
+                ALL_NODES=$(kubectl get crdbnodes.v1beta1.crdb.cockroachlabs.com -A -o json 2>/dev/null || echo '{"items":[]}')
+                NODE_COUNT=$(echo "$ALL_NODES" | jq -r '.items | length')
+                
+                if [ "$NODE_COUNT" -gt 0 ]; then
+                  echo "  Found $NODE_COUNT resource(s)"
+                  
+                  echo "$ALL_NODES" | jq -c '.items[]' | while read -r node; do
+                    NODE_NAME=$(echo "$node" | jq -r '.metadata.name')
+                    NODE_NS=$(echo "$node" | jq -r '.metadata.namespace')
+                    echo "  Migrating: $NODE_NAME (namespace: $NODE_NS)"
+                    
+                    MIGRATE_SUCCESS=false
+                    for attempt in 1 2 3 4 5; do
+                      if echo "$node" | kubectl apply -f - 2>&1 | grep -v "Warning:"; then
+                        MIGRATE_SUCCESS=true
+                        break
+                      fi
+                      if [ $attempt -lt 5 ]; then
+                        WAIT_TIME=$((5 + attempt * 2))
+                        echo "    Retry $attempt failed, waiting ${WAIT_TIME}s..."
+                        sleep $WAIT_TIME
+                      fi
+                    done
+                    
+                    if [ "$MIGRATE_SUCCESS" = "false" ]; then
+                      echo "    ⚠️  Failed to migrate $NODE_NAME after 5 attempts"
+                    fi
+                  done
+                  
+                  echo "  ✅ CrdbNode migration complete"
+                else
+                  echo "  No resources found"
+                fi
+                echo ""
+              fi
+
+              # Step 2b: Migrate CrdbTenant resources
+              if kubectl get crd crdbtenants.crdb.cockroachlabs.com &>/dev/null; then
+                echo "Step 2b: Migrating CrdbTenant resources..."
+                ALL_TENANTS=$(kubectl get crdbtenants.v1beta1.crdb.cockroachlabs.com -A -o json 2>/dev/null || echo '{"items":[]}')
+                TENANT_COUNT=$(echo "$ALL_TENANTS" | jq -r '.items | length')
+                
+                if [ "$TENANT_COUNT" -gt 0 ]; then
+                  echo "  Found $TENANT_COUNT resource(s)"
+                  
+                  echo "$ALL_TENANTS" | jq -c '.items[]' | while read -r tenant; do
+                    TENANT_NAME=$(echo "$tenant" | jq -r '.metadata.name')
+                    TENANT_NS=$(echo "$tenant" | jq -r '.metadata.namespace')
+                    echo "  Migrating: $TENANT_NAME (namespace: $TENANT_NS)"
+                    
+                    MIGRATE_SUCCESS=false
+                    for attempt in 1 2 3 4 5; do
+                      if echo "$tenant" | kubectl apply -f - 2>&1 | grep -v "Warning:"; then
+                        MIGRATE_SUCCESS=true
+                        break
+                      fi
+                      if [ $attempt -lt 5 ]; then
+                        WAIT_TIME=$((5 + attempt * 2))
+                        echo "    Retry $attempt failed, waiting ${WAIT_TIME}s..."
+                        sleep $WAIT_TIME
+                      fi
+                    done
+                    
+                    if [ "$MIGRATE_SUCCESS" = "false" ]; then
+                      echo "    ⚠️  Failed to migrate $TENANT_NAME after 5 attempts"
+                    fi
+                  done
+                  
+                  echo "  ✅ CrdbTenant migration complete"
+                else
+                  echo "  No resources found"
+                fi
+                echo ""
+              fi
+
+              # Step 3: Update CRD storedVersions
+              echo "Step 3: Updating CRD storedVersions..."
+              
+              echo "  Patching CrdbCluster CRD..."
+              if ! kubectl patch crd crdbclusters.crdb.cockroachlabs.com \
+                --subresource='status' \
+                --type='merge' \
+                -p '{"status":{"storedVersions":["v1beta1"]}}' 2>&1 | grep -v "Warning:"; then
+                echo ""
+                echo "❌ Failed to patch CrdbCluster CRD"
+                echo "Missing permissions to update CRD status."
+                echo ""
+                echo "Ensure ClusterRole has:"
+                echo "  - apiGroups: [apiextensions.k8s.io]"
+                echo "    resources: [customresourcedefinitions/status]"
+                echo "    verbs: [get, patch, update]"
+                echo ""
+                echo "Then retry: helm upgrade {{ .Release.Name }} ./cockroachdb-parent/charts/operator -n {{ .Release.Namespace }}"
+                exit 1
+              fi
+              
+              if kubectl get crd crdbnodes.crdb.cockroachlabs.com &>/dev/null; then
+                echo "  Patching CrdbNode CRD..."
+                if ! kubectl patch crd crdbnodes.crdb.cockroachlabs.com \
+                  --subresource='status' \
+                  --type='merge' \
+                  -p '{"status":{"storedVersions":["v1beta1"]}}' 2>&1 | grep -v "Warning:"; then
+                  echo "❌ Failed to patch CrdbNode CRD (see error above for fix)"
+                  exit 1
+                fi
+              fi
+              
+              if kubectl get crd crdbtenants.crdb.cockroachlabs.com &>/dev/null; then
+                echo "  Patching CrdbTenant CRD..."
+                if ! kubectl patch crd crdbtenants.crdb.cockroachlabs.com \
+                  --subresource='status' \
+                  --type='merge' \
+                  -p '{"status":{"storedVersions":["v1beta1"]}}' 2>&1 | grep -v "Warning:"; then
+                  echo "❌ Failed to patch CrdbTenant CRD (see error above for fix)"
+                  exit 1
+                fi
+              fi
+              echo ""
+
+              # Verify migration
+              echo "Verifying migration..."
+              FINAL_STORED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.status.storedVersions}' 2>/dev/null || echo "[]")
+              
+              if echo "$FINAL_STORED" | grep -q "v1alpha1"; then
+                echo "❌ Migration incomplete - v1alpha1 still in storedVersions"
+                echo "Check RBAC permissions and API server connectivity"
+                exit 1
+              fi
+              
+              echo "✅ Migration completed - all resources now stored as v1beta1"
+              echo ""
+  backoffLimit: 3

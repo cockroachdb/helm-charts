@@ -2,52 +2,43 @@
 
 ## Overview
 
-CockroachDB Operator is transitioning from `v1alpha1` to `v1beta1` API version. This document provides essential upgrade instructions.
+The CockroachDB Operator is migrating from `v1alpha1` to `v1beta1` API version.
 
-**Current Version**: `25.4.3-preview+1` (Multi-version support)
-
----
-
-## Before You Upgrade
-
-### 🚨 Critical Warning
-
-**NEVER DELETE THE CRD**
-- **DO NOT delete CRDs** if you encounter upgrade issues
-- Deleting CRDs will **permanently delete all your CockroachDB clusters and data**
-- If you have upgrade issues, check logs and contact support – do not delete CRDs
+**Migration phases:**
+- **Phase 1 (25.4.3-preview+1)**: Both v1alpha1 and v1beta1 are served, v1beta1 is the storage version
+- **Phase 2 (25.4.3-preview+2)**: Only v1beta1 is served, v1alpha1 is disabled
 
 ---
 
-## User Scenarios
+## Critical Warning
 
-### New Users (Fresh Installation)
-If you're installing for the first time:
-- ✅ Install normally - no special steps needed
-- ✅ Pre-upgrade validation will automatically detect new installation and skip unnecessary checks
+**Never delete CRDs to fix upgrade issues.** Deleting CRDs will permanently delete all CockroachDB clusters and data. If you have upgrade problems, check logs and contact support.
 
-### Existing Users (Upgrading from v1alpha1)
-If you have existing CockroachDB clusters:
-- ✅ Follow the two-step upgrade process below
-- ✅ Pre-upgrade validation will automatically:
-  - Verify CRD supports v1beta1
-  - Rewrite resources to v1beta1 storage format
-  - Validate API access
-- ✅ Zero downtime - your cluster continues running during the upgrade
+---
+
+## Who This Applies To
+
+**New users:** Install normally, no special steps needed.
+
+**Existing users:** Follow the two-phase upgrade below. The migration is automatic and zero-downtime - your clusters keep running while resources are migrated to v1beta1.
 
 ---
 
 ## Upgrade Instructions
 
-### ⚠️ Required Upgrade Order
+### Phase 1: Multi-Version Support (25.4.3-preview+1)
 
-**The operator MUST be upgraded before the CockroachDB chart.**
+**Important:** Upgrade the operator first, then the CockroachDB chart. The chart uses v1beta1 templates, so the operator needs to enable v1beta1 support in the CRD first.
 
-Why? The CockroachDB chart now uses `v1beta1` templates, which requires the operator to enable `v1beta1` support in the CRD first.
-
-### Step-by-Step Upgrade
+#### Upgrade Steps
 
 ```bash
+# Clear kubectl cache first (important!)
+rm -rf ~/.kube/cache
+
+# Checkout Phase 1 tag
+git checkout cockroachdb-parent-25.4.3-preview+1
+
 # Step 1: Upgrade operator first
 helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespace>
 
@@ -55,28 +46,36 @@ helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespa
 helm upgrade <cockroachdb-release> ./cockroachdb-parent/charts/cockroachdb -n <namespace>
 ```
 
-**Important**: Both steps are required. Even if you don't have CockroachDB chart value changes, you must upgrade it to update Helm's stored manifest to v1beta1.
+**Note:** Both upgrades are required. Even if you have no chart value changes, you must upgrade the CockroachDB chart to update Helm's stored manifest to v1beta1.
 
-### Post-Upgrade
+**Rollback warning:** After this upgrade, don't rollback to the previous operator version. Your resources are stored as v1beta1 in etcd, and the previous operator doesn't support v1beta1.
 
-Clear your kubectl cache:
+#### Verification
+
+After completing Phase 1 upgrade, verify the migration:
+
 ```bash
-rm -rf ~/.kube/cache
+# Check CRD configuration
+kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+  -o jsonpath='{.spec.versions[?(@.storage==true)].name}'
+# Expected output: v1beta1
+
+# Check both versions are served
+kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+  -o jsonpath='{.spec.versions[?(@.served==true)].name}'
+# Expected output: v1alpha1 v1beta1
+
+# Check your clusters
+kubectl get crdbcluster -n <namespace>
+
+# Verify Helm manifest uses v1beta1
+helm get manifest <release> -n <namespace> | grep "apiVersion: crdb.cockroachlabs.com"
+# Expected: v1beta1
 ```
 
----
+#### Common Issues
 
-## What Happens During Upgrade
-
-1. **Operator Upgrade**: Adds v1beta1 support to CRD (both v1alpha1 and v1beta1 are served, v1beta1 is storage version)
-2. **CockroachDB Chart Upgrade**: Updates templates to v1beta1, pre-upgrade hook validates and rewrites resources
-3. **Automatic Validation**: Pre-upgrade hook ensures everything is ready before proceeding
-
----
-
-## Common Issues
-
-### "UPGRADE BLOCKED - CRD does not support v1beta1"
+**Issue: "UPGRADE BLOCKED - CRD does not support v1beta1"**
 
 **Cause**: Trying to upgrade CockroachDB chart before operator
 
@@ -84,7 +83,7 @@ rm -rf ~/.kube/cache
 
 ---
 
-### "Cannot access CrdbCluster via v1beta1 API"
+**Issue: "Cannot access CrdbCluster via v1beta1 API"**
 
 **Cause**: Operator not running or CRD configuration issue
 
@@ -95,36 +94,119 @@ rm -rf ~/.kube/cache
 
 ---
 
-## Verification
+### Phase 2: Disable v1alpha1 (25.4.3-preview+2)
 
-After upgrade, verify everything is working:
+#### Prerequisites
+
+You must complete Phase 1 (both operator and CockroachDB chart) before upgrading to Phase 2. Pre-upgrade validation will block the upgrade if:
+- You skipped the CockroachDB chart upgrade in Phase 1
+- You're trying to skip Phase 1 entirely
+- Your Helm manifests still use v1alpha1
+
+#### Step-by-Step Upgrade
 
 ```bash
-# Check CRD configuration
-kubectl get crd crdbclusters.crdb.cockroachlabs.com \
-  -o jsonpath='{.spec.versions[?(@.storage==true)].name}'
-# Expected output: v1beta1
+# Clear kubectl cache first (important!)
+rm -rf ~/.kube/cache
 
-# Check your clusters
-kubectl get crdbcluster -n <namespace>
+# Checkout Phase 2 tag
+git checkout cockroachdb-parent-25.4.3-preview+2
 
-# Verify Helm manifest uses v1beta1
-helm get manifest <release> -n <namespace> | grep "apiVersion: crdb.cockroachlabs.com"
-# Expected: v1beta1
+# Upgrade operator to Phase 2
+helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespace>
 ```
+
+The upgrade will:
+1. Validate prerequisites (blocks if Helm manifests still use v1alpha1)
+2. Disable v1alpha1 serving (only v1beta1 will be served)
+3. Automatically migrate all CrdbCluster, CrdbNode, and CrdbTenant resources to v1beta1 storage
+4. Update CRD to remove v1alpha1 from stored versions
+
+Check if migration completed (optional):
+```bash
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.status.storedVersions}'
+# Expected: ["v1beta1"]
+```
+
+#### Upgrading CockroachDB Charts After Phase 2
+
+The operator must be upgraded to Phase 2 (with storage migration complete) before upgrading CockroachDB charts. Validation will block the chart upgrade if the operator is still on Phase 1 or if storage migration hasn't completed.
+
+#### What If Storage Migration Fails?
+
+If the automatic storage migration fails during operator upgrade:
+
+**Recovery:**
+Simply **retry the operator upgrade** - the migration is safe to run multiple times:
+```bash
+helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespace>
+```
+
+The migration will run again and complete successfully. After operator upgrade completes, you can proceed with CockroachDB chart upgrades normally.
+
+#### Verification
+
+After completing Phase 2 upgrade, verify the migration:
+
+```bash
+# 1. Check only v1beta1 is served
+kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+  -o jsonpath='{.spec.versions[?(@.served==true)].name}'
+# Expected output: v1beta1 (only)
+
+# 2. Verify storage migration completed
+kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+  -o jsonpath='{.status.storedVersions}'
+# Expected output: ["v1beta1"]
+
+# 3. Verify v1alpha1 API is not accessible
+kubectl get crdbclusters.v1alpha1.crdb.cockroachlabs.com -n <namespace>
+# Expected: error (version not served)
+
+# 4. Verify v1beta1 API works
+kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com -n <namespace>
+# Expected: success
+
+# 5. Check your clusters
+kubectl get crdbcluster -n <namespace>
+```
+
+#### Common Issues
+
+Most errors tell you exactly what to do. Here are the common ones:
+
+**"UPGRADE BLOCKED - CRD does not exist"** or **"CRD does not support v1beta1"**  
+Upgrade the operator first:
+```bash
+helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespace>
+```
+
+**"Storage version migration has not been completed"**  
+Retry the operator upgrade:
+```bash
+helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespace>
+```
+
+Then retry the CockroachDB chart upgrade.
 
 ---
 
 ## FAQ
 
-**Q: Will this cause downtime?**  
-A: No. The migration is zero-downtime. Resources remain accessible during upgrade.
+**Will this cause downtime?**  
+No, both phases are zero-downtime upgrades.
 
-**Q: Do I need to do anything manually?**  
-A: No. Just follow the two-step upgrade order. Pre-upgrade hooks handle everything else automatically.
+**Can I skip Phase 1?**  
+No, you must go through Phase 1 first. Phase 2 will block if you skip it.
 
-**Q: What if I only upgrade the operator?**  
-A: You must also upgrade the CockroachDB chart (Step 2). This updates Helm's manifest to v1beta1, which is required for future upgrades.
+**What if I only upgrade the operator in Phase 1?**  
+You must also upgrade the CockroachDB chart to update Helm's manifest to v1beta1, which Phase 2 requires.
+
+**Can I use v1alpha1 YAML files in Phase 1?**  
+Yes, if using kubectl/Go clients (not Helm). The API server converts automatically, but you must switch to v1beta1 before Phase 2.
+
+**Can I rollback after Phase 2?**  
+Yes. Phase 1 supports v1beta1, so you can rollback with `helm rollback <operator-release>` and it will continue serving your v1beta1 resources.
 
 ---
 
@@ -132,50 +214,39 @@ A: You must also upgrade the CockroachDB chart (Step 2). This updates Helm's man
 
 If you encounter issues:
 
-**🚨 IMPORTANT: Never delete CRDs to "fix" upgrade issues - this will destroy all your data!**
+**Never delete CRDs** - this will permanently destroy all your data.
 
-**Check pre-upgrade job logs:**
-```bash
-kubectl logs job/<release>-pre-upgrade-validation -n <namespace>
-```
-
-**Check operator logs:**
-```bash
-kubectl logs -n <namespace> -l app.kubernetes.io/name=cockroach-operator --tail=50
-```
-
-**Check for events:**
-```bash
-kubectl get events -n <namespace> --sort-by='.lastTimestamp'
-```
+If upgrade issues occur:
+1. Read the error message - it provides specific recovery steps
+2. Most common fix: Retry the operator upgrade
+3. Check operator logs if needed:
+   ```bash
+   kubectl logs -n <namespace> -l app.kubernetes.io/name=cockroach-operator --tail=50
+   ```
 
 ---
 
 ## Quick Reference
 
-**Before upgrade:**
-- ⚠️ Never delete CRDs (will delete all data)
-- ⚠️ Upgrade operator first, then CockroachDB chart
-
-**Upgrade commands:**
+### Phase 1
 ```bash
-# Step 1
-helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespace>
+git checkout cockroachdb-parent-25.4.3-preview+1
+rm -rf ~/.kube/cache
 
-# Step 2
+helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespace>
 helm upgrade <cockroachdb-release> ./cockroachdb-parent/charts/cockroachdb -n <namespace>
 ```
 
-**After upgrade:**
+### Phase 2
 ```bash
-# Clear kubectl cache
+git checkout cockroachdb-parent-25.4.3-preview+2
 rm -rf ~/.kube/cache
 
-# Verify
-kubectl get crdbcluster -n <namespace>
+helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespace>
 ```
 
-**If issues occur:**
-- Check job logs: `kubectl logs job/<release>-pre-upgrade-validation`
-- Check operator logs
-- DO NOT delete CRDs
+Verify migration:
+```bash
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.status.storedVersions}'
+# Expected: ["v1beta1"]
+```
