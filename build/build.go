@@ -207,10 +207,10 @@ func processTemplate(
 
 // bumpVersion increases the patch release version (the last digit) of a given version
 func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error) {
-	isOperatorBasedChart := isEnterpriseOperatorChart(chart)
+	isOperatorBasedChart := isCockroachDbOperatorChart(chart)
 	// Bump chart major version in case appVersion changes its major or minor version
 	// For example, 22.1.0 or 22.2.0 should trigger this behaviour. \
-	// This is applicable only for the old chart, not for the enterprise operator chart.
+	// This is applicable only for the old chart, not for the CockroachDB operator chart.
 	if !isOperatorBasedChart &&
 		(chart.AppVersion.Major() != newCRDBVersion.Major() || chart.AppVersion.Minor() != newCRDBVersion.Minor()) {
 		nextMajor := chart.Version.IncMajor()
@@ -221,7 +221,7 @@ func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error)
 		return nextVersion.Original(), nil
 	}
 
-	// For enterprise operator charts, if appVersion changes, set the chart version to the new CRDB version,
+	// For CockroachDB operator charts, if appVersion changes, set the chart version to the new CRDB version,
 	// preserving any existing prerelease information from the current chart version.
 	if isOperatorBasedChart && (chart.AppVersion.String() != newCRDBVersion.String()) {
 		newVer := newCRDBVersion.String()
@@ -282,8 +282,8 @@ func getVersions(chartPath string) (versions, error) {
 	return chart, nil
 }
 
-// isEnterpriseOperatorChart checks if the chart is an enterprise operator chart.
-func isEnterpriseOperatorChart(chart versions) bool {
+// isCockroachDbOperatorChart checks if the chart is an CockroachDB operator chart.
+func isCockroachDbOperatorChart(chart versions) bool {
 	return chart.Version.Major() == chart.AppVersion.Major() && chart.Version.Minor() == chart.AppVersion.Minor() &&
 		chart.Version.Patch() == chart.AppVersion.Patch()
 }

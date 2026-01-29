@@ -70,9 +70,6 @@ spec:
             echo "  2. Then retry this cockroachdb chart upgrade:"
             echo "     helm upgrade {{ .Release.Name }} ./cockroachdb-parent/charts/cockroachdb"
             echo ""
-            echo "Alternatively, use cockroachdb-parent chart to upgrade both together:"
-            echo "  helm upgrade {{ .Release.Name }} ./cockroachdb-parent"
-            echo ""
             exit 1
           fi
           
@@ -142,10 +139,12 @@ spec:
               if [ "$CRDB_NODES" -gt 0 ]; then
                 echo "Found $CRDB_NODES CrdbNode resource(s)"
                 
-                # Verify both API versions work for CrdbNode
-                if kubectl get crdbnodes.v1alpha1.crdb.cockroachlabs.com -n {{ .Release.Namespace }} &>/dev/null && \
-                   kubectl get crdbnodes.v1beta1.crdb.cockroachlabs.com -n {{ .Release.Namespace }} &>/dev/null; then
-                  echo "✅ CrdbNode accessible via both API versions"
+                # Verify v1beta1 API access works for CrdbNode (v1alpha1 doesn't have CrdbNode)
+                if kubectl get crdbnodes.v1beta1.crdb.cockroachlabs.com -n {{ .Release.Namespace }} &>/dev/null; then
+                  echo "✅ CrdbNode accessible via v1beta1"
+                else
+                  echo "❌ ERROR: Cannot access CrdbNode via v1beta1 API"
+                  exit 1
                 fi
                 
                 echo "Rewriting CrdbNode resources..."
