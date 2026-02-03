@@ -1,0 +1,138 @@
+{{- if .Release.IsUpgrade }}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "{{ .Release.Name }}-operator-pre-upgrade-validation"
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/instance: {{ .Release.Name }}
+  annotations:
+    "helm.sh/hook": pre-upgrade
+    "helm.sh/hook-weight": "-5"
+    "helm.sh/hook-delete-policy": before-hook-creation,hook-succeeded
+spec:
+  template:
+    metadata:
+      labels:
+        app: operator-pre-upgrade-validation
+    spec:
+      serviceAccountName: cockroach-operator-default
+      restartPolicy: Never
+      containers:
+        - name: pre-upgrade-check
+          image: dtzar/helm-kubectl:latest
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              #!/bin/bash
+              set -e
+
+              RELEASE_NAME="{{ .Release.Name }}"
+              RELEASE_NAMESPACE="{{ .Release.Namespace }}"
+
+              echo "=========================================="
+              echo "  Operator Pre-Upgrade Validation"
+              echo "=========================================="
+              echo "Release: $RELEASE_NAME"
+              echo "Namespace: $RELEASE_NAMESPACE"
+              echo ""
+              
+              rm -rf ~/.kube/cache ~/.kube/http-cache 2>/dev/null || true
+
+              if ! kubectl get crd crdbclusters.crdb.cockroachlabs.com &>/dev/null; then
+                echo "✅ Fresh installation - no validation needed"
+                exit 0
+              fi
+
+              STORED_VERSIONS=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+                -o jsonpath='{.status.storedVersions}' 2>/dev/null || echo "[]")
+              echo "storedVersions: $STORED_VERSIONS"
+              echo ""
+
+              if [[ "$STORED_VERSIONS" == '["v1beta1"]' ]]; then
+                echo "✅ Using v1beta1 storage - no validation needed"
+                exit 0
+
+              elif ! echo "$STORED_VERSIONS" | grep -q "v1beta1"; then
+                echo "❌ UPGRADE BLOCKED - Cannot skip Phase 1"
+                echo ""
+                echo "You must upgrade through Phase 1 first."
+                echo ""
+                echo "Upgrade path:"
+                echo "  1. Checkout Phase 1 tag (25.4.3-preview+1)"
+                echo "  2. Upgrade operator to Phase 1"
+                echo "  3. Upgrade CockroachDB charts (REQUIRED)"
+                echo "  4. Then upgrade operator to this version"
+                exit 1
+
+              elif echo "$STORED_VERSIONS" | grep -q "v1alpha1" && echo "$STORED_VERSIONS" | grep -q "v1beta1"; then
+                echo "Checking CockroachDB chart upgrades..."
+                echo ""
+
+                CRDB_NAMESPACES=$(kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com -A -o json 2>/dev/null | jq -r '.items[].metadata.namespace' | sort -u || echo "")
+
+                if [ -z "$CRDB_NAMESPACES" ]; then
+                  echo "No CrdbCluster resources found"
+                else
+                  HAS_V1ALPHA1=false
+
+                  for ns in $CRDB_NAMESPACES; do
+                    echo "  Checking namespace: $ns"
+                    RELEASES=$(helm list -n "$ns" -o json 2>/dev/null | jq -r '.[].name' 2>/dev/null || echo "")
+
+                    if [ -z "$RELEASES" ]; then
+                      echo "    ⚠️  No Helm releases found"
+                      continue
+                    fi
+
+                    for release in $RELEASES; do
+                      MANIFEST=$(helm get manifest "$release" -n "$ns" 2>/dev/null || echo "")
+
+                      if [ -z "$MANIFEST" ]; then
+                        continue
+                      fi
+
+                      if echo "$MANIFEST" | grep -q "kind: CrdbCluster" && echo "$MANIFEST" | grep -q "apiVersion: crdb.cockroachlabs.com/v1alpha1"; then
+                        echo "    ❌ Release '$release' still uses v1alpha1"
+                        HAS_V1ALPHA1=true
+                      elif echo "$MANIFEST" | grep -q "kind: CrdbCluster"; then
+                        echo "    ✅ Release '$release' uses v1beta1"
+                      fi
+                    done
+                  done
+
+                  if [ "$HAS_V1ALPHA1" = true ]; then
+                    echo ""
+                    echo "❌ UPGRADE BLOCKED - CockroachDB charts not upgraded"
+                    echo ""
+                    echo "Some Helm releases still use v1alpha1."
+                    echo ""
+                    echo "Recovery:"
+                    echo "  1. Rollback operator: helm rollback $RELEASE_NAME"
+                    echo "  2. Upgrade CockroachDB charts"
+                    echo "  3. Verify: helm get manifest <release> -n <ns> | grep apiVersion"
+                    echo "  4. Retry operator upgrade"
+                    exit 1
+                  fi
+
+                  echo "  ✅ All releases use v1beta1"
+                fi
+
+                if ! kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com -A &>/dev/null; then
+                  echo "❌ Cannot access v1beta1 API"
+                  exit 1
+                fi
+
+                echo "✅ All checks passed"
+
+              else
+                echo "❌ UPGRADE BLOCKED - Unexpected storedVersions: $STORED_VERSIONS"
+                echo ""
+                echo "Check CRD state:"
+                echo "  kubectl get crd crdbclusters.crdb.cockroachlabs.com -o yaml"
+                exit 1
+              fi
+  backoffLimit: 3
+{{- end }}

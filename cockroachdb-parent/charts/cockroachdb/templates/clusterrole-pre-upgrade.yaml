@@ -18,6 +18,9 @@ rules:
   resources: ["customresourcedefinitions"]
   verbs: ["get", "list"]
   resourceNames: ["crdbclusters.crdb.cockroachlabs.com", "crdbnodes.crdb.cockroachlabs.com"]
+- apiGroups: ["crdb.cockroachlabs.com"]
+  resources: ["crdbclusters", "crdbnodes"]
+  verbs: ["get", "list"]
 ---
 # ClusterRoleBinding for pre-upgrade validation
 apiVersion: rbac.authorization.k8s.io/v1
