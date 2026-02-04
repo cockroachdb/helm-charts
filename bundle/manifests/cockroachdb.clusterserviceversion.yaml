@@ -503,6 +503,12 @@ spec:
           verbs:
           - '*'
         - apiGroups:
+          - cert-manager.io
+          resources:
+          - '*'
+          verbs:
+          - '*'
+        - apiGroups:
           - authentication.k8s.io
           resources:
           - tokenreviews
