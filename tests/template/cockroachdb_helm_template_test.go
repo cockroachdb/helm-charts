@@ -2443,3 +2443,77 @@ func TestHelmOperatorLoggingConfigVars(t *testing.T) {
 		})
 	}
 }
+
+// TestHelmOperatorClusterSettings tests the clusterSettings configuration for operator enabled CockroachDB clusters
+func TestHelmOperatorClusterSettings(t *testing.T) {
+	t.Parallel()
+
+	type expect struct {
+		hasClusterSettings bool
+		clusterSettings    map[string]string
+	}
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect
+	}{
+		{
+			"Cluster settings configured",
+			map[string]string{
+				"cockroachdb.crdbCluster.clusterSettings.cluster\\.organization":             "test-org",
+				"cockroachdb.crdbCluster.clusterSettings.enterprise\\.license":               "test-license",
+				"cockroachdb.crdbCluster.clusterSettings.sql\\.defaults\\.statement_timeout": "30s",
+			},
+			expect{
+				hasClusterSettings: true,
+				clusterSettings: map[string]string{
+					"cluster.organization":           "test-org",
+					"enterprise.license":             "test-license",
+					"sql.defaults.statement_timeout": "30s",
+				},
+			},
+		},
+		{
+			"Empty cluster settings",
+			map[string]string{},
+			expect{
+				hasClusterSettings: false,
+				clusterSettings:    nil,
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+			output, err := helm.RenderTemplateE(
+				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
+			)
+			require.NoError(subT, err)
+
+			var crdbCluster crdbv1beta1.CrdbCluster
+			helm.UnmarshalK8SYaml(t, output, &crdbCluster)
+
+			require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
+			require.Equal(subT, "crdb.cockroachlabs.com/v1beta1", crdbCluster.APIVersion)
+
+			spec := crdbCluster.Spec
+
+			if testCase.expect.hasClusterSettings {
+				require.NotNil(subT, spec.ClusterSettings, "Expected clusterSettings field to exist")
+				require.Equal(subT, testCase.expect.clusterSettings, spec.ClusterSettings)
+			} else {
+				require.Nil(subT, spec.ClusterSettings)
+			}
+		})
+	}
+}
