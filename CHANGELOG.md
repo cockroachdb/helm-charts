@@ -2,6 +2,14 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-25.4.4-preview+1] 2026-02-18
+### Changed
+- Upgraded CockroachDB to v25.4.4.
+
+### Fixed
+- Fixed a bug that prevented setting CockroachDB cluster settings with the CockroachDB operator.
+- Fixed a bug that caused repeated PodDisruptionBudget recreation on clusters with the default name `cockroachdb`.
+
 ## [cockroachdb-parent-25.4.3-preview+2] 2026-02-01
 ### Changed
 - **API Version Migration**: v1alpha1 API serving is now disabled. Only v1beta1 is served.

@@ -430,7 +430,7 @@ cockroachdb:
             #     fieldRef:
             #       fieldPath: metadata.name
             resources: {}
-            # image: cockroachdb/cockroach:v25.4.2
+            # image: cockroachdb/cockroach:v25.4.4
             # - name: cert-reloader
             #   image: us-docker.pkg.dev/releases-prod/self-hosted/inotifywait@sha256:94db3d416e3df8d1ee2605f05b0526b3bd7217ae69b4eeb147929fe0b77aeafc
         
