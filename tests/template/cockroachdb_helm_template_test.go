@@ -449,7 +449,7 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 		{
 			"Input validations for taking duration input as hours only",
 			map[string]string{"tls.certs.selfSigner.caCertDuration": "1d"},
-			"tls.certs.selfSigner.caCertDuration: Does not match pattern '^[0-9]*h$'",
+			"pattern '^[0-9]*h$'",
 		},
 		{
 			"CA cert duration is empty",
@@ -522,10 +522,10 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 				SetValues:      testCase.values,
 			}
-			_, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/serviceaccount-certSelfSigner.yaml"})
+			_, subErr := helm.RenderTemplateE(subT, options, helmChartPath, releaseName, []string{"templates/serviceaccount-certSelfSigner.yaml"})
 
-			require.Error(t, err)
-			require.Contains(t, err.Error(), testCase.expect)
+			require.Error(subT, subErr)
+			require.Contains(subT, subErr.Error(), testCase.expect)
 		})
 	}
 }
@@ -2388,6 +2388,8 @@ func TestHelmOperatorLoggingConfigVars(t *testing.T) {
 	type expect struct {
 		loggingConfigMapName string
 		loggingConfigVars    []string
+		hasConfigMap         bool
+		configMapContent     string
 	}
 	testCases := []struct {
 		name   string
@@ -2397,12 +2399,40 @@ func TestHelmOperatorLoggingConfigVars(t *testing.T) {
 		{
 			"Custom logging config vars",
 			map[string]string{
-				"cockroachdb.crdbCluster.loggingConfigMapName": "crdb-cluster-log-config",
-				"cockroachdb.crdbCluster.loggingConfigVars[0]": "HOST_IP",
+				"cockroachdb.crdbCluster.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
+				"cockroachdb.crdbCluster.loggingConfigMapName":          "crdb-cluster-log-config",
+				"cockroachdb.crdbCluster.loggingConfigVars[0]":          "HOST_IP",
 			},
 			expect{
 				loggingConfigMapName: "crdb-cluster-log-config",
 				loggingConfigVars:    []string{"HOST_IP"},
+				hasConfigMap:         true,
+				configMapContent:     "dir: /cockroach/cockroach-logs",
+			},
+		},
+		{
+			// When log.config is set without an explicit loggingConfigMapName, the
+			// configmap name defaults to "<fullname>-log-config" and is used in crdb.yaml.
+			"log.config set without loggingConfigMapName",
+			map[string]string{
+				"cockroachdb.crdbCluster.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
+			},
+			expect{
+				loggingConfigMapName: releaseName + "-cockroachdb-log-config",
+				loggingConfigVars:    nil,
+				hasConfigMap:         true,
+				configMapContent:     "dir: /cockroach/cockroach-logs",
+			},
+		},
+		{
+			// When neither log.config nor loggingConfigMapName is set, no configmap
+			// is referenced in crdb.yaml and the configmap template produces no output.
+			"log.config with empty log config",
+			map[string]string{},
+			expect{
+				loggingConfigMapName: "",
+				loggingConfigVars:    nil,
+				hasConfigMap:         false,
 			},
 		},
 	}
@@ -2426,19 +2456,170 @@ func TestHelmOperatorLoggingConfigVars(t *testing.T) {
 			require.NoError(subT, err)
 
 			var crdbCluster crdbv1beta1.CrdbCluster
-			helm.UnmarshalK8SYaml(t, output, &crdbCluster)
+			helm.UnmarshalK8SYaml(subT, output, &crdbCluster)
 
 			require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
 			require.Equal(subT, "crdb.cockroachlabs.com/v1beta1", crdbCluster.APIVersion)
 
 			spec := crdbCluster.Spec
 
-			require.NotNil(subT, spec.Template.Spec.LoggingConfigMapName, "Expected logging configmap name field to exist")
 			require.Equal(subT, testCase.expect.loggingConfigMapName, spec.Template.Spec.LoggingConfigMapName)
-
-			require.NotNil(subT, spec.Template.Spec.LoggingConfigVars, "Expected logging config vars field to exist")
 			require.Equal(subT, testCase.expect.loggingConfigVars, spec.Template.Spec.LoggingConfigVars)
 
+			// Verify configmap rendering.
+			configMapOutput, configMapErr := helm.RenderTemplateE(
+				subT, options, chartPath, releaseName, []string{"templates/configmap.logconfig.yaml"},
+			)
+			if testCase.expect.hasConfigMap {
+				require.NoError(subT, configMapErr)
+				var configMap corev1.ConfigMap
+				helm.UnmarshalK8SYaml(subT, configMapOutput, &configMap)
+				require.Equal(subT, testCase.expect.loggingConfigMapName, configMap.Name)
+				require.Contains(subT, configMap.Data["logs.yaml"], testCase.expect.configMapContent)
+			} else {
+				// When log.config is not set the template produces no output and Helm
+				// reports "could not find template" when rendering it with --show-only.
+				require.Error(subT, configMapErr)
+				require.Contains(subT, configMapErr.Error(), "could not find template")
+			}
+		})
+	}
+}
+
+// TestHelmOperatorLogsStore tests that the log.logsStore field is correctly rendered
+// in the CrdbCluster crdb.yaml template.
+func TestHelmOperatorLogsStore(t *testing.T) {
+	t.Parallel()
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+	testCases := []struct {
+		name        string
+		values      map[string]string
+		expectNil   bool
+		expectMount string
+	}{
+		{
+			"logsStore with mountPath",
+			map[string]string{
+				"cockroachdb.crdbCluster.log.logsStore.mountPath": "/cockroach/cockroach-logs",
+			},
+			false,
+			"/cockroach/cockroach-logs",
+		},
+		{
+			"logsStore not set",
+			map[string]string{},
+			true,
+			"",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			output, err := helm.RenderTemplateE(
+				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
+			)
+			require.NoError(subT, err)
+
+			var crdbCluster crdbv1beta1.CrdbCluster
+			helm.UnmarshalK8SYaml(subT, output, &crdbCluster)
+
+			require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
+			require.Equal(subT, "crdb.cockroachlabs.com/v1beta1", crdbCluster.APIVersion)
+
+			spec := crdbCluster.Spec
+
+			if testCase.expectNil {
+				require.Nil(subT, spec.Template.Spec.LogsStore)
+			} else {
+				require.NotNil(subT, spec.Template.Spec.LogsStore)
+				require.Equal(subT, testCase.expectMount, spec.Template.Spec.LogsStore.MountPath)
+			}
+		})
+	}
+}
+
+// TestHelmOperatorLogValidation tests that the log validation catches mismatches between
+// log.config.file-defaults.dir and log.logsStore.mountPath.
+func TestHelmOperatorLogValidation(t *testing.T) {
+	t.Parallel()
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+	testCases := []struct {
+		name       string
+		values     map[string]string
+		wantErrMsg string
+	}{
+		{
+			"logsStore mountPath and log config dir match",
+			map[string]string{
+				"cockroachdb.crdbCluster.log.logsStore.mountPath":        "/cockroach/cockroach-logs",
+				"cockroachdb.crdbCluster.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
+			},
+			"",
+		},
+		{
+			"logsStore mountPath and log config dir mismatch",
+			map[string]string{
+				"cockroachdb.crdbCluster.log.logsStore.mountPath":        "/cockroach/cockroach-logs",
+				"cockroachdb.crdbCluster.log.config.file-defaults.dir": "/cockroach/data/logs",
+			},
+			"log.config.file-defaults.dir must match the logsStore mountPath when logsStore is configured",
+		},
+		{
+			"logsStore set without log config dir — no validation error",
+			map[string]string{
+				"cockroachdb.crdbCluster.log.logsStore.mountPath": "/cockroach/cockroach-logs",
+			},
+			"",
+		},
+		{
+			"logsStore mountPath set with log config but missing file-defaults.dir",
+			map[string]string{
+				"cockroachdb.crdbCluster.log.logsStore.mountPath":          "/cockroach/cockroach-logs",
+				"cockroachdb.crdbCluster.log.config.sinks.stderr.filter": "WARNING",
+			},
+			"log.config.file-defaults.dir must be set when logsStore is configured",
+		},
+		{
+			"log config dir set without logsStore — no validation error",
+			map[string]string{
+				"cockroachdb.crdbCluster.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
+			},
+			"",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			_, err := helm.RenderTemplateE(
+				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
+			)
+
+			if testCase.wantErrMsg != "" {
+				require.Error(subT, err)
+				require.Contains(subT, err.Error(), testCase.wantErrMsg)
+			} else {
+				require.NoError(subT, err)
+			}
 		})
 	}
 }

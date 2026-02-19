@@ -323,6 +323,30 @@ app.kubernetes.io/name: {{ include "cockroachdb.clusterfullname" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
 
+{{/*
+Validate log configuration when logsStore is configured.
+When logsStore and log.config are both set, file-defaults.dir must be set
+and must exactly match the logsStore mountPath (defaulting to /cockroach/cockroach-data/logs)
+so that CockroachDB writes logs to the dedicated volume.
+*/}}
+{{- define "cockroachdb.log.validation" -}}
+{{- $logConfig := .Values.cockroachdb.crdbCluster.log.config -}}
+{{- $logsStore := .Values.cockroachdb.crdbCluster.log.logsStore -}}
+{{- if and $logsStore $logConfig -}}
+{{- $logDir := dig "file-defaults" "dir" "" $logConfig -}}
+{{- $mountPath := dig "mountPath" "/cockroach/cockroach-data/logs" $logsStore -}}
+{{- if not $logDir -}}
+    {{ fail "log.config.file-defaults.dir must be set when logsStore is configured" }}
+{{- else -}}
+{{- $normalizedMountPath := trimSuffix "/" $mountPath -}}
+{{- $normalizedLogDir := trimSuffix "/" $logDir -}}
+{{- if ne $normalizedMountPath $normalizedLogDir -}}
+    {{ fail "log.config.file-defaults.dir must match the logsStore mountPath when logsStore is configured" }}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "cockroachdb.isUpgradeAllowed" -}}
 {{- $stsName := include "cockroachdb.fullname" . -}}
 {{- $sts := lookup "apps/v1" "StatefulSet" .Release.Namespace $stsName -}}
