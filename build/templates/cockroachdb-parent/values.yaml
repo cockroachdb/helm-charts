@@ -36,13 +36,27 @@
 #  # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
 #  clusterSettings: ~
 #
-#  # loggingConf is the logging configuration used by cockroach.
-#  # More details: https://www.cockroachlabs.com/docs/stable/logging-overview.html
-#  loggingConf: ~
-#    # sinks:
-#    # stderr:
-#    # channels: [health, dev]
-#  # filter: INFO
+#  # log captures all logging configuration for CockroachDB.
+#  log:
+#    # config captures the inline logging configuration.
+#    # When set, the chart automatically creates a ConfigMap and wires it to the cluster.
+#    config:
+#      file-defaults:
+#        dir: /cockroach/cockroach-logs
+#      sinks:
+#        file-groups:
+#          default:
+#            channels: [DEV, OPS, HEALTH]
+#    # configMapName is the name of the ConfigMap created from log.config.
+#    # Defaults to "<release>-log-config" if not set.
+#    # configMapName: my-log-config
+#    # persistentVolume captures the disk configuration for the dedicated logs volume.
+#    # Isolates log I/O from the main data store to minimize disk stalls.
+#    persistentVolume:
+#      enabled: true
+#      path: /cockroach/cockroach-logs
+#      size: 5Gi
+#      # storageClassName: ""
 #
 #  # We usually recommend not to specify default resources and to leave this as a conscious
 #  # choice for the user. This also increases chances charts run on environments with little
@@ -67,6 +81,7 @@
 #          requests:
 #            storage: 10Gi
 #        volumeMode: Filesystem
+#
 #
 #  certificates:
 #    # Any extra alt names that should be added to the node certs.
