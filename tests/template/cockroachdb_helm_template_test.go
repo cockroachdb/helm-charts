@@ -2398,8 +2398,9 @@ func TestHelmOperatorLoggingConfigVars(t *testing.T) {
 		{
 			"Custom logging config vars",
 			map[string]string{
-				"cockroachdb.crdbCluster.loggingConfigMapName": "crdb-cluster-log-config",
-				"cockroachdb.crdbCluster.loggingConfigVars[0]": "HOST_IP",
+				"cockroachdb.crdbCluster.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
+				"cockroachdb.crdbCluster.loggingConfigMapName":          "crdb-cluster-log-config",
+				"cockroachdb.crdbCluster.loggingConfigVars[0]":          "HOST_IP",
 			},
 			expect{
 				loggingConfigMapName: "crdb-cluster-log-config",
