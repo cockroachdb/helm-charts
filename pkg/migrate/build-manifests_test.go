@@ -398,6 +398,160 @@ func TestFromHelmChart_WithWalFailover(t *testing.T) {
 	}
 }
 
+func TestFromHelmChart_WithDedicatedLogsPVC(t *testing.T) {
+	clientset := fake.NewSimpleClientset()
+	dynamicClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	ctx := context.TODO()
+	namespace := "default"
+	outputDir := t.TempDir()
+
+	storageClassName := "standard"
+	replicas := int32(3)
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cockroachdb",
+			Namespace: namespace,
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: &replicas,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"app": "cockroachdb"},
+				},
+				Spec: corev1.PodSpec{
+					TerminationGracePeriodSeconds: &[]int64{60}[0],
+					Containers: []corev1.Container{
+						{
+							Name:  "db",
+							Image: "cockroachdb/cockroach:v25.3.1",
+							Args: []string{
+								"/cockroach/cockroach.sh",
+								"start",
+								"--join=cockroachdb-0.cockroachdb:26257",
+							},
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "datadir", MountPath: "/cockroach/cockroach-data"},
+								{Name: "logsdir", MountPath: "/cockroach/logs"},
+							},
+						},
+					},
+				},
+			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "datadir"},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("100Gi"),
+							},
+						},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "logsdir"},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						StorageClassName: &storageClassName,
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("50Gi"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	_, err := clientset.AppsV1().StatefulSets(namespace).Create(ctx, sts, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	// Create pods
+	for i := 0; i < 3; i++ {
+		pod := &corev1.Pod{
+			ObjectMeta: metav1.ObjectMeta{
+				Name:      sts.Name + "-" + strconv.Itoa(i),
+				Namespace: namespace,
+			},
+			Spec: corev1.PodSpec{
+				NodeName:   "node" + strconv.Itoa(i),
+				Containers: sts.Spec.Template.Spec.Containers,
+			},
+		}
+		_, err := clientset.CoreV1().Pods(namespace).Create(ctx, pod, metav1.CreateOptions{})
+		require.NoError(t, err)
+	}
+
+	// Create the public service
+	svc := &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cockroachdb-public",
+			Namespace: namespace,
+		},
+		Spec: corev1.ServiceSpec{
+			Ports: []corev1.ServicePort{
+				{Name: "http", Port: 8080},
+			},
+		},
+	}
+	_, err = clientset.CoreV1().Services(namespace).Create(ctx, svc, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	m := &Manifest{
+		cloudProvider: "gcp",
+		cloudRegion:   "us-central1",
+		objectName:    sts.Name,
+		namespace:     sts.Namespace,
+		outputDir:     outputDir,
+		clientset:     clientset,
+		dynamicClient: dynamicClient,
+	}
+
+	err = m.FromHelmChart()
+	require.NoError(t, err)
+
+	// Verify values.yaml contains log.persistentVolume
+	valuesBytes, err := os.ReadFile(filepath.Join(outputDir, "values.yaml"))
+	require.NoError(t, err)
+
+	var valuesData map[string]interface{}
+	err = yaml.Unmarshal(valuesBytes, &valuesData)
+	require.NoError(t, err)
+
+	cockroachdb, ok := valuesData["cockroachdb"].(map[string]interface{})
+	require.True(t, ok)
+	crdbCluster, ok := cockroachdb["crdbCluster"].(map[string]interface{})
+	require.True(t, ok)
+	log, ok := crdbCluster["log"].(map[string]interface{})
+	require.True(t, ok, "log section should be present in values.yaml")
+	logPV, ok := log["persistentVolume"].(map[string]interface{})
+	require.True(t, ok, "log.persistentVolume should be present in values.yaml")
+
+	assert.Equal(t, true, logPV["enabled"])
+	assert.Equal(t, "/cockroach/logs", logPV["path"])
+	assert.Equal(t, "50Gi", logPV["size"])
+	assert.Equal(t, "standard", logPV["storageClassName"])
+
+	// Verify each CrdbNode has LogsStore set correctly
+	for i := 0; i < 3; i++ {
+		nodeBytes, err := os.ReadFile(filepath.Join(outputDir, "crdbnode-"+strconv.Itoa(i)+".yaml"))
+		require.NoError(t, err)
+
+		var nodeData v1beta1.CrdbNode
+		err = yaml.Unmarshal(nodeBytes, &nodeData)
+		require.NoError(t, err)
+
+		require.NotNil(t, nodeData.Spec.LogsStore, "LogsStore should be present in node %d", i)
+		assert.Equal(t, "/cockroach/logs", nodeData.Spec.LogsStore.MountPath)
+		require.NotNil(t, nodeData.Spec.LogsStore.VolumeClaimTemplate)
+		assert.Equal(t, "logsdir", nodeData.Spec.LogsStore.VolumeClaimTemplate.Name)
+		storage := nodeData.Spec.LogsStore.VolumeClaimTemplate.Spec.Resources.Requests[corev1.ResourceStorage]
+		assert.Equal(t, "50Gi", storage.String())
+		require.NotNil(t, nodeData.Spec.LogsStore.VolumeClaimTemplate.Spec.StorageClassName)
+		assert.Equal(t, "standard", *nodeData.Spec.LogsStore.VolumeClaimTemplate.Spec.StorageClassName)
+	}
+}
+
 func TestFromHelmChart_WithWalFailoverDisabled(t *testing.T) {
 	clientset := fake.NewSimpleClientset()
 	dynamicClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())

@@ -389,12 +389,40 @@ cockroachdb:
     # loggingConfigMapName defines the ConfigMap which contains log configuration used to send the logs through the
     # proper channels within CockroachDB.
     # The value of the ConfigMap should be specified under the key logs.yaml.
+    # When log.config is set and loggingConfigMapName is not, defaults to "<cockroachdb.fullname>-log-config".
+    # When neither is set, no logging configuration is applied to the cluster.
     loggingConfigMapName: ""
     # loggingConfigVars defines a list of environment variable names
     # that will be expanded if present in the body of the logging configuration.
     loggingConfigVars: []
       # - "HOST_IP"
       # - "MAX_STALENESS"
+    # log captures all logging configuration for CockroachDB.
+    log:
+      # config captures the inline logging configuration for CockroachDB.
+      # When set, the chart automatically creates a ConfigMap and wires it to the cluster.
+      # More details: https://www.cockroachlabs.com/docs/stable/configure-logs
+      config: {}
+        # file-defaults:
+        #   dir: /cockroach/cockroach-logs
+        # sinks:
+        #   file-groups:
+        #     default:
+        #       channels: [DEV, OPS, HEALTH]
+      # persistentVolume captures the disk configuration for the dedicated CockroachDB logs volume.
+      # Creates a separate PVC for log storage, isolating log I/O from the main data store.
+      # Recommended in production to minimize disk stalls on the data store volumes.
+      persistentVolume:
+        # enabled determines whether a dedicated PVC is created for CockroachDB logs.
+        enabled: false
+        # path is the absolute mount path inside the CockroachDB container for log files.
+        # Must match log.config.file-defaults.dir if log.config is set.
+        path: /cockroach/cockroach-logs
+        # size is the storage size for the dedicated logs PVC.
+        size: 5Gi
+        # storageClassName defines the StorageClass for the PVC.
+        # If not set, the default provisioner will be used (gp2 on AWS, standard on GKE).
+        # storageClassName: ""
     # godebug captures Go runtime debug settings for CockroachDB pods.
     godebug:
       # disablethp determines whether Transparent Huge Pages are disabled.

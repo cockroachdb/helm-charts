@@ -51,6 +51,7 @@ const (
 	certManagerVersion             = "v1"
 	certificatesResource           = "certificates"
 	issuersResource                = "issuers"
+	defaultLogsMountPath           = "/cockroach/cockroach-data/logs"
 )
 
 var (
@@ -72,6 +73,7 @@ type parsedMigrationInput struct {
 	clientSecretName  string
 	pcrSpec           *v1beta1.CrdbVirtualClusterSpec
 	walFailoverSpec   *v1beta1.CrdbWalFailoverSpec
+	logsStorePVCSpec  *v1beta1.CrdbLogsStoreSpec
 	priorityClassName string
 	initContainers    []corev1.Container
 	customVolumes     []corev1.Volume
@@ -551,6 +553,10 @@ func buildNodeSpecFromHelm(
 	if input.walFailoverSpec != nil {
 		nodeSpec.WALFailoverSpec = input.walFailoverSpec
 	}
+	// Add LogsStore if a dedicated logsdir PVC was detected
+	if input.logsStorePVCSpec != nil {
+		nodeSpec.LogsStore = input.logsStorePVCSpec
+	}
 	return nodeSpec
 }
 
@@ -686,6 +692,25 @@ func buildHelmValuesFromHelm(
 		}
 	}
 
+	// Add log.persistentVolume if a dedicated logsdir PVC was detected in the StatefulSet.
+	if input.logsStorePVCSpec != nil {
+		logPV := map[string]interface{}{
+			"enabled": true,
+			"path":    input.logsStorePVCSpec.MountPath,
+		}
+		if vct := input.logsStorePVCSpec.VolumeClaimTemplate; vct != nil {
+			if storage := vct.Spec.Resources.Requests[corev1.ResourceStorage]; !storage.IsZero() {
+				logPV["size"] = storage.String()
+			}
+			if vct.Spec.StorageClassName != nil && *vct.Spec.StorageClassName != "" {
+				logPV["storageClassName"] = *vct.Spec.StorageClassName
+			}
+		}
+		crdbCluster["log"] = map[string]interface{}{
+			"persistentVolume": logPV,
+		}
+	}
+
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
 			"tls":         tls,
@@ -714,6 +739,35 @@ func generateParsedMigrationInput(
 					return parsedInput, err
 				}
 			}
+		}
+	}
+
+	// Detect logsdir volumeClaimTemplate — dedicated log PVC from StatefulSet chart.
+	// If present, populate logsStorePVCSpec so the operator values.yaml gets log.persistentVolume.* set
+	// and the CrdbNode gets LogsStore set (mirrors DataStore pattern from the operator API).
+	for _, vct := range sts.Spec.VolumeClaimTemplates {
+		if vct.Name == "logsdir" {
+			// Extract mount path from the db container's volumeMounts.
+			// Defaults to defaultLogsMountPath if no logsdir VolumeMount is found.
+			mountPath := defaultLogsMountPath
+			for _, c := range sts.Spec.Template.Spec.Containers {
+				for _, vm := range c.VolumeMounts {
+					if vm.Name == "logsdir" {
+						mountPath = vm.MountPath
+					}
+				}
+			}
+			pvc := vct // copy
+			parsedInput.logsStorePVCSpec = &v1beta1.CrdbLogsStoreSpec{
+				VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{
+						Name: pvc.Name,
+					},
+					Spec: pvc.Spec,
+				},
+				MountPath: mountPath,
+			}
+			break
 		}
 	}
 

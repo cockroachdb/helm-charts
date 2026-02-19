@@ -38,11 +38,31 @@
 #
 #  # loggingConf is the logging configuration used by cockroach.
 #  # More details: https://www.cockroachlabs.com/docs/stable/logging-overview.html
+#  # NOTE: loggingConf is not consumed by this chart and has no effect here.
+#  # Use log.config below to define inline logging configuration instead.
 #  loggingConf: ~
 #    # sinks:
 #    # stderr:
 #    # channels: [health, dev]
 #  # filter: INFO
+#
+#  # log captures all logging configuration for CockroachDB.
+#  log:
+#    # config captures the inline logging configuration.
+#    # When set, the chart automatically creates a ConfigMap and wires it to the cluster.
+#    config:
+#      file-defaults:
+#        dir: /cockroach/cockroach-logs
+#      sinks:
+#        file-groups:
+#          default:
+#            channels: [DEV, OPS, HEALTH]
+#    # persistentVolume captures the disk configuration for the dedicated logs volume.
+#    persistentVolume:
+#      enabled: true
+#      path: /cockroach/cockroach-logs
+#      size: 5Gi
+#      # storageClassName: ""
 #
 #  # We usually recommend not to specify default resources and to leave this as a conscious
 #  # choice for the user. This also increases chances charts run on environments with little
