@@ -443,6 +443,9 @@ cockroachdb:
             topologyKey: topology.kubernetes.io/zone
             # whenUnsatisfiable defines the behavior when constraints cannot be met.
             whenUnsatisfiable: DoNotSchedule
+            labelSelector:
+              matchLabels:
+                crdb.cockroachlabs.com/cluster: cockroachdb
         # # terminationGracePeriodSeconds determines the time available to CockroachDB for graceful drain.
         # terminationGracePeriodSeconds: 300
         # # tolerations captures the tolerations for pods of the self-signer job.
