@@ -70,7 +70,7 @@ spec:
       {{- end }}
       {{- if .Values.cockroachdb.crdbCluster.log.persistentVolume.enabled }}
       logsStore:
-        logsMountPath: {{ .Values.cockroachdb.crdbCluster.log.persistentVolume.path }}
+        mountPath: {{ .Values.cockroachdb.crdbCluster.log.persistentVolume.path }}
         volumeClaimTemplate:
           spec:
             accessModes:
