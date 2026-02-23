@@ -18,3 +18,6 @@ certificate:
 numReplicas: 3
 # cloudRegion specifies the cloud region for the Operator.
 cloudRegion: "us-east1"
+# selfSignedOperatorCerts: when true, the operator self-generates its CA and webhook TLS cert.
+# When false (default), the helm chart pre-provisions the cockroach-operator-certs Secret.
+selfSignedOperatorCerts: false
