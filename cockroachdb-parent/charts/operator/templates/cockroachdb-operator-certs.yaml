@@ -1,3 +1,4 @@
+{{- if not .Values.selfSignedOperatorCerts }}
 {{- $operatorCerts := splitList "\n" (include "operator.certs" .) }}
 apiVersion: v1
 kind: Secret
@@ -9,3 +10,4 @@ data:
   {{ index $operatorCerts 0 }}
   {{ index $operatorCerts 1 }}
   {{ index $operatorCerts 2 }}
+{{- end }}

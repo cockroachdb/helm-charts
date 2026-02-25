@@ -1,5 +1,6 @@
 # operator.yaml defines how the operator are installed in a K8s
   # cluster, including its deployment and permissions.
+{{- include "operator.selfSignerConflictValidation" . -}}
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -491,6 +492,9 @@ spec:
             - "-rpc-addr=0.0.0.0:9070"
             - "-skip-tenant-controller=true"
             - "-disable-tenant-finalization=true"
+            {{- if .Values.selfSignedOperatorCerts }}
+            - "-self-signed-operator-certs=true"
+            {{- end }}
           ports:
             # Expose port under specific name so that performance metrics can
             # more easily be scraped from container.
@@ -554,5 +558,9 @@ spec:
             failureThreshold: 3
       volumes:
         - name: certs
+          {{- if .Values.selfSignedOperatorCerts }}
+          emptyDir: {}
+          {{- else }}
           secret:
             secretName: cockroach-operator-certs
+          {{- end }}
