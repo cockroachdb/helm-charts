@@ -19,8 +19,10 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
   annotations:
-    helm.sh/hook: post-install,post-upgrade
-    helm.sh/hook-delete-policy: before-hook-creation
+    {{- if not .Release.IsInstall }}
+    helm.sh/hook: post-upgrade
+    helm.sh/hook-delete-policy: before-hook-creation,hook-succeeded
+    {{- end }}
     {{- with .Values.init.jobAnnotations }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
@@ -97,57 +99,32 @@ spec:
         - name: cluster-init
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy | quote }}
-          # Run the command in an `while true` loop because this Job is bound
-          # to come up before the CockroachDB Pods (due to the time needed to
-          # get PersistentVolumes attached to Nodes), and sleeping 5 seconds
-          # between attempts is much better than letting the Pod fail when
-          # the init command does and waiting out Kubernetes' non-configurable
-          # exponential back-off for Pod restarts.
           # Command completes either when cluster initialization succeeds,
           # or when cluster has been initialized already.
           command:
           - /bin/bash
           - -c
-          - >-
+          - |
             {{- if $isClusterInitEnabled }}
-              initCluster() {
-                while true; do
-                  local output=$(
-                    set -x;
-
-                    /cockroach/cockroach init \
-                      {{- if .Values.tls.enabled }}
-                      --certs-dir=/cockroach-certs/ \
-                      {{- else }}
-                      --insecure \
-                      {{- end }}
-                      {{- with index .Values.conf "cluster-name" }}
-                      --cluster-name={{.}} \
-                      {{- end }}
-                      --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
-                              :{{ .Values.service.ports.grpc.internal.port | int64 }} \
-                      {{- if .Values.init.pcr.enabled -}}
-                      {{- if .Values.init.pcr.isPrimary }}
-                      --virtualized \
-                      {{- else }}
-                      --virtualized-empty \
-                      {{- end }}
-                      {{- end }}
-                  2>&1);
-
-                  local exitCode="$?";
-                  echo $output;
-
-                  if [[ "$output" =~ .*"Cluster successfully initialized".* || "$output" =~ .*"cluster has already been initialized".* ]]; then
-                    break;
-                  fi
-
-                  echo "Cluster is not ready to be initialized, retrying in 5 seconds"
-                  sleep 5;
-                done
-              }
-
-              initCluster;
+              set -x;
+              /cockroach/cockroach init \
+                {{- if .Values.tls.enabled }}
+                --certs-dir=/cockroach-certs/
+                {{- else }}
+                --insecure
+                {{- end }} \
+                {{- with index .Values.conf "cluster-name" }}
+                --cluster-name={{.}} \
+                {{- end }}
+                --host={{ template "cockroachdb.fullname" . }}-0.{{ template "cockroachdb.fullname" . -}}
+                        :{{ .Values.service.ports.grpc.internal.port | int64 }}
+                {{- if .Values.init.pcr.enabled -}} \
+                {{- if .Values.init.pcr.isPrimary }}
+                --virtualized
+                {{- else }}
+                --virtualized-empty
+                {{- end }}
+                {{- end }} 2>&1 | tee /tmp/output.txt || grep "ERROR: cluster has already been initialized" /tmp/output.txt
             {{- end }}
 
             {{- if $isDatabaseProvisioningEnabled }}
