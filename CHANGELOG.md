@@ -2,6 +2,23 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-25.4.4-preview+2] - Unreleased
+### Added
+- **Namespace scoping for operator**: The operator can now be restricted to watch specific namespaces
+  instead of the entire cluster. Configure via `watchNamespaces` in `operator/values.yaml`.
+  Default is an empty string (global mode — watches all namespaces), preserving existing behavior.
+  See [Namespace Scoping](cockroachdb-parent/charts/operator/README.md#namespace-scoping) for details.
+
+### Changed
+- **ClusterRoleBinding renamed**: The operator ClusterRoleBinding is now named
+  `cockroach-operator-<release-namespace>` (previously `cockroach-operator-default`).
+  This allows multiple operator deployments in different namespaces without RBAC conflicts.
+
+  **Action required after upgrade**: Delete the stale ClusterRoleBinding left by the previous chart version:
+  ```bash
+  kubectl delete clusterrolebinding cockroach-operator-default
+  ```
+
 ## [cockroachdb-parent-25.4.4-preview+1] 2026-02-18
 ### Changed
 - Upgraded CockroachDB to v25.4.4.

@@ -18,3 +18,16 @@ certificate:
 numReplicas: 3
 # cloudRegion specifies the cloud region for the Operator.
 cloudRegion: "us-east1"
+# watchNamespaces controls which namespaces the operator monitors for CockroachDB clusters.
+# Default (empty string) = global mode: operator watches all namespaces cluster-wide.
+# Single namespace: "prod" — operator watches only that namespace.
+# Multiple namespaces: "prod-a,prod-b,prod-c" — operator watches the comma-separated list.
+#
+# Note: The operator's own deployment namespace (set via helm -n flag) is independent
+# of the namespaces it watches. For example, you can deploy the operator into
+# "cockroach-operator-system" while scoping it to watch "prod-a,prod-b" only.
+#
+# WARNING: Do not configure multiple operator deployments to watch overlapping namespaces
+# in production. Both operators will independently reconcile the same clusters, which
+# can cause unpredictable behavior, especially across different operator versions.
+watchNamespaces: ""
