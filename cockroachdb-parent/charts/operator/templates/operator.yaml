@@ -421,10 +421,17 @@ metadata:
     app: cockroach-operator
 
 ---
+# The ClusterRoleBinding name includes the release namespace so that multiple operator
+# deployments in different namespaces each get their own binding, all referencing the
+# shared ClusterRole. This is required when running multiple scoped operator instances.
+#
+# UPGRADE NOTE: If upgrading from a previous chart version, a stale ClusterRoleBinding
+# named "cockroach-operator-default" may remain after the upgrade. It is safe to remove:
+#   kubectl delete clusterrolebinding cockroach-operator-default
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: cockroach-operator-default
+  name: cockroach-operator-{{ .Release.Namespace }}
   labels:
     app: cockroach-operator
 roleRef:
@@ -511,6 +518,13 @@ spec:
                   fieldPath: spec.nodeName
             - name: CLOUD_REGION
               value: {{ .Values.cloudRegion }}
+            # WATCH_NAMESPACE limits which namespaces the operator monitors.
+            # When unset (default), the operator watches all namespaces cluster-wide.
+            # Set via watchNamespaces in values.yaml.
+            {{- if .Values.watchNamespaces }}
+            - name: WATCH_NAMESPACE
+              value: {{ .Values.watchNamespaces | quote }}
+            {{- end }}
           resources:
             requests:
               cpu: 500m

@@ -48,3 +48,58 @@ To uninstall/delete the Operator cluster:
 ```bash
 helm uninstall $CRDBOPERATOR -n $NAMESPACE
 ```
+
+## Namespace Scoping
+
+By default, the operator watches **all namespaces** cluster-wide (global mode). You can restrict it to specific namespaces using the `watchNamespaces` value.
+
+> **Note:** The operator's own deployment namespace (set via `-n`) is independent of the namespaces it watches. For example, you can deploy the operator into `cockroach-operator-system` and have it watch only `prod-a,prod-b`.
+
+```yaml
+# values.yaml
+
+# Global mode (default) — operator manages CockroachDB clusters in all namespaces.
+watchNamespaces: ""
+
+# Single namespace — operator only manages clusters in "prod".
+watchNamespaces: "prod"
+
+# Multiple namespaces — operator manages clusters in the listed namespaces.
+watchNamespaces: "prod-a,prod-b,prod-c"
+```
+
+### Use cases
+
+- **Side-by-side version testing**: Deploy operator v2.12 scoped to `staging` and operator v2.13 scoped to `prod` without conflicts.
+- **Least-privilege deployments**: Reduce the blast radius by limiting which namespaces the operator can affect at the cache level.
+- **Gradual rollouts**: Promote a new operator version namespace-by-namespace before making it global.
+
+### Important constraints
+
+- **No overlapping namespaces**: Do not configure multiple operators to watch the same namespace in production. Both operators reconcile the same clusters independently, which can cause unpredictable behavior — especially if the operators run different versions.
+- **Webhooks remain global**: Admission webhooks validate CockroachDB resources across all namespaces regardless of `watchNamespaces`. Only reconciliation is scoped.
+- **Shared CRDs and webhooks**: All operator deployments in the cluster share the same CRD and webhook definitions. Run the same operator version across all deployments to avoid schema conflicts.
+
+### Migration: global → multiple scoped operators
+
+If you have a global operator and want to split it into namespace-scoped deployments:
+
+1. Deploy the new scoped operators (the global operator continues running during this period):
+   ```bash
+   helm install operator-prod ./cockroachdb-parent/charts/operator \
+     --namespace cockroach-prod-operator --create-namespace \
+     --set watchNamespaces="prod-a,prod-b"
+
+   helm install operator-staging ./cockroachdb-parent/charts/operator \
+     --namespace cockroach-staging-operator --create-namespace \
+     --set watchNamespaces="staging-a,staging-b"
+   ```
+
+2. Verify the new operators are reconciling clusters correctly.
+
+3. Uninstall the global operator:
+   ```bash
+   helm uninstall $CRDBOPERATOR -n $NAMESPACE
+   ```
+
+During the transition, both the global and scoped operators reconcile the same clusters. This is safe if they run the same operator version, but complete the migration quickly (minutes to hours, not days).
