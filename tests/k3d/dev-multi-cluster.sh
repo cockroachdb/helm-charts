@@ -39,6 +39,7 @@ REQUIRED_IMAGES=(
     "bash:latest"
     "us-docker.pkg.dev/releases-prod/self-hosted/init-container@sha256:bcfc9312af84c7966f017c2325981b30314c0c293491f942e54da1667bedaf69"
     "${REGISTRY}/${REPOSITORY}:$(bin/yq '.cockroachdb.tls.selfSigner.image.tag' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
+    "$(bin/yq '.image.registry' ./cockroachdb-parent/charts/operator/values.yaml)/$(bin/yq '.image.repository' ./cockroachdb-parent/charts/operator/values.yaml):$(bin/yq '.image.tag' ./cockroachdb-parent/charts/operator/values.yaml)"
 )
 
 usage() {

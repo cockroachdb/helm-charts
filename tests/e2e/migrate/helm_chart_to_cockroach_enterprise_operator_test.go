@@ -92,6 +92,7 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 			"statefulset.labels.app":                     "cockroachdb",
 			"conf.locality":                              "topology.kubernetes.io/region=us-east-1",
 			"storage.PersistentVolume.enabled":           "true",
+			"conf.log.persistentVolume.enabled":          "false",
 			"conf.wal-failover.value":                    "path=/cockroach/wal-failover",
 			"conf.wal-failover.persistentVolume.enabled": "true",
 			"conf.wal-failover.persistentVolume.path":    "wal-failover",
