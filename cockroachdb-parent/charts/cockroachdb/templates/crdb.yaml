@@ -62,11 +62,25 @@ spec:
       {{- with .Values.cockroachdb.crdbCluster.localityMappings }}
       localityMappings: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.cockroachdb.crdbCluster.loggingConfigMapName }}
-      loggingConfigMapName: {{ .Values.cockroachdb.crdbCluster.loggingConfigMapName }}
+      {{- if or .Values.cockroachdb.crdbCluster.log.config .Values.cockroachdb.crdbCluster.loggingConfigMapName }}
+      loggingConfigMapName: {{ if .Values.cockroachdb.crdbCluster.loggingConfigMapName }}{{ .Values.cockroachdb.crdbCluster.loggingConfigMapName }}{{ else }}{{ template "cockroachdb.fullname" . }}-log-config{{ end }}
       {{- end }}
       {{- with .Values.cockroachdb.crdbCluster.loggingConfigVars }}
       loggingConfigVars: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- if .Values.cockroachdb.crdbCluster.log.persistentVolume.enabled }}
+      logsStore:
+        mountPath: {{ .Values.cockroachdb.crdbCluster.log.persistentVolume.path }}
+        volumeClaimTemplate:
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: {{ .Values.cockroachdb.crdbCluster.log.persistentVolume.size }}
+            {{- if .Values.cockroachdb.crdbCluster.log.persistentVolume.storageClassName }}
+            storageClassName: {{ .Values.cockroachdb.crdbCluster.log.persistentVolume.storageClassName }}
+            {{- end }}
       {{- end }}
       {{- with .Values.cockroachdb.crdbCluster.sideCars }}
       sideCars: {{- toYaml . | nindent 8 }}

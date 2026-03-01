@@ -29,9 +29,9 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/trust-manager:v0.17.1"
     "quay.io/jetstack/trust-pkg-debian-bookworm:20230311.0"
     "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
-    "cockroachdb/cockroach-operator:v2.18.3"
     "bash:latest"
     "${REGISTRY}/${REPOSITORY}:$(bin/yq '.cockroachdb.tls.selfSigner.image.tag' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
+    "$(bin/yq '.image.registry' ./cockroachdb-parent/charts/operator/values.yaml)/$(bin/yq '.image.repository' ./cockroachdb-parent/charts/operator/values.yaml):$(bin/yq '.image.tag' ./cockroachdb-parent/charts/operator/values.yaml)"
 )
 
 usage() {

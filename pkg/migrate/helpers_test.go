@@ -836,6 +836,243 @@ func TestBuildWalFailoverSpec(t *testing.T) {
 	}
 }
 
+func TestGenerateParsedMigrationInput_WithDedicatedLogsPVC(t *testing.T) {
+	clientset := fake.NewSimpleClientset()
+	ctx := context.TODO()
+	namespace := "default"
+	storageClass := "standard"
+
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cockroachdb",
+			Namespace: namespace,
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "cockroachdb",
+							Image: "cockroachdb/cockroach:v25.3.1",
+							VolumeMounts: []corev1.VolumeMount{
+								{Name: "datadir", MountPath: "/cockroach/cockroach-data"},
+								{Name: "logsdir", MountPath: "/cockroach/logs"},
+							},
+						},
+					},
+				},
+			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "datadir"},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "logsdir"},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						StorageClassName: &storageClass,
+						AccessModes:     []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("50Gi"),
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	input, err := generateParsedMigrationInput(ctx, clientset, sts)
+	require.NoError(t, err)
+
+	require.NotNil(t, input.logsStorePVCSpec, "logsStorePVCSpec should be set when logsdir VCT is present")
+	assert.Equal(t, "/cockroach/logs", input.logsStorePVCSpec.MountPath)
+	require.NotNil(t, input.logsStorePVCSpec.VolumeClaimTemplate)
+	assert.Equal(t, "logsdir", input.logsStorePVCSpec.VolumeClaimTemplate.Name)
+	assert.Equal(t, resource.MustParse("50Gi"), input.logsStorePVCSpec.VolumeClaimTemplate.Spec.Resources.Requests[corev1.ResourceStorage])
+	require.NotNil(t, input.logsStorePVCSpec.VolumeClaimTemplate.Spec.StorageClassName)
+	assert.Equal(t, "standard", *input.logsStorePVCSpec.VolumeClaimTemplate.Spec.StorageClassName)
+}
+
+func TestBuildHelmValuesFromHelm_WithLogsPVC(t *testing.T) {
+	namespace := "default"
+	terminationGracePeriod := int64(60)
+	replicaCount := int32(3)
+	storageClass := "standard"
+
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cockroachdb",
+			Namespace: namespace,
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: &replicaCount,
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"app": "cockroachdb"},
+				},
+				Spec: corev1.PodSpec{
+					TerminationGracePeriodSeconds: &terminationGracePeriod,
+					Containers: []corev1.Container{
+						{
+							Name:  "cockroachdb",
+							Image: "cockroachdb/cockroach:v25.3.1",
+						},
+					},
+				},
+			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "datadir"},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					},
+				},
+			},
+		},
+	}
+
+	input := parsedMigrationInput{
+		tlsEnabled: true,
+		sqlPort:    26257,
+		grpcPort:   26258,
+		httpPort:   8080,
+		startFlags: &v1beta1.Flags{
+			Upsert: []string{"--join=cockroachdb-0.cockroachdb:26257"},
+		},
+		logsStorePVCSpec: &v1beta1.CrdbLogsStoreSpec{
+			VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
+				ObjectMeta: metav1.ObjectMeta{Name: "logsdir"},
+				Spec: corev1.PersistentVolumeClaimSpec{
+					StorageClassName: &storageClass,
+					Resources: corev1.VolumeResourceRequirements{
+						Requests: corev1.ResourceList{
+							corev1.ResourceStorage: resource.MustParse("50Gi"),
+						},
+					},
+				},
+			},
+			MountPath: "/cockroach/logs",
+		},
+	}
+
+	result := buildHelmValuesFromHelm(sts, "gcp", "us-central1", namespace, input)
+	require.NotNil(t, result)
+
+	cockroachdbConfig, ok := result["cockroachdb"].(map[string]interface{})
+	require.True(t, ok)
+	crdbCluster, ok := cockroachdbConfig["crdbCluster"].(map[string]interface{})
+	require.True(t, ok)
+
+	log, ok := crdbCluster["log"].(map[string]interface{})
+	require.True(t, ok, "log section should be present when logsStorePVCSpec is set")
+	pv, ok := log["persistentVolume"].(map[string]interface{})
+	require.True(t, ok, "persistentVolume section should be present")
+
+	assert.Equal(t, true, pv["enabled"])
+	assert.Equal(t, "/cockroach/logs", pv["path"])
+	assert.Equal(t, "50Gi", pv["size"])
+	assert.Equal(t, "standard", pv["storageClassName"])
+}
+
+func TestBuildNodeSpecFromHelm_WithLogsPVC(t *testing.T) {
+	namespace := "default"
+	nodeName := "test-node"
+	storageClass := "standard"
+
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cockroachdb",
+			Namespace: namespace,
+		},
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				ObjectMeta: metav1.ObjectMeta{
+					Labels: map[string]string{"app": "cockroachdb"},
+				},
+				Spec: corev1.PodSpec{
+					TerminationGracePeriodSeconds: To(int64(60)),
+					Containers: []corev1.Container{
+						{
+							Name:  "cockroachdb",
+							Image: "cockroachdb/cockroach:v25.3.1",
+						},
+					},
+				},
+			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "datadir"},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						AccessModes: []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+					},
+				},
+			},
+		},
+	}
+
+	testCases := []struct {
+		name             string
+		logsStorePVCSpec *v1beta1.CrdbLogsStoreSpec
+		expectLogsStore  bool
+	}{
+		{
+			name:             "Node spec without dedicated logs PVC",
+			logsStorePVCSpec: nil,
+			expectLogsStore:  false,
+		},
+		{
+			name: "Node spec with dedicated logs PVC",
+			logsStorePVCSpec: &v1beta1.CrdbLogsStoreSpec{
+				VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
+					ObjectMeta: metav1.ObjectMeta{Name: "logsdir"},
+					Spec: corev1.PersistentVolumeClaimSpec{
+						StorageClassName: &storageClass,
+						Resources: corev1.VolumeResourceRequirements{
+							Requests: corev1.ResourceList{
+								corev1.ResourceStorage: resource.MustParse("50Gi"),
+							},
+						},
+					},
+				},
+				MountPath: "/cockroach/logs",
+			},
+			expectLogsStore: true,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			input := parsedMigrationInput{
+				tlsEnabled:       true,
+				sqlPort:          26257,
+				grpcPort:         26258,
+				httpPort:         8080,
+				logsStorePVCSpec: tc.logsStorePVCSpec,
+				startFlags: &v1beta1.Flags{
+					Upsert: []string{"--join=host:26257"},
+				},
+			}
+
+			nodeSpec := buildNodeSpecFromHelm(sts, nodeName, input)
+
+			if tc.expectLogsStore {
+				require.NotNil(t, nodeSpec.LogsStore)
+				assert.Equal(t, "/cockroach/logs", nodeSpec.LogsStore.MountPath)
+				require.NotNil(t, nodeSpec.LogsStore.VolumeClaimTemplate)
+				assert.Equal(t, "logsdir", nodeSpec.LogsStore.VolumeClaimTemplate.Name)
+				require.NotNil(t, nodeSpec.LogsStore.VolumeClaimTemplate.Spec.StorageClassName)
+				assert.Equal(t, "standard", *nodeSpec.LogsStore.VolumeClaimTemplate.Spec.StorageClassName)
+			} else {
+				assert.Nil(t, nodeSpec.LogsStore)
+			}
+		})
+	}
+}
+
 func TestBuildNodeSpecFromHelm_WithWalFailover(t *testing.T) {
 	namespace := "default"
 	nodeName := "test-node"

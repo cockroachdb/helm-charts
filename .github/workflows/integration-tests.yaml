@@ -37,6 +37,8 @@ jobs:
       - name: Install gke-gcloud-auth-plugin
         run: |
           gcloud components install gke-gcloud-auth-plugin
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker us-docker.pkg.dev --quiet
       - name: Run tests (multi-region)
         env:
           PROVIDER: ${{ matrix.provider }}
