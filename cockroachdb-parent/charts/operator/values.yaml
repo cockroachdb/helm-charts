@@ -4,7 +4,7 @@
 # image captures the container image settings for Operator pods.
 image:
   # registry is the container registry where the image is stored.
-  registry: "us-docker.pkg.dev/cockroach-shreyaskm/development"
+  registry: "us-docker.pkg.dev/cockroach-cloud-images/development"
   # repository defines the image repository.
   repository: "cockroach-operator@sha256"
   # pullPolicy specifies the image pull policy.
