@@ -9,6 +9,10 @@ cockroachdb:
   # tls captures the security configuration for the CockroachDB cluster.
   tls:
     # enabled determines whether TLS is enabled for the CockroachDB cluster.
+    # Set to false to run without TLS. Intended for non-production use only.
+    # When disabled, selfSigner, certManager and externalCertificates must all remain false.
+    # WARNING: TLS mode cannot be changed on a running cluster. Toggling this value on an
+    # existing cluster will result in an unhealthy, unrecoverable cluster.
     enabled: true
     # selfSigner captures the configuration for generating self-signed certificates for the CockroachDB cluster.
     selfSigner:

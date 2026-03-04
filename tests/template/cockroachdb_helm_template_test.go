@@ -7,6 +7,12 @@ import (
 	"strings"
 	"testing"
 
+	crdbv1beta1 "github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
+	"github.com/gruntwork-io/terratest/modules/helm"
+	"github.com/gruntwork-io/terratest/modules/k8s"
+	"github.com/gruntwork-io/terratest/modules/random"
+	monitoring "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/api/batch/v1beta1"
@@ -14,13 +20,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
-
-	crdbv1beta1 "github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
-	"github.com/gruntwork-io/terratest/modules/helm"
-	"github.com/gruntwork-io/terratest/modules/k8s"
-	"github.com/gruntwork-io/terratest/modules/random"
-	monitoring "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -2516,4 +2515,227 @@ func TestHelmOperatorClusterSettings(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestHelmClusterTLSConfiguration covers tests for CockroachDB TLS configuration
+// for both secure and insecure modes.
+func TestHelmClusterTLSConfiguration(t *testing.T) {
+	t.Parallel()
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+	// validation tests: invalid value combinations must be rejected at render time.
+	t.Run("validation", func(t *testing.T) {
+		t.Parallel()
+
+		testCases := []struct {
+			name       string
+			values     map[string]string
+			wantErrMsg string
+		}{
+			{
+				// selfSigner must not be active when TLS is off.
+				name: "selfSigner enabled when TLS disabled",
+				values: map[string]string{
+					"cockroachdb.tls.enabled":            "false",
+					"cockroachdb.tls.selfSigner.enabled": "true",
+				},
+				wantErrMsg: "selfSigner, certManager and externalCertificates must all be disabled when TLS is off",
+			},
+			{
+				// certManager must not be active when TLS is off.
+				name: "certManager enabled when TLS disabled",
+				values: map[string]string{
+					"cockroachdb.tls.enabled":             "false",
+					"cockroachdb.tls.selfSigner.enabled":  "false",
+					"cockroachdb.tls.certManager.enabled": "true",
+				},
+				wantErrMsg: "selfSigner, certManager and externalCertificates must all be disabled when TLS is off",
+			},
+			{
+				// externalCertificates must not be active when TLS is off.
+				name: "externalCertificates enabled when TLS disabled",
+				values: map[string]string{
+					"cockroachdb.tls.enabled":                      "false",
+					"cockroachdb.tls.selfSigner.enabled":           "false",
+					"cockroachdb.tls.externalCertificates.enabled": "true",
+				},
+				wantErrMsg: "selfSigner, certManager and externalCertificates must all be disabled when TLS is off",
+			},
+			{
+				// TLS-enabled validation must still fire when no cert mode is selected.
+				name: "TLS enabled with no cert mode selected",
+				values: map[string]string{
+					"cockroachdb.tls.enabled":            "true",
+					"cockroachdb.tls.selfSigner.enabled": "false",
+				},
+				wantErrMsg: "Exactly one of selfSigner, certManager or externalCertificates must be enabled when TLS is on",
+			},
+		}
+
+		for _, tc := range testCases {
+			tc := tc
+			t.Run(tc.name, func(subT *testing.T) {
+				subT.Parallel()
+
+				options := &helm.Options{SetValues: tc.values}
+				_, err := helm.RenderTemplateE(subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"})
+				require.Error(subT, err)
+				require.Contains(subT, err.Error(), tc.wantErrMsg)
+			})
+		}
+	})
+
+	// CR tests: CrdbCluster CR must carry the correct tlsEnabled value, and
+	// externalCertificates must be present/absent, according to TLS mode.
+	t.Run("crdb spec", func(t *testing.T) {
+		t.Parallel()
+
+		testCases := []struct {
+			name              string
+			values            map[string]string
+			wantTLSEnabled    bool
+			wantExternalCerts bool
+		}{
+			{
+				// Insecure cluster: tlsEnabled must be false and no externalCertificates block
+				// must appear as the operator webhook rejects if (TLSEnabled=false + ExternalCertificates) are set.
+				name: "insecure cluster",
+				values: map[string]string{
+					"cockroachdb.tls.enabled":            "false",
+					"cockroachdb.tls.selfSigner.enabled": "false",
+				},
+				wantTLSEnabled:    false,
+				wantExternalCerts: false,
+			},
+			{
+				// Secure cluster: tlsEnabled must be true and externalCertificates
+				// must be populated by the self-signer defaults.
+				name:              "secure cluster",
+				values:            map[string]string{},
+				wantTLSEnabled:    true,
+				wantExternalCerts: true,
+			},
+		}
+
+		for _, tc := range testCases {
+			tc := tc
+			t.Run(tc.name, func(subT *testing.T) {
+				subT.Parallel()
+
+				options := &helm.Options{
+					KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+					SetValues:      tc.values,
+				}
+
+				output, err := helm.RenderTemplateE(subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"})
+				require.NoError(subT, err)
+
+				var crdbCluster crdbv1beta1.CrdbCluster
+				helm.UnmarshalK8SYaml(subT, output, &crdbCluster)
+
+				require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
+				require.Equal(subT, "crdb.cockroachlabs.com/v1beta1", crdbCluster.APIVersion)
+				require.Equal(subT, tc.wantTLSEnabled, crdbCluster.Spec.TLSEnabled)
+
+				externalCerts := crdbCluster.Spec.Template.Spec.Certificates.ExternalCertificates
+				if tc.wantExternalCerts {
+					require.NotNil(subT, externalCerts, "expected externalCertificates to be present in secure mode")
+				} else {
+					require.Nil(subT, externalCerts, "expected externalCertificates to be absent in insecure mode")
+				}
+			})
+		}
+	})
+
+	// RBAC tests: ClusterRole and ClusterRoleBinding are always created since the init container needs
+	// node access for locality detection regardless of TLS. Role and RoleBinding are only
+	// created when TLS is enabled, since they exist solely to grant cert-secret access.
+	t.Run("rbac", func(t *testing.T) {
+		t.Parallel()
+
+		testCases := []struct {
+			name             string
+			values           map[string]string
+			wantClusterRoles int
+			wantRoles        int
+			wantCRBs         int
+			wantRBs          int
+		}{
+			{
+				name: "insecure cluster: ClusterRole and ClusterRoleBinding only",
+				values: map[string]string{
+					"cockroachdb.tls.enabled":            "false",
+					"cockroachdb.tls.selfSigner.enabled": "false",
+				},
+				wantClusterRoles: 1,
+				wantRoles:        0,
+				wantCRBs:         1,
+				wantRBs:          0,
+			},
+			{
+				// Regression: secure mode must still produce all four RBAC resources.
+				name:             "secure cluster (default): all RBAC resources present",
+				values:           map[string]string{},
+				wantClusterRoles: 1,
+				wantRoles:        1,
+				wantCRBs:         1,
+				wantRBs:          1,
+			},
+		}
+
+		for _, tc := range testCases {
+			tc := tc
+			t.Run(tc.name, func(subT *testing.T) {
+				subT.Parallel()
+
+				options := &helm.Options{
+					KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+					SetValues:      tc.values,
+				}
+
+				roleOutput, err := helm.RenderTemplateE(subT, options, chartPath, releaseName, []string{"templates/role.yaml"})
+				require.NoError(subT, err)
+
+				var clusterRoleCount, roleCount int
+				// ClusterRole and Role share the same JSON structure; TypeMeta.Kind disambiguates them.
+				roleDecoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader([]byte(roleOutput)), 4096)
+				for {
+					var res rbacv1.ClusterRole
+					if decErr := roleDecoder.Decode(&res); decErr != nil {
+						break
+					}
+					switch res.Kind {
+					case "ClusterRole":
+						clusterRoleCount++
+					case "Role":
+						roleCount++
+					}
+				}
+				require.Equal(subT, tc.wantClusterRoles, clusterRoleCount, "unexpected ClusterRole count in role.yaml")
+				require.Equal(subT, tc.wantRoles, roleCount, "unexpected Role count in role.yaml")
+
+				rbOutput, err := helm.RenderTemplateE(subT, options, chartPath, releaseName, []string{"templates/rolebinding.yaml"})
+				require.NoError(subT, err)
+
+				var crbCount, rbCount int
+				// ClusterRoleBinding and RoleBinding share the same JSON structure; TypeMeta.Kind disambiguates.
+				rbDecoder := yaml.NewYAMLOrJSONDecoder(bytes.NewReader([]byte(rbOutput)), 4096)
+				for {
+					var res rbacv1.ClusterRoleBinding
+					if decErr := rbDecoder.Decode(&res); decErr != nil {
+						break
+					}
+					switch res.Kind {
+					case "ClusterRoleBinding":
+						crbCount++
+					case "RoleBinding":
+						rbCount++
+					}
+				}
+				require.Equal(subT, tc.wantCRBs, crbCount, "unexpected ClusterRoleBinding count in rolebinding.yaml")
+				require.Equal(subT, tc.wantRBs, rbCount, "unexpected RoleBinding count in rolebinding.yaml")
+			})
+		}
+	})
 }
