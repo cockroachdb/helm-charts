@@ -16,9 +16,7 @@ metadata:
     {{- toYaml . | nindent 4 }}
     {{- end }}
 spec:
-  {{- if .Values.cockroachdb.tls.enabled }}
   tlsEnabled: {{ .Values.cockroachdb.tls.enabled }}
-  {{- end }}
   {{- with .Values.cockroachdb.crdbCluster.clusterSettings }}
   clusterSettings: {{- toYaml . | nindent 4 }}
   {{- end }}
@@ -29,14 +27,14 @@ spec:
   template:
     spec:
       image: "{{ .Values.cockroachdb.crdbCluster.image.name }}"
+      {{- if .Values.cockroachdb.tls.enabled }}
       certificates:
-        {{- if .Values.cockroachdb.tls.enabled }}
         {{- if .Values.cockroachdb.tls.externalCertificates.enabled }}
         externalCertificates: {{- toYaml .Values.cockroachdb.tls.externalCertificates.certificates | nindent 10 }}
         {{- end }}
         {{- if .Values.cockroachdb.tls.selfSigner.enabled }}
         externalCertificates:
-          {{- /* Note: defaults should match secrets and configmaps created by the self-signer job. */}}
+          {{- /* Note: these defaults must match the secrets and configmaps created by the self-signer job. */}}
           caConfigMapName: {{ default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
           httpSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
           nodeSecretName: {{ default (printf "%s-node-secret" (include "cockroachdb.fullname" .)) }}
@@ -49,7 +47,7 @@ spec:
           httpSecretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
           rootSqlClientSecretName: {{ .Values.cockroachdb.tls.certManager.clientRootSecret }}
         {{- end }}
-        {{- end }}
+      {{- end }}
       {{- with .Values.cockroachdb.crdbCluster.dataStore }}
       dataStore: {{- toYaml . | nindent 8 }}
       {{- end }}

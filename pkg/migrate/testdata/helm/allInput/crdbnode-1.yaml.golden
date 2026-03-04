@@ -135,6 +135,7 @@ spec:
     - --certs-dir=/cockroach/cockroach-certs/
     - --cache=25%
     - --max-sql-memory=25%
+  tlsEnabled: true
   virtualCluster:
     mode: primary
 status:

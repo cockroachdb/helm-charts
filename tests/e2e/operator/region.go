@@ -139,21 +139,16 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	} else {
 		crdbOp = PatchHelmValues(map[string]string{
 			"cockroachdb.clusterDomain":             CustomDomains[index],
+			"cockroachdb.tls.enabled":               "true",
 			"cockroachdb.tls.selfSigner.caProvided": "true",
 			"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 		})
 	}
 	if r.VirtualClusterModePrimary {
-		crdbOp = PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain":                   CustomDomains[index],
-			"cockroachdb.crdbCluster.virtualCluster.mode": "primary",
-		})
+		crdbOp["cockroachdb.crdbCluster.virtualCluster.mode"] = "primary"
 	}
 	if r.VirtualClusterModeStandby {
-		crdbOp = PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain":                   CustomDomains[index],
-			"cockroachdb.crdbCluster.virtualCluster.mode": "standby",
-		})
+		crdbOp["cockroachdb.crdbCluster.virtualCluster.mode"] = "standby"
 	}
 
 	// Helm install cockroach CR with operator region config.
