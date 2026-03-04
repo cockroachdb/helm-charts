@@ -2,6 +2,12 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-26.1.0-preview+1] 2026-03-04
+### Changed
+- Upgraded CockroachDB to v26.1.0.
+### Fixed
+- Fixed a bug that prevented setting CockroachDB cluster settings when a custom sql port was used.
+
 ## [cockroachdb-parent-25.4.4-preview+1] 2026-02-18
 ### Changed
 - Upgraded CockroachDB to v25.4.4.
