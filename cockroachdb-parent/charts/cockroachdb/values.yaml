@@ -78,6 +78,13 @@ cockroachdb:
           # username: john_doe
           # password defines the password for accessing the image registry.
           # password: changeme
+    # selfSigned enables the operator to automatically generate and manage TLS certificates
+    # (CA, node, and root client) for the CockroachDB cluster during reconciliation.
+    # When true, no pre-install Job or CronJobs are needed — the operator owns the full cert lifecycle.
+    # Mutually exclusive with selfSigner, certManager, and externalCertificates.
+    selfSigned:
+      # enabled determines whether the operator self-manages TLS certificates.
+      enabled: false
     # certManager uses cert-manager to manage certificate issuance for the CockroachDB cluster.
     certManager:
       # enabled determines whether cert-manager is used to issue certificates.
