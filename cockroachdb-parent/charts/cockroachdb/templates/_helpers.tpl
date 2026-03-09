@@ -226,12 +226,14 @@ Validate that if user enabled tls, then only one of self-signed certificates, ce
 {{- $selfSigner := .Values.cockroachdb.tls.selfSigner.enabled }}
 {{- $certManager := .Values.cockroachdb.tls.certManager.enabled }}
 {{- $userProvided := .Values.cockroachdb.tls.externalCertificates.enabled }}
+{{- $selfSigned := .Values.cockroachdb.tls.selfSigned.enabled }}
 {{- $enabledCount := 0 }}
 {{- if $selfSigner }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
 {{- if $certManager }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
 {{- if $userProvided }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
+{{- if $selfSigned }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
 {{- if ne $enabledCount 1 }}
-    {{ fail "Exactly one of self-signed certificates, certificate manager, or external certificates must be enabled when TLS is enabled" }}
+    {{ fail "Exactly one of selfSigner, certManager, externalCertificates, or selfSigned must be enabled when TLS is enabled" }}
 {{- end }}
 {{- end -}}
 {{- end -}}
