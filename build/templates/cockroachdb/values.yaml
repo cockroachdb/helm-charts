@@ -585,6 +585,12 @@ init:
 # Whether to run securely using TLS certificates.
 tls:
   enabled: true
+  # EnableSighupRotation enables zero-downtime certificate rotation using SIGHUP signal.
+  # When true, certificates are mounted directly (allowing SIGHUP-based rotation)
+  # with 0440 permissions (owner+group read, no others).
+  # When false (default), an initContainer copies certs to ensure 0400 permissions
+  # (owner read only) but pod restarts are required for certificate rotation.
+  enableSighupRotation: false
   copyCerts:
     image: busybox
   certs:
