@@ -38,6 +38,8 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			provider = infra.ProviderKind
 		case "gcp":
 			provider = infra.ProviderGCP
+		case "openshift":
+			provider = infra.ProviderOpenShift
 		default:
 			t.Fatalf("Unsupported provider override: %s", p)
 		}
@@ -73,11 +75,12 @@ func TestOperatorInSingleRegion(t *testing.T) {
 		}
 
 		// Use t.Cleanup for guaranteed cleanup even on test timeout/panic
-		t.Cleanup(func() {
-			t.Logf("Starting infrastructure cleanup for provider: %s", provider)
-			cloudProvider.TeardownInfra(t)
-			t.Logf("Completed infrastructure cleanup for provider: %s", provider)
-		})
+		// TODO: re-enable teardown after cluster inspection is complete
+		// t.Cleanup(func() {
+		// 	t.Logf("Starting infrastructure cleanup for provider: %s", provider)
+		// 	cloudProvider.TeardownInfra(t)
+		// 	t.Logf("Completed infrastructure cleanup for provider: %s", provider)
+		// })
 
 		// Set up infrastructure for this provider once.
 		cloudProvider.SetUpInfra(t)
@@ -103,14 +106,15 @@ func TestOperatorInSingleRegion(t *testing.T) {
 
 			t.Run(name, func(t *testing.T) {
 				// Add immediate cleanup trigger if this individual test fails
-				defer func() {
-					if t.Failed() {
-						testFailed = true
-						t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
-						cloudProvider.TeardownInfra(t)
-						t.Logf("Infrastructure cleanup completed due to test failure")
-					}
-				}()
+				// TODO: re-enable teardown after cluster inspection is complete
+				// defer func() {
+				// 	if t.Failed() {
+				// 		testFailed = true
+				// 		t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
+				// 		cloudProvider.TeardownInfra(t)
+				// 		t.Logf("Infrastructure cleanup completed due to test failure")
+				// 	}
+				// }()
 
 				method(t)
 			})

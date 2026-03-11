@@ -107,6 +107,17 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	// Create a namespace.
 	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
 
+	// Apply OpenShift SCC bindings before pod creation.
+	// OpenShift requires explicit anyuid SCC grants for CockroachDB service accounts.
+	if r.Provider == "openshift" {
+		for _, sa := range []string{"cockroachdb", "cockroach-operator", "default"} {
+			subject := fmt.Sprintf("system:serviceaccount:%s:%s", r.Namespace[cluster], sa)
+			if err := k8s.RunKubectlE(t, kubectlOptions, "adm", "policy", "add-scc-to-user", "anyuid", subject); err != nil {
+				t.Logf("[openshift] Warning: add-scc-to-user for %s: %v", subject, err)
+			}
+		}
+	}
+
 	if r.IsCertManager {
 		testutil.InstallCertManager(t, certManagerK8sOptions)
 		testutil.InstallTrustManager(t, certManagerK8sOptions, r.Namespace[cluster])
@@ -154,6 +165,11 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 			"cockroachdb.clusterDomain":                   CustomDomains[index],
 			"cockroachdb.crdbCluster.virtualCluster.mode": "standby",
 		})
+	}
+
+	// OpenShift on GCP uses standard-csi as the default storage class.
+	if r.Provider == "openshift" {
+		crdbOp["cockroachdb.crdbCluster.dataStore.volumeClaimTemplate.spec.storageClassName"] = "standard-csi"
 	}
 
 	// Helm install cockroach CR with operator region config.
