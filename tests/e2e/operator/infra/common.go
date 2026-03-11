@@ -18,9 +18,10 @@ import (
 
 // Provider types.
 const (
-	ProviderK3D  = "k3d"
-	ProviderKind = "kind"
-	ProviderGCP  = "gcp"
+	ProviderK3D       = "k3d"
+	ProviderKind      = "kind"
+	ProviderGCP       = "gcp"
+	ProviderOpenShift = "openshift"
 )
 
 // Common constants.
@@ -32,7 +33,8 @@ const (
 	loadBalancerInterval  = 10 * time.Second
 	coreDNSDeploymentName = "coredns"
 	coreDNSServiceName    = "crl-core-dns"
-	coreDNSNamespace      = "kube-system"
+	coreDNSInternalServiceName = "crl-core-dns-internal"
+	coreDNSNamespace           = "kube-system"
 	coreDNSReplicas       = 2
 )
 
@@ -50,9 +52,10 @@ const (
 
 // RegionCodes maps provider types to their region codes
 var RegionCodes = map[string][]string{
-	ProviderK3D:  {"us-east1", "us-east2"},
-	ProviderKind: {"us-east1", "us-east2"},
-	ProviderGCP:  {"us-central1", "us-east1"},
+	ProviderK3D:       {"us-east1", "us-east2"},
+	ProviderKind:      {"us-east1", "us-east2"},
+	ProviderGCP:       {"us-central1", "us-east1"},
+	ProviderOpenShift: {"us-central1", "us-east1"},
 }
 
 // LoadBalancerAnnotations contains provider-specific service annotations.
@@ -62,8 +65,9 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 		"networking.gke.io/load-balancer-type":                         "Internal",
 		"cloud.google.com/load-balancer-type":                          "Internal",
 	},
-	ProviderK3D:  {},
-	ProviderKind: {},
+	ProviderK3D:       {},
+	ProviderKind:      {},
+	ProviderOpenShift: {},
 }
 
 // NetworkConfigs defines standard network configurations for each provider and region.
@@ -214,6 +218,15 @@ func deployCoreDNSService(t *testing.T, kubectlOpts *k8s.KubectlOptions, staticI
 	svcYAML := coredns.ToYAML(t, service)
 	if err := k8s.KubectlApplyFromStringE(t, kubectlOpts, svcYAML); err != nil {
 		return fmt.Errorf("failed to apply CoreDNS Service: %w", err)
+	}
+
+	// For OpenShift, also deploy an internal ClusterIP service 
+	if provider == ProviderOpenShift {
+		internalSvc := coredns.CoreDNSInternalService()
+		internalSvcYAML := coredns.ToYAML(t, internalSvc)
+		if err := k8s.KubectlApplyFromStringE(t, kubectlOpts, internalSvcYAML); err != nil {
+			return fmt.Errorf("failed to apply CoreDNS internal ClusterIP service: %w", err)
+		}
 	}
 
 	return nil

@@ -83,6 +83,10 @@ type Region struct {
 	VirtualClusterModePrimary bool
 	VirtualClusterModeStandby bool
 	IsOperatorInstalled       bool
+
+	// certDir is the per-test temp directory holding ca.crt/ca.key.
+	// Populated by CreateCACertificate; cleaned up automatically by t.TempDir().
+	certDir string
 }
 
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
@@ -109,6 +113,35 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	// Create a namespace.
 	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
 
+	// Apply OpenShift SCC bindings before pod creation.
+	// Grants anyuid SCC to all service accounts in the namespace via a ClusterRoleBinding.
+	// Uses kubectl apply (idempotent) so re-running against an existing cluster is safe.
+	if r.Provider == "openshift" {
+		bindingName := fmt.Sprintf("cockroach-anyuid-%s", r.Namespace[cluster])
+		group := fmt.Sprintf("system:serviceaccounts:%s", r.Namespace[cluster])
+		manifest := fmt.Sprintf(`apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: %s
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: system:openshift:scc:anyuid
+subjects:
+- apiGroup: rbac.authorization.k8s.io
+  kind: Group
+  name: %s
+`, bindingName, group)
+		tmpFile, err := os.CreateTemp("", "scc-binding-*.yaml")
+		require.NoError(t, err, "[openshift] failed to create temp file for SCC binding")
+		defer os.Remove(tmpFile.Name())
+		_, err = tmpFile.WriteString(manifest)
+		require.NoError(t, err, "[openshift] failed to write SCC binding manifest")
+		require.NoError(t, tmpFile.Close(), "[openshift] failed to close SCC binding temp file")
+		require.NoError(t, k8s.RunKubectlE(t, kubectlOptions, "apply", "-f", tmpFile.Name()),
+			"[openshift] failed to apply ClusterRoleBinding %s for %s", bindingName, group)
+	}
+
 	if r.IsCertManager {
 		testutil.InstallCertManager(t, certManagerK8sOptions)
 		testutil.InstallTrustManager(t, certManagerK8sOptions, r.Namespace[cluster])
@@ -118,14 +151,18 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 		testutil.CreateBundle(t, kubectlOptions, testutil.CASecretName, testutil.CAConfigMapName)
 	} else {
 		// create CA Secret.
-		err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
-			"--from-file=ca.key")
+		err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret,
+			"--from-file=ca.crt="+filepath.Join(r.certDir, "ca.crt"),
+			"--from-file=ca.key="+filepath.Join(r.certDir, "ca.key"))
 		require.NoError(t, err)
 	}
 
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	if !r.IsOperatorInstalled {
+		// Pass the actual cluster region so the operator's cloudRegion is set
+		// correctly. The operator webhook rejects CrdbClusters whose region codes
+		// don't match the operator's configured cloudRegion.
 		InstallCockroachDBEnterpriseOperator(t, kubectlOptions, r.RegionCodes[index])
 	}
 
@@ -151,6 +188,20 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	}
 	if r.VirtualClusterModeStandby {
 		crdbOp["cockroachdb.crdbCluster.virtualCluster.mode"] = "standby"
+	}
+
+	// OpenShift-specific overrides.
+	if r.Provider == "openshift" {
+		// Use standard-csi storage class (GCP default on OpenShift).
+		crdbOp["cockroachdb.crdbCluster.dataStore.volumeClaimTemplate.spec.storageClassName"] = "standard-csi"
+		// For single-region, use the default cluster.local domain. OpenShift's
+		// built-in DNS only serves cluster.local; the custom cluster1.local
+		// forwarding approach causes i/o timeouts for join RPCs. Multi-region
+		// tests that genuinely need separate domains are not affected because
+		// they set IsMultiRegion=true.
+		if !r.IsMultiRegion {
+			crdbOp["cockroachdb.clusterDomain"] = "cluster.local"
+		}
 	}
 
 	// Helm install cockroach CR with operator region config.
@@ -283,9 +334,14 @@ func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 		require.NoError(t, err)
 
 		// Verify regions output
+		// OpenShift runs on GCP; the operator cloudProvider is set to "gcp" for
+		// OpenShift clusters, so region names in CRDB are "gcp-<code>", not "openshift-<code>".
+		cloudProvider := r.Provider
+		if cloudProvider == "openshift" {
+			cloudProvider = "gcp"
+		}
 		for _, clusterRegion := range r.RegionCodes {
-			// For multi-region validation, check for cloud provider prefixed region names
-			expectedRegion := fmt.Sprintf("%s-%s", r.Provider, clusterRegion)
+			expectedRegion := fmt.Sprintf("%s-%s", cloudProvider, clusterRegion)
 			require.Contains(t, stdout, expectedRegion, "Expected region %s to be present in cluster output", expectedRegion)
 		}
 
@@ -326,7 +382,7 @@ func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 
 		// Verify node count per region matches desired nodes.
 		for _, region := range r.RegionCodes {
-			region = fmt.Sprintf("%s-%s", r.Provider, region)
+			region = fmt.Sprintf("%s-%s", cloudProvider, region)
 			require.Equal(t, r.NodeCount, nodesPerRegion[region],
 				"Region %s has %d nodes, expected %d",
 				region, nodesPerRegion[region], r.NodeCount)
@@ -359,12 +415,15 @@ func (r *Region) ValidateCRDBContainerResources(t *testing.T, kubectlOptions *k8
 	require.NoError(t, err)
 }
 
-// CreateCACertificate creates CA cert and key at the same path.
+// CreateCACertificate creates CA cert and key in an isolated per-test temp
+// directory. Using t.TempDir() avoids races when multiple tests run in
+// parallel and prevents stale files in the working directory.
 func (r *Region) CreateCACertificate(t *testing.T) error {
-	// Create CA secret in all regions.
+	r.certDir = t.TempDir()
+
 	cmd := shell.Command{
 		Command:    "cockroach",
-		Args:       []string{"cert", "create-ca", "--certs-dir=.", "--ca-key=ca.key"},
+		Args:       []string{"cert", "create-ca", "--certs-dir=" + r.certDir, "--ca-key=" + filepath.Join(r.certDir, "ca.key")},
 		WorkingDir: ".",
 		Env:        nil,
 		Logger:     nil,
@@ -375,14 +434,10 @@ func (r *Region) CreateCACertificate(t *testing.T) error {
 	return err
 }
 
-func (r *Region) CleanUpCACertificate(t *testing.T) {
-	cmd := shell.Command{
-		Command:    "rm",
-		Args:       []string{"-rf", "ca.crt", "ca.key"},
-		WorkingDir: ".",
-	}
-
-	shell.RunCommand(t, cmd)
+// CleanUpCACertificate is a no-op: t.TempDir() registered by CreateCACertificate
+// is cleaned up automatically when the test ends.
+func (r *Region) CleanUpCACertificate(_ *testing.T) {
+	r.certDir = ""
 }
 
 // GetCurrentContext gets the current cluster context from KubeConfig.
@@ -435,21 +490,25 @@ func (r *Region) CleanupResources(t *testing.T) {
 		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
 		clusterOptions := k8s.NewKubectlOptions(cluster, kubeConfig, "")
 
+		deleteFlags := []string{"--wait", "--debug"}
+		// On OpenShift the self-signer-cleaner pre-delete hook pod is blocked by
+		// SCC (alpha seccomp annotations are forbidden). Skip hooks so the helm
+		// uninstall doesn't hang waiting for an unschedulable job.
+		if r.Provider == "openshift" {
+			deleteFlags = append(deleteFlags, "--no-hooks")
+		}
 		extraArgs := map[string][]string{
-			"delete": {
-				"--wait",
-				"--debug",
-			},
+			"delete": deleteFlags,
 		}
 		helmOptions := &helm.Options{
 			KubectlOptions: kubectlOptions,
 			ExtraArgs:      extraArgs,
 		}
 		if err := helm.DeleteE(t, helmOptions, ReleaseName, true); err != nil {
-			t.Logf("Warning: helm delete %s failed (may not exist): %v", ReleaseName, err)
+			t.Logf("[cleanup] Warning: helm delete %s: %v", ReleaseName, err)
 		}
 		if err := helm.DeleteE(t, helmOptions, operatorReleaseName, true); err != nil {
-			t.Logf("Warning: helm delete %s failed (may not exist): %v", operatorReleaseName, err)
+			t.Logf("[cleanup] Warning: helm delete %s: %v", operatorReleaseName, err)
 		}
 
 		// Always explicitly delete cluster-scoped resources to prevent annotation
@@ -471,6 +530,11 @@ func (r *Region) CleanupResources(t *testing.T) {
 			_ = k8s.RunKubectlE(t, clusterOptions, "delete", res[0], res[1], "--ignore-not-found")
 		}
 
+		// OpenShift-specific: delete the anyuid SCC ClusterRoleBinding created during install.
+		if r.Provider == "openshift" {
+			bindingName := fmt.Sprintf("cockroach-anyuid-%s", namespace)
+			_ = k8s.RunKubectlE(t, clusterOptions, "delete", "clusterrolebinding", bindingName, "--ignore-not-found")
+		}
 		if r.IsCertManager {
 			testutil.DeleteBundle(t, kubectlOptions)
 			testutil.DeleteCAIssuer(t, kubectlOptions, namespace)
@@ -502,15 +566,27 @@ func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 // Other clusters' regions are listed first so their join addresses are tried
 // before the current cluster's, allowing it to join the existing cluster immediately.
 func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[int]string) []map[string]interface{} {
+	// OpenShift is deployed on GCP; the cockroach operator webhook only supports
+	// "aws", "gcp", "azure", and "k3d" as cloudProvider values.
+	cloudProvider := r.Provider
+	if cloudProvider == "openshift" {
+		cloudProvider = "gcp"
+	}
+
 	buildRegion := func(i int) map[string]interface{} {
 		region := map[string]interface{}{
 			"code":          r.RegionCodes[i],
-			"cloudProvider": r.Provider,
+			"cloudProvider": cloudProvider,
 			"nodes":         nodes,
 			"namespace":     r.Namespace[r.Clusters[i]],
 		}
 		if len(r.Clusters) > i && r.Clusters[i] != "" {
 			if domain, ok := customDomains[i]; ok {
+				// For single-region OpenShift, use cluster.local — the DNS
+				// operator cannot reliably forward custom domains like cluster1.local.
+				if r.Provider == "openshift" && !r.IsMultiRegion {
+					domain = "cluster.local"
+				}
 				region["domain"] = domain
 			}
 		}
@@ -519,7 +595,8 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 
 	regions := make([]map[string]interface{}, 0, index+1)
 
-	// Add all preceding regions first so their join addresses are tried first.
+	// Add all preceding regions first so their join addresses are tried first,
+	// allowing the current cluster to join the existing cluster immediately.
 	for i := 0; i < index; i++ {
 		regions = append(regions, buildRegion(i))
 	}
@@ -547,6 +624,10 @@ func VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOp
 	require.Contains(t, logs, expected, "operator logs did not contain expected init command")
 }
 
+// InstallCockroachDBEnterpriseOperator installs the cockroach enterprise operator helm chart.
+// cloudRegion sets the operator's cloudRegion value, which controls which region the operator
+// reconciles. Pass the actual cluster region (e.g. "us-central1") for clusters whose region
+// does not match the chart default ("us-east1").
 func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, cloudRegion string) {
 	_, operatorChartPath := HelmChartPaths()
 
@@ -746,13 +827,23 @@ func (r *Region) BaseRegionConfig(cluster string, index int) map[string]interfac
 	if len(r.RegionCodes) > index {
 		code = r.RegionCodes[index]
 	}
+	// OpenShift runs on GCP; the operator webhook only accepts "gcp" (not "openshift").
+	cloudProvider := r.Provider
+	if cloudProvider == "openshift" {
+		cloudProvider = "gcp"
+	}
 	region := map[string]interface{}{
 		"code":          code,
-		"cloudProvider": r.Provider,
+		"cloudProvider": cloudProvider,
 		"nodes":         r.NodeCount,
 		"namespace":     r.Namespace[cluster],
 	}
 	if domain, ok := CustomDomains[index]; ok {
+		// For single-region OpenShift use cluster.local — the built-in DNS already
+		// handles it and forwarding cluster1.local causes join RPC failures.
+		if r.Provider == "openshift" && !r.IsMultiRegion {
+			domain = "cluster.local"
+		}
 		region["domain"] = domain
 	}
 	return region
@@ -832,8 +923,9 @@ func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, i
 	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
 
 	// create CA Secret.
-	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
-		"--from-file=ca.key")
+	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret,
+		"--from-file="+filepath.Join(r.certDir, "ca.crt"),
+		"--from-file="+filepath.Join(r.certDir, "ca.key"))
 	require.NoError(t, err)
 
 	// Create encryption key secret if encryption is enabled
@@ -865,8 +957,14 @@ func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, i
 	}
 
 	// Build helm values
+	clusterDomain := CustomDomains[index]
+	// For single-region OpenShift use cluster.local — the built-in DNS already
+	// handles it and cluster1.local causes join RPC DNS failures.
+	if r.Provider == "openshift" && !r.IsMultiRegion {
+		clusterDomain = "cluster.local"
+	}
 	helmValues := PatchHelmValues(map[string]string{
-		"cockroachdb.clusterDomain":             CustomDomains[index],
+		"cockroachdb.clusterDomain":             clusterDomain,
 		"cockroachdb.tls.selfSigner.caProvided": "true",
 		"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 	})
@@ -1250,7 +1348,13 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 	// Step 4a: Generate external connection URI for replication
 	// Following: https://www.cockroachlabs.com/docs/stable/set-up-physical-cluster-replication#step-4-start-replication
 	t.Log("Generating connection URI for primary cluster using cockroach encode-uri...")
-	primaryHost := fmt.Sprintf("cockroachdb-public.%s.svc.%s:26257", primaryNamespace, CustomDomains[0])
+	pcrDomain := CustomDomains[0]
+	// For single-region OpenShift use cluster.local — the built-in DNS handles it
+	// and cluster1.local causes DNS lookup failures when connecting across namespaces.
+	if r.Provider == "openshift" && !r.IsMultiRegion {
+		pcrDomain = "cluster.local"
+	}
+	primaryHost := fmt.Sprintf("cockroachdb-public.%s.svc.%s:26257", primaryNamespace, pcrDomain)
 	primaryConnString := fmt.Sprintf("postgresql://%s:%s@%s", "pcr_source", "repl_password_123", primaryHost)
 	t.Logf("Primary connection string format: postgresql://pcr_source:***@%s", primaryHost)
 

@@ -91,10 +91,16 @@ func (r *multiRegion) TestEncryptionAtRestMultiRegion(t *testing.T) {
 	cluster0 := r.Clusters[0]
 	secretName0 := "cmek-key-secret-region-0"
 
+	// OpenShift runs on GCP; the operator webhook only accepts "gcp" not "openshift".
+	cloudProvider := r.Provider
+	if cloudProvider == "openshift" {
+		cloudProvider = "gcp"
+	}
+
 	encryptionRegions0 := []map[string]interface{}{
 		{
 			"code":          r.RegionCodes[0],
-			"cloudProvider": r.Provider,
+			"cloudProvider": cloudProvider,
 			"nodes":         r.NodeCount,
 			"namespace":     r.Namespace[cluster0],
 			"domain":        operator.CustomDomains[0],
