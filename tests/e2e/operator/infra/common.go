@@ -18,9 +18,10 @@ import (
 
 // Provider types.
 const (
-	ProviderK3D  = "k3d"
-	ProviderKind = "kind"
-	ProviderGCP  = "gcp"
+	ProviderK3D       = "k3d"
+	ProviderKind      = "kind"
+	ProviderGCP       = "gcp"
+	ProviderOpenShift = "openshift"
 )
 
 // Common constants.
@@ -50,9 +51,10 @@ const (
 
 // RegionCodes maps provider types to their region codes
 var RegionCodes = map[string][]string{
-	ProviderK3D:  {"us-east1", "us-east2"},
-	ProviderKind: {"us-east1", "us-east2"},
-	ProviderGCP:  {"us-central1", "us-east1"},
+	ProviderK3D:       {"us-east1", "us-east2"},
+	ProviderKind:      {"us-east1", "us-east2"},
+	ProviderGCP:       {"us-central1", "us-east1"},
+	ProviderOpenShift: {"us-central1", "us-east1"},
 }
 
 // LoadBalancerAnnotations contains provider-specific service annotations.
@@ -62,8 +64,9 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 		"networking.gke.io/load-balancer-type":                         "Internal",
 		"cloud.google.com/load-balancer-type":                          "Internal",
 	},
-	ProviderK3D:  {},
-	ProviderKind: {},
+	ProviderK3D:       {},
+	ProviderKind:      {},
+	ProviderOpenShift: {}, // GKE-specific annotations don't apply; LB gets external GCP IP
 }
 
 // NetworkConfigs defines standard network configurations for each provider and region.
