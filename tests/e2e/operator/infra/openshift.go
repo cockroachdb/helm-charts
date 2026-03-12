@@ -24,6 +24,10 @@ const (
 	envOpenShiftPullSecret = "OPENSHIFT_PULL_SECRET"
 	envOpenShiftSSHPubKey  = "OPENSHIFT_SSH_PUB_KEY"
 	envOpenShiftBaseDomain = "OPENSHIFT_BASE_DOMAIN"
+	// envOpenShiftInstallDir points to an existing openshift-install state directory.
+	// When set, SetUpInfra skips provisioning and reuses the existing cluster.
+	// Example: OPENSHIFT_INSTALL_DIR=/var/folders/.../ocp-ocp-0qaif4-2872850045
+	envOpenShiftInstallDir = "OPENSHIFT_INSTALL_DIR"
 
 	// defaultOpenShiftProjectID is the GCP project used when GCP_PROJECT_ID is not set.
 	defaultOpenShiftProjectID = "cockroach-shreyaskm"
@@ -84,9 +88,35 @@ type OpenShiftRegion struct {
 
 // SetUpInfra provisions one OpenShift cluster per entry in r.Clusters.
 // For single-region tests there is exactly one cluster.
+// If OPENSHIFT_INSTALL_DIR is set, provisioning is skipped and the existing
+// cluster at that path is reused (kubeconfig merged, client created).
 func (r *OpenShiftRegion) SetUpInfra(t *testing.T) {
-	if r.ReusingInfra {
-		t.Logf("[%s] Reusing existing infrastructure", ProviderOpenShift)
+	r.installDirs = make(map[string]string)
+	r.Clients = make(map[string]client.Client)
+
+	reuseDir := os.Getenv(envOpenShiftInstallDir)
+
+	if reuseDir != "" {
+		t.Logf("[%s] Reusing existing cluster from OPENSHIFT_INSTALL_DIR=%s", ProviderOpenShift, reuseDir)
+		// Single-region: map the one cluster name to the provided install dir.
+		clusterName := r.Clusters[0]
+		r.installDirs[clusterName] = reuseDir
+
+		generatedKubeconfig := filepath.Join(reuseDir, "auth", "kubeconfig")
+		if err := mergeOpenShiftKubeconfig(t, generatedKubeconfig, clusterName); err != nil {
+			t.Fatalf("[%s] Failed to merge kubeconfig for %q: %v", ProviderOpenShift, clusterName, err)
+		}
+		restCfg, err := config.GetConfigWithContext(clusterName)
+		if err != nil {
+			t.Fatalf("[%s] Failed to get rest config for %q: %v", ProviderOpenShift, clusterName, err)
+		}
+		k8sClient, err := client.New(restCfg, client.Options{})
+		if err != nil {
+			t.Fatalf("[%s] Failed to create k8s client for %q: %v", ProviderOpenShift, clusterName, err)
+		}
+		r.Clients[clusterName] = k8sClient
+		r.ReusingInfra = true
+		t.Logf("[%s] Reuse complete — cluster %q is ready", ProviderOpenShift, clusterName)
 		return
 	}
 
@@ -94,9 +124,6 @@ func (r *OpenShiftRegion) SetUpInfra(t *testing.T) {
 	sshPubKey := mustEnv(t, envOpenShiftSSHPubKey)
 	baseDomain := mustEnv(t, envOpenShiftBaseDomain)
 	projectID := getOpenShiftProjectID()
-
-	r.installDirs = make(map[string]string)
-	r.Clients = make(map[string]client.Client)
 
 	// For single-region there is one cluster; the loop generalises cleanly.
 	for i, clusterName := range r.Clusters {
@@ -383,19 +410,17 @@ func (r *OpenShiftRegion) patchOpenShiftDNS(t *testing.T, clusterName, kubeConfi
 
 // ─── SCC ─────────────────────────────────────────────────────────────────────
 
-// ApplyOpenShiftSCCBindings grants the anyuid SCC to the service accounts
-// used by CockroachDB and the operator in the given namespace.
+// ApplyOpenShiftSCCBindings grants the anyuid SCC to all service accounts
+// in the namespace using a group binding. This covers every SA the helm charts
+// create (cockroachdb, cockroach-operator, cockroachdb-rotate-self-signer, etc.)
+// without needing to enumerate them individually.
 // Called from region.go InstallCharts immediately after namespace creation.
 func ApplyOpenShiftSCCBindings(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
-	serviceAccounts := []string{"cockroachdb", "cockroach-operator", "default"}
-	for _, sa := range serviceAccounts {
-		subject := fmt.Sprintf("system:serviceaccount:%s:%s", kubectlOptions.Namespace, sa)
-		t.Logf("[%s] Granting anyuid SCC to %s", ProviderOpenShift, subject)
-		if err := k8s.RunKubectlE(t, kubectlOptions,
-			"adm", "policy", "add-scc-to-user", "anyuid", subject); err != nil {
-			// Service account may not exist yet — log and continue.
-			t.Logf("[%s] Warning: add-scc-to-user for %s: %v", ProviderOpenShift, subject, err)
-		}
+	group := fmt.Sprintf("system:serviceaccounts:%s", kubectlOptions.Namespace)
+	t.Logf("[%s] Granting anyuid SCC to group %s", ProviderOpenShift, group)
+	if err := k8s.RunKubectlE(t, kubectlOptions,
+		"adm", "policy", "add-scc-to-group", "anyuid", group); err != nil {
+		t.Logf("[%s] Warning: add-scc-to-group for %s: %v", ProviderOpenShift, group, err)
 	}
 }
 
