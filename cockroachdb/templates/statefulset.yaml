@@ -50,7 +50,7 @@ spec:
     {{- end }}
       serviceAccountName: {{ template "cockroachdb.serviceAccount.name" . }}
       initContainers:
-        {{- if .Values.tls.enabled }}
+        {{- if and .Values.tls.enabled (not .Values.tls.enableSighupRotation) }}
         - name: copy-certs
           image: {{ .Values.tls.copyCerts.image | quote }}
           imagePullPolicy: {{ .Values.tls.selfSigner.image.pullPolicy | quote }}
@@ -115,12 +115,21 @@ spec:
               protocol: TCP
           volumeMounts:
             {{- if .Values.tls.enabled }}
+            {{- if .Values.tls.enableSighupRotation }}
+            - name: certs-combined
+              mountPath: /cockroach-certs/
+            - name: certs-combined
+              mountPath: /cockroach/node/
+            - name: certs-combined
+              mountPath: /cockroach/client
+            {{- else }}
             - name: certs
               mountPath: /cockroach-certs/
             - name: certs-secret
               mountPath: /cockroach/node/
             - name: client-secret
               mountPath: /cockroach/client
+            {{- end }}
             {{- end }}
         {{- end }}
         {{- range $ic := .Values.statefulset.initContainers }}
@@ -335,12 +344,17 @@ spec:
             {{- end }}
           {{- end }}
           {{- if .Values.tls.enabled }}
+            {{- if .Values.tls.enableSighupRotation }}
+            - name: certs-combined
+              mountPath: /cockroach/cockroach-certs/
+            {{- else }}
             - name: certs
               mountPath: /cockroach/cockroach-certs/
               {{- if .Values.tls.certs.provided }}
             - name: certs-secret
               mountPath: /cockroach/certs/
               {{- end }}
+            {{- end }}
           {{- end }}
           {{- range .Values.statefulset.secretMounts }}
             - name: {{ printf "secret-%s" . | quote }}
@@ -446,8 +460,44 @@ spec:
           {{ toYaml . | nindent 8 }}
         {{- end }}
       {{- if .Values.tls.enabled }}
+        {{- if .Values.tls.enableSighupRotation }}
+        - name: certs-combined
+          projected:
+            sources:
+            - secret:
+                {{- if .Values.tls.certs.selfSigner.enabled }}
+                name: {{ template "cockroachdb.fullname" . }}-node-secret
+                {{ else }}
+                name: {{ .Values.tls.certs.nodeSecret }}
+                {{ end -}}
+                items:
+                - key: ca.crt
+                  path: ca.crt
+                  mode: 288
+                - key: tls.crt
+                  path: node.crt
+                  mode: 288
+                - key: tls.key
+                  path: node.key
+                  mode: 288
+            - secret:
+                {{- if .Values.tls.certs.selfSigner.enabled }}
+                name: {{ template "cockroachdb.fullname" . }}-client-secret
+                {{ else }}
+                name: {{ .Values.tls.certs.clientRootSecret }}
+                {{ end -}}
+                items:
+                - key: tls.crt
+                  path: client.root.crt
+                  mode: 288
+                - key: tls.key
+                  path: client.root.key
+                  mode: 288
+        {{- else }}
         - name: certs
           emptyDir: {}
+        {{- end }}
+        {{- if not .Values.tls.enableSighupRotation }}
           {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager  .Values.tls.certs.selfSigner.enabled }}
         - name: certs-secret
           {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
@@ -475,6 +525,7 @@ spec:
             defaultMode: 256
           {{- end }}
           {{- end }}
+        {{- end }}
         {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
         - name: client-secret
         {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
