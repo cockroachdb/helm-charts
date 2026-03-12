@@ -38,6 +38,8 @@ func TestOperatorInMultiRegion(t *testing.T) {
 			provider = infra.ProviderKind
 		case "gcp":
 			provider = infra.ProviderGCP
+		case "openshift":
+			provider = infra.ProviderOpenShift
 		default:
 			t.Fatalf("Unsupported provider override: %s", p)
 		}

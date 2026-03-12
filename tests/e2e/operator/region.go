@@ -107,6 +107,19 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	// Create a namespace.
 	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
 
+	// Apply OpenShift SCC bindings before pod creation.
+	// Grants anyuid SCC to all service accounts in the namespace via a ClusterRoleBinding.
+	// Uses standard kubectl (oc adm policy is not available via kubectl plugin interface).
+	if r.Provider == "openshift" {
+		bindingName := fmt.Sprintf("cockroach-anyuid-%s", r.Namespace[cluster])
+		group := fmt.Sprintf("system:serviceaccounts:%s", r.Namespace[cluster])
+		if err := k8s.RunKubectlE(t, kubectlOptions, "create", "clusterrolebinding", bindingName,
+			"--clusterrole=system:openshift:scc:anyuid",
+			"--group="+group); err != nil {
+			t.Logf("[openshift] Warning: create clusterrolebinding for %s: %v", group, err)
+		}
+	}
+
 	if r.IsCertManager {
 		testutil.InstallCertManager(t, certManagerK8sOptions)
 		testutil.InstallTrustManager(t, certManagerK8sOptions, r.Namespace[cluster])
@@ -124,7 +137,10 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	if !r.IsOperatorInstalled {
-		InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+		// Pass the actual cluster region so the operator's cloudRegion is set
+		// correctly. The operator webhook rejects CrdbClusters whose region codes
+		// don't match the operator's configured cloudRegion.
+		InstallCockroachDBEnterpriseOperator(t, kubectlOptions, r.RegionCodes[index])
 	}
 
 	if r.IsCertManager {
@@ -154,6 +170,11 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 			"cockroachdb.clusterDomain":                   CustomDomains[index],
 			"cockroachdb.crdbCluster.virtualCluster.mode": "standby",
 		})
+	}
+
+	// OpenShift on GCP uses standard-csi as the default storage class.
+	if r.Provider == "openshift" {
+		crdbOp["cockroachdb.crdbCluster.dataStore.volumeClaimTemplate.spec.storageClassName"] = "standard-csi"
 	}
 
 	// Helm install cockroach CR with operator region config.
@@ -446,10 +467,31 @@ func (r *Region) CleanupResources(t *testing.T) {
 			KubectlOptions: kubectlOptions,
 			ExtraArgs:      extraArgs,
 		}
-		err := helm.DeleteE(t, helmOptions, ReleaseName, true)
-		require.NoError(t, err)
-		err = helm.DeleteE(t, helmOptions, operatorReleaseName, true)
-		require.NoError(t, err)
+		if err := helm.DeleteE(t, helmOptions, ReleaseName, true); err != nil {
+			t.Logf("[cleanup] Warning: helm delete %s: %v", ReleaseName, err)
+		}
+		if err := helm.DeleteE(t, helmOptions, operatorReleaseName, true); err != nil {
+			t.Logf("[cleanup] Warning: helm delete %s: %v", operatorReleaseName, err)
+		}
+		// Delete cluster-scoped resources that survive namespace deletion.
+		// These cause ownership conflicts if left behind for subsequent tests.
+		if r.Provider == "openshift" {
+			bindingName := fmt.Sprintf("cockroach-anyuid-%s", namespace)
+			clusterNodeReader := fmt.Sprintf("cockroachdb-%s-node-reader", namespace)
+			for _, resource := range []string{
+				"clusterrole/cockroach-operator-role",
+				"clusterrole/" + clusterNodeReader,
+				"clusterrolebinding/cockroach-operator-default",
+				"clusterrolebinding/cockroach-operator-rolebinding",
+				"clusterrolebinding/" + clusterNodeReader,
+				"clusterrolebinding/" + bindingName,
+				"mutatingwebhookconfiguration/cockroach-mutating-webhook-config",
+				"validatingwebhookconfiguration/cockroach-webhook-config",
+				"priorityclass/cockroach-operator",
+			} {
+				_ = k8s.RunKubectlE(t, kubectlOptions, "delete", resource, "--ignore-not-found")
+			}
+		}
 		if r.IsCertManager {
 			testutil.DeleteBundle(t, kubectlOptions)
 			testutil.DeleteCAIssuer(t, kubectlOptions, namespace)
@@ -481,6 +523,13 @@ func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[int]string) []map[string]interface{} {
 	regions := make([]map[string]interface{}, 0, len(r.Clusters))
 
+	// OpenShift is deployed on GCP; the cockroach operator webhook only supports
+	// "aws", "gcp", "azure", and "k3d" as cloudProvider values.
+	cloudProvider := r.Provider
+	if cloudProvider == "openshift" {
+		cloudProvider = "gcp"
+	}
+
 	for i := 0; i < len(r.Clusters); i++ {
 		if i > index {
 			break
@@ -488,7 +537,7 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 
 		region := map[string]interface{}{
 			"code":          r.RegionCodes[i],
-			"cloudProvider": r.Provider,
+			"cloudProvider": cloudProvider,
 			"nodes":         nodes,
 			"namespace":     r.Namespace[r.Clusters[i]],
 		}
@@ -522,15 +571,25 @@ func VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOp
 	require.Contains(t, logs, expected, "operator logs did not contain expected init command")
 }
 
-func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+// InstallCockroachDBEnterpriseOperator installs the cockroach enterprise operator helm chart.
+// An optional cloudRegionOverride can be passed to set the operator's cloudRegion value,
+// which controls which region the operator reconciles. When not specified the chart default
+// ("us-east1") is used. Pass the actual cluster region (e.g. "us-central1") for clusters
+// whose region does not match the chart default.
+func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, cloudRegionOverride ...string) {
 	_, operatorChartPath := HelmChartPaths()
+
+	setValues := map[string]string{
+		"numReplicas": "1",
+	}
+	if len(cloudRegionOverride) > 0 && cloudRegionOverride[0] != "" {
+		setValues["cloudRegion"] = cloudRegionOverride[0]
+	}
 
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
-		SetValues: map[string]string{
-			"numReplicas": "1",
-		},
-		ExtraArgs: helmExtraArgs,
+		SetValues:      setValues,
+		ExtraArgs:      helmExtraArgs,
 	}
 
 	// Install Operator on the cluster.
