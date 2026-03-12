@@ -137,6 +137,10 @@ test/single-cluster/up: bin/k3d
 test/multi-cluster/down: bin/k3d
 	 ./tests/k3d/dev-multi-cluster.sh down
 
+test/nightly-e2e/advanced: bin/cockroach bin/kubectl bin/helm build/self-signer bin/k3d bin/kind
+	@PATH="$(PWD)/bin:${PATH}" TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Advanced features tests failed with exit code $$?" && exit 1)
+
+
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && \
 	bin/helm lint cockroachdb && \
