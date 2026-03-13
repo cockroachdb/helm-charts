@@ -64,6 +64,12 @@
                   },
                   "rotateCerts": {
                     "type": "boolean"
+                  },
+                  "additionalSANs": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
                   }
                 }
               }
