@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+### Added
+- Added `selfSignedOperatorCerts` support in the operator chart, allowing the operator to self-generate its own webhook TLS certs.
+
 ## [cockroachdb-parent-26.1.0-preview+1] 2026-03-04
 ### Changed
 - Upgraded CockroachDB to v26.1.0.
