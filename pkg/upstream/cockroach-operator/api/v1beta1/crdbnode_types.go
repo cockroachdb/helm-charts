@@ -320,6 +320,12 @@ type CrdbNodeSpec struct {
 	// +kubebuilder:validation:Optional
 	// Deprecated: use `PodTemplate` instead.
 	ReadinessProbe *corev1.Probe `json:"readinessProbe,omitempty"`
+
+	// TLSEnabled indicates whether the node is running in secure mode. This field
+	// is populated from CrdbCluster.Spec.TLSEnabled and controls whether cert volumes,
+	// CERTS_DIR env vars, and the cert-reloader sidecar are included in the pod.
+	// +kubebuilder:validation:Optional
+	TLSEnabled bool `json:"tlsEnabled,omitempty"`
 }
 
 // PodTemplateSpec is a structure allowing the user to set a template for Pod

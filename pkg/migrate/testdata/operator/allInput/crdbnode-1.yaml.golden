@@ -125,5 +125,6 @@ spec:
     - --cache=30%
     - --max-sql-memory=30%
     - --join=cockroachdb-0.cockroachdb.default:26258,cockroachdb-1.cockroachdb.default:26258,cockroachdb-2.cockroachdb.default:26258
+  tlsEnabled: true
 status:
   observedGeneration: 0

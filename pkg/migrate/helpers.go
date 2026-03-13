@@ -190,6 +190,7 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 				RootSQLClientSecretName: cluster.Name + "-client-secret",
 			},
 		},
+		TLSEnabled: cluster.Spec.TLSEnabled,
 		PersistentVolumeClaimRetentionPolicy: &v1beta1.CrdbNodePersistentVolumeClaimRetentionPolicy{
 			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 		},
@@ -544,6 +545,7 @@ func buildNodeSpecFromHelm(
 		PersistentVolumeClaimRetentionPolicy: &v1beta1.CrdbNodePersistentVolumeClaimRetentionPolicy{
 			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 		},
+		TLSEnabled:     input.tlsEnabled,
 		VirtualCluster: input.pcrSpec,
 	}
 

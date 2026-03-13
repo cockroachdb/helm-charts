@@ -2,6 +2,10 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+### Added
+- Insecure cluster support. Set `cockroachdb.tls.enabled: false` to run without TLS. Intended for non-production use only.
+
 ## [cockroachdb-parent-26.1.0-preview+1] 2026-03-04
 ### Changed
 - Upgraded CockroachDB to v26.1.0.
