@@ -26,6 +26,8 @@ endif
 K3D_CLUSTER ?= chart-testing
 REGISTRY ?= gcr.io
 REPOSITORY ?= cockroachlabs-helm-charts/cockroach-self-signer-cert
+DEV_REGISTRY ?= gcr.io/bhaskar-sandbox
+DEV_REPOSITORY ?= cockroach-self-signer-cert
 DOCKER_NETWORK_NAME ?= "k3d-${K3D_CLUSTER}"
 LOCAL_REGISTRY ?= "localhost:5000"
 MULTI_REGION_NODE_SIZE ?= 3
@@ -104,6 +106,14 @@ dev/push/local: dev/registries/up
           	--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) \
           	-t ${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
 	@docker push "${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
+
+push/dev: bin/yq ## build and push self-signer image to development registry (gcr.io/bhaskar-sandbox)
+	@echo "$(CYAN)Building image for development registry (${DEV_REGISTRY})...$(NC)"
+	@docker build --platform=linux/amd64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
+		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) \
+		-t ${DEV_REGISTRY}/${DEV_REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
+	@echo "$(CYAN)Pushing image to ${DEV_REGISTRY}...$(NC)"
+	@docker push ${DEV_REGISTRY}/${DEV_REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)
 
 ##@ Test
 test/cluster/bounce: bin/k3d test/cluster/down test/cluster/up ## restart a local k3d cluster for testing
