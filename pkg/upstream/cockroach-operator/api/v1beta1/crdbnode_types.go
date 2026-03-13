@@ -134,6 +134,13 @@ type CrdbNodeSpec struct {
 	// +kubebuilder:validation:Required
 	DataStore DataStore `json:"dataStore,omitempty"`
 
+	// LogsStore specifies an optional dedicated disk configuration for CockroachDB logs.
+	// If not specified, logs will be stored in a subdirectory of DataStore (/cockroach/cockroach-data/logs).
+	// If specified, logs will be stored on a separate volume mounted at the path specified by
+	// LogsStore.MountPath (or the default path /cockroach/cockroach-data/logs if not set).
+	// +kubebuilder:validation:Optional
+	LogsStore *CrdbLogsStoreSpec `json:"logsStore,omitempty"`
+
 	// Certificates controls the TLS configuration of this CrdbNode.
 	// +kubebuilder:validation:Required
 	Certificates Certificates `json:"certificates,omitempty"`
@@ -405,6 +412,24 @@ type CrdbNodeSideCars struct {
 type LocalityMapping struct {
 	NodeLabel     string `json:"nodeLabel,omitempty"`
 	LocalityLabel string `json:"localityLabel,omitempty"`
+}
+
+// CrdbLogsStoreSpec specifies the dedicated disk configuration for CockroachDB logs.
+// Exactly one of VolumeSource or VolumeClaimTemplate must be specified.
+type CrdbLogsStoreSpec struct {
+	// VolumeSource specifies a pre-existing VolumeSource to be mounted for logs storage.
+	// +kubebuilder:validation:Optional
+	VolumeSource *corev1.VolumeSource `json:"volumeSource,omitempty"`
+	// VolumeClaimTemplate specifies that a new PersistentVolumeClaim should
+	// be created for logs storage.
+	// +kubebuilder:validation:Optional
+	VolumeClaimTemplate *corev1.PersistentVolumeClaim `json:"volumeClaimTemplate,omitempty"`
+	// MountPath specifies the mount path for the dedicated logs volume.
+	// This should match the file-defaults.dir value in the CockroachDB logging configuration
+	// so that the dedicated volume is mounted where CockroachDB writes logs.
+	// If not specified, defaults to /cockroach/cockroach-data/logs.
+	// +kubebuilder:validation:Optional
+	MountPath string `json:"mountPath,omitempty"`
 }
 
 // DataStore is the specification for the disk configuration of a CrdbNode.
