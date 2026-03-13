@@ -9,7 +9,7 @@ image:
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
   # tag is the image tag.
-  tag: "f23c931757508a547bf653a9c8a40bad1f4e48b0fe38a8f04c2ca63754ab0882"
+  tag: "fbc0bde5817c92fdf6a059ac5e6986abb66e247f323c046be0a2dc4004515f57"
 # certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.
@@ -18,3 +18,18 @@ certificate:
 numReplicas: 3
 # cloudRegion specifies the cloud region for the Operator.
 cloudRegion: "us-east1"
+# Namespaces the operator should watch. Leave empty to watch all namespaces (default).
+# Accepts a single namespace or a comma-separated list, e.g. "prod-a,prod-b".
+#
+# The operator's own namespace and the namespaces it watches are independent.
+# You can install the operator into "ops" while scoping it to watch "prod-a,prod-b".
+#
+# Do not configure multiple operators to watch overlapping namespaces. Both will reconcile
+# the same clusters independently, which can cause unpredictable behavior.
+watchNamespaces: ""
+# The "app" label applied to the operator Deployment, its pods, and the gRPC/metrics Service
+# selector. Defaults to "cockroach-operator" to preserve backward compatibility.
+#
+# Important: changing this on an existing installation requires helm upgrade --force since
+# the Deployment selector is immutable. The operator will be briefly unavailable during the update.
+appLabel: "cockroach-operator"
