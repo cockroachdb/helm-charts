@@ -23,15 +23,14 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
-	corev1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	"github.com/cockroachdb/helm-charts/pkg/kube"
 	"github.com/cockroachdb/helm-charts/pkg/resource"
 	"github.com/cockroachdb/helm-charts/pkg/security"
 	util "github.com/cockroachdb/helm-charts/pkg/utils"
+	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
+	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 const defaultKeySize = 2048
@@ -69,6 +68,7 @@ type GenerateCert struct {
 	ReadinessWait             time.Duration
 	PodUpdateTimeout          time.Duration
 	OperatorManaged           bool
+	AdditionalSANs            []string
 }
 
 type certConfig struct {
@@ -182,7 +182,9 @@ func (rc *GenerateCert) ClientCertGenerate(ctx context.Context, namespace string
 }
 
 // generateCA generates the CA key and certificate if not given by the user and stores them in a secret.
-func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, namespace string) error {
+func (rc *GenerateCert) generateCA(
+	ctx context.Context, CASecretName string, namespace string,
+) error {
 
 	// if CA secret is given by user then validate it and use that
 	if rc.CaSecret != "" {
@@ -295,7 +297,9 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 }
 
 // generateNodeCert generates the Node key and certificate and stores them in a secret.
-func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName string, namespace string) (err error) {
+func (rc *GenerateCert) generateNodeCert(
+	ctx context.Context, nodeSecretName string, namespace string,
+) (err error) {
 
 	secret, err := resource.LoadTLSSecret(nodeSecretName, resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
 	if client.IgnoreNotFound(err) != nil {
@@ -329,7 +333,9 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 }
 
 // GenerateClientCert generates the Client key and certificate and stores them in a secret.
-func (rc *GenerateCert) GenerateClientCert(ctx context.Context, clientSecretName string, namespace string) error {
+func (rc *GenerateCert) GenerateClientCert(
+	ctx context.Context, clientSecretName string, namespace string,
+) error {
 
 	user, userExist := os.LookupEnv("USER_NAME")
 	if !userExist {
@@ -438,7 +444,9 @@ func (rc *GenerateCert) getClientSecretName() string {
 }
 
 // getCertLife return the certificate starting and expiration date
-func (rc *GenerateCert) getCertLife(pemCert []byte) (validFrom string, validUpto string, err error) {
+func (rc *GenerateCert) getCertLife(
+	pemCert []byte,
+) (validFrom string, validUpto string, err error) {
 	cert, err := security.GetCertObj(pemCert)
 	if err != nil {
 		return validFrom, validUpto, err
@@ -522,7 +530,9 @@ func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) erro
 }
 
 // GenerateNodeCert generates the Node key and certificate and stores them in a secret.
-func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, namespace string) error {
+func (rc *GenerateCert) GenerateNodeCert(
+	ctx context.Context, nodeSecretName, namespace string,
+) error {
 	logrus.Info("Generating node certificate")
 
 	// hosts are the various DNS names and IP address that have to exist in the Node certificates
@@ -546,6 +556,12 @@ func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, na
 		}
 
 		hosts = append(hosts, operatorJoinServiceHosts...)
+	}
+
+	// Append additional user-provided SANs
+	if len(rc.AdditionalSANs) > 0 {
+		logrus.Infof("Adding additional SANs to node certificate: %v", rc.AdditionalSANs)
+		hosts = append(hosts, rc.AdditionalSANs...)
 	}
 
 	// create the Node Pair certificates

@@ -8,7 +8,6 @@ require (
 	github.com/cockroachdb/cockroach-operator v0.0.0-20250618040001-5a36c88b7231
 	github.com/cockroachdb/errors v1.8.0
 	github.com/google/martian v2.1.1-0.20190517191504-25dcb96d9e51+incompatible
-	github.com/gosimple/slug v1.9.0
 	github.com/gruntwork-io/terratest v0.41.26
 	github.com/jackc/pgx/v4 v4.18.2
 	github.com/jetstack/cert-manager v0.0.0-00010101000000-000000000000
@@ -95,7 +94,6 @@ require (
 	github.com/prometheus/client_model v0.4.0 // indirect
 	github.com/prometheus/common v0.44.0 // indirect
 	github.com/prometheus/procfs v0.12.0 // indirect
-	github.com/rainycape/unidecode v0.0.0-20150907023854-cb7f23ec59be // indirect
 	github.com/rogpeppe/go-internal v1.10.0 // indirect
 	github.com/russross/blackfriday/v2 v2.1.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect

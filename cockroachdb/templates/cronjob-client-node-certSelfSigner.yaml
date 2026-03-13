@@ -69,5 +69,9 @@ spec:
               value: {{ .Release.Namespace }}
             - name: CLUSTER_DOMAIN
               value: {{ .Values.clusterDomain}}
+            {{- if .Values.tls.certs.selfSigner.additionalSANs }}
+            - name: ADDITIONAL_SANS
+              value: {{ .Values.tls.certs.selfSigner.additionalSANs | join "," | quote }}
+            {{- end }}
           serviceAccountName: {{ template "rotatecerts.fullname" . }}
   {{- end}}

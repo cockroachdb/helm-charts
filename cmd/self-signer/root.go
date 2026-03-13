@@ -22,14 +22,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
+	"github.com/cockroachdb/helm-charts/pkg/generator"
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
 	clientgoscheme "k8s.io/client-go/kubernetes/scheme"
 	controllerruntime "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-
-	"github.com/cockroachdb/helm-charts/pkg/generator"
 )
 
 var (
@@ -82,8 +82,24 @@ func init() {
 	}
 }
 
-func getInitialConfig(caDuration, caExpiry, nodeDuration, nodeExpiry, clientDuration,
-	clientExpiry string) (generator.GenerateCert, error) {
+// getInitialConfig initializes and configures a GenerateCert instance with certificate
+// durations, service names, and optional additional SANs from environment variables.
+//
+// It reads the following environment variables:
+//   - STATEFULSET_NAME: Name of the StatefulSet (required for non-client-only mode)
+//   - CLUSTER_DOMAIN: Kubernetes cluster domain (required for non-client-only mode)
+//   - ADDITIONAL_SANS: Comma-separated list of additional SANs for node certificates (optional)
+//
+// The function configures certificate durations for CA, node, and client certificates,
+// derives service names from the StatefulSet name, and parses any additional SANs
+// to be included in node certificates.
+//
+// Returns an error if required environment variables are missing or if certificate
+// configuration parsing fails.
+func getInitialConfig(
+	caDuration, caExpiry, nodeDuration, nodeExpiry, clientDuration,
+	clientExpiry string,
+) (generator.GenerateCert, error) {
 
 	genCert := generator.NewGenerateCert(cl)
 
@@ -113,6 +129,16 @@ func getInitialConfig(caDuration, caExpiry, nodeDuration, nodeExpiry, clientDura
 			return genCert, errors.New("Required CLUSTER_DOMAIN env not found")
 		}
 		genCert.ClusterDomain = domain
+
+		// Parse additional SANs if provided
+		if additionalSANsStr, exists := os.LookupEnv("ADDITIONAL_SANS"); exists && additionalSANsStr != "" {
+			sans := strings.Split(additionalSANsStr, ",")
+			// Trim whitespace from each entry
+			for i := range sans {
+				sans[i] = strings.TrimSpace(sans[i])
+			}
+			genCert.AdditionalSANs = sans
+		}
 	}
 
 	return genCert, nil

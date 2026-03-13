@@ -18,9 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Environment variable name to check if running in nightly mode
-const isNightlyEnvVar = "isNightly"
-
 type singleRegion struct {
 	operator.OperatorUseCases
 	operator.Region
