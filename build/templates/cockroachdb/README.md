@@ -129,6 +129,54 @@ By enabling `tls.certs.tlsSecret` the tls secrets are projected on to the correc
 
 For instructions on using cert-manager to provision certificates for the statefulset-based Helm chart, see the [Installation of statefulset-based Helm Chart with Cert Manager](../docs/certificate-management/cert-manager.md#Installation-of-statefulset-based-helm-chart-with-cert-manager) section in the documentation.
 
+### Zero-downtime certificate rotation
+
+The chart supports zero-downtime certificate rotation using SIGHUP signal when `tls.enableSighupRotation` is set to `true`. This allows you to rotate TLS certificates without restarting CockroachDB pods.
+
+**Important:** Zero-downtime SIGHUP-based rotation is only supported with externally managed certificates (user-provided or cert-manager) where the user controls the rotation and signaling process. It is **not compatible** with self-signed certificates (`tls.certs.selfSigner.enabled=true`), as the self-signer handles rotation by triggering pod restarts.
+
+**How it works:**
+
+When `enableSighupRotation` is enabled:
+- Node certificates (ca.crt, node.crt, node.key) are mounted directly from Kubernetes secrets (no copy-certs initContainer)
+- Certificate files have 0440 permissions (owner+group read) instead of 0400. This is required because with the chart's default pod `fsGroup: 1000` (set via `securityContext.enabled=true`), Kubernetes mounts secrets with `root:1000` ownership, and the CockroachDB process (running as user 1000) needs group read access. If you disable or override the pod securityContext, ensure the mounted secret file ownership/permissions still allow CockroachDB to read the certificates.
+- After updating the certificate secrets in Kubernetes, send SIGHUP signal to CockroachDB processes to reload certificates
+
+**Example usage:**
+
+```shell
+# Deploy with SIGHUP rotation enabled
+$ helm install my-release cockroachdb/cockroachdb \
+  --set tls.enabled=true \
+  --set tls.enableSighupRotation=true \
+  --set tls.certs.provided=true \
+  --set tls.certs.tlsSecret=true
+```
+
+**To rotate certificates:**
+
+1. Update the certificate secrets:
+```shell
+$ kubectl create secret generic cockroachdb-node \
+  --from-file=ca.crt=new-ca.crt \
+  --from-file=tls.crt=new-node.crt \
+  --from-file=tls.key=new-node.key \
+  --namespace=<your-namespace> \
+  --dry-run=client -o yaml | kubectl apply -f -
+```
+
+2. Wait for kubelet to sync the updated certificates to pods (30-60 seconds)
+
+3. Send SIGHUP signal to reload certificates without restarting:
+```shell
+$ for i in 0 1 2; do
+  kubectl exec my-release-cockroachdb-$i -- sh -c "kill -1 1"
+  sleep 5
+done
+```
+
+**Note:** When `enableSighupRotation` is disabled (default), certificates are copied by an initContainer with strict 0400 permissions, and pod restarts are required for certificate rotation.
+
 ## Upgrading the cluster
 
 ### Chart version 3.0.0 and after
@@ -347,6 +395,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `init.resources`                                          | Resource requests and limits for the `cluster-init` container                                                                                                                                                                                                                                                                            | `{}`                                                   |
 | `init.terminationGracePeriodSeconds`                      | Termination grace period for CRDB init job                                                                                                                                                                                                                                                                                               | `300`                                                  |
 | `tls.enabled`                                             | Whether to run securely using TLS certificates                                                                                                                                                                                                                                                                                           | `no`                                                   |
+| `tls.enableSighupRotation`                                | Enable zero-downtime certificate rotation using SIGHUP signal. When true, certificates are mounted directly with 0440 permissions. When false, initContainer copies certs with 0400 permissions and pod restarts are required for rotation                                                                                              | `no`                                                   |
 | `tls.serviceAccount.create`                               | Whether to create a new RBAC service account                                                                                                                                                                                                                                                                                             | `yes`                                                  |
 | `tls.serviceAccount.name`                                 | Name of RBAC service account to use                                                                                                                                                                                                                                                                                                      | `""`                                                   |
 | `tls.copyCerts.image`                                     | Image used in copy certs init container                                                                                                                                                                                                                                                                                                  | `busybox`                                              |
