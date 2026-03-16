@@ -1,4 +1,26 @@
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: {{ template "cockroachdb.clusterfullname" . }}-node-reader
+  labels:
+    helm.sh/chart: {{ template "cockroachdb.chart" . }}
+    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
+    app.kubernetes.io/instance: {{ .Release.Name | quote }}
+    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
+  {{- with .Values.k8s.labels }}
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["security.openshift.io"]
+    resources: ["securitycontextconstraints"]
+    verbs: ["use"]
+
 {{- if .Values.cockroachdb.tls.enabled }}
+---
+{{- /* Role is only required when TLS is enabled */}}
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -20,28 +42,4 @@ rules:
     {{- else }}
     verbs: ["create", "get"]
     {{- end }}
-  - apiGroups: [""]
-    resources: ["nodes"]
-    verbs: ["get", "list", "watch"]
----
-kind: ClusterRole
-apiVersion: rbac.authorization.k8s.io/v1
-metadata:
-  name: {{ template "cockroachdb.clusterfullname" . }}-node-reader
-  namespace: {{ .Release.Namespace | quote }}
-  labels:
-    helm.sh/chart: {{ template "cockroachdb.chart" . }}
-    app.kubernetes.io/name: {{ template "cockroachdb.name" . }}
-    app.kubernetes.io/instance: {{ .Release.Name | quote }}
-    app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
-  {{- with .Values.k8s.labels }}
-    {{- toYaml . | nindent 4 }}
-  {{- end }}
-rules:
-  - apiGroups: [""]
-    resources: ["nodes"]
-    verbs: ["get", "list", "watch"]
-  - apiGroups: ["security.openshift.io"]
-    resources: ["securitycontextconstraints"]
-    verbs: ["use"]
 {{- end }}

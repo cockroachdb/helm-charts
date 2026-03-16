@@ -128,6 +128,15 @@ func yamlToDisk(path string, data []any) error {
 
 // buildNodeSpecFromOperator builds a CrdbNodeSpec from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
 func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, startFlags *v1beta1.Flags) v1beta1.CrdbNodeSpec {
+	certificates := v1beta1.Certificates{}
+	if cluster.Spec.TLSEnabled {
+		certificates.ExternalCertificates = &v1beta1.ExternalCertificates{
+			CAConfigMapName:         cluster.Name + "-ca-crt",
+			NodeSecretName:          cluster.Name + "-node-secret",
+			RootSQLClientSecretName: cluster.Name + "-client-secret",
+		}
+	}
+
 	return v1beta1.CrdbNodeSpec{
 		NodeName: nodeName,
 		PodTemplate: &v1beta1.PodTemplateSpec{
@@ -183,13 +192,8 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 		GRPCPort:             cluster.Spec.GRPCPort,
 		SQLPort:              cluster.Spec.SQLPort,
 		HTTPPort:             cluster.Spec.HTTPPort,
-		Certificates: v1beta1.Certificates{
-			ExternalCertificates: &v1beta1.ExternalCertificates{
-				CAConfigMapName:         cluster.Name + "-ca-crt",
-				NodeSecretName:          cluster.Name + "-node-secret",
-				RootSQLClientSecretName: cluster.Name + "-client-secret",
-			},
-		},
+		Certificates:         certificates,
+		TLSEnabled:           cluster.Spec.TLSEnabled,
 		PersistentVolumeClaimRetentionPolicy: &v1beta1.CrdbNodePersistentVolumeClaimRetentionPolicy{
 			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
 		},
@@ -222,22 +226,26 @@ func buildHelmValuesFromOperator(
 		},
 	}...)
 
+	tls := map[string]interface{}{
+		"enabled": cluster.Spec.TLSEnabled,
+		"selfSigner": map[string]interface{}{
+			"enabled": false,
+		},
+	}
+	if cluster.Spec.TLSEnabled {
+		tls["externalCertificates"] = map[string]interface{}{
+			"enabled": true,
+			"certificates": map[string]interface{}{
+				"caConfigMapName":         cluster.Name + "-ca-crt",
+				"nodeSecretName":          cluster.Name + "-node-secret",
+				"rootSqlClientSecretName": cluster.Name + "-client-secret",
+			},
+		}
+	}
+
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
-			"tls": map[string]interface{}{
-				"enabled": cluster.Spec.TLSEnabled,
-				"selfSigner": map[string]interface{}{
-					"enabled": false,
-				},
-				"externalCertificates": map[string]interface{}{
-					"enabled": true,
-					"certificates": map[string]interface{}{
-						"caConfigMapName":         cluster.Name + "-ca-crt",
-						"nodeSecretName":          cluster.Name + "-node-secret",
-						"rootSqlClientSecretName": cluster.Name + "-client-secret",
-					},
-				},
-			},
+			"tls": tls,
 			"crdbCluster": map[string]interface{}{
 				"image": map[string]interface{}{
 					"name": cluster.Spec.Image.Name,
@@ -533,20 +541,23 @@ func buildNodeSpecFromHelm(
 		GRPCPort:             &input.grpcPort,
 		SQLPort:              &input.sqlPort,
 		HTTPPort:             &input.httpPort,
-		Certificates: v1beta1.Certificates{
+		PersistentVolumeClaimRetentionPolicy: &v1beta1.CrdbNodePersistentVolumeClaimRetentionPolicy{
+			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
+		},
+		TLSEnabled:     input.tlsEnabled,
+		VirtualCluster: input.pcrSpec,
+	}
+
+	if input.tlsEnabled {
+		nodeSpec.Certificates = v1beta1.Certificates{
 			ExternalCertificates: &v1beta1.ExternalCertificates{
 				CAConfigMapName:         input.caConfigMap,
 				NodeSecretName:          input.nodeSecretName,
 				RootSQLClientSecretName: input.clientSecretName,
 				HTTPSecretName:          input.clientSecretName,
 			},
-		},
-		PersistentVolumeClaimRetentionPolicy: &v1beta1.CrdbNodePersistentVolumeClaimRetentionPolicy{
-			WhenDeleted: appsv1.RetainPersistentVolumeClaimRetentionPolicyType,
-		},
-		VirtualCluster: input.pcrSpec,
+		}
 	}
-
 	// Add WAL failover spec if present in input
 	if input.walFailoverSpec != nil {
 		nodeSpec.WALFailoverSpec = input.walFailoverSpec

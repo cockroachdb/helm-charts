@@ -219,7 +219,8 @@ Validate that nodeCertDuration must not be empty and nodeCertDuration minus node
 {{- end -}}
 
 {{/*
-Validate that if user enabled tls, then only one of self-signed certificates, certificate manager, or user provided certificates is enabled
+Validates TLS certificate mode. Exactly one cert mode must be active when TLS is on,
+and none when TLS is off.
 */}}
 {{- define "cockroachdb.tlsValidation" -}}
 {{- if .Values.cockroachdb.tls.enabled -}}
@@ -231,7 +232,12 @@ Validate that if user enabled tls, then only one of self-signed certificates, ce
 {{- if $certManager }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
 {{- if $userProvided }}{{ $enabledCount = add1 $enabledCount }}{{ end }}
 {{- if ne $enabledCount 1 }}
-    {{ fail "Exactly one of self-signed certificates, certificate manager, or external certificates must be enabled when TLS is enabled" }}
+    {{ fail "Exactly one of selfSigner, certManager or externalCertificates must be enabled when TLS is on" }}
+{{- end }}
+{{- else -}}
+{{- /* No cert modes are allowed when TLS is off. */}}
+{{- if or .Values.cockroachdb.tls.selfSigner.enabled .Values.cockroachdb.tls.certManager.enabled .Values.cockroachdb.tls.externalCertificates.enabled }}
+    {{ fail "selfSigner, certManager and externalCertificates must all be disabled when TLS is off" }}
 {{- end }}
 {{- end -}}
 {{- end -}}

@@ -86,8 +86,6 @@ type CrdbClusterSpec struct {
 	Regions []CrdbClusterRegion `json:"regions"`
 
 	// TLSEnabled indicates whether the cluster is running in secure mode.
-	// Note(alyshan): The operator currently signs the certificates using
-	// k8s default signer, which is not an intended use of the Certificates
 	// API. See https://github.com/cockroachdb/cockroach-operator/issues/291.
 	// +kubebuilder:validation:Optional
 	TLSEnabled bool `json:"tlsEnabled,omitempty"`
