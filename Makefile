@@ -58,6 +58,9 @@ help: ## Display this help
 .PHONY: build
 build: build/chart build/self-signer ## build the helm chart and self-signer
 
+generate: ## generate files from templates in build/templates
+	@go run build/build.go generate
+
 build/chart: bin/helm ## build the helm chart to build/artifacts
 	@build/make.sh
 
