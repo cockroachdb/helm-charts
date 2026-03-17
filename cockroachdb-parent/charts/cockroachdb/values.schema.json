@@ -88,6 +88,12 @@
                   "pattern": "^(Always|Never|IfNotPresent)$"
                 }
               }
+            },
+            "additionalSANs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }

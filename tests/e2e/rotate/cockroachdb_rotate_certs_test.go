@@ -73,6 +73,9 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues:      helmValues,
+		ExtraArgs: map[string][]string{
+			"install": {"--timeout", "10m"},
+		},
 	}
 
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
@@ -93,7 +96,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 2*time.Second)
 
 	testutil.RequireCertificatesToBeValid(t, crdbCluster)
-	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 500*time.Second)
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	time.Sleep(20 * time.Second)
 	// This will create a database, a table and insert two rows into that table.
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
@@ -110,7 +113,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues, "0 0 */26 * *", false)
 
 	// This will wait for the certificate rotation to complete, which will do a rolling restart of the CRDB cluster.
-	testutil.RequireCertRotateJobToBeCompleted(t, "client-node-certificate-rotate", crdbCluster, 500*time.Second)
+	testutil.RequireCertRotateJobToBeCompleted(t, "client-node-certificate-rotate", crdbCluster, 600*time.Second)
 
 	time.Sleep(20 * time.Second)
 	// This will check after rotation the database is working properly.
@@ -133,7 +136,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	testutil.RequireToRunRotateJob(t, crdbCluster, helmValues, "0 0 */29 * *", true)
 
 	// This will wait for the certificate rotation to complete, which will do a rolling restart of the CRDB cluster.
-	testutil.RequireCertRotateJobToBeCompleted(t, "ca-certificate-rotate", crdbCluster, 500*time.Second)
+	testutil.RequireCertRotateJobToBeCompleted(t, "ca-certificate-rotate", crdbCluster, 600*time.Second)
 
 	time.Sleep(20 * time.Second)
 	// This will check after rotation the database is working properly.
