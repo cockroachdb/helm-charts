@@ -1,18 +1,27 @@
-# operator.yaml defines how the operator are installed in a K8s
+# operator.yaml defines how the operator is installed in a K8s
   # cluster, including its deployment and permissions.
+
+# Cluster-scoped resources use a cockroachdb- prefix. In scoped mode (watchNamespaces set),
+# they also get a namespace suffix so multiple operator deployments don't conflict.
+#
+# Upgrading from a previous chart version? Remove these stale resources once the operator is healthy:
+#   kubectl delete priorityclass cockroach-operator
+#   kubectl delete clusterrole cockroach-operator-role
+#   kubectl delete clusterrolebinding cockroach-operator-default
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
-  name: cockroach-operator
+  name: {{ if (.Values.watchNamespaces | trim) }}cockroachdb-operator-{{ .Release.Namespace }}{{ else }}cockroachdb-operator{{ end }}
 value: 500000000
 
 ---
-# Configure the permissions the operator will have in the K8s cluster.
+# Operator RBAC permissions. In scoped mode each deployment gets its own ClusterRole
+# so multiple operators in different namespaces stay independent.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
 metadata:
-  name: cockroach-operator-role
+  name: {{ if (.Values.watchNamespaces | trim) }}cockroachdb-operator-role-{{ .Release.Namespace }}{{ else }}cockroachdb-operator-role{{ end }}
 rules:
   # Namespace permissions should be dropped once this K8s bug is fixed.
   # https://github.com/kubernetes/kubernetes/issues/115819
@@ -109,6 +118,7 @@ rules:
       - networking.k8s.io
     resources:
       - networkpolicies
+      - ingresses
     verbs:
       - create
       - delete
@@ -164,6 +174,7 @@ rules:
       - list
       - patch
       - watch
+      - update
   - apiGroups:
       - ""
     resources:
@@ -247,9 +258,9 @@ rules:
       - list
       - patch
       - watch
-  # The "create" verb cannot be qualified with resourceNames, so grant the
-  # unqualified permission so that the operator can create a new webhook. But
-  # only allow the operator to get and patch its own webhook.
+  # Webhook configuration: "create" cannot be scoped to resourceNames (K8s limitation),
+  # so it is granted broadly. Get/patch/delete are restricted to this operator's own
+  # webhook configs only. Delete is needed for cleanup on graceful shutdown.
   - apiGroups:
       - admissionregistration.k8s.io
     resources:
@@ -261,20 +272,18 @@ rules:
       - admissionregistration.k8s.io
     resources:
       - validatingwebhookconfigurations
-    resourceNames:
-      - cockroach-webhook-config
-    verbs:
-      - get
-      - patch
-  - apiGroups:
-      - admissionregistration.k8s.io
-    resources:
       - mutatingwebhookconfigurations
     resourceNames:
+      - cockroach-webhook-config
       - cockroach-mutating-webhook-config
+      {{- if (.Values.watchNamespaces | trim) }}
+      - cockroach-webhook-config-{{ .Release.Namespace }}
+      - cockroach-mutating-webhook-config-{{ .Release.Namespace }}
+      {{- end }}
     verbs:
       - get
       - patch
+      - delete
   # The "create" verb cannot be qualified with resourceNames, so grant the
   # unqualified permission so that the operator can create new CRDs. But only
   # allow the operator to get and patch its own CRDs.
@@ -319,6 +328,7 @@ rules:
       - list
       - patch
       - watch
+      - update
   - apiGroups:
       - ""
     resources:
@@ -418,19 +428,21 @@ metadata:
   name: cockroach-operator-default
   namespace: {{ .Release.Namespace }}
   labels:
-    app: cockroach-operator
+    app: {{ .Values.appLabel | quote }}
 
 ---
+# In scoped mode the binding name includes the release namespace so each operator deployment
+# gets its own binding and doesn't conflict with others.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRoleBinding
 metadata:
-  name: cockroach-operator-default
+  name: {{ if (.Values.watchNamespaces | trim) }}cockroachdb-operator-{{ .Release.Namespace }}{{ else }}cockroachdb-operator{{ end }}
   labels:
-    app: cockroach-operator
+    app: {{ .Values.appLabel | quote }}
 roleRef:
   apiGroup: rbac.authorization.k8s.io
   kind: ClusterRole
-  name: cockroach-operator-role
+  name: {{ if (.Values.watchNamespaces | trim) }}cockroachdb-operator-role-{{ .Release.Namespace }}{{ else }}cockroachdb-operator-role{{ end }}
 subjects:
   - name: cockroach-operator-default
     namespace: {{ .Release.Namespace }}
@@ -444,14 +456,14 @@ metadata:
   name: cockroach-operator
   namespace: {{ .Release.Namespace }}
   labels:
-    app: cockroach-operator
+    app: {{ .Values.appLabel | quote }}
 spec:
   ports:
     - name: grpc
       port: 9070
       targetPort: 9070
   selector:
-    app: cockroach-operator
+    app: {{ .Values.appLabel | quote }}
 ---
 # Configure how the operator will be deployed in the K8s cluster.
 # NOTE: Put this last, so that permissions have already been granted when it
@@ -462,12 +474,12 @@ metadata:
   name: cockroach-operator
   namespace: {{ .Release.Namespace }}
   labels:
-    app: cockroach-operator
+    app: {{ .Values.appLabel | quote }}
 spec:
   replicas: {{ .Values.numReplicas }}
   selector:
     matchLabels:
-      app: cockroach-operator
+      app: {{ .Values.appLabel | quote }}
   strategy:
     type: RollingUpdate
     rollingUpdate:
@@ -476,11 +488,11 @@ spec:
   template:
     metadata:
       labels:
-        app: cockroach-operator
+        app: {{ .Values.appLabel | quote }}
     spec:
       shareProcessNamespace: true
       serviceAccountName: cockroach-operator-default
-      priorityClassName: cockroach-operator
+      priorityClassName: {{ if (.Values.watchNamespaces | trim) }}cockroachdb-operator-{{ .Release.Namespace }}{{ else }}cockroachdb-operator{{ end }}
       containers:
         - name: cockroach-operator
           image: {{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}
@@ -511,6 +523,11 @@ spec:
                   fieldPath: spec.nodeName
             - name: CLOUD_REGION
               value: {{ .Values.cloudRegion }}
+            # When watchNamespaces is set, restrict the operator to those namespaces only.
+            {{- if (.Values.watchNamespaces | trim) }}
+            - name: WATCH_NAMESPACE
+              value: {{ .Values.watchNamespaces | trim | quote }}
+            {{- end }}
           resources:
             requests:
               cpu: 500m

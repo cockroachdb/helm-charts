@@ -5,6 +5,38 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 ### Added
 - Insecure cluster support. Set `cockroachdb.tls.enabled: false` and disable `selfSigner`, `certManager`, and `externalCertificates` to run without TLS. Intended for non-production use only.
+- Namespace scoping for the operator via `watchNamespaces`. Set to a single namespace or a
+  comma-separated list to restrict which namespaces the operator reconciles. Defaults to `""`
+  (all namespaces). See [Namespace Scoping](cockroachdb-parent/charts/operator/README.md#namespace-scoping) for details.
+- Configurable `appLabel` for the operator Deployment selector and pod labels. Defaults to
+  `cockroach-operator` to preserve backward compatibility. Changing this on an existing installation
+  requires `helm upgrade --force` since the Deployment selector is immutable.
+
+### Changed
+- Cluster-scoped resources now use a `cockroachdb-` prefix. In namespace-scoped mode they also include the
+  release namespace as a suffix.
+
+  | Resource | Old name | New name (cluster-scoped) | New name (namespace-scoped) |
+  |---|---|---|---|
+  | PriorityClass | `cockroach-operator` | `cockroachdb-operator` | `cockroachdb-operator-<ns>` |
+  | ClusterRole | `cockroach-operator-role` | `cockroachdb-operator-role` | `cockroachdb-operator-role-<ns>` |
+  | ClusterRoleBinding | `cockroach-operator-default` | `cockroachdb-operator` | `cockroachdb-operator-<ns>` |
+
+  where `<ns>` is the Helm release namespace. After upgrading, remove the stale resources once the
+  operator is healthy:
+  ```bash
+  kubectl delete priorityclass cockroach-operator
+  kubectl delete clusterrole cockroach-operator-role
+  kubectl delete clusterrolebinding cockroach-operator-default
+  ```
+
+### Notes
+- Running more than one operator watching the same namespace should be avoided as both operators
+  independently reconcile the same clusters, leading to unpredictable behavior.
+- When transitioning from a cluster-scoped operator to namespace-scoped operators, the cluster-scoped operator
+  continues reconciling all namespaces, including those watched by the namespace-scoped operators, until
+  it is uninstalled. Complete the transition quickly and uninstall the cluster-scoped operator once the
+  namespace-scoped operators are healthy.
 
 ## [cockroachdb-parent-26.1.0-preview+1] 2026-03-04
 ### Changed
