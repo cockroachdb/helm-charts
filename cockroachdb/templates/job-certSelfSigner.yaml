@@ -80,6 +80,10 @@ spec:
             value: {{ .Release.Namespace | quote }}
           - name: CLUSTER_DOMAIN
             value: {{ .Values.clusterDomain}}
+          {{ if .Values.tls.certs.selfSigner.additionalSANs }}
+          - name: ADDITIONAL_SANS
+            value: {{ .Values.tls.certs.selfSigner.additionalSANs | join "," | quote }}
+          {{ end }}
         {{- if and .Values.tls.certs.selfSigner.securityContext.enabled }}
           securityContext:
             allowPrivilegeEscalation: false
