@@ -12,13 +12,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [kind, gcp]
+        provider: [kind, gcp, aws]
     timeout-minutes: 90
     permissions:
       contents: 'read'
       id-token: 'write'
     env:
       GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup Go
@@ -37,6 +38,25 @@ jobs:
       - name: Install gke-gcloud-auth-plugin
         run: |
           gcloud components install gke-gcloud-auth-plugin
+      - name: Configure AWS credentials
+        if: matrix.provider == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Install eksctl
+        if: matrix.provider == 'aws'
+        run: |
+          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin
+          eksctl version
+      - name: Install AWS CLI
+        if: matrix.provider == 'aws'
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install --update
+          aws --version
       - name: Run tests (multi-region)
         env:
           PROVIDER: ${{ matrix.provider }}
@@ -130,13 +150,14 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [kind, gcp]
+        provider: [kind, gcp, aws]
     timeout-minutes: 90
     permissions:
       contents: read
       id-token: write
     env:
       GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
     steps:
       - uses: actions/checkout@v4
       - name: Setup Go
@@ -156,6 +177,25 @@ jobs:
       - name: Install gke-gcloud-auth-plugin
         run: |
           gcloud components install gke-gcloud-auth-plugin
+      - name: Configure AWS credentials
+        if: matrix.provider == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: ${{ secrets.AWS_REGION }}
+      - name: Install eksctl
+        if: matrix.provider == 'aws'
+        run: |
+          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin
+          eksctl version
+      - name: Install AWS CLI
+        if: matrix.provider == 'aws'
+        run: |
+          curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
+          unzip awscliv2.zip
+          sudo ./aws/install --update
+          aws --version
       - name: Run tests (single-region)
         env:
           PROVIDER: ${{ matrix.provider }}

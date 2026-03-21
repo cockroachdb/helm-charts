@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
@@ -21,6 +19,9 @@ import (
 	"k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 const (
@@ -77,6 +78,8 @@ type Region struct {
 	CorednsClusterOptions map[string]coredns.CoreDNSClusterOption
 	Provider              string
 	RegionCodes           []string
+	// TestRunID is a unique identifier for this test run (for concurrent test isolation)
+	TestRunID string
 
 	VirtualClusterModePrimary bool
 	VirtualClusterModeStandby bool
@@ -104,8 +107,28 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
 
-	// Create a namespace.
-	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
+	// Create a namespace with retry logic to handle transient proxy errors (e.g., Netskope)
+	maxRetries := 5
+	sleepBetweenRetries := 5 * time.Second
+	_, err := retry.DoWithRetryE(t, "Creating namespace", maxRetries, sleepBetweenRetries, func() (string, error) {
+		err := k8s.CreateNamespaceE(t, kubectlOptions, r.Namespace[cluster])
+		if err != nil {
+			// Check if it's a proxy/gateway error that we should retry
+			if strings.Contains(err.Error(), "Bad Gateway") ||
+				strings.Contains(err.Error(), "unable to get local issuer certificate") ||
+				strings.Contains(err.Error(), "Netskope") {
+				t.Logf("Transient proxy error creating namespace (will retry): %v", err)
+				return "", err
+			}
+			// For other errors, fail immediately
+			return "", err
+		}
+		return "", nil
+	})
+	require.NoError(t, err, "Failed to create namespace after retries")
+
+	// Add a small delay after namespace creation to let Netskope settle
+	time.Sleep(2 * time.Second)
 
 	if r.IsCertManager {
 		testutil.InstallCertManager(t, certManagerK8sOptions)
@@ -115,9 +138,18 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 		testutil.CreateCAIssuer(t, kubectlOptions, r.Namespace[cluster])
 		testutil.CreateBundle(t, kubectlOptions, testutil.CASecretName, testutil.CAConfigMapName)
 	} else {
-		// create CA Secret.
-		err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
-			"--from-file=ca.key")
+		// create CA Secret with retry logic for transient proxy errors
+		_, err := retry.DoWithRetryE(t, "Creating CA secret", 5, 5*time.Second, func() (string, error) {
+			err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
+				"--from-file=ca.key")
+			if err != nil && (strings.Contains(err.Error(), "Bad Gateway") ||
+				strings.Contains(err.Error(), "unable to get local issuer certificate") ||
+				strings.Contains(err.Error(), "Netskope")) {
+				t.Logf("Transient proxy error creating secret (will retry): %v", err)
+				return "", err
+			}
+			return "", err
+		})
 		require.NoError(t, err)
 	}
 
@@ -359,6 +391,15 @@ func (r *Region) ValidateCRDBContainerResources(t *testing.T, kubectlOptions *k8
 
 // CreateCACertificate creates CA cert and key at the same path.
 func (r *Region) CreateCACertificate(t *testing.T) error {
+	// Clean up any existing certificate files from previous runs
+	// (prevents "CA key ca.key exists, but key reuse is disabled" error)
+	cleanupCmd := shell.Command{
+		Command:    "rm",
+		Args:       []string{"-f", "ca.crt", "ca.key"},
+		WorkingDir: ".",
+	}
+	shell.RunCommand(t, cleanupCmd)
+
 	// Create CA secret in all regions.
 	cmd := shell.Command{
 		Command:    "cockroach",

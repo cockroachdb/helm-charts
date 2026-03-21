@@ -7,15 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 // Region codes for each provider are now centralized in infra.RegionCodes
@@ -54,11 +55,13 @@ func TestOperatorInMultiRegion(t *testing.T) {
 			IsMultiRegion: true,
 			NodeCount:     3,
 			ReusingInfra:  false,
+			TestRunID:     fmt.Sprintf("%s-%d", strings.ToLower(random.UniqueId()), time.Now().Unix()),
 		}
 		providerRegion.Clients = make(map[string]client.Client)
 		providerRegion.Namespace = make(map[string]string)
 
 		providerRegion.Provider = provider
+		t.Logf("Test Run ID: %s", providerRegion.TestRunID)
 		for _, cluster := range operator.Clusters {
 			clusterName := fmt.Sprintf("%s-%s", providerRegion.Provider, cluster)
 			if providerRegion.Provider != infra.ProviderK3D && provider != infra.ProviderKind {
@@ -83,36 +86,22 @@ func TestOperatorInMultiRegion(t *testing.T) {
 		// Set up infrastructure for this provider once.
 		cloudProvider.SetUpInfra(t)
 
-		testCases := map[string]func(*testing.T){
+		// Run tests sequentially within a provider.
+		var testFailed bool
+		for name, method := range map[string]func(*testing.T){
 			"TestHelmInstall":           providerRegion.TestHelmInstall,
 			"TestHelmUpgrade":           providerRegion.TestHelmUpgrade,
 			"TestClusterRollingRestart": providerRegion.TestClusterRollingRestart,
 			"TestKillingCockroachNode":  providerRegion.TestKillingCockroachNode,
 			"TestClusterScaleUp":        func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) },
-		}
-
-		// Run tests sequentially within a provider.
-		var testFailed bool
-		for name, method := range testCases {
+		} {
 			// Skip remaining tests if a previous test failed to save time
 			if testFailed {
 				t.Logf("Skipping test %s due to previous test failure", name)
 				continue
 			}
 
-			t.Run(name, func(t *testing.T) {
-				// Add immediate cleanup trigger if this individual test fails
-				defer func() {
-					if t.Failed() {
-						testFailed = true
-						t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
-						cloudProvider.TeardownInfra(t)
-						t.Logf("Infrastructure cleanup completed due to test failure")
-					}
-				}()
-
-				method(t)
-			})
+			testFailed = !t.Run(name, method)
 		}
 	})
 }
