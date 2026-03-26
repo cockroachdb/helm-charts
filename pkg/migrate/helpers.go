@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"slices"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -29,29 +31,29 @@ import (
 )
 
 const (
-	logConfigVolumeName            = "log-config"
-	crdbContainerName              = "db"
-	joinStrPrefix                  = "--join="
-	portPrefix                     = "--port="
-	httpPortPrefix                 = "--http-port="
-	insecureFlag                   = "--insecure"
-	localityFlag                   = "--locality"
-	logtostderrFlag                = "--logtostderr"
-	logFlag                        = "--log"
-	grpcName                       = "grpc"
-	grpcPort                       = 26258
-	sqlName                        = "sql"
-	sqlPort                        = 26257
-	ProtocolName                   = "TCP"
-	publicSvcYaml                  = "public-service.yaml"
-	helmLogConfigKey               = "log-config.yaml"
-	publicOperatorLogConfigKey     = "logging.yaml"
-	enterpriseOperatorLogConfigKey = "logs.yaml"
-	certManagerGroup               = "cert-manager.io"
-	certManagerVersion             = "v1"
-	certificatesResource           = "certificates"
-	issuersResource                = "issuers"
-	defaultLogsMountPath           = "/cockroach/cockroach-data/logs"
+	logConfigVolumeName             = "log-config"
+	crdbContainerName               = "db"
+	joinStrPrefix                   = "--join="
+	portPrefix                      = "--port="
+	httpPortPrefix                  = "--http-port="
+	insecureFlag                    = "--insecure"
+	localityFlag                    = "--locality"
+	logtostderrFlag                 = "--logtostderr"
+	logFlag                         = "--log"
+	grpcName                        = "grpc"
+	grpcPort                        = 26258
+	sqlName                         = "sql"
+	sqlPort                         = 26257
+	ProtocolName                    = "TCP"
+	publicSvcYaml                   = "public-service.yaml"
+	helmLogConfigKey                = "log-config.yaml"
+	publicOperatorLogConfigKey      = "logging.yaml"
+	cockroachdbOperatorLogConfigKey = "logs.yaml"
+	certManagerGroup                = "cert-manager.io"
+	certManagerVersion              = "v1"
+	certificatesResource            = "certificates"
+	issuersResource                 = "issuers"
+	defaultLogsMountPath            = "/cockroach/cockroach-data/logs"
 )
 
 var (
@@ -129,7 +131,9 @@ func yamlToDisk(path string, data []any) error {
 }
 
 // buildNodeSpecFromOperator builds a CrdbNodeSpec from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
-func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, startFlags *v1beta1.Flags) v1beta1.CrdbNodeSpec {
+func buildNodeSpecFromOperator(
+	cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, startFlags *v1beta1.Flags,
+) v1beta1.CrdbNodeSpec {
 	certificates := v1beta1.Certificates{}
 	if cluster.Spec.TLSEnabled {
 		certificates.ExternalCertificates = &v1beta1.ExternalCertificates{
@@ -170,7 +174,7 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 						}...),
 					},
 				},
-				ServiceAccountName:            cluster.Name,
+				ServiceAccountName:            sts.Spec.Template.Spec.ServiceAccountName,
 				Affinity:                      sts.Spec.Template.Spec.Affinity,
 				NodeSelector:                  sts.Spec.Template.Spec.NodeSelector,
 				PriorityClassName:             sts.Spec.Template.Spec.PriorityClassName,
@@ -202,14 +206,16 @@ func buildNodeSpecFromOperator(cluster publicv1.CrdbCluster, sts *appsv1.Statefu
 	}
 }
 
-// buildHelmValuesFromOperator builds a map of values for the CockroachDB Helm chart from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
+// buildHelmValuesFromOperator builds a map of values for the CockroachDB Helm chart from a publicv1.CrdbCluster and a StatefulSet created by the public
+// operator.
 func buildHelmValuesFromOperator(
 	cluster publicv1.CrdbCluster,
 	sts *appsv1.StatefulSet,
 	cloudProvider string,
 	cloudRegion string,
 	namespace string,
-	flags *v1beta1.Flags) map[string]interface{} {
+	flags *v1beta1.Flags,
+) map[string]interface{} {
 
 	ingressValue := buildIngressValue(cluster)
 	envVars := append(sts.Spec.Template.Spec.Containers[0].Env, []corev1.EnvVar{
@@ -242,6 +248,14 @@ func buildHelmValuesFromOperator(
 				"nodeSecretName":          cluster.Name + "-node-secret",
 				"rootSqlClientSecretName": cluster.Name + "-client-secret",
 			},
+		}
+	}
+
+	rbac := map[string]interface{}{}
+	if sts.Spec.Template.Spec.ServiceAccountName != "" {
+		rbac["serviceAccount"] = map[string]interface{}{
+			"create": false,
+			"name":   sts.Spec.Template.Spec.ServiceAccountName,
 		}
 	}
 
@@ -289,6 +303,7 @@ func buildHelmValuesFromOperator(
 					"ingress": ingressValue,
 				},
 				"loggingConfigMapName": cluster.Spec.LogConfigMap,
+				"rbac":                 rbac,
 				"podTemplate": map[string]interface{}{
 					"metadata": map[string]interface{}{
 						"labels":      sts.Spec.Template.Labels,
@@ -346,8 +361,193 @@ func buildIngressValue(cluster publicv1.CrdbCluster) map[string]interface{} {
 	return result
 }
 
+// buildHelmValuesFromV1beta1 converts the live migrated v1beta1 resources into
+// the Helm chart values shape used for post-migration adoption.
+func buildHelmValuesFromV1beta1(
+	cluster v1beta1.CrdbCluster, ingresses []networkingv1.Ingress,
+) map[string]interface{} {
+	podTemplateLabels := map[string]string{}
+	podTemplateAnnotations := map[string]string{}
+	podTemplateSpec := corev1.PodSpec{}
+	if cluster.Spec.Template.Spec.PodTemplate != nil {
+		if cluster.Spec.Template.Spec.PodTemplate.Metadata.Labels != nil {
+			podTemplateLabels = cluster.Spec.Template.Spec.PodTemplate.Metadata.Labels
+		}
+		if cluster.Spec.Template.Spec.PodTemplate.Metadata.Annotations != nil {
+			podTemplateAnnotations = cluster.Spec.Template.Spec.PodTemplate.Metadata.Annotations
+		}
+		podTemplateSpec = cluster.Spec.Template.Spec.PodTemplate.Spec
+	}
+
+	podTemplateValue := map[string]interface{}{}
+	if len(podTemplateLabels) > 0 || len(podTemplateAnnotations) > 0 {
+		metadata := map[string]interface{}{}
+		if len(podTemplateLabels) > 0 {
+			metadata["labels"] = podTemplateLabels
+		}
+		if len(podTemplateAnnotations) > 0 {
+			metadata["annotations"] = podTemplateAnnotations
+		}
+		podTemplateValue["metadata"] = metadata
+	}
+	if !reflect.DeepEqual(podTemplateSpec, corev1.PodSpec{}) {
+		podTemplateValue["spec"] = podTemplateSpec
+	}
+
+	crdbCluster := map[string]interface{}{
+		"mode":    string(valueOrDefaultMode(cluster.Spec.Mode)),
+		"regions": cluster.Spec.Regions,
+		"image": map[string]interface{}{
+			"name": cluster.Spec.Template.Spec.Image,
+		},
+		"dataStore": cluster.Spec.Template.Spec.DataStore,
+		"service": map[string]interface{}{
+			"ports": map[string]interface{}{
+				"grpc": map[string]interface{}{
+					"port": valueOrDefaultInt32(cluster.Spec.Template.Spec.GRPCPort, v1beta1.DefaultCockroachGRPCPort),
+				},
+				"http": map[string]interface{}{
+					"port": valueOrDefaultInt32(cluster.Spec.Template.Spec.HTTPPort, v1beta1.DefaultCockroachHTTPPort),
+				},
+				"sql": map[string]interface{}{
+					"port": valueOrDefaultInt32(cluster.Spec.Template.Spec.SQLPort, v1beta1.DefaultCockroachSQLPort),
+				},
+			},
+		},
+	}
+
+	if len(podTemplateValue) > 0 {
+		crdbCluster["podTemplate"] = podTemplateValue
+	}
+
+	if len(cluster.Spec.ClusterSettings) > 0 {
+		crdbCluster["clusterSettings"] = cluster.Spec.ClusterSettings
+	}
+	if cluster.Spec.RollingRestartDelay != nil {
+		crdbCluster["rollingRestartDelay"] = cluster.Spec.RollingRestartDelay
+	}
+	if cluster.Spec.Template.Spec.WALFailoverSpec != nil {
+		crdbCluster["walFailoverSpec"] = cluster.Spec.Template.Spec.WALFailoverSpec
+	}
+	if len(cluster.Spec.Template.Spec.LocalityLabels) > 0 {
+		crdbCluster["localityLabels"] = cluster.Spec.Template.Spec.LocalityLabels
+	}
+	if len(cluster.Spec.Template.Spec.LocalityMappings) > 0 {
+		crdbCluster["localityMappings"] = cluster.Spec.Template.Spec.LocalityMappings
+	}
+	if cluster.Spec.Template.Spec.LoggingConfigMapName != "" {
+		crdbCluster["loggingConfigMapName"] = cluster.Spec.Template.Spec.LoggingConfigMapName
+	}
+	if len(cluster.Spec.Template.Spec.LoggingConfigVars) > 0 {
+		crdbCluster["loggingConfigVars"] = cluster.Spec.Template.Spec.LoggingConfigVars
+	}
+	if cluster.Spec.Template.Spec.LogsStore != nil {
+		crdbCluster["log"] = map[string]interface{}{
+			"logsStore": cluster.Spec.Template.Spec.LogsStore,
+		}
+	}
+	if len(cluster.Spec.Template.Spec.SideCars.InitContainers) > 0 || len(cluster.Spec.Template.Spec.SideCars.Containers) > 0 || len(cluster.Spec.Template.Spec.SideCars.Volumes) > 0 {
+		crdbCluster["sideCars"] = cluster.Spec.Template.Spec.SideCars
+	}
+	if cluster.Spec.Template.Spec.StartFlags != nil {
+		crdbCluster["startFlags"] = cluster.Spec.Template.Spec.StartFlags
+	}
+	if cluster.Spec.Template.Spec.PersistentVolumeClaimRetentionPolicy != nil {
+		crdbCluster["persistentVolumeClaimRetentionPolicy"] = cluster.Spec.Template.Spec.PersistentVolumeClaimRetentionPolicy
+	}
+	if cluster.Spec.Template.Spec.VirtualCluster != nil {
+		crdbCluster["virtualCluster"] = cluster.Spec.Template.Spec.VirtualCluster
+	}
+	if podTemplateSpec.ServiceAccountName != "" && podTemplateSpec.ServiceAccountName != cluster.Name {
+		crdbCluster["rbac"] = map[string]interface{}{
+			"serviceAccount": map[string]interface{}{
+				"create": false,
+				"name":   podTemplateSpec.ServiceAccountName,
+			},
+		}
+	}
+
+	ingressValue := buildIngressValueFromV1beta1(ingresses)
+	if ingressValue["enabled"] == true {
+		crdbCluster["service"].(map[string]interface{})["ingress"] = ingressValue
+	}
+
+	tls := map[string]interface{}{
+		"enabled": cluster.Spec.TLSEnabled,
+		"selfSigner": map[string]interface{}{
+			"enabled": false,
+		},
+		"certManager": map[string]interface{}{
+			"enabled": false,
+		},
+		"externalCertificates": map[string]interface{}{
+			"enabled":      false,
+			"certificates": map[string]interface{}{},
+		},
+	}
+	if cluster.Spec.TLSEnabled && cluster.Spec.Template.Spec.Certificates.ExternalCertificates != nil {
+		tls["externalCertificates"] = map[string]interface{}{
+			"enabled":      true,
+			"certificates": cluster.Spec.Template.Spec.Certificates.ExternalCertificates,
+		}
+	}
+
+	return map[string]interface{}{
+		"cockroachdb": map[string]interface{}{
+			"tls":         tls,
+			"crdbCluster": crdbCluster,
+		},
+		"k8s": map[string]interface{}{
+			"fullnameOverride": cluster.Name,
+		},
+	}
+}
+
+func buildIngressValueFromV1beta1(ingresses []networkingv1.Ingress) map[string]interface{} {
+	result := map[string]interface{}{"enabled": false}
+	for _, ingress := range ingresses {
+		if len(ingress.Spec.Rules) == 0 || ingress.Spec.Rules[0].Host == "" {
+			continue
+		}
+
+		entry := map[string]interface{}{
+			"host":        ingress.Spec.Rules[0].Host,
+			"annotations": ingress.Annotations,
+		}
+		if ingress.Spec.IngressClassName != nil {
+			entry["ingressClassName"] = *ingress.Spec.IngressClassName
+		}
+
+		switch {
+		case strings.HasPrefix(ingress.Name, "ui-"):
+			result["ui"] = entry
+			result["enabled"] = true
+		case strings.HasPrefix(ingress.Name, "sql-"):
+			result["sql"] = entry
+			result["enabled"] = true
+		}
+	}
+	return result
+}
+
+func valueOrDefaultMode(mode *v1beta1.ReconciliationMode) v1beta1.ReconciliationMode {
+	if mode == nil {
+		return v1beta1.MutableOnly
+	}
+	return *mode
+}
+
+func valueOrDefaultInt32(value *int32, defaultValue int32) int32 {
+	if value == nil {
+		return defaultValue
+	}
+	return *value
+}
+
 // detectPCRFromInitJob extracts PCR configuration from the init job command
-func detectPCRFromInitJob(clientset kubernetes.Interface, stsName, namespace string) *v1beta1.CrdbVirtualClusterSpec {
+func detectPCRFromInitJob(
+	clientset kubernetes.Interface, stsName, namespace string,
+) *v1beta1.CrdbVirtualClusterSpec {
 	ctx := context.TODO()
 	jobName := stsName + "-init"
 
@@ -388,7 +588,13 @@ func detectPCRFromInitJob(clientset kubernetes.Interface, stsName, namespace str
 	return nil
 }
 
-func getWalFailoverPVCDetails(ctx context.Context, clientset kubernetes.Interface, sts *appsv1.StatefulSet, nodeName string, nodeIdx int) (*walFailoverPVCDetails, error) {
+func getWalFailoverPVCDetails(
+	ctx context.Context,
+	clientset kubernetes.Interface,
+	sts *appsv1.StatefulSet,
+	nodeName string,
+	nodeIdx int,
+) (*walFailoverPVCDetails, error) {
 	// Get failover PVC name and size from the template
 	var failoverPVCName, failoverSize string
 	for _, vct := range sts.Spec.VolumeClaimTemplates {
@@ -445,7 +651,14 @@ func getWalFailoverPVCDetails(ctx context.Context, clientset kubernetes.Interfac
 	}, nil
 }
 
-func buildWalFailoverSpec(ctx context.Context, clientset kubernetes.Interface, sts *appsv1.StatefulSet, nodeName string, nodeIdx int32, input *parsedMigrationInput) {
+func buildWalFailoverSpec(
+	ctx context.Context,
+	clientset kubernetes.Interface,
+	sts *appsv1.StatefulSet,
+	nodeName string,
+	nodeIdx int32,
+	input *parsedMigrationInput,
+) {
 	// Derive walFailoverSpec from --wal-failover flag if present and store it in input.
 	if input.startFlags != nil {
 		for _, f := range input.startFlags.Upsert {
@@ -482,9 +695,8 @@ func buildWalFailoverSpec(ctx context.Context, clientset kubernetes.Interface, s
 
 // buildNodeSpecFromHelm builds a CrdbNodeSpec from a StatefulSet created by the CockroachDB Helm chart.
 func buildNodeSpecFromHelm(
-	sts *appsv1.StatefulSet,
-	nodeName string,
-	input parsedMigrationInput) v1beta1.CrdbNodeSpec {
+	sts *appsv1.StatefulSet, nodeName string, input parsedMigrationInput,
+) v1beta1.CrdbNodeSpec {
 
 	nodeSpec := v1beta1.CrdbNodeSpec{
 		NodeName: nodeName,
@@ -519,7 +731,7 @@ func buildNodeSpecFromHelm(
 					},
 				},
 				Volumes:                       input.customVolumes,
-				ServiceAccountName:            sts.Name,
+				ServiceAccountName:            sts.Spec.Template.Spec.ServiceAccountName,
 				PriorityClassName:             input.priorityClassName,
 				Affinity:                      sts.Spec.Template.Spec.Affinity,
 				NodeSelector:                  sts.Spec.Template.Spec.NodeSelector,
@@ -578,7 +790,8 @@ func buildHelmValuesFromHelm(
 	cloudProvider string,
 	cloudRegion string,
 	namespace string,
-	input parsedMigrationInput) map[string]interface{} {
+	input parsedMigrationInput,
+) map[string]interface{} {
 
 	tls := map[string]interface{}{
 		"enabled": input.tlsEnabled,
@@ -725,9 +938,8 @@ func buildHelmValuesFromHelm(
 
 // generateParsedMigrationInput parses the command arguments, extracts the --join string, and replaces env variables.
 func generateParsedMigrationInput(
-	ctx context.Context,
-	clientset kubernetes.Interface,
-	sts *appsv1.StatefulSet) (parsedMigrationInput, error) {
+	ctx context.Context, clientset kubernetes.Interface, sts *appsv1.StatefulSet,
+) (parsedMigrationInput, error) {
 	var startCmd string
 	var parsedInput = parsedMigrationInput{
 		tlsEnabled: true,
@@ -816,7 +1028,12 @@ func generateParsedMigrationInput(
 // certificatesInput checks if the node certificate exists in the cluster and adds the certificate input based on
 // the presence of the node certificate. If the node certificate is present, it means the cert-manager manages the certificates.
 // If not, then certs are managed by self-signer utility
-func certificatesInput(ctx context.Context, dynamicClient dynamic.Interface, parsedInput *parsedMigrationInput, sts *appsv1.StatefulSet) error {
+func certificatesInput(
+	ctx context.Context,
+	dynamicClient dynamic.Interface,
+	parsedInput *parsedMigrationInput,
+	sts *appsv1.StatefulSet,
+) error {
 	var (
 		err error
 	)
@@ -850,9 +1067,7 @@ func certificatesInput(ctx context.Context, dynamicClient dynamic.Interface, par
 }
 
 // extractJoinStringAndFlags parses the command arguments, extracts the --join string, and replaces env variables.
-func extractJoinStringAndFlags(
-	parsedInput *parsedMigrationInput,
-	args []string) error {
+func extractJoinStringAndFlags(parsedInput *parsedMigrationInput, args []string) error {
 
 	flags := &v1beta1.Flags{
 		Upsert: []string{},
@@ -922,7 +1137,9 @@ func parseInt32(value string) (int32, error) {
 }
 
 // ConvertSecretToConfigMap retrieves a secret and creates a ConfigMap with the same data.
-func ConvertSecretToConfigMap(ctx context.Context, clientset kubernetes.Interface, namespace, secretName string) error {
+func ConvertSecretToConfigMap(
+	ctx context.Context, clientset kubernetes.Interface, namespace, secretName string,
+) error {
 	// Get the Secret
 	secret, err := clientset.CoreV1().Secrets(namespace).Get(ctx, secretName, metav1.GetOptions{})
 	if err != nil {
@@ -959,7 +1176,9 @@ func ConvertSecretToConfigMap(ctx context.Context, clientset kubernetes.Interfac
 // moveConfigMapKey moves the "logging.yaml" key to "logs.yaml" in the ConfigMap.
 // This is a solution to support the migration from the public operator to the Cockroach CockroachDB Operator.
 // The public operator uses "logging.yaml" and the CockroachDB Operator uses "logs.yaml".
-func moveConfigMapKey(ctx context.Context, clientset kubernetes.Interface, namespace, configMapName string) error {
+func moveConfigMapKey(
+	ctx context.Context, clientset kubernetes.Interface, namespace, configMapName string,
+) error {
 	configMap, err := clientset.CoreV1().ConfigMaps(namespace).Get(ctx, configMapName, metav1.GetOptions{})
 	if err != nil {
 		return fmt.Errorf("failed to get ConfigMap %s: %w", configMapName, err)
@@ -981,7 +1200,9 @@ func moveConfigMapKey(ctx context.Context, clientset kubernetes.Interface, names
 }
 
 // generateUpdatedPublicServiceConfig updates the "cockroachdb-public" service with separate sql and grpc ports.
-func generateUpdatedPublicServiceConfig(ctx context.Context, clientset kubernetes.Interface, namespace, name, outputDir string) error {
+func generateUpdatedPublicServiceConfig(
+	ctx context.Context, clientset kubernetes.Interface, namespace, name, outputDir string,
+) error {
 	var (
 		grpcFound, sqlFound bool
 	)
@@ -1036,7 +1257,12 @@ func generateUpdatedPublicServiceConfig(ctx context.Context, clientset kubernete
 }
 
 // buildRBACFromPublicOperator builds the RBAC resources from the public operator which is used by the CockroachDB operator.
-func buildRBACFromPublicOperator(cluster publicv1.CrdbCluster, outputDir string) error {
+func buildRBACFromPublicOperator(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, outputDir string) error {
+	serviceAccountName := cluster.Name
+	if sts != nil && sts.Spec.Template.Spec.ServiceAccountName != "" {
+		serviceAccountName = sts.Spec.Template.Spec.ServiceAccountName
+	}
+
 	clusterRole := &rbacv1.ClusterRole{
 		TypeMeta: metav1.TypeMeta{
 			APIVersion: "rbac.authorization.k8s.io/v1",
@@ -1089,7 +1315,7 @@ func buildRBACFromPublicOperator(cluster publicv1.CrdbCluster, outputDir string)
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      "ServiceAccount",
-				Name:      cluster.Name,
+				Name:      serviceAccountName,
 				Namespace: cluster.Namespace,
 			},
 		},
@@ -1144,7 +1370,7 @@ func buildRBACFromPublicOperator(cluster publicv1.CrdbCluster, outputDir string)
 		Subjects: []rbacv1.Subject{
 			{
 				Kind:      "ServiceAccount",
-				Name:      cluster.Name,
+				Name:      serviceAccountName,
 				Namespace: cluster.Namespace,
 			},
 		},
@@ -1156,7 +1382,7 @@ func buildRBACFromPublicOperator(cluster publicv1.CrdbCluster, outputDir string)
 			Kind:       "ServiceAccount",
 		},
 		ObjectMeta: metav1.ObjectMeta{
-			Name:      cluster.Name,
+			Name:      serviceAccountName,
 			Namespace: cluster.Namespace,
 			Annotations: map[string]string{
 				"meta.helm.sh/release-name":      cluster.Name,
@@ -1172,7 +1398,9 @@ func buildRBACFromPublicOperator(cluster publicv1.CrdbCluster, outputDir string)
 }
 
 // backupCAIssuerAndCert if generated by the previous helm chart.
-func backupCAIssuerAndCert(ctx context.Context, dynamicClient dynamic.Interface, sts *appsv1.StatefulSet, outputDir string) error {
+func backupCAIssuerAndCert(
+	ctx context.Context, dynamicClient dynamic.Interface, sts *appsv1.StatefulSet, outputDir string,
+) error {
 	certManagerResources := []struct {
 		name     string
 		resource string
@@ -1224,7 +1452,9 @@ func backupCAIssuerAndCert(ctx context.Context, dynamicClient dynamic.Interface,
 }
 
 // getCertificate retrieves a certificate by name and namespace using the dynamic client.
-func getCertificate(ctx context.Context, dynamicClient dynamic.Interface, name, namespace string) (*certv1.Certificate, error) {
+func getCertificate(
+	ctx context.Context, dynamicClient dynamic.Interface, name, namespace string,
+) (*certv1.Certificate, error) {
 	cert := &certv1.Certificate{}
 	certGVR := schema.GroupVersionResource{
 		Group:    certManagerGroup,

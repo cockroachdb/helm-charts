@@ -15,6 +15,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -246,8 +247,17 @@ func TestBuildRBACFromPublicOperator(t *testing.T) {
 			Namespace: "test-ns",
 		},
 	}
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					ServiceAccountName: "crdb-cluster-sa",
+				},
+			},
+		},
+	}
 
-	err := buildRBACFromPublicOperator(cluster, ".")
+	err := buildRBACFromPublicOperator(cluster, sts, ".")
 	require.NoError(t, err)
 
 	// Read and parse the generated RBAC yaml file
@@ -290,6 +300,8 @@ func TestBuildRBACFromPublicOperator(t *testing.T) {
 	assert.Equal(t, "crdb-cluster", clusterRoleBinding.Annotations["meta.helm.sh/release-name"])
 	assert.Equal(t, "test-ns", clusterRoleBinding.Annotations["meta.helm.sh/release-namespace"])
 	assert.Equal(t, "Helm", clusterRoleBinding.Labels["app.kubernetes.io/managed-by"])
+	require.Len(t, clusterRoleBinding.Subjects, 1)
+	assert.Equal(t, "crdb-cluster-sa", clusterRoleBinding.Subjects[0].Name)
 
 	// Verify RoleRef
 	assert.Equal(t, "rbac.authorization.k8s.io", clusterRoleBinding.RoleRef.APIGroup)
@@ -878,7 +890,7 @@ func TestGenerateParsedMigrationInput_WithDedicatedLogsPVC(t *testing.T) {
 					ObjectMeta: metav1.ObjectMeta{Name: "logsdir"},
 					Spec: corev1.PersistentVolumeClaimSpec{
 						StorageClassName: &storageClass,
-						AccessModes:     []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
+						AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 						Resources: corev1.VolumeResourceRequirements{
 							Requests: corev1.ResourceList{
 								corev1.ResourceStorage: resource.MustParse("50Gi"),
@@ -1182,4 +1194,146 @@ func TestBuildNodeSpecFromHelm_WithWalFailover(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestBuildIngressValueFromV1beta1(t *testing.T) {
+	ingressClassName := "nginx"
+
+	tests := []struct {
+		name      string
+		ingresses []networkingv1.Ingress
+		wantUI    bool
+		wantSQL   bool
+		wantHost  string
+	}{
+		{
+			name:      "no ingresses",
+			ingresses: nil,
+		},
+		{
+			name: "ui ingress only",
+			ingresses: []networkingv1.Ingress{
+				{
+					ObjectMeta: metav1.ObjectMeta{
+						Name:        "ui-cockroachdb",
+						Annotations: map[string]string{"backend-protocol": "HTTPS"},
+					},
+					Spec: networkingv1.IngressSpec{
+						IngressClassName: &ingressClassName,
+						Rules:            []networkingv1.IngressRule{{Host: "ui.example.com"}},
+					},
+				},
+			},
+			wantUI:   true,
+			wantHost: "ui.example.com",
+		},
+		{
+			name: "sql ingress only",
+			ingresses: []networkingv1.Ingress{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "sql-cockroachdb"},
+					Spec: networkingv1.IngressSpec{
+						Rules: []networkingv1.IngressRule{{Host: "sql.example.com"}},
+					},
+				},
+			},
+			wantSQL: true,
+		},
+		{
+			name: "ingress with empty rules is skipped",
+			ingresses: []networkingv1.Ingress{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "ui-cockroachdb"},
+					Spec:       networkingv1.IngressSpec{},
+				},
+			},
+		},
+		{
+			name: "ingress with empty host is skipped",
+			ingresses: []networkingv1.Ingress{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "ui-cockroachdb"},
+					Spec: networkingv1.IngressSpec{
+						Rules: []networkingv1.IngressRule{{Host: ""}},
+					},
+				},
+			},
+		},
+		{
+			name: "both ui and sql ingresses",
+			ingresses: []networkingv1.Ingress{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "ui-cockroachdb"},
+					Spec: networkingv1.IngressSpec{
+						Rules: []networkingv1.IngressRule{{Host: "ui.example.com"}},
+					},
+				},
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "sql-cockroachdb"},
+					Spec: networkingv1.IngressSpec{
+						Rules: []networkingv1.IngressRule{{Host: "sql.example.com"}},
+					},
+				},
+			},
+			wantUI:  true,
+			wantSQL: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := buildIngressValueFromV1beta1(tc.ingresses)
+
+			expectEnabled := tc.wantUI || tc.wantSQL
+			assert.Equal(t, expectEnabled, result["enabled"])
+
+			if tc.wantUI {
+				ui, ok := result["ui"].(map[string]interface{})
+				require.True(t, ok, "expected ui entry")
+				assert.NotEmpty(t, ui["host"])
+				if tc.wantHost != "" {
+					assert.Equal(t, tc.wantHost, ui["host"])
+				}
+			} else {
+				_, ok := result["ui"]
+				assert.False(t, ok, "should not have ui entry")
+			}
+
+			if tc.wantSQL {
+				sql, ok := result["sql"].(map[string]interface{})
+				require.True(t, ok, "expected sql entry")
+				assert.NotEmpty(t, sql["host"])
+			} else {
+				_, ok := result["sql"]
+				assert.False(t, ok, "should not have sql entry")
+			}
+		})
+	}
+}
+
+func TestBuildHelmValuesFromV1beta1_NilPodTemplate(t *testing.T) {
+	cluster := v1beta1.CrdbCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "test-cluster"},
+		Spec: v1beta1.CrdbClusterSpec{
+			TLSEnabled: true,
+			Template: v1beta1.CrdbNodeTemplate{
+				Spec: v1beta1.CrdbNodeSpec{
+					Image: "cockroachdb/cockroach:v25.3.1",
+					// PodTemplate intentionally nil
+				},
+			},
+		},
+	}
+
+	values := buildHelmValuesFromV1beta1(cluster, nil)
+	cockroachdb := values["cockroachdb"].(map[string]interface{})
+	crdbCluster := cockroachdb["crdbCluster"].(map[string]interface{})
+
+	// With nil PodTemplate, podTemplate key should be absent (no null labels/annotations).
+	_, hasPodTemplate := crdbCluster["podTemplate"]
+	assert.False(t, hasPodTemplate, "podTemplate should be omitted when PodTemplate is nil")
+
+	// RBAC should not be set when ServiceAccountName is empty.
+	_, hasRBAC := crdbCluster["rbac"]
+	assert.False(t, hasRBAC, "rbac should be omitted when no custom service account")
 }

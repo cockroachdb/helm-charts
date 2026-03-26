@@ -8,7 +8,7 @@
 #   kubectl delete priorityclass cockroach-operator
 #   kubectl delete clusterrole cockroach-operator-role
 #   kubectl delete clusterrolebinding cockroach-operator-default
-{{- include "operator.selfSignerConflictValidation" . -}}
+{{ include "operator.selfSignerConflictValidation" . -}}
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -138,6 +138,7 @@ rules:
       - list
       - patch
       - update
+      - delete
       - watch
   - apiGroups:
       - certificates.k8s.io
@@ -450,6 +451,9 @@ subjects:
     kind: ServiceAccount
 
 ---
+# appLabel must stay distinct from the public operator selector. During migration both
+# operators can be present, and reusing the same selector would route Service traffic
+# to both operator pod sets.
 # Expose the operator's prometheus and grpc servers to the SQLProxy's TenantDir.
 apiVersion: v1
 kind: Service
@@ -504,6 +508,9 @@ spec:
             - "-rpc-addr=0.0.0.0:9070"
             - "-skip-tenant-controller=true"
             - "-disable-tenant-finalization=true"
+            {{- if .Values.migration.enabled }}
+            - "--enable-migration"
+            {{- end }}
             {{- if .Values.selfSignedOperatorCerts }}
             - "-self-signed-operator-certs=true"
             {{- end }}
@@ -558,11 +565,7 @@ spec:
             failureThreshold: 3
           readinessProbe:
             httpGet:
-              # To change this to be the default /readyz - enable /healthz and switch the liveness probes to it
-              # on all clusters (done), change the readiness probe to use /healthz too and change the readiness
-              # endpoint from /health to the default /readyz. Once all clusters are updated - change the
-              # readiness probe to /readyz.
-              path: /health
+              path: /healthz
               port: 9080
               scheme: HTTP
             # Immediately start sending readiness probes. Stop sending traffic

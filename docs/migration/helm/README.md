@@ -125,10 +125,14 @@ kubectl delete svc $STS_NAME
 Finally, apply the CrdbCluster manifest using helm upgrade to complete the migration:
 
 ```
-helm upgrade $RELEASE_NAME ./cockroachdb-parent/charts/cockroachdb -f manifests/values.yaml
+helm upgrade $RELEASE_NAME ./cockroachdb-parent/charts/cockroachdb --set migration.enabled=true -f manifests/values.yaml
 ```
 
 **Note**: The final step creates the `CrdbCluster` resource object. The CockroachDB operator will immediately take over management of the existing database pods.
+
+Use `migration.enabled=true` only for migration adoption. Existing CockroachDB Operator
+customers following the phase 3 API version transition should use the normal upgrade path
+without this flag.
 
 Verify the cluster mode is set correctly:
 

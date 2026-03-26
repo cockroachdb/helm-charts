@@ -72,18 +72,6 @@ spec:
                 exit 1
               fi
 
-              if [ "$V1ALPHA1_SERVED" = "true" ]; then
-                echo "❌ UPGRADE BLOCKED - v1alpha1 is still served"
-                echo ""
-                echo "You cannot jump directly from an older release."
-                echo "Upgrade path:"
-                echo "  1. Upgrade operator to the previous release"
-                echo "  2. Upgrade CockroachDB charts on that release"
-                echo "  3. Verify v1alpha1 is no longer served"
-                echo "  4. Retry this operator upgrade"
-                exit 1
-              fi
-
               if [[ "$STORED_VERSIONS" != '["v1beta1"]' ]]; then
                 echo "❌ UPGRADE BLOCKED - storedVersions must be [\"v1beta1\"]"
                 echo ""

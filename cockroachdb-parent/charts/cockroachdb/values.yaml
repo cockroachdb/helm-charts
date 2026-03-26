@@ -558,3 +558,8 @@ k8s:
   # labels captures additional labels for all Kubernetes resources created by this chart.
   labels: {}
     # app.kubernetes.io/part-of: my-app
+
+# migration controls chart behavior during post-migration Helm adoption.
+migration:
+  # enabled relaxes pre-upgrade validation for controller migration adoption.
+  enabled: false
