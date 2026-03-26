@@ -174,7 +174,7 @@ type EncryptionAtRest struct {
 	Platform EncryptionPlatform `json:"platform"`
 
 	// CMEKCredentialsSecretName is the name of the k8s secret containing
-	// our credentials that are needed to authenticate into he customer's
+	// our credentials that are needed to authenticate into the customer's
 	// KMS. This value is required if Platform is non-zero.
 	// +kubebuilder:validation:Optional
 	CMEKCredentialsSecretName *string `json:"cmekCredentialsSecretName,omitempty"`
@@ -183,6 +183,21 @@ type EncryptionAtRest struct {
 	// store key. If nil, this will be interpreted as "plain" i.e. unencrypted.
 	// +kubebuilder:validation:Optional
 	OldKeySecretName *string `json:"oldKeySecretName,omitempty"`
+
+	// OldPlatform is the cloud platform whose KMS was used to encrypt the
+	// old store key. Only needed when the old key uses a different KMS
+	// provider than the current Platform or when disabling EAR entirely. If
+	// unset, defaults to Platform.
+	// +kubebuilder:validation:Optional
+	// +kubebuilder:validation:Enum=UNKNOWN_KEY_TYPE;AWS_KMS;GCP_CLOUD_KMS;AZURE_KEY_VAULT
+	OldPlatform EncryptionPlatform `json:"oldPlatform,omitempty"`
+
+	// OldCMEKCredentialsSecretName is the name of the k8s secret containing
+	// credentials for the old KMS. Only needed when switching cloud KMS
+	// providers or disabling EAR. If unset, defaults to
+	// CMEKCredentialsSecretName.
+	// +kubebuilder:validation:Optional
+	OldCMEKCredentialsSecretName *string `json:"oldCmekCredentialsSecretName,omitempty"`
 }
 
 type EncryptionPlatform string
@@ -193,6 +208,25 @@ const (
 	EncryptionPlatformGcpCloudKms   = EncryptionPlatform("GCP_CLOUD_KMS")
 	EncryptionPlatformAzureKeyVault = EncryptionPlatform("AZURE_KEY_VAULT")
 )
+
+// ResolvedOldPlatform returns the KMS platform for the old store key. If
+// OldPlatform is explicitly set, it is used. Otherwise it falls back to
+// Platform so same-provider key rotations do not need extra fields.
+func (e *EncryptionAtRest) ResolvedOldPlatform() EncryptionPlatform {
+	if e.OldPlatform != "" {
+		return e.OldPlatform
+	}
+	return e.Platform
+}
+
+// ResolvedOldCMEKCredentialsSecretName returns the credentials secret for the
+// old KMS. It falls back to CMEKCredentialsSecretName when not explicitly set.
+func (e *EncryptionAtRest) ResolvedOldCMEKCredentialsSecretName() *string {
+	if e.OldCMEKCredentialsSecretName != nil {
+		return e.OldCMEKCredentialsSecretName
+	}
+	return e.CMEKCredentialsSecretName
+}
 
 func ParseEncryptionPlatform(name string) EncryptionPlatform {
 	switch name {

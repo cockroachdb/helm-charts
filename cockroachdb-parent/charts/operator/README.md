@@ -106,6 +106,15 @@ watchNamespaces: "prod-a,prod-b,prod-c"
    helm uninstall $CRDBOPERATOR -n $NAMESPACE
    ```
 
+   The operator creates admission webhook configurations at runtime. Verify that no stale global
+   webhook configurations remain after the global operator is removed. Stale webhooks can continue
+   to route admission or conversion traffic to the old operator service.
+
+   ```bash
+   kubectl delete validatingwebhookconfiguration cockroach-webhook-config --ignore-not-found
+   kubectl delete mutatingwebhookconfiguration cockroach-mutating-webhook-config --ignore-not-found
+   ```
+
 Complete the migration quickly. Minutes to hours, not days.
 
 ### Migration: scoped to global

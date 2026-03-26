@@ -42,7 +42,9 @@ This parent chart manages both the Operator and CockroachDB installation.
 There are two common migration paths:
 
 1. **From the public operator → CockroachDB Operator**
-   - Follow the migration guide provided [here](./docs/migration/operator/README.md).
+   - Automatic (recommended): [docs/migration/operator/controller_migration.md](docs/migration/operator/controller_migration.md)
+   - Manual: [docs/migration/operator/manual_migration.md](docs/migration/operator/manual_migration.md)
 
 2. **From a StatefulSet deployment → CockroachDB Operator**
-   - Follow the migration guide provided [here](./docs/migration/helm/README.md).
+   - Automatic (recommended): [docs/migration/helm/controller_migration.md](docs/migration/helm/controller_migration.md)
+   - Manual: [docs/migration/helm/manual_migration.md](docs/migration/helm/manual_migration.md)  

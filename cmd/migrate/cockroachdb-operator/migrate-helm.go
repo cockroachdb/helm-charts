@@ -55,7 +55,7 @@ func buildManifestFromCockroachDBHelmChart(cmd *cobra.Command, args []string) er
 	fmt.Printf("📁 Output directory: %s\n", outputDir)
 	fmt.Println("📌 Next steps:")
 	fmt.Printf("   1. Review the generated YAML files under the '%s' directory.\n", outputDir)
-	fmt.Println("   2. Follow the README.md under scripts/migration/helm directory")
+	fmt.Println("   2. Follow the manual_migration.md under docs/migration/helm directory")
 	fmt.Println("   3. Monitor the cluster to ensure a smooth transition.")
 	fmt.Printf("\n⚠️ WARNING:\n")
 	fmt.Println("   Always review the generated manifests thoroughly and test in staging environment")

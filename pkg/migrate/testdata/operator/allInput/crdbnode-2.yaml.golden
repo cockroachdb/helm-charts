@@ -98,7 +98,7 @@ spec:
       - name: myregistrykey
       nodeSelector:
         cloud.google.com/gke-nodepool: default-pool
-      serviceAccountName: cockroachdb
+      serviceAccountName: cockroachdb-sa
       terminationGracePeriodSeconds: 300
       tolerations:
       - effect: NoSchedule

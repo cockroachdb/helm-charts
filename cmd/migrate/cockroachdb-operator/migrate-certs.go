@@ -2,7 +2,6 @@ package cockroachdb_operator
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/cockroachdb/helm-charts/pkg/generator"
 	"github.com/cockroachdb/helm-charts/pkg/migrate"
@@ -57,24 +56,28 @@ func init() {
 
 	migrateCertsCmd.PersistentFlags().StringVar(&clusterDomain, "cluster-domain", "cluster.local", "cluster domain")
 	_ = migrateCertsCmd.MarkFlagRequired("statefulset-name")
+}
 
-	var err error
+func migrateCertsForCockroachDbOperator(cmd *cobra.Command, args []string) error {
 	runtimeScheme := runtime.NewScheme()
-	_ = certv1.AddToScheme(runtimeScheme)
-
-	_ = clientgoscheme.AddToScheme(runtimeScheme)
-	config := controllerruntime.GetConfigOrDie()
-
+	if err := certv1.AddToScheme(runtimeScheme); err != nil {
+		return err
+	}
+	if err := clientgoscheme.AddToScheme(runtimeScheme); err != nil {
+		return err
+	}
+	config, err := controllerruntime.GetConfig()
+	if err != nil {
+		return err
+	}
 	cl, err = client.New(config, client.Options{
 		Scheme: runtimeScheme,
 		Mapper: nil,
 	})
 	if err != nil {
-		log.Panic("Failed to create client for certificate migration", err)
+		return err
 	}
-}
 
-func migrateCertsForCockroachDbOperator(cmd *cobra.Command, args []string) error {
 	genCerts := generator.NewGenerateCert(cl)
 	genCerts.CaSecret = caSecret
 	if err := genCerts.NodeCertConfig.SetConfig(nodeDuration, nodeExpiry); err != nil {
