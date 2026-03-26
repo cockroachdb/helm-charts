@@ -73,11 +73,11 @@ func migratePodsToCrdbNodes(t *testing.T, crdbCluster testutil.CockroachCluster,
 	// For Helm chart migrations, there is no CrdbCluster CR initially
 	t.Log("Checking if CrdbCluster exists to add crdb.io/skip-reconcile label")
 	retry.DoWithRetry(t, "Adding crdb.io/skip-reconcile label", 5, 2*time.Second, func() (string, error) {
-		_, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "crdbcluster", crdbCluster.StatefulSetName)
+		_, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", v1alpha1CrdbClusterResource, crdbCluster.StatefulSetName)
 		if err == nil {
 			// CrdbCluster exists, add the migration label
 			t.Log("Adding crdb.io/skip-reconcile label to CrdbCluster")
-			return "Successfully labeled CrdbCluster", k8s.RunKubectlE(t, kubectlOptions, "label", "crdbcluster", crdbCluster.StatefulSetName, "crdb.io/skip-reconcile=true", "--overwrite")
+			return "Successfully labeled CrdbCluster", k8s.RunKubectlE(t, kubectlOptions, "label", v1alpha1CrdbClusterResource, crdbCluster.StatefulSetName, "crdb.io/skip-reconcile=true", "--overwrite")
 		}
 		t.Log("No CrdbCluster found (normal for Helm chart migrations)")
 		return "No CrdbCluster found, skipping label", nil
@@ -97,7 +97,6 @@ func migratePodsToCrdbNodes(t *testing.T, crdbCluster testutil.CockroachCluster,
 		k8s.RunKubectl(t, kubectlOptions, "apply", "-f", filepath.Join(manifestsDirPath, fmt.Sprintf("crdbnode-%d.yaml", idx)))
 		testutil.RequirePodToBeCreatedAndReady(t, kubectlOptions, podName, 300*time.Second)
 		testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
-		time.Sleep(20 * time.Second)
 		testutil.RequireCRDBToFunction(t, crdbCluster, true)
 	}
 
