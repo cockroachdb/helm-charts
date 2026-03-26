@@ -394,12 +394,60 @@ cockroachdb:
     # loggingConfigMapName defines the ConfigMap which contains log configuration used to send the logs through the
     # proper channels within CockroachDB.
     # The value of the ConfigMap should be specified under the key logs.yaml.
+    # When log.config is set and loggingConfigMapName is not, defaults to "<cockroachdb.fullname>-log-config".
+    # When neither is set, no logging configuration is applied to the cluster.
     loggingConfigMapName: ""
     # loggingConfigVars defines a list of environment variable names
     # that will be expanded if present in the body of the logging configuration.
     loggingConfigVars: []
       # - "HOST_IP"
       # - "MAX_STALENESS"
+    # log captures all logging configuration for CockroachDB.
+    log:
+      # config captures the inline logging configuration for CockroachDB.
+      # When set, the chart creates and manages a ConfigMap (named via loggingConfigMapName, or
+      # "<fullname>-log-config" by default) and wires it to the cluster.
+      # More details: https://www.cockroachlabs.com/docs/stable/configure-logs
+      # IMPORTANT - upgrade behaviour:
+      # - If loggingConfigMapName points to an externally managed ConfigMap and log.config is
+      #   then set, the chart will create a ConfigMap with that name and take ownership of it,
+      #   overwriting the existing content.
+      # - If log.config is removed while loggingConfigMapName is still explicitly set, the
+      #   chart-managed ConfigMap is deleted but crdb.yaml continues to reference the name,
+      #   leaving the operator pointing at a ConfigMap that no longer exists. Clear
+      #   loggingConfigMapName at the same time or supply the ConfigMap externally.
+      config: {}
+        # file-defaults:
+        #   dir: /cockroach/cockroach-logs
+        # sinks:
+        #   file-groups:
+        #     default:
+        #       channels: [DEV, OPS, HEALTH]
+      # logsStore configures a dedicated volume for CockroachDB log storage.
+      # IMPORTANT: Adding or removing logsStore on an existing cluster triggers a rolling restart
+      # of CockroachDB pods. Removing it does not delete the underlying PVC; logs will fall back
+      # to the default location within the data volume.
+      logsStore: {}
+        # mountPath is the absolute mount path inside the CockroachDB container for log files.
+        # Must match log.config.file-defaults.dir if log.config is set.
+        # Defaults to /cockroach/cockroach-data/logs if not set.
+        # IMPORTANT: Changing mountPath triggers a rolling restart. The underlying PVC is unchanged;
+        # its data becomes accessible under the new path. log.config.file-defaults.dir must be
+        # updated to match (enforced at render time), so CockroachDB writes new logs to the new
+        # path. Historical log files remain on the volume and are reachable under the new mount path.
+        # mountPath: /cockroach/cockroach-logs
+        # volumeClaimTemplate provisions a new PVC for log storage.
+        # volumeClaimTemplate:
+        #   metadata: {}
+        #   spec:
+        #     accessModes:
+        #       - ReadWriteOnce
+        #     resources:
+        #       requests:
+        #         storage: 5Gi
+        #     storageClassName defines the StorageClass for the PVC.
+        #     If not set, the default provisioner will be chosen (gp2 on AWS, standard on GKE).
+        #     storageClassName: ""
     # godebug captures Go runtime debug settings for CockroachDB pods.
     godebug:
       # disablethp determines whether Transparent Huge Pages are disabled.

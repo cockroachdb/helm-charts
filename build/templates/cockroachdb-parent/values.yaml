@@ -38,6 +38,7 @@
 #
 #  # loggingConf is the logging configuration used by cockroach.
 #  # More details: https://www.cockroachlabs.com/docs/stable/logging-overview.html
+#  # Use log.config below to define inline logging configuration instead.
 #  loggingConf: ~
 #    # sinks:
 #    # stderr:

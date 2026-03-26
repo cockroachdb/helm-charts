@@ -1,4 +1,5 @@
 {{ template "cockroachdb.tlsValidation" . }}
+{{ template "cockroachdb.log.validation" . }}
 {{- if .Release.IsUpgrade -}}
 {{ template "cockroachdb.isUpgradeAllowed" . }}
 {{- end -}}
@@ -60,11 +61,14 @@ spec:
       {{- with .Values.cockroachdb.crdbCluster.localityMappings }}
       localityMappings: {{- toYaml . | nindent 8 }}
       {{- end }}
-      {{- if .Values.cockroachdb.crdbCluster.loggingConfigMapName }}
-      loggingConfigMapName: {{ .Values.cockroachdb.crdbCluster.loggingConfigMapName }}
+      {{- if or .Values.cockroachdb.crdbCluster.log.config .Values.cockroachdb.crdbCluster.loggingConfigMapName }}
+      loggingConfigMapName: {{ if .Values.cockroachdb.crdbCluster.loggingConfigMapName }}{{ .Values.cockroachdb.crdbCluster.loggingConfigMapName }}{{ else }}{{ template "cockroachdb.fullname" . }}-log-config{{ end }}
       {{- end }}
       {{- with .Values.cockroachdb.crdbCluster.loggingConfigVars }}
       loggingConfigVars: {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.cockroachdb.crdbCluster.log.logsStore }}
+      logsStore: {{- toYaml . | nindent 8 }}
       {{- end }}
       {{- with .Values.cockroachdb.crdbCluster.sideCars }}
       sideCars: {{- toYaml . | nindent 8 }}

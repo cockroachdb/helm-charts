@@ -1,0 +1,15 @@
+{{- if .Values.cockroachdb.crdbCluster.log.config }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ if .Values.cockroachdb.crdbCluster.loggingConfigMapName }}{{ .Values.cockroachdb.crdbCluster.loggingConfigMapName }}{{ else }}{{ template "cockroachdb.fullname" . }}-log-config{{ end }}
+  namespace: {{ .Release.Namespace | quote }}
+  labels:
+    {{- include "cluster.labels" . | nindent 4 }}
+    {{- with .Values.k8s.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+data:
+  logs.yaml: |
+    {{- toYaml .Values.cockroachdb.crdbCluster.log.config | nindent 4 }}
+{{- end }}
