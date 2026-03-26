@@ -2,6 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-26.1.1-preview+2] 2026-03-26
+### Changed
+- **API Version Migration**: The operator now uses an image that removes `v1alpha1` entirely and keeps only `v1beta1`.
+- Operator and CockroachDB pre-upgrade validation now require the previous fully migrated state before upgrading to this version. 
+  This means `v1alpha1` must not be served, `v1beta1` must be served and stored, and CRD `storedVersions` must be `["v1beta1"]`.
+- **See [MIGRATION_v1alpha1_to_v1beta1.md](cockroachdb-parent/MIGRATION_v1alpha1_to_v1beta1.md) for detailed instructions.**
+
 ## [cockroachdb-parent-26.1.1-preview+1] 2026-03-26
 ### Added
 - Insecure cluster support. Set `cockroachdb.tls.enabled: false` and disable `selfSigner`, `certManager`, and `externalCertificates` to run without TLS. Intended for non-production use only.
@@ -120,4 +127,3 @@ All notable changes to this project will be documented in this file.
 ## [cockroachdb-17.0.0] - 2025-05-27
 ### Added
 - release: advance app version to v25.2.0
-

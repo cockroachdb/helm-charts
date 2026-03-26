@@ -36,6 +36,26 @@ func init() {
 	}
 }
 
+// TestCockroachdbPreUpgradeRequiresMigratedOperator checks that chart upgrades require the phase 3 operator state.
+func TestCockroachdbPreUpgradeRequiresMigratedOperator(t *testing.T) {
+	t.Parallel()
+
+	chartPath, pathErr := filepath.Abs("../../cockroachdb-parent/charts/cockroachdb")
+	require.NoError(t, pathErr)
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+	}
+	output, err := helm.RenderTemplateE(t, options, chartPath, releaseName, []string{"templates/pre-upgrade-validation.yaml"}, "--is-upgrade")
+	require.NoError(t, err)
+
+	require.Contains(t, output, `V1ALPHA1_SERVED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com`)
+	require.Contains(t, output, `UPGRADE BLOCKED - Operator not upgraded`)
+	require.Contains(t, output, `UPGRADE BLOCKED - Storage migration incomplete`)
+	require.Contains(t, output, `Operator must already be on the previous v1beta1-only release with storage fully migrated.`)
+	require.NotContains(t, output, `Proceeding with upgrade`)
+}
+
 // TestTLSEnable tests the enabling the TLS, you have to enable only one method of TLS certs
 func TestTLSEnable(t *testing.T) {
 	t.Parallel()
@@ -2400,8 +2420,8 @@ func TestHelmOperatorLoggingConfigVars(t *testing.T) {
 			"Custom logging config vars",
 			map[string]string{
 				"cockroachdb.crdbCluster.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
-				"cockroachdb.crdbCluster.loggingConfigMapName":          "crdb-cluster-log-config",
-				"cockroachdb.crdbCluster.loggingConfigVars[0]":          "HOST_IP",
+				"cockroachdb.crdbCluster.loggingConfigMapName":         "crdb-cluster-log-config",
+				"cockroachdb.crdbCluster.loggingConfigVars[0]":         "HOST_IP",
 			},
 			expect{
 				loggingConfigMapName: "crdb-cluster-log-config",
@@ -2563,7 +2583,7 @@ func TestHelmOperatorLogValidation(t *testing.T) {
 		{
 			"logsStore mountPath and log config dir match",
 			map[string]string{
-				"cockroachdb.crdbCluster.log.logsStore.mountPath":        "/cockroach/cockroach-logs",
+				"cockroachdb.crdbCluster.log.logsStore.mountPath":      "/cockroach/cockroach-logs",
 				"cockroachdb.crdbCluster.log.config.file-defaults.dir": "/cockroach/cockroach-logs",
 			},
 			"",
@@ -2571,7 +2591,7 @@ func TestHelmOperatorLogValidation(t *testing.T) {
 		{
 			"logsStore mountPath and log config dir mismatch",
 			map[string]string{
-				"cockroachdb.crdbCluster.log.logsStore.mountPath":        "/cockroach/cockroach-logs",
+				"cockroachdb.crdbCluster.log.logsStore.mountPath":      "/cockroach/cockroach-logs",
 				"cockroachdb.crdbCluster.log.config.file-defaults.dir": "/cockroach/data/logs",
 			},
 			"log.config.file-defaults.dir must match the logsStore mountPath when logsStore is configured",
@@ -2586,7 +2606,7 @@ func TestHelmOperatorLogValidation(t *testing.T) {
 		{
 			"logsStore mountPath set with log config but missing file-defaults.dir",
 			map[string]string{
-				"cockroachdb.crdbCluster.log.logsStore.mountPath":          "/cockroach/cockroach-logs",
+				"cockroachdb.crdbCluster.log.logsStore.mountPath":        "/cockroach/cockroach-logs",
 				"cockroachdb.crdbCluster.log.config.sinks.stderr.filter": "WARNING",
 			},
 			"log.config.file-defaults.dir must be set when logsStore is configured",
