@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [cockroachdb-parent-26.1.1-preview+1] 2026-03-26
 ### Added
 - Insecure cluster support. Set `cockroachdb.tls.enabled: false` and disable `selfSigner`, `certManager`, and `externalCertificates` to run without TLS. Intended for non-production use only.
 - Namespace scoping for the operator via `watchNamespaces`. Set to a single namespace or a
