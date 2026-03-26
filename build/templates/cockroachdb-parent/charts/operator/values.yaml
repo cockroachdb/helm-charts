@@ -34,3 +34,7 @@ watchNamespaces: ""
 # Important: changing this on an existing installation requires helm upgrade --force since
 # the Deployment selector is immutable. The operator will be briefly unavailable during the update.
 appLabel: "cockroach-operator"
+# selfSignedOperatorCerts: when true, the operator self-generates certs into an emptyDir on
+# startup; certs rotate on every pod restart. When false (default), Helm provisions a stable
+# cockroach-operator-certs Secret. Switching requires deleting that Secret first.
+selfSignedOperatorCerts: false

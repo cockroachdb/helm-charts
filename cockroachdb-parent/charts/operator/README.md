@@ -119,6 +119,22 @@ Complete the migration quickly. Minutes to hours, not days.
    helm uninstall operator-staging -n cockroach-staging-operator
    ```
 
+## Operator TLS Certificates (`selfSignedOperatorCerts`)
+
+Controls who provisions the `cockroach-operator-certs` Secret used by the operator's webhook.
+
+```yaml
+# false (default): Helm provisions the Secret. Cert is stable and only changes on helm upgrade.
+selfSignedOperatorCerts: false
+
+# true: the operator self-generates certs into an emptyDir on startup.
+# Certs rotate on every pod restart.
+selfSignedOperatorCerts: true
+```
+
+Switching this flag on an existing installation requires the `cockroach-operator-certs` Secret
+to be deleted first. If it is not, the chart will fail with a clear error explaining the required steps.
+
 ## Upgrading from a previous chart version
 
 ### What changes after upgrading

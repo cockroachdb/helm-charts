@@ -8,6 +8,7 @@
 #   kubectl delete priorityclass cockroach-operator
 #   kubectl delete clusterrole cockroach-operator-role
 #   kubectl delete clusterrolebinding cockroach-operator-default
+{{- include "operator.selfSignerConflictValidation" . -}}
 ---
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
@@ -503,6 +504,9 @@ spec:
             - "-rpc-addr=0.0.0.0:9070"
             - "-skip-tenant-controller=true"
             - "-disable-tenant-finalization=true"
+            {{- if .Values.selfSignedOperatorCerts }}
+            - "-self-signed-operator-certs=true"
+            {{- end }}
           ports:
             # Expose port under specific name so that performance metrics can
             # more easily be scraped from container.
@@ -571,5 +575,12 @@ spec:
             failureThreshold: 3
       volumes:
         - name: certs
+          {{- if .Values.selfSignedOperatorCerts }}
+          # emptyDir is intentional: the operator generates a fresh CA and TLS cert on every
+          # startup and writes them here. This means certs (and the webhook caBundle) are
+          # rotated on every pod restart, causing a brief admission webhook disruption each time.
+          emptyDir: {}
+          {{- else }}
           secret:
             secretName: cockroach-operator-certs
+          {{- end }}

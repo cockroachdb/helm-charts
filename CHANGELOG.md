@@ -13,6 +13,8 @@ All notable changes to this project will be documented in this file.
   requires `helm upgrade --force` since the Deployment selector is immutable.
 - Added dedicated PVC support for CockroachDB log storage via `cockroachdb.crdbCluster.log.logsStore`.
 - Added inline log configuration support via `cockroachdb.crdbCluster.log.config`, which renders a ConfigMap consumed by the CockroachDB operator. Use `cockroachdb.crdbCluster.loggingConfigMapName` to supply a custom ConfigMap name, and `cockroachdb.crdbCluster.loggingConfigVars` to expand environment variables within the log configuration.
+- Added `selfSignedOperatorCerts` support in the operator chart, allowing the operator to self-generate its own webhook TLS certs.
+
 
 ### Changed
 - Cluster-scoped resources now use a `cockroachdb-` prefix. In namespace-scoped mode they also include the
