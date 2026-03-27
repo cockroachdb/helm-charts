@@ -8,12 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 )
 
 // Provider types.
@@ -21,6 +22,7 @@ const (
 	ProviderK3D  = "k3d"
 	ProviderKind = "kind"
 	ProviderGCP  = "gcp"
+	ProviderAWS  = "aws"
 )
 
 // Common constants.
@@ -53,6 +55,7 @@ var RegionCodes = map[string][]string{
 	ProviderK3D:  {"us-east1", "us-east2"},
 	ProviderKind: {"us-east1", "us-east2"},
 	ProviderGCP:  {"us-central1", "us-east1"},
+	ProviderAWS:  {"us-east-1", "us-east-2"},
 }
 
 // LoadBalancerAnnotations contains provider-specific service annotations.
@@ -61,6 +64,10 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 		"networking.gke.io/internal-load-balancer-allow-global-access": "true",
 		"networking.gke.io/load-balancer-type":                         "Internal",
 		"cloud.google.com/load-balancer-type":                          "Internal",
+	},
+	ProviderAWS: {
+		"service.beta.kubernetes.io/aws-load-balancer-type":     "nlb",
+		"service.beta.kubernetes.io/aws-load-balancer-internal": "true",
 	},
 	ProviderK3D:  {},
 	ProviderKind: {},
@@ -86,6 +93,23 @@ var NetworkConfigs = map[string]map[string]interface{}{
 			"ServiceCIDR": "172.28.81.0/24",
 			"SubnetRange": "172.28.80.0/24",
 			"StaticIP":    "172.28.80.11",
+		},
+	},
+	ProviderAWS: {
+		"us-east-1": map[string]interface{}{
+			"ClusterCIDR":  "172.28.96.0/20",
+			"ServiceCIDR":  "172.28.113.0/24",
+			"SubnetRanges": []string{"172.28.112.0/26", "172.28.112.64/26"},
+		},
+		"us-east-2": map[string]interface{}{
+			"ClusterCIDR":  "172.28.128.0/20",
+			"ServiceCIDR":  "172.28.145.0/24",
+			"SubnetRanges": []string{"172.28.144.0/26", "172.28.144.64/26"},
+		},
+		"us-west-2": map[string]interface{}{
+			"ClusterCIDR":  "172.28.160.0/20",
+			"ServiceCIDR":  "172.28.177.0/24",
+			"SubnetRanges": []string{"172.28.176.0/26", "172.28.176.64/26"},
 		},
 	},
 }
@@ -130,7 +154,14 @@ func GetLoadBalancerAnnotations(providerType string) map[string]string {
 }
 
 // DeployCoreDNS deploys CoreDNS to a cluster.
-func DeployCoreDNS(t *testing.T, clusterName, kubeConfigPath string, staticIP *string, provider string, customDomain string, options map[string]coredns.CoreDNSClusterOption) error {
+func DeployCoreDNS(
+	t *testing.T,
+	clusterName, kubeConfigPath string,
+	staticIP *string,
+	provider string,
+	customDomain string,
+	options map[string]coredns.CoreDNSClusterOption,
+) error {
 	kubectlOpts := k8s.NewKubectlOptions(clusterName, kubeConfigPath, coreDNSNamespace)
 
 	// Deploy CoreDNS resources in order.
@@ -148,7 +179,12 @@ func DeployCoreDNS(t *testing.T, clusterName, kubeConfigPath string, staticIP *s
 }
 
 // deployCoreDNSResources deploys the core CoreDNS resources (ConfigMap, RBAC, Deployment)
-func deployCoreDNSResources(t *testing.T, kubectlOpts *k8s.KubectlOptions, customDomain string, options map[string]coredns.CoreDNSClusterOption) error {
+func deployCoreDNSResources(
+	t *testing.T,
+	kubectlOpts *k8s.KubectlOptions,
+	customDomain string,
+	options map[string]coredns.CoreDNSClusterOption,
+) error {
 	// 1. Deploy ConfigMap
 	cm := coredns.CoreDNSConfigMap(customDomain, options)
 	cmYAML := coredns.ToYAML(t, cm)
@@ -201,7 +237,9 @@ func deployCoreDNSRBAC(t *testing.T, kubectlOpts *k8s.KubectlOptions) error {
 }
 
 // deployCoreDNSService creates and applies the CoreDNS service
-func deployCoreDNSService(t *testing.T, kubectlOpts *k8s.KubectlOptions, staticIP *string, provider string) error {
+func deployCoreDNSService(
+	t *testing.T, kubectlOpts *k8s.KubectlOptions, staticIP *string, provider string,
+) error {
 	// Get provider-specific annotations.
 	annotations := GetLoadBalancerAnnotations(provider)
 

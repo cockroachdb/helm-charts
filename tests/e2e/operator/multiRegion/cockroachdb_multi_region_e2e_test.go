@@ -9,6 +9,7 @@ import (
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/utils"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
@@ -20,7 +21,6 @@ import (
 
 // Region codes for each provider are now centralized in infra.RegionCodes
 type multiRegion struct {
-	operator.OperatorUseCases
 	operator.Region
 }
 
@@ -30,19 +30,10 @@ func newMultiRegion() *multiRegion {
 
 // TestOperatorInMultiRegion tests CockroachDB operator functionality across multiple regions
 func TestOperatorInMultiRegion(t *testing.T) {
-	// Fetch provider from env
-	var provider string
-	if p := strings.TrimSpace(strings.ToLower(os.Getenv("PROVIDER"))); p != "" {
-		switch p {
-		case "kind":
-			provider = infra.ProviderKind
-		case "gcp":
-			provider = infra.ProviderGCP
-		default:
-			t.Fatalf("Unsupported provider override: %s", p)
-		}
-	} else {
-		provider = infra.ProviderK3D
+	// Get provider from environment variable
+	provider, err := utils.GetProviderFromEnv()
+	if err != nil {
+		t.Fatalf("Failed to get provider: %v", err)
 	}
 
 	t.Run(provider, func(t *testing.T) {
@@ -51,20 +42,21 @@ func TestOperatorInMultiRegion(t *testing.T) {
 		// Create a provider-specific instance to avoid race conditions.
 		providerRegion := newMultiRegion()
 		providerRegion.Region = operator.Region{
-			IsMultiRegion: true,
-			NodeCount:     3,
-			ReusingInfra:  false,
+			NodeCount:    3,
+			ReusingInfra: false,
+			TestRunID:    utils.GenerateTestRunID(),
 		}
 		providerRegion.Clients = make(map[string]client.Client)
 		providerRegion.Namespace = make(map[string]string)
-
 		providerRegion.Provider = provider
-		for _, cluster := range operator.Clusters {
-			clusterName := fmt.Sprintf("%s-%s", providerRegion.Provider, cluster)
-			if providerRegion.Provider != infra.ProviderK3D && provider != infra.ProviderKind {
-				clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
-			}
-			providerRegion.Clusters = append(providerRegion.Clusters, clusterName)
+
+		t.Logf("Test Run ID: %s", providerRegion.TestRunID)
+
+		// Generate cluster names with user/PR context
+		clusterNames := utils.GenerateClusterNames(provider, len(operator.Clusters))
+		providerRegion.Clusters = clusterNames
+		for i, name := range clusterNames {
+			t.Logf("Cluster %d name: %s", i, name)
 		}
 
 		// Create and reuse the same provider instance for both setup and teardown.
@@ -107,19 +99,7 @@ func TestOperatorInMultiRegion(t *testing.T) {
 				continue
 			}
 
-			t.Run(name, func(t *testing.T) {
-				// Add immediate cleanup trigger if this individual test fails
-				defer func() {
-					if t.Failed() {
-						testFailed = true
-						t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
-						cloudProvider.TeardownInfra(t)
-						t.Logf("Infrastructure cleanup completed due to test failure")
-					}
-				}()
-
-				method(t)
-			})
+			testFailed = !t.Run(name, method)
 		}
 	})
 }
@@ -337,7 +317,7 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 }
 
 // TestKillingCockroachNode will manually kill one cockroachdb node to verify
-// if the reconciliation is working as expected in multi region and verifies the same.
+// if the reconciliation is working as expected in a multi region and verifies the same.
 func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
 
 	// Creating random namespace for each region.

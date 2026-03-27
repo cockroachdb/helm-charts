@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/pkg/database"
-	"github.com/cockroachdb/helm-charts/pkg/kube"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/stretchr/testify/require"
@@ -28,10 +26,9 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/rest"
 	"sigs.k8s.io/controller-runtime/pkg/client"
-)
 
-const (
-	TestDBName = "test_db"
+	"github.com/cockroachdb/helm-charts/pkg/database"
+	"github.com/cockroachdb/helm-charts/pkg/kube"
 )
 
 type CockroachCluster struct {
@@ -45,8 +42,35 @@ type CockroachCluster struct {
 	Context                    string
 }
 
+// IsTransientNetworkError checks if an error is a transient network error that should be retried.
+// This includes common network timeouts, connection failures, TLS handshake errors,
+// and corporate proxy/certificate interception issues.
+// Real application errors (validation, logic failures, etc.) return false.
+func IsTransientNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errMsg := strings.ToLower(err.Error())
+	return strings.Contains(errMsg, "eof") ||
+		strings.Contains(errMsg, "i/o timeout") ||
+		strings.Contains(errMsg, "connection refused") ||
+		strings.Contains(errMsg, "connection reset") ||
+		strings.Contains(errMsg, "tls handshake timeout") ||
+		strings.Contains(errMsg, "context deadline exceeded") ||
+		strings.Contains(errMsg, "net/http: tls handshake timeout") ||
+		strings.Contains(errMsg, "client.timeout exceeded") ||
+		// Additional transient proxy / certificate related errors
+		strings.Contains(errMsg, "bad gateway") ||
+		strings.Contains(errMsg, "unable to get local issuer certificate") ||
+		strings.Contains(errMsg, "x509") ||
+		strings.Contains(errMsg, "certificate signed by unknown authority") ||
+		strings.Contains(errMsg, "netskope")
+}
+
 // RequireClusterToBeReadyEventuallyTimeout waits for all the CRDB pods to come into running state.
-func RequireClusterToBeReadyEventuallyTimeout(t *testing.T, crdbCluster CockroachCluster, timeout time.Duration) {
+func RequireClusterToBeReadyEventuallyTimeout(
+	t *testing.T, crdbCluster CockroachCluster, timeout time.Duration,
+) {
 	ctx := context.Background()
 	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
 		func(ctx context.Context) (bool, error) {
@@ -74,7 +98,9 @@ func RequireClusterToBeReadyEventuallyTimeout(t *testing.T, crdbCluster Cockroac
 }
 
 // RequireCRDBClusterToBeReadyEventuallyTimeout waits for all the CockroachDB pods to come into running state.
-func RequireCRDBClusterToBeReadyEventuallyTimeout(t *testing.T, opts *k8s.KubectlOptions, crdbCluster CockroachCluster, timeout time.Duration) {
+func RequireCRDBClusterToBeReadyEventuallyTimeout(
+	t *testing.T, opts *k8s.KubectlOptions, crdbCluster CockroachCluster, timeout time.Duration,
+) {
 	ctx := context.Background()
 	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
 		func(ctx context.Context) (bool, error) {
@@ -104,7 +130,9 @@ func RequireCRDBClusterToBeReadyEventuallyTimeout(t *testing.T, opts *k8s.Kubect
 	require.NoError(t, err)
 }
 
-func RequirePodToBeCreatedAndReady(t *testing.T, opts *k8s.KubectlOptions, podName string, timeout time.Duration) {
+func RequirePodToBeCreatedAndReady(
+	t *testing.T, opts *k8s.KubectlOptions, podName string, timeout time.Duration,
+) {
 	ctx := context.Background()
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
 		func(ctx context.Context) (done bool, err error) {
@@ -149,7 +177,9 @@ func logPods(ctx context.Context, sts *appsv1.StatefulSet, cfg *rest.Config, t *
 	}
 }
 
-func fetchStatefulSet(k8sClient client.Client, name, namespace string) (*appsv1.StatefulSet, error) {
+func fetchStatefulSet(
+	k8sClient client.Client, name, namespace string,
+) (*appsv1.StatefulSet, error) {
 	ss := &appsv1.StatefulSet{
 		ObjectMeta: metav1.ObjectMeta{
 			Name: name,
@@ -195,17 +225,38 @@ func getDBConn(t *testing.T, crdbCluster CockroachCluster, dbName string, podNam
 		RootCertificateSecretName:   crdbCluster.NodeSecret,
 	}
 
-	// Create a new database connection for the update.
-	db, err := database.NewDbConnection(conn)
+	// Create a new database connection with retry logic to handle transient network issues
+	// (e.g., corporate proxy timeouts, connection drops during rolling restarts)
+	var db *sql.DB
+	_, err := retry.DoWithRetryE(t, "Creating database connection",
+		5,              // maxRetries: try up to 5 times
+		10*time.Second, // timeBetweenRetries: wait 10 seconds between attempts
+		func() (string, error) {
+			var connErr error
+			db, connErr = database.NewDbConnection(conn)
+			if connErr != nil {
+				if IsTransientNetworkError(connErr) {
+					t.Logf("Transient DB connection error (will retry): %v", connErr)
+					return "", connErr
+				}
+				// For non-transient errors, return error immediately to stop retrying
+				return "", fmt.Errorf("non-transient DB connection error: %w", connErr)
+			}
+			return "", nil
+		})
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		if db != nil {
+			db.Close()
+		}
 	})
 	return db
 }
 
 // RequireCRDBDatabaseToFunction creates a database, a table and insert two rows.
-func RequireCRDBDatabaseToFunction(t *testing.T, crdbCluster CockroachCluster, dbName string, podName string) {
+func RequireCRDBDatabaseToFunction(
+	t *testing.T, crdbCluster CockroachCluster, dbName string, podName string,
+) {
 	systemDB := getDBConn(t, crdbCluster, "system", podName)
 	if _, err := systemDB.Exec(fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", dbName)); err != nil {
 		t.Fatal(err)
@@ -292,7 +343,9 @@ func RequireCRDBToFunction(t *testing.T, crdbCluster CockroachCluster, validateE
 	t.Log("finished testing database")
 }
 
-func RequireCRDBClusterToFunction(t *testing.T, crdbCluster CockroachCluster, rotate bool, podName string) {
+func RequireCRDBClusterToFunction(
+	t *testing.T, crdbCluster CockroachCluster, rotate bool, podName string,
+) {
 	db := getDBConn(t, crdbCluster, "system", podName)
 
 	if rotate {
@@ -453,8 +506,12 @@ func PrintDebugLogs(t *testing.T, options *k8s.KubectlOptions) {
 }
 
 // RequireToRunRotateJob triggers the client/node or CA certificate rotation job based on next cron schedule.
-func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values map[string]string,
-	scheduleToTriggerRotation string, caRotate bool,
+func RequireToRunRotateJob(
+	t *testing.T,
+	crdbCluster CockroachCluster,
+	values map[string]string,
+	scheduleToTriggerRotation string,
+	caRotate bool,
 ) {
 	var args []string
 	var jobName string
@@ -533,7 +590,9 @@ func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values ma
 }
 
 // RequireCertRotateJobToBeCompleted waits for the certificate rotation job to complete.
-func RequireCertRotateJobToBeCompleted(t *testing.T, jobName string, crdbCluster CockroachCluster, timeout time.Duration) {
+func RequireCertRotateJobToBeCompleted(
+	t *testing.T, jobName string, crdbCluster CockroachCluster, timeout time.Duration,
+) {
 	ctx := context.Background()
 	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
 		func(ctx context.Context) (bool, error) {
