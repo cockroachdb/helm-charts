@@ -65,9 +65,14 @@ func TestOperatorInMultiRegion(t *testing.T) {
 		if cloudProvider == nil {
 			t.Fatalf("Unsupported provider: %s", provider)
 		}
+		// Run tests sequentially within a provider.
+		var testFailed bool
 
 		// Use t.Cleanup for guaranteed cleanup even on test timeout/panic.
 		t.Cleanup(func() {
+			if testFailed {
+				return // Skip cleanup if a test has already failed to save time and resources
+			}
 			t.Logf("Starting infrastructure cleanup for provider: %s", provider)
 			cloudProvider.TeardownInfra(t)
 			t.Logf("Completed infrastructure cleanup for provider: %s", provider)
@@ -92,8 +97,6 @@ func TestOperatorInMultiRegion(t *testing.T) {
 			testCases["TestClusterScaleUp"] = func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) }
 		}
 
-		// Run tests sequentially within a provider.
-		var testFailed bool
 		for name, method := range testCases {
 			// Skip remaining tests if a previous test failed to save time
 			if testFailed {
