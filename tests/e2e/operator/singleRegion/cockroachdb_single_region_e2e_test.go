@@ -2,13 +2,13 @@ package singleRegion
 
 import (
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/utils"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
@@ -18,11 +18,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-// Environment variable name to check if running in nightly mode
-const isNightlyEnvVar = "isNightly"
-
 type singleRegion struct {
-	operator.OperatorUseCases
 	operator.Region
 }
 
@@ -30,19 +26,10 @@ func newSingleRegion() *singleRegion {
 	return &singleRegion{}
 }
 func TestOperatorInSingleRegion(t *testing.T) {
-	// Fetch provider from env
-	var provider string
-	if p := strings.TrimSpace(strings.ToLower(os.Getenv("PROVIDER"))); p != "" {
-		switch p {
-		case "kind":
-			provider = infra.ProviderKind
-		case "gcp":
-			provider = infra.ProviderGCP
-		default:
-			t.Fatalf("Unsupported provider override: %s", p)
-		}
-	} else {
-		provider = infra.ProviderK3D
+	// Get provider from environment variable
+	provider, err := utils.GetProviderFromEnv()
+	if err != nil {
+		t.Fatalf("Failed to get provider: %v", err)
 	}
 
 	t.Run(provider, func(t *testing.T) {
@@ -52,19 +39,20 @@ func TestOperatorInSingleRegion(t *testing.T) {
 		// Create a provider-specific instance to avoid race conditions.
 		providerRegion := newSingleRegion()
 		providerRegion.Region = operator.Region{
-			IsMultiRegion: false,
-			NodeCount:     3,
-			ReusingInfra:  false,
+			NodeCount:    3,
+			ReusingInfra: false,
+			TestRunID:    utils.GenerateTestRunID(),
 		}
 		providerRegion.Clients = make(map[string]client.Client)
 		providerRegion.Namespace = make(map[string]string)
-
 		providerRegion.Provider = provider
-		clusterName := fmt.Sprintf("%s-%s", providerRegion.Provider, operator.Clusters[0])
-		if provider != infra.ProviderK3D && provider != infra.ProviderKind {
-			clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
-		}
-		providerRegion.Clusters = append(providerRegion.Clusters, clusterName)
+
+		t.Logf("Test Run ID: %s", providerRegion.TestRunID)
+
+		// Generate a cluster name with user/PR context (single cluster for single-region test)
+		clusterNames := utils.GenerateClusterNames(provider, 1)
+		providerRegion.Clusters = clusterNames
+		t.Logf("Cluster name: %s", clusterNames[0])
 
 		// Create and reuse the same provider instance for both setup and teardown.
 		cloudProvider := infra.ProviderFactory(providerRegion.Provider, &providerRegion.Region)
@@ -82,7 +70,9 @@ func TestOperatorInSingleRegion(t *testing.T) {
 		// Set up infrastructure for this provider once.
 		cloudProvider.SetUpInfra(t)
 
-		testCases := map[string]func(*testing.T){
+		// Run tests sequentially within a provider.
+		var testFailed bool
+		for name, method := range map[string]func(*testing.T){
 			"TestHelmInstall":               providerRegion.TestHelmInstall,
 			"TestHelmInstallVirtualCluster": providerRegion.TestHelmInstallVirtualCluster,
 			"TestHelmUpgrade":               providerRegion.TestHelmUpgrade,
@@ -90,30 +80,13 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			"TestKillingCockroachNode":      providerRegion.TestKillingCockroachNode,
 			"TestClusterScaleUp":            func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) },
 			"TestInstallWithCertManager":    providerRegion.TestInstallWithCertManager,
-		}
-
-		// Run tests sequentially within a provider.
-		var testFailed bool
-		for name, method := range testCases {
+		} {
 			// Skip remaining tests if a previous test failed to save time
 			if testFailed {
 				t.Logf("Skipping test %s due to previous test failure", name)
 				continue
 			}
-
-			t.Run(name, func(t *testing.T) {
-				// Add immediate cleanup trigger if this individual test fails
-				defer func() {
-					if t.Failed() {
-						testFailed = true
-						t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
-						cloudProvider.TeardownInfra(t)
-						t.Logf("Infrastructure cleanup completed due to test failure")
-					}
-				}()
-
-				method(t)
-			})
+			testFailed = !t.Run(name, method)
 		}
 	})
 }
@@ -147,8 +120,7 @@ func (r *singleRegion) TestHelmInstall(t *testing.T) {
 }
 
 // TestHelmInstallVirtualCluster installs Operator and CockroachDB charts
-// for both primary and standby virtual clusters and verifies if
-// CockroachDB service is up and running.
+// for both primary and standby virtual clusters and verifies if the CockroachDB service is up and running.
 func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 	// Create CA certificate.
 	err := r.CreateCACertificate(t)
@@ -219,8 +191,11 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 	}
 	defer r.CleanupResources(t)
 	defer func() {
-		kubectlOptions := k8s.NewKubectlOptions("", "", standByNamespace)
-		k8s.DeleteNamespace(t, kubectlOptions, standByNamespace)
+		if standByNamespace != "" {
+			kubectlOptions := k8s.NewKubectlOptions("", "", standByNamespace)
+			// Ignore error if namespace doesn't exist (may have been deleted already)
+			_ = k8s.DeleteNamespaceE(t, kubectlOptions, standByNamespace)
+		}
 	}()
 	defer r.CleanUpCACertificate(t)
 
@@ -487,7 +462,7 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Clou
 }
 
 // TestInstallWithCertManager will install the Operator and CockroachDB charts
-// with cert-manager and trust-manager and verifies cockroachdb cluster is up and running.
+// with cert-manager and trust-manager and verifies the cockroachdb cluster is up and running.
 func (r *singleRegion) TestInstallWithCertManager(t *testing.T) {
 	cluster := r.Clusters[0]
 	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
