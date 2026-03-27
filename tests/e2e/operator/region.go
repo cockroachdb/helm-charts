@@ -9,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
@@ -21,13 +19,16 @@ import (
 	"k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 const (
 	TestDBName            = "testdb"
 	Namespace             = "cockroach-ns"
 	LabelSelector         = "app=cockroachdb"
-	OperatorLabelSelector = "app=cockroach-operator"
+	LabelSelectorOperator = "app=cockroach-operator"
 )
 
 var (
@@ -50,21 +51,9 @@ var (
 	}
 )
 
-// OperatorUseCases defines use cases for the CockroachDB cluster.
-type OperatorUseCases interface {
-	TestHelmInstall(t *testing.T)
-	TestHelmUpgrade(t *testing.T)
-	TestClusterScaleUp(t *testing.T)
-	TestClusterRollingRestart(t *testing.T)
-	TestKillingCockroachNode(t *testing.T)
-	TestInstallWithCertManager(t *testing.T)
-}
-
 type Region struct {
 	// IsCertManager is true if the cockroachdb cluster is using cert-manager.
 	IsCertManager bool
-	// IsMultiRegion is true if the region is multi-region.
-	IsMultiRegion bool
 	// NodeCount is the desired CockroachDB nodes in the region.
 	NodeCount int
 	// Namespace stores mapping between cluster name and namespace.
@@ -77,6 +66,8 @@ type Region struct {
 	CorednsClusterOptions map[string]coredns.CoreDNSClusterOption
 	Provider              string
 	RegionCodes           []string
+	// TestRunID is a unique identifier for this test run (for concurrent test isolation)
+	TestRunID string
 
 	VirtualClusterModePrimary bool
 	VirtualClusterModeStandby bool
@@ -104,8 +95,28 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
 
-	// Create a namespace.
-	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
+	// Create a namespace with retry logic to handle transient proxy errors (e.g., Netskope)
+	var err error
+	const maxRetries = 5
+	const sleepBetweenRetries = 5 * time.Second
+	for attempt := 1; attempt <= maxRetries; attempt++ {
+		err = k8s.CreateNamespaceE(t, kubectlOptions, r.Namespace[cluster])
+		if err == nil {
+			break
+		}
+		// Only retry on transient proxy/certificate errors using centralized helper
+		if testutil.IsTransientNetworkError(err) {
+			t.Logf("Transient proxy error creating namespace (will retry, attempt %d/%d): %v", attempt, maxRetries, err)
+			if attempt < maxRetries {
+				time.Sleep(sleepBetweenRetries)
+				continue
+			}
+		} else {
+			// Non-transient error: fail immediately without retrying
+			require.NoError(t, err, "Failed to create namespace (non-transient error)")
+		}
+	}
+	require.NoError(t, err, "Failed to create namespace after retries")
 
 	if r.IsCertManager {
 		testutil.InstallCertManager(t, certManagerK8sOptions)
@@ -115,10 +126,28 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 		testutil.CreateCAIssuer(t, kubectlOptions, r.Namespace[cluster])
 		testutil.CreateBundle(t, kubectlOptions, testutil.CASecretName, testutil.CAConfigMapName)
 	} else {
-		// create CA Secret.
-		err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
-			"--from-file=ca.key")
-		require.NoError(t, err)
+		// create CA Secret with retry logic for transient proxy errors using centralized helper
+		const maxCASecRetries = 5
+		const sleepBetweenCASecRetries = 5 * time.Second
+		for attempt := 1; attempt <= maxCASecRetries; attempt++ {
+			err = k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
+				"--from-file=ca.key")
+			if err == nil {
+				break
+			}
+			// Only retry on transient proxy / certificate issues using centralized helper
+			if testutil.IsTransientNetworkError(err) {
+				t.Logf("Transient proxy error creating secret (will retry, attempt %d/%d): %v", attempt, maxCASecRetries, err)
+				if attempt < maxCASecRetries {
+					time.Sleep(sleepBetweenCASecRetries)
+					continue
+				}
+			} else {
+				// Non-transient error: fail immediately without further retries
+				require.NoError(t, err, "failed to create CA secret (non-transient error)")
+			}
+		}
+		require.NoError(t, err, "failed to create CA secret after transient retries")
 	}
 
 	// Setup kubectl options for this cluster.
@@ -218,7 +247,9 @@ func (r *Region) ValidateCRDB(t *testing.T, cluster string) {
 // VerifyHelmUpgrade waits till all the pods are restarted after the
 // helm upgrade is completed, it verifies with initialTimestamp which is the timestamp
 // of the pods before recreation and returns the pod name.
-func (r *Region) VerifyHelmUpgrade(t *testing.T, initialTimestamp time.Time, kubectlOptions *k8s.KubectlOptions) error {
+func (r *Region) VerifyHelmUpgrade(
+	t *testing.T, initialTimestamp time.Time, kubectlOptions *k8s.KubectlOptions,
+) error {
 	// Wait for the pods to be recreated with a new timestamp after the upgrade.
 	_, err := retry.DoWithRetryE(t, "waiting for pods to be recreated with new timestamp",
 		60, 10*time.Second,
@@ -359,6 +390,10 @@ func (r *Region) ValidateCRDBContainerResources(t *testing.T, kubectlOptions *k8
 
 // CreateCACertificate creates CA cert and key at the same path.
 func (r *Region) CreateCACertificate(t *testing.T) error {
+	// Clean up any existing certificate files from previous runs
+	// (prevents "CA key ca.key exists, but key reuse is disabled" error)
+	r.CleanUpCACertificate(t)
+
 	// Create CA secret in all regions.
 	cmd := shell.Command{
 		Command:    "cockroach",
@@ -385,13 +420,13 @@ func (r *Region) CleanUpCACertificate(t *testing.T) {
 
 // GetCurrentContext gets the current cluster context from KubeConfig.
 func (r *Region) GetCurrentContext(t *testing.T) (string, api.Config) {
-	// Try to get kubeconfig path using the standard method
+	// Try to get a kubeconfig path using the standard method
 	kubeConfig, err := k8s.GetKubeConfigPathE(t)
 	require.NoError(t, err)
 	_, err = r.EnsureKubeConfigPath()
 	require.NoError(t, err)
-	config := k8s.LoadConfigFromPath(kubeConfig)
-	rawConfig, err := config.RawConfig()
+	configFromPath := k8s.LoadConfigFromPath(kubeConfig)
+	rawConfig, err := configFromPath.RawConfig()
 	require.NoError(t, err)
 	return kubeConfig, rawConfig
 }
@@ -442,9 +477,23 @@ func (r *Region) CleanupResources(t *testing.T) {
 			ExtraArgs:      extraArgs,
 		}
 		err := helm.DeleteE(t, helmOptions, ReleaseName, true)
-		require.NoError(t, err)
+		if err != nil {
+			// Only ignore transient network errors (proxy timeouts, connection drops)
+			// Real helm chart errors should still fail the test
+			if testutil.IsTransientNetworkError(err) {
+				t.Logf("Warning: Failed to delete helm release %s due to transient network error (cluster may be unreachable): %v", ReleaseName, err)
+			} else {
+				require.NoError(t, err, "Failed to delete helm release %s", ReleaseName)
+			}
+		}
 		err = helm.DeleteE(t, helmOptions, operatorReleaseName, true)
-		require.NoError(t, err)
+		if err != nil {
+			if testutil.IsTransientNetworkError(err) {
+				t.Logf("Warning: Failed to delete helm release %s due to transient network error (cluster may be unreachable): %v", operatorReleaseName, err)
+			} else {
+				require.NoError(t, err, "Failed to delete helm release %s", operatorReleaseName)
+			}
+		}
 		if r.IsCertManager {
 			testutil.DeleteBundle(t, kubectlOptions)
 			testutil.DeleteCAIssuer(t, kubectlOptions, namespace)
@@ -473,7 +522,9 @@ func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 
 // createOperatorRegions returns the appropriate regions config
 // required while installing CockroachDb charts.
-func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[int]string) []map[string]interface{} {
+func (r *Region) createOperatorRegions(
+	index int, nodes int, customDomains map[int]string,
+) []map[string]interface{} {
 	regions := make([]map[string]interface{}, 0, len(r.Clusters))
 
 	for i := 0; i < len(r.Clusters); i++ {
@@ -501,10 +552,12 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 }
 
 // VerifyInitCommandInOperatorLogs verifies that the operator logs contain the expected init command.
-func VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOptions, expected string) {
+func VerifyInitCommandInOperatorLogs(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, expected string,
+) {
 	// Get operator pods
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-		LabelSelector: OperatorLabelSelector,
+		LabelSelector: LabelSelectorOperator,
 	})
 	require.NotEmpty(t, pods, "no operator pods found")
 
@@ -542,7 +595,7 @@ func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.Kube
 
 	// wait for the operator pod to be running
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-		LabelSelector: OperatorLabelSelector,
+		LabelSelector: LabelSelectorOperator,
 	})
 
 	for i := range pods {
