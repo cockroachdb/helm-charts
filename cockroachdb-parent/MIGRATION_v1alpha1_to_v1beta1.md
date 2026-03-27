@@ -7,6 +7,8 @@ The CockroachDB Operator is migrating from `v1alpha1` to `v1beta1` API version.
 **Migration phases:**
 - **Phase 1 (25.4.3-preview+1)**: Both v1alpha1 and v1beta1 are served, v1beta1 is the storage version
 - **Phase 2 (25.4.3-preview+2)**: Only v1beta1 is served, v1alpha1 is disabled
+- **Phase 3 (26.1.1-preview+2)**: `v1alpha1` is removed entirely. Upgrades are only allowed from the
+  previous fully migrated `v1beta1`-only state
 
 ---
 
@@ -20,7 +22,8 @@ The CockroachDB Operator is migrating from `v1alpha1` to `v1beta1` API version.
 
 **New users:** Install normally, no special steps needed.
 
-**Existing users:** Follow the two-phase upgrade below. The migration is automatic and zero-downtime - your clusters keep running while resources are migrated to v1beta1.
+**Existing users:** Follow the three-phase upgrade below. The migration is automatic and zero-downtime
+during Phases 1 and 2. Phase 3 requires you to already be on the fully migrated `v1beta1`-only state.
 
 ---
 
@@ -191,6 +194,86 @@ Then retry the CockroachDB chart upgrade.
 
 ---
 
+### Phase 3: Remove v1alpha1 Entirely (26.1.1-preview+2)
+
+After completing Phase 2, Phase 3 removes `v1alpha1` from the operator entirely.
+
+#### Prerequisites
+
+Before upgrading to Phase 3, verify all of the following on your current installation:
+
+```bash
+# 1. Only v1beta1 is served
+kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+  -o jsonpath='{.spec.versions[?(@.served==true)].name}'
+# Expected output: v1beta1
+
+# 2. v1beta1 is the storage version
+kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+  -o jsonpath='{.spec.versions[?(@.storage==true)].name}'
+# Expected output: v1beta1
+
+# 3. Storage migration is complete
+kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+  -o jsonpath='{.status.storedVersions}'
+# Expected output: ["v1beta1"]
+```
+
+If any of these checks fail, complete Phase 2 first. Direct jumps from older mixed-version states are blocked by pre-upgrade validation.
+
+#### Upgrade Steps
+
+```bash
+# Checkout Phase 3 tag
+git checkout cockroachdb-parent-26.1.1-preview+2
+
+# Step 1: Upgrade operator first
+helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespace>
+
+# Step 2: Then upgrade CockroachDB chart
+helm upgrade <cockroachdb-release> ./cockroachdb-parent/charts/cockroachdb -n <namespace>
+```
+
+#### What Changes in Phase 3
+
+Phase 3:
+1. Removes `v1alpha1` from the operator entirely
+2. Requires the cluster to already be in the `v1beta1`-only state
+3. Blocks upgrades if `v1alpha1` is still served
+4. Blocks upgrades if `storedVersions` is not `["v1beta1"]`
+5. Removes the old in-chart storage migration hook
+
+#### Verification
+
+After completing Phase 3 upgrade, verify the final state:
+
+```bash
+# 1. Only v1beta1 is served
+kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+  -o jsonpath='{.spec.versions[?(@.served==true)].name}'
+# Expected output: v1beta1
+
+# 2. v1beta1 remains the storage version
+kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+  -o jsonpath='{.spec.versions[?(@.storage==true)].name}'
+# Expected output: v1beta1
+
+# 3. storedVersions remains fully migrated
+kubectl get crd crdbclusters.crdb.cockroachlabs.com \
+  -o jsonpath='{.status.storedVersions}'
+# Expected output: ["v1beta1"]
+```
+
+#### Common Issues
+
+**"UPGRADE BLOCKED - v1alpha1 is still served"**  
+Complete Phase 2 first, then retry the Phase 3 operator upgrade.
+
+**"UPGRADE BLOCKED - storedVersions must be [\"v1beta1\"]"**  
+Complete the Phase 2 migration fully before upgrading to Phase 3.
+
+---
+
 ## FAQ
 
 **Will this cause downtime?**  
@@ -208,7 +291,8 @@ Yes, if using kubectl/Go clients (not Helm). The API server converts automatical
 **Can I rollback after Phase 2?**  
 Yes. Phase 1 supports v1beta1, so you can rollback with `helm rollback <operator-release>` and it will continue serving your v1beta1 resources.
 
----
+**Can I skip directly to Phase 3?**  
+No. Phase 3 requires the Phase 2 `v1beta1`-only state first.
 
 ## Support
 
@@ -249,4 +333,12 @@ Verify migration:
 ```bash
 kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.status.storedVersions}'
 # Expected: ["v1beta1"]
+```
+
+### Phase 3
+```bash
+git checkout cockroachdb-parent-26.1.1-preview+2
+
+helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <namespace>
+helm upgrade <cockroachdb-release> ./cockroachdb-parent/charts/cockroachdb -n <namespace>
 ```

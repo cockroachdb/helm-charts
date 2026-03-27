@@ -45,9 +45,11 @@ spec:
                 exit 1
               fi
 
-              echo "Validating CRD v1beta1 support..."
+              echo "Validating CRD upgrade state..."
               V1BETA1_SERVED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[?(@.name=="v1beta1")].served}' 2>/dev/null || echo "false")
               V1BETA1_STORAGE=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[?(@.name=="v1beta1")].storage}' 2>/dev/null || echo "false")
+              V1ALPHA1_SERVED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[?(@.name=="v1alpha1")].served}' 2>/dev/null || echo "not-found")
+              STORED_VERSIONS=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.status.storedVersions}' 2>/dev/null || echo "[]")
 
               if [ "$V1BETA1_SERVED" != "true" ] || [ "$V1BETA1_STORAGE" != "true" ]; then
                 echo "❌ UPGRADE BLOCKED - v1beta1 not supported"
@@ -60,58 +62,35 @@ spec:
                 exit 1
               fi
 
-              echo "✅ CRD supports v1beta1"
-
-              STORED_VERSIONS=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.status.storedVersions}' 2>/dev/null || echo "[]")
-
-              if [[ "$STORED_VERSIONS" == '["v1beta1"]' ]]; then
-                echo "✅ Using v1beta1 storage - skipping migration checks"
-                exit 0
-              fi
-
-              if echo "$STORED_VERSIONS" | grep -q "v1alpha1"; then
-                echo "v1alpha1 detected in storage - checking migration status..."
+              if [ "$V1ALPHA1_SERVED" = "true" ]; then
+                echo "❌ UPGRADE BLOCKED - Operator not upgraded"
                 echo ""
-
-                # Check if v1alpha1 is still being served to determine operator version
-                V1ALPHA1_SERVED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[?(@.name=="v1alpha1")].served}' 2>/dev/null || echo "not-found")
-
-                if [ "$V1ALPHA1_SERVED" = "false" ] || [ "$V1ALPHA1_SERVED" = "not-found" ]; then
-                  echo "Verifying storage migration..."
-                  CURRENT_STORED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.status.storedVersions}' 2>/dev/null || echo "[]")
-                  
-                  if echo "$CURRENT_STORED" | grep -q "v1alpha1"; then
-                    echo "❌ UPGRADE BLOCKED - Storage migration incomplete"
-                    echo ""
-                    echo "Operator's storage migration did not complete."
-                    echo ""
-                    echo "Retry operator upgrade:"
-                    echo "  helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n <operator-namespace>"
-                    echo ""
-                    echo "Then retry this chart upgrade."
-                    exit 1
-                  fi
-                  
-                  if ! kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com -n {{ .Release.Namespace }} &>/dev/null; then
-                    echo "❌ Cannot access v1beta1 API"
-                    exit 1
-                  fi
-                  
-                  echo "✅ All checks passed"
-
-                elif [ "$V1ALPHA1_SERVED" = "true" ]; then
-                  echo "❌ UPGRADE BLOCKED - Operator not upgraded"
-                  echo ""
-                  echo "Upgrade operator first:"
-                  echo "  helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n {{ .Release.Namespace }}"
-                  echo ""
-                  echo "Then retry this chart:"
-                  echo "  helm upgrade {{ .Release.Name }} ./cockroachdb-parent/charts/cockroachdb -n {{ .Release.Namespace }}"
-                  exit 1
-                fi
-              else
-                echo "⚠️  Unexpected storedVersions: $STORED_VERSIONS"
-                echo "Proceeding with upgrade..."
+                echo "Upgrade operator first:"
+                echo "  helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n {{ .Release.Namespace }}"
+                echo ""
+                echo "Then retry this chart:"
+                echo "  helm upgrade {{ .Release.Name }} ./cockroachdb-parent/charts/cockroachdb -n {{ .Release.Namespace }}"
+                exit 1
               fi
+
+              if [[ "$STORED_VERSIONS" != '["v1beta1"]' ]]; then
+                echo "❌ UPGRADE BLOCKED - Storage migration incomplete"
+                echo ""
+                echo "Operator must already be on the previous v1beta1-only release with storage fully migrated."
+                echo "Current storedVersions: $STORED_VERSIONS"
+                echo ""
+                echo "Upgrade operator first:"
+                echo "  helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n {{ .Release.Namespace }}"
+                echo ""
+                echo "Then retry this chart upgrade."
+                exit 1
+              fi
+
+              if ! kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com -n {{ .Release.Namespace }} &>/dev/null; then
+                echo "❌ Cannot access v1beta1 API"
+                exit 1
+              fi
+
+              echo "✅ All checks passed"
   backoffLimit: 3
 {{- end }}

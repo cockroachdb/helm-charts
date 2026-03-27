@@ -17,7 +17,9 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-var operatorChartPath string
+var (
+	operatorChartPath string
+)
 
 func init() {
 	var initErr error
@@ -39,6 +41,14 @@ type operatorResources struct {
 	Deployment         appsv1.Deployment
 }
 
+type operatorValues struct {
+	Image struct {
+		Registry   string `yaml:"registry"`
+		Repository string `yaml:"repository"`
+		Tag        string `yaml:"tag"`
+	} `yaml:"image"`
+}
+
 // renderOperatorResources renders operator.yaml and returns each parsed resource.
 // It uses a YAML stream decoder so that --- separators and Helm's # Source headers
 // are handled correctly regardless of whitespace or extra blank documents.
@@ -56,6 +66,20 @@ func renderOperatorResources(t *testing.T, options *helm.Options) operatorResour
 	require.NoError(t, decoder.Decode(&res.Service))
 	require.NoError(t, decoder.Decode(&res.Deployment))
 	return res
+}
+
+func expectedOperatorImage(t *testing.T) string {
+	t.Helper()
+
+	valuesPath := filepath.Join(operatorChartPath, "values.yaml")
+	valuesFile, err := os.ReadFile(valuesPath)
+	require.NoError(t, err)
+
+	var values operatorValues
+	decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(string(valuesFile)), 4096)
+	require.NoError(t, decoder.Decode(&values))
+
+	return values.Image.Registry + "/" + values.Image.Repository + ":" + values.Image.Tag
 }
 
 // webhookResourceNamesRule returns the cluster role rule that scopes get, patch and delete
@@ -241,4 +265,73 @@ func TestOperatorCustomAppLabel(t *testing.T) {
 	require.Equal(t, customLabel, res.Service.Spec.Selector["app"])
 	require.Equal(t, customLabel, res.ServiceAccount.Labels["app"])
 	require.Equal(t, customLabel, res.ClusterRoleBinding.Labels["app"])
+}
+
+// TestOperatorImageDigestUpdated keeps the expected image aligned with chart defaults.
+func TestOperatorImageDigestUpdated(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+	}
+	res := renderOperatorResources(t, options)
+
+	require.Equal(t, expectedOperatorImage(t), res.Deployment.Spec.Template.Spec.Containers[0].Image)
+}
+
+// TestOperatorPreUpgradeValidationRequiresV1beta1OnlyState checks the phase 3 upgrade guardrails.
+func TestOperatorPreUpgradeValidationRequiresV1beta1OnlyState(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+	}
+	output, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/pre-upgrade-validation.yaml"}, "--is-upgrade")
+	require.NoError(t, err)
+
+	require.Contains(t, output, `V1BETA1_STORAGE=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com`)
+	require.Contains(t, output, `UPGRADE BLOCKED - v1alpha1 is still served`)
+	require.Contains(t, output, `UPGRADE BLOCKED - storedVersions must be [\"v1beta1\"]`)
+	require.NotContains(t, output, `Cannot skip Phase 1`)
+	require.NotContains(t, output, `helm get manifest`)
+}
+
+// TestOperatorHookRBACIsPreUpgradeOnly keeps the hook permissions scoped to upgrade validation.
+func TestOperatorHookRBACIsPreUpgradeOnly(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+	}
+	output, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/clusterrole-hooks.yaml"})
+	require.NoError(t, err)
+
+	decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(output), 4096)
+	var role rbacv1.ClusterRole
+	var binding rbacv1.ClusterRoleBinding
+	require.NoError(t, decoder.Decode(&role))
+	require.NoError(t, decoder.Decode(&binding))
+
+	require.Equal(t, "pre-upgrade", role.Annotations["helm.sh/hook"])
+	require.Equal(t, "pre-upgrade", binding.Annotations["helm.sh/hook"])
+
+	for _, rule := range role.Rules {
+		require.NotContains(t, rule.Resources, "customresourcedefinitions/status")
+		require.NotContains(t, rule.Resources, "secrets")
+		if len(rule.APIGroups) == 1 && rule.APIGroups[0] == "crdb.cockroachlabs.com" {
+			require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
+		}
+	}
+}
+
+// TestOperatorStorageMigrationTemplateRemoved verifies the old storage migration hook is gone in phase 3.
+func TestOperatorStorageMigrationTemplateRemoved(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+	}
+	_, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/storage-migration.yaml"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "Could not resolve template file templates/storage-migration.yaml")
 }
