@@ -188,7 +188,9 @@ func (r *multiRegion) TestPCRMultiRegion(t *testing.T) {
 	defer r.CleanupResources(t)
 	defer func() {
 		if standbyNamespace != "" {
-			kubectlOptions := k8s.NewKubectlOptions("", "", standbyNamespace)
+			kubeConfig, _ := r.GetCurrentContext(t)
+			// Standby is always installed on Clusters[0]; use its context explicitly.
+			kubectlOptions := k8s.NewKubectlOptions(r.Clusters[0], kubeConfig, standbyNamespace)
 			k8s.DeleteNamespace(t, kubectlOptions, standbyNamespace)
 		}
 	}()
@@ -198,10 +200,6 @@ func (r *multiRegion) TestPCRMultiRegion(t *testing.T) {
 	for i, cluster := range r.Clusters {
 		primaryConfig := operator.AdvancedInstallConfig{
 			VirtualClusterMode: "primary",
-		}
-		if i != 0 {
-			// Subsequent regions skip operator installation
-			primaryConfig.SkipOperatorInstall = true
 		}
 		r.InstallChartsWithAdvancedConfig(t, cluster, i, primaryConfig)
 	}

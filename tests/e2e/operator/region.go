@@ -125,7 +125,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	if !r.IsOperatorInstalled {
-		InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+		InstallCockroachDBEnterpriseOperator(t, kubectlOptions, r.RegionCodes[index])
 	}
 
 	if r.IsCertManager {
@@ -431,9 +431,11 @@ func (r *Region) EnsureKubeConfigPath() (string, error) {
 // Any failure in doing so might cause issues in other tests as some of the
 // cluster resources are tied to the namespace.
 func (r *Region) CleanupResources(t *testing.T) {
+	kubeConfig, _ := r.GetCurrentContext(t)
 	for cluster, namespace := range r.Namespace {
-		kubectlOptions := k8s.NewKubectlOptions(cluster, "", namespace)
-		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, "", testutil.CertManagerNamespace)
+		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, namespace)
+		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
+		clusterOptions := k8s.NewKubectlOptions(cluster, kubeConfig, "")
 
 		extraArgs := map[string][]string{
 			"delete": {
@@ -445,10 +447,32 @@ func (r *Region) CleanupResources(t *testing.T) {
 			KubectlOptions: kubectlOptions,
 			ExtraArgs:      extraArgs,
 		}
-		err := helm.DeleteE(t, helmOptions, ReleaseName, true)
-		require.NoError(t, err)
-		err = helm.DeleteE(t, helmOptions, operatorReleaseName, true)
-		require.NoError(t, err)
+		if err := helm.DeleteE(t, helmOptions, ReleaseName, true); err != nil {
+			t.Logf("Warning: helm delete %s failed (may not exist): %v", ReleaseName, err)
+		}
+		if err := helm.DeleteE(t, helmOptions, operatorReleaseName, true); err != nil {
+			t.Logf("Warning: helm delete %s failed (may not exist): %v", operatorReleaseName, err)
+		}
+
+		// Always explicitly delete cluster-scoped resources to prevent annotation
+		// conflicts in subsequent runs, even when helm delete fails or is incomplete.
+		nodeReaderName := fmt.Sprintf("cockroachdb-%s-node-reader", namespace)
+		clusterScopedResources := [][]string{
+			{"priorityclass", "cockroach-operator"},
+			{"priorityclass", "cockroachdb"},
+			{"clusterrole", "cockroach-operator-role"},
+			{"clusterrolebinding", "cockroach-operator-default"},
+			{"clusterrole", nodeReaderName},
+			{"clusterrolebinding", nodeReaderName},
+			{"mutatingwebhookconfiguration", "cockroach-operator-mutating-webhook-configuration"},
+			{"mutatingwebhookconfiguration", "cockroach-mutating-webhook-config"},
+			{"validatingwebhookconfiguration", "cockroach-operator-validating-webhook-configuration"},
+			{"validatingwebhookconfiguration", "cockroach-webhook-config"},
+		}
+		for _, res := range clusterScopedResources {
+			_ = k8s.RunKubectlE(t, clusterOptions, "delete", res[0], res[1], "--ignore-not-found")
+		}
+
 		if r.IsCertManager {
 			testutil.DeleteBundle(t, kubectlOptions)
 			testutil.DeleteCAIssuer(t, kubectlOptions, namespace)
@@ -477,29 +501,36 @@ func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 
 // createOperatorRegions returns the appropriate regions config
 // required while installing CockroachDb charts.
+// The operator determines the current cluster's domain via Status.Region, which
+// is set from the node's topology.kubernetes.io/region label (matched to the
+// cloudRegion helm value as a fallback on non-cloud providers like Kind).
+// We place other clusters' regions first so their join addresses are tried first,
+// allowing the current cluster to join the existing cluster immediately.
 func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[int]string) []map[string]interface{} {
-	regions := make([]map[string]interface{}, 0, len(r.Clusters))
-
-	for i := 0; i < len(r.Clusters); i++ {
-		if i > index {
-			break
-		}
-
+	buildRegion := func(i int) map[string]interface{} {
 		region := map[string]interface{}{
 			"code":          r.RegionCodes[i],
 			"cloudProvider": r.Provider,
 			"nodes":         nodes,
 			"namespace":     r.Namespace[r.Clusters[i]],
 		}
-
 		if len(r.Clusters) > i && r.Clusters[i] != "" {
 			if domain, ok := customDomains[i]; ok {
 				region["domain"] = domain
 			}
 		}
-
-		regions = append(regions, region)
+		return region
 	}
+
+	regions := make([]map[string]interface{}, 0, index+1)
+
+	// Add all preceding regions first so their join addresses are tried first.
+	for i := 0; i < index; i++ {
+		regions = append(regions, buildRegion(i))
+	}
+
+	// Add the current cluster's region last.
+	regions = append(regions, buildRegion(index))
 
 	return regions
 }
@@ -521,13 +552,14 @@ func VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOp
 	require.Contains(t, logs, expected, "operator logs did not contain expected init command")
 }
 
-func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, cloudRegion string) {
 	_, operatorChartPath := HelmChartPaths()
 
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		SetValues: map[string]string{
 			"numReplicas": "1",
+			"cloudRegion": cloudRegion,
 		},
 		ExtraArgs: helmExtraArgs,
 	}
@@ -811,7 +843,7 @@ func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, i
 
 	// Install the operator when it is not skipped and not already marked as installed.
 	if !config.SkipOperatorInstall && !r.IsOperatorInstalled {
-		InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+		InstallCockroachDBEnterpriseOperator(t, kubectlOptions, r.RegionCodes[index])
 	}
 
 	// Build helm values
@@ -1114,7 +1146,7 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 
 	// Create replication user on primary with required permissions
 	t.Log("Creating replication user on primary cluster...")
-	createUserSQL := fmt.Sprintf("CREATE USER IF NOT EXISTS '%s' WITH PASSWORD '%s'", "pcr_source", "repl_password_123")
+	createUserSQL := fmt.Sprintf("CREATE USER IF NOT EXISTS %s WITH PASSWORD '%s'", "pcr_source", "repl_password_123")
 	_, err = execSQLOnVC(t, primaryKubectlOptions, primaryPod, primarySystemURI, "", createUserSQL)
 	require.NoError(t, err)
 	t.Log("✓ Created user: pcr_source")
@@ -1151,7 +1183,7 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 
 	// Create admin user on standby
 	t.Log("Creating admin user on standby cluster...")
-	createAdminSQL := fmt.Sprintf("CREATE USER IF NOT EXISTS '%s' WITH PASSWORD '%s'", "pcr_admin", "admin_password_123")
+	createAdminSQL := fmt.Sprintf("CREATE USER IF NOT EXISTS %s WITH PASSWORD '%s'", "pcr_admin", "admin_password_123")
 	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", createAdminSQL)
 	require.NoError(t, err)
 	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", "GRANT admin TO pcr_admin")
@@ -1234,16 +1266,16 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 	// This is the recommended approach per documentation
 	t.Log("Creating a reader virtual cluster on standby for read-only access...")
 	t.Log("This allows read queries without affecting the replication stream")
-	createReaderSQL := "CREATE VIRTUAL CLUSTER main_reader FROM REPLICATION OF main ON 'external://primary_replication' WITH READ VIRTUAL CLUSTER"
+	createReaderSQL := `CREATE VIRTUAL CLUSTER "main-reader" FROM REPLICATION OF main ON 'external://primary_replication' WITH READ VIRTUAL CLUSTER`
 	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", createReaderSQL)
 	if err != nil && !strings.Contains(err.Error(), "already exists") {
 		t.Logf("Note: Reader VC creation returned: %v", err)
 	}
-	t.Log("✓ Reader virtual cluster 'main_reader' created")
+	t.Log("✓ Reader virtual cluster 'main-reader' created")
 
 	// Step 6b: Start the reader service in SHARED mode
 	t.Log("Starting reader virtual cluster service in SHARED mode...")
-	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", "ALTER VIRTUAL CLUSTER main_reader START SERVICE SHARED")
+	_, err = execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", `ALTER VIRTUAL CLUSTER "main-reader" START SERVICE SHARED`)
 	if err != nil && !strings.Contains(err.Error(), "already") {
 		t.Logf("Note: Service start returned: %v (may already be started)", err)
 	}
@@ -1258,13 +1290,13 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 	t.Log("Verifying reader virtual cluster status...")
 	readerVCsStatus, err := execSQLOnVC(t, standbyKubectlOptions, standbyPod, standbySystemURI, "", "SHOW VIRTUAL CLUSTERS")
 	require.NoError(t, err)
-	require.Contains(t, readerVCsStatus, "main_reader", "Standby should have main_reader virtual cluster")
+	require.Contains(t, readerVCsStatus, "main-reader", "Standby should have main-reader virtual cluster")
 	t.Logf("Virtual clusters on standby:\n%s", readerVCsStatus)
 	t.Log("✓ Reader virtual cluster is ready")
 
 	// Step 6d: Read from the reader virtual cluster
 	t.Log("Attempting to read replicated data from reader virtual cluster...")
-	readerURI := generateLocalTenantURI("main_reader")
+	readerURI := generateLocalTenantURI("main-reader")
 	readFromStandby, err := execSQLOnVC(t, standbyKubectlOptions, standbyPod, readerURI, "bank", "SELECT id, balance FROM accounts ORDER BY id")
 	if err != nil {
 		t.Logf("Warning: Read from standby reader failed (may need more time): %v", err)
@@ -1344,8 +1376,8 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 	//t.Log("==================================================")
 	//t.Log("Step 10: Cleanup")
 	//t.Log("==================================================")
-	//t.Log("Note: Reader virtual cluster 'main_reader' can be dropped if no longer needed")
-	//t.Log("Command: DROP VIRTUAL CLUSTER main_reader")
+	//t.Log("Note: Reader virtual cluster 'main-reader' can be dropped if no longer needed")
+	//t.Log("Command: DROP VIRTUAL CLUSTER main-reader")
 	//
 	//t.Log("")
 	//t.Log("==================================================")

@@ -51,7 +51,7 @@ func TestOperatorInSingleRegion(t *testing.T) {
 		providerRegion.Region = operator.Region{
 			IsMultiRegion: false,
 			NodeCount:     3,
-			ReusingInfra:  false,
+			ReusingInfra:  os.Getenv("REUSE_INFRA") == "true",
 		}
 		providerRegion.Clients = make(map[string]client.Client)
 		providerRegion.Namespace = make(map[string]string)
@@ -72,12 +72,18 @@ func TestOperatorInSingleRegion(t *testing.T) {
 		// Use t.Cleanup for guaranteed cleanup even on test timeout/panic
 		t.Cleanup(func() {
 			t.Logf("Starting infrastructure cleanup for provider: %s", provider)
-			cloudProvider.TeardownInfra(t)
+			// cloudProvider.TeardownInfra(t)
 			t.Logf("Completed infrastructure cleanup for provider: %s", provider)
 		})
 
 		// Set up infrastructure for this provider once.
 		cloudProvider.SetUpInfra(t)
+
+		// When INFRA_ONLY=true, stop here — clusters are left running for manual test runs.
+		if os.Getenv("INFRA_ONLY") == "true" {
+			t.Logf("INFRA_ONLY=true: skipping tests, infrastructure is ready")
+			return
+		}
 
 		testCases := make(map[string]func(*testing.T))
 
@@ -115,10 +121,11 @@ func TestOperatorInSingleRegion(t *testing.T) {
 					if t.Failed() {
 						testFailed = true
 						t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
-						cloudProvider.TeardownInfra(t)
+						// cloudProvider.TeardownInfra(t)
 						t.Logf("Infrastructure cleanup completed due to test failure")
 					}
 				}()
+
 				method(t)
 			})
 		}

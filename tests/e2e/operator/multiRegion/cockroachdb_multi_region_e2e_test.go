@@ -53,7 +53,7 @@ func TestOperatorInMultiRegion(t *testing.T) {
 		providerRegion.Region = operator.Region{
 			IsMultiRegion: true,
 			NodeCount:     3,
-			ReusingInfra:  false,
+			ReusingInfra:  os.Getenv("REUSE_INFRA") == "true",
 		}
 		providerRegion.Clients = make(map[string]client.Client)
 		providerRegion.Namespace = make(map[string]string)
@@ -76,7 +76,7 @@ func TestOperatorInMultiRegion(t *testing.T) {
 		// Use t.Cleanup for guaranteed cleanup even on test timeout/panic.
 		t.Cleanup(func() {
 			t.Logf("Starting infrastructure cleanup for provider: %s", provider)
-			cloudProvider.TeardownInfra(t)
+			// cloudProvider.TeardownInfra(t)
 			t.Logf("Completed infrastructure cleanup for provider: %s", provider)
 		})
 
@@ -98,7 +98,6 @@ func TestOperatorInMultiRegion(t *testing.T) {
 			testCases["TestKillingCockroachNode"] = providerRegion.TestKillingCockroachNode
 			testCases["TestClusterScaleUp"] = func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) }
 		}
-
 		// Run tests sequentially within a provider.
 		var testFailed bool
 		for name, method := range testCases {
@@ -114,7 +113,7 @@ func TestOperatorInMultiRegion(t *testing.T) {
 					if t.Failed() {
 						testFailed = true
 						t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
-						cloudProvider.TeardownInfra(t)
+						// cloudProvider.TeardownInfra(t)
 						t.Logf("Infrastructure cleanup completed due to test failure")
 					}
 				}()
