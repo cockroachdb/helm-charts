@@ -196,6 +196,10 @@ spec:
 
 // DeleteBundle deletes the bundle.
 func DeleteBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
-	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", bundleYaml)
-	_ = os.Remove(bundleYaml)
+	if _, err := os.Stat(bundleYaml); err == nil {
+		if err := k8s.RunKubectlE(t, kubectlOptions, "delete", "-f", bundleYaml, "--ignore-not-found"); err != nil {
+			t.Logf("[cleanup] Warning: delete bundle: %v", err)
+		}
+		_ = os.Remove(bundleYaml)
+	}
 }
