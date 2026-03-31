@@ -58,9 +58,6 @@ func (h *HelmInstall) InstallHelm(t *testing.T) {
 	_, err := k8s.GetNamespaceE(t, kubectlOptions, h.Namespace)
 	if err != nil && apierrors.IsNotFound(err) {
 		k8s.CreateNamespace(t, kubectlOptions, h.Namespace)
-		// Wait for namespace to be fully ready
-		t.Logf("Waiting for namespace %s to be ready", h.Namespace)
-		time.Sleep(5 * time.Second)
 	}
 
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
@@ -88,7 +85,6 @@ func (h *HelmInstall) ValidateCRDB(t *testing.T) {
 		testutil.RequireCertificatesToBeValid(t, h.CrdbCluster)
 	}
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, h.CrdbCluster, 600*time.Second)
-	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, h.CrdbCluster, h.ValidateExistingData)
 }
 
@@ -118,9 +114,6 @@ func (h *HelmInstall) Uninstall(t *testing.T) {
 		_, err := k8s.GetSecretE(t, kubectlOptions, h.CrdbCluster.CaSecret)
 		require.NoError(t, err)
 	}
-
-	// Wait for breathing time
-	time.Sleep(10 * time.Second)
 }
 
 // ValidateCertManagerResources checks if the cert-manager resources are retained after helm upgrade.

@@ -518,22 +518,40 @@ func VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOp
 }
 
 func InstallCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+	installCockroachDBOperator(t, kubectlOptions, nil)
+}
+
+func InstallCockroachDBOperatorScoped(t *testing.T, kubectlOptions *k8s.KubectlOptions, watchNamespaces string) {
+	installCockroachDBOperator(t, kubectlOptions, map[string]string{
+		"watchNamespaces": watchNamespaces,
+	})
+}
+
+func InstallCockroachDBOperatorScopedForMigration(t *testing.T, kubectlOptions *k8s.KubectlOptions, watchNamespaces string) {
+	installCockroachDBOperator(t, kubectlOptions, map[string]string{
+		"watchNamespaces":    watchNamespaces,
+		"migration.enabled": "true",
+	})
+}
+
+func installCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, overrides map[string]string) {
 	_, operatorChartPath := HelmChartPaths()
+
+	setValues := map[string]string{
+		"numReplicas": "1",
+	}
+	for key, value := range overrides {
+		setValues[key] = value
+	}
 
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
-		SetValues: map[string]string{
-			"numReplicas": "1",
-		},
-		ExtraArgs: helmExtraArgs,
+		SetValues:      setValues,
+		ExtraArgs:      helmExtraArgs,
 	}
 
 	// Install Operator on the cluster.
 	helm.Install(t, operatorOpts, operatorChartPath, operatorReleaseName)
-
-	// Wait for operator and webhook service to be available with endpoints.
-	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator", 30, 5*time.Second)
-	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-webhook-service", 30, 5*time.Second)
 
 	// Wait for crd to be installed.
 	_, _ = retry.DoWithRetryE(t, "wait-for-crd", 60, time.Second*5, func() (string, error) {
@@ -548,6 +566,10 @@ func InstallCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions
 	for i := range pods {
 		testutil.RequirePodToBeCreatedAndReady(t, operatorOpts.KubectlOptions, pods[i].Name, 300*time.Second)
 	}
+
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator", 30, 5*time.Second)
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-webhook-service", 30, 5*time.Second)
+	testutil.RequireServiceEndpointsAvailable(t, kubectlOptions, "cockroach-webhook-service", 2*time.Minute)
 }
 
 func UninstallCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {

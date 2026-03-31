@@ -50,10 +50,32 @@ func TestCockroachdbPreUpgradeRequiresMigratedOperator(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Contains(t, output, `V1ALPHA1_SERVED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com`)
-	require.Contains(t, output, `UPGRADE BLOCKED - Operator not upgraded`)
+	require.Contains(t, output, `V1BETA1_STORAGE=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com`)
 	require.Contains(t, output, `UPGRADE BLOCKED - Storage migration incomplete`)
 	require.Contains(t, output, `Operator must already be on the previous v1beta1-only release with storage fully migrated.`)
 	require.NotContains(t, output, `Proceeding with upgrade`)
+}
+
+// TestCockroachdbPreUpgradeAllowsMigrationAdoption checks the migration-aware validation branch.
+func TestCockroachdbPreUpgradeAllowsMigrationAdoption(t *testing.T) {
+	t.Parallel()
+
+	chartPath, pathErr := filepath.Abs("../../cockroachdb-parent/charts/cockroachdb")
+	require.NoError(t, pathErr)
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"migration.enabled": "true",
+		},
+	}
+	output, err := helm.RenderTemplateE(t, options, chartPath, releaseName, []string{"templates/pre-upgrade-validation.yaml"}, "--is-upgrade")
+	require.NoError(t, err)
+
+	require.Contains(t, output, `MIGRATION_ENABLED="true"`)
+	require.Contains(t, output, `Migration adoption mode enabled`)
+	require.Contains(t, output, `UPGRADE BLOCKED - Migrated v1beta1 CrdbCluster`)
+	require.Contains(t, output, `not found`)
 }
 
 // TestTLSEnable tests the enabling the TLS, you have to enable only one method of TLS certs

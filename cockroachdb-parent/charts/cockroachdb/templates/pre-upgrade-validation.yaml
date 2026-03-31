@@ -31,6 +31,8 @@ spec:
               echo "  CockroachDB Pre-Upgrade Validation"
               echo "=========================================="
               echo ""
+
+              MIGRATION_ENABLED="{{ .Values.migration.enabled }}"
               
               if ! kubectl get crd crdbclusters.crdb.cockroachlabs.com &>/dev/null; then
                 echo "❌ UPGRADE BLOCKED - CRD not found"
@@ -62,15 +64,19 @@ spec:
                 exit 1
               fi
 
-              if [ "$V1ALPHA1_SERVED" = "true" ]; then
-                echo "❌ UPGRADE BLOCKED - Operator not upgraded"
-                echo ""
-                echo "Upgrade operator first:"
-                echo "  helm upgrade <operator-release> ./cockroachdb-parent/charts/operator -n {{ .Release.Namespace }}"
-                echo ""
-                echo "Then retry this chart:"
-                echo "  helm upgrade {{ .Release.Name }} ./cockroachdb-parent/charts/cockroachdb -n {{ .Release.Namespace }}"
-                exit 1
+              if [ "$MIGRATION_ENABLED" = "true" ]; then
+                echo "Migration adoption mode enabled"
+
+                CLUSTER_NAME="{{ include "cockroachdb.fullname" . }}"
+                if ! kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com "$CLUSTER_NAME" -n {{ .Release.Namespace }} &>/dev/null; then
+                  echo "❌ UPGRADE BLOCKED - Migrated v1beta1 CrdbCluster '$CLUSTER_NAME' not found"
+                  echo ""
+                  echo "Complete migration before adopting the CockroachDB chart."
+                  exit 1
+                fi
+
+                echo "✅ All checks passed"
+                exit 0
               fi
 
               if [[ "$STORED_VERSIONS" != '["v1beta1"]' ]]; then

@@ -28,18 +28,22 @@ type PublicOperator struct {
 
 func (o *PublicOperator) InstallOperator(t *testing.T) {
 	kubectlOptions := k8s.NewKubectlOptions("", "", OperatorNamespace)
-	t.Logf("Installing CRDs for cockroach-operator")
-	k8s.KubectlApply(t, kubectlOptions, "https://raw.githubusercontent.com/cockroachdb/cockroach-operator/master/install/crds.yaml")
 
-	t.Logf("Installing cockroach-operator")
-	k8s.KubectlApply(t, kubectlOptions, "https://raw.githubusercontent.com/cockroachdb/cockroach-operator/master/install/operator.yaml")
+	if _, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "crd", "crdbclusters.crdb.cockroachlabs.com"); err != nil {
+		t.Logf("Installing CRDs for cockroach-operator")
+		k8s.KubectlApply(t, kubectlOptions, "https://raw.githubusercontent.com/cockroachdb/cockroach-operator/master/install/crds.yaml")
+	}
+
+	if _, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "deployment", OperatorDeploymentName); err != nil {
+		t.Logf("Installing cockroach-operator")
+		k8s.KubectlApply(t, kubectlOptions, "https://raw.githubusercontent.com/cockroachdb/cockroach-operator/master/install/operator.yaml")
+	}
 
 	t.Log("Waiting for cockroach-operator to be ready")
-	// Sleep for 10 seconds to check for the deployment to be ready
-	time.Sleep(10 * time.Second)
 	waitForOperatorToBeReady(t)
 
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator-webhook-service", 10, 10*time.Second)
+	testutil.RequireServiceEndpointsAvailable(t, kubectlOptions, "cockroach-operator-webhook-service", 2*time.Minute)
 	t.Log("Installing crdbcluster custom resource")
 	if _, err := k8s.GetNamespaceE(t, k8s.NewKubectlOptions("", "", o.Namespace), o.Namespace); err != nil && apierrors.IsNotFound(err) {
 		k8s.CreateNamespace(t, k8s.NewKubectlOptions("", "", o.Namespace), o.Namespace)
@@ -50,13 +54,6 @@ func (o *PublicOperator) InstallOperator(t *testing.T) {
 	require.NoError(t, o.CrdbCluster.K8sClient.Create(o.Ctx, crdbCluster))
 }
 
-func (o *PublicOperator) UninstallConflictingResources(t *testing.T) {
-	kubectlOptions := k8s.NewKubectlOptions("", "", OperatorNamespace)
-
-	k8s.RunKubectl(t, kubectlOptions, "delete", "clusterrolebinding", "cockroach-operator-rolebinding")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "clusterrole", "cockroach-operator-role")
-}
-
 func waitForOperatorToBeReady(t *testing.T) {
 	kubectlOptions := k8s.NewKubectlOptions("", "", OperatorNamespace)
 	k8s.WaitUntilDeploymentAvailable(t, kubectlOptions, OperatorDeploymentName, 10, 10*time.Second)
@@ -65,6 +62,4 @@ func waitForOperatorToBeReady(t *testing.T) {
 	for _, pod := range pods {
 		k8s.WaitUntilPodAvailable(t, kubectlOptions, pod.Name, 10, 10*time.Second)
 	}
-
-	time.Sleep(10 * time.Second)
 }

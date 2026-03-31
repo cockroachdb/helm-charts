@@ -6,15 +6,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gruntwork-io/terratest/modules/helm"
+	"github.com/gruntwork-io/terratest/modules/k8s"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
-
-	"github.com/gruntwork-io/terratest/modules/helm"
-	"github.com/gruntwork-io/terratest/modules/k8s"
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -290,7 +289,7 @@ func TestOperatorPreUpgradeValidationRequiresV1beta1OnlyState(t *testing.T) {
 	require.NoError(t, err)
 
 	require.Contains(t, output, `V1BETA1_STORAGE=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com`)
-	require.Contains(t, output, `UPGRADE BLOCKED - v1alpha1 is still served`)
+	require.Contains(t, output, `v1alpha1 served: $V1ALPHA1_SERVED`)
 	require.Contains(t, output, `UPGRADE BLOCKED - storedVersions must be [\"v1beta1\"]`)
 	require.NotContains(t, output, `Cannot skip Phase 1`)
 	require.NotContains(t, output, `helm get manifest`)

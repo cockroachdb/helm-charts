@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+### Added
+- **Automatic Controller-Based Migration**: Migration controller for migrating CockroachDB
+  clusters from Helm StatefulSet or Public Operator (v1alpha1) to the CockroachDB Operator
+  (v1beta1). Enable with `migration.enabled=true` on the operator chart. Supports stop,
+  resume, and rollback at any phase before completion. See
+  [Helm Migration Guide](docs/migration/helm/controller_migration.md) and
+  [Operator Migration Guide](docs/migration/operator/controller_migration.md).
+- **`export-values` CLI command**: Generates a Helm `values.yaml` from a live migrated
+  v1beta1 CrdbCluster for Helm chart adoption.
+
 ## [cockroachdb-parent-26.1.1-preview+2] 2026-03-26
 ### Changed
 - **API Version Migration**: The operator now uses an image that removes `v1alpha1` entirely and keeps only `v1beta1`.

@@ -3,12 +3,15 @@ package migrate
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
 	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
 	"github.com/cockroachdb/errors"
 	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
+	networkingv1 "k8s.io/api/networking/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -28,7 +31,9 @@ type Manifest struct {
 }
 
 // NewManifest constructs a Manifest with required fields and functional options
-func NewManifest(cloudProvider, cloudRegion, kubeconfig, objectName, namespace, outputDir string) (*Manifest, error) {
+func NewManifest(
+	cloudProvider, cloudRegion, kubeconfig, objectName, namespace, outputDir string,
+) (*Manifest, error) {
 	// Ensure required fields are set
 	if cloudProvider == "" || cloudRegion == "" {
 		return nil, errors.New("cloudProvider and cloudRegion are required")
@@ -50,6 +55,29 @@ func NewManifest(cloudProvider, cloudRegion, kubeconfig, objectName, namespace, 
 	return &Manifest{
 		cloudProvider: cloudProvider,
 		cloudRegion:   cloudRegion,
+		namespace:     namespace,
+		objectName:    objectName,
+		outputDir:     outputDir,
+		clientset:     clientset,
+		dynamicClient: dynamicClient,
+	}, nil
+}
+
+func NewValuesExporter(kubeconfig, objectName, namespace, outputDir string) (*Manifest, error) {
+	config, err := clientcmd.BuildConfigFromFlags("", kubeconfig)
+	if err != nil {
+		return nil, errors.Wrap(err, "building k8s config")
+	}
+	clientset, err := kubernetes.NewForConfig(config)
+	if err != nil {
+		return nil, errors.Wrap(err, "building k8s clientset")
+	}
+	dynamicClient, err := dynamic.NewForConfig(config)
+	if err != nil {
+		return nil, errors.Wrap(err, "building k8s dynamic client")
+	}
+
+	return &Manifest{
 		namespace:     namespace,
 		objectName:    objectName,
 		outputDir:     outputDir,
@@ -136,11 +164,68 @@ func (m *Manifest) FromPublicOperator() error {
 		return errors.Wrap(err, "writing helm values to disk")
 	}
 
-	if err := buildRBACFromPublicOperator(publicCluster, m.outputDir); err != nil {
+	if err := buildRBACFromPublicOperator(publicCluster, sts, m.outputDir); err != nil {
 		return errors.Wrap(err, "building rbac from public operator")
 	}
 
 	return nil
+}
+
+// ExportValuesFromV1beta1 writes a values.yaml from the live migrated v1beta1
+// resources so Helm adoption can start from the current cluster state.
+func (m *Manifest) ExportValuesFromV1beta1() error {
+	ctx := context.TODO()
+
+	cluster := v1beta1.CrdbCluster{}
+	gvr := schema.GroupVersionResource{
+		Group:    "crdb.cockroachlabs.com",
+		Version:  "v1beta1",
+		Resource: "crdbclusters",
+	}
+	cr, err := m.dynamicClient.Resource(gvr).Namespace(m.namespace).Get(ctx, m.objectName, metav1.GetOptions{})
+	if err != nil {
+		return errors.Wrap(err, "fetching migrated v1beta1 crdbcluster")
+	}
+	if err := runtime.DefaultUnstructuredConverter.FromUnstructured(cr.Object, &cluster); err != nil {
+		return errors.Wrap(err, "unmarshalling migrated v1beta1 crdbcluster")
+	}
+
+	ingresses, err := m.loadIngressesForCluster(ctx, cluster.Name)
+	if err != nil {
+		return errors.Wrap(err, "loading ingress resources")
+	}
+
+	if err := os.MkdirAll(m.outputDir, 0755); err != nil {
+		return errors.Wrap(err, "creating output directory")
+	}
+
+	values := buildHelmValuesFromV1beta1(cluster, ingresses)
+	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{values}); err != nil {
+		return errors.Wrap(err, "writing helm values to disk")
+	}
+	return nil
+}
+
+// loadIngressesForCluster fetches the optional UI and SQL ingress resources
+// that should be carried into Helm adoption when present.
+func (m *Manifest) loadIngressesForCluster(
+	ctx context.Context, clusterName string,
+) ([]networkingv1.Ingress, error) {
+	var ingresses []networkingv1.Ingress
+	for _, name := range []string{
+		fmt.Sprintf("ui-%s", clusterName),
+		fmt.Sprintf("sql-%s", clusterName),
+	} {
+		ingress, err := m.clientset.NetworkingV1().Ingresses(m.namespace).Get(ctx, name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return nil, errors.Wrapf(err, "fetching ingress %s", name)
+		}
+		ingresses = append(ingresses, *ingress)
+	}
+	return ingresses, nil
 }
 
 func (m *Manifest) FromHelmChart() error {

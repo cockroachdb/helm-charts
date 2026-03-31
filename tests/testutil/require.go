@@ -121,6 +121,33 @@ func RequirePodToBeCreatedAndReady(t *testing.T, opts *k8s.KubectlOptions, podNa
 	))
 }
 
+func RequireServiceEndpointsAvailable(t *testing.T, opts *k8s.KubectlOptions, serviceName string, timeout time.Duration) {
+	clientset, err := k8s.GetKubernetesClientFromOptionsE(t, opts)
+	require.NoError(t, err)
+
+	ctx := context.Background()
+	require.NoError(t, wait.PollUntilContextTimeout(ctx, 5*time.Second, timeout, true,
+		func(ctx context.Context) (done bool, err error) {
+			endpoints, err := clientset.CoreV1().Endpoints(opts.Namespace).Get(ctx, serviceName, metav1.GetOptions{})
+			if err != nil {
+				if apierrors.IsNotFound(err) {
+					return false, nil
+				}
+				return false, err
+			}
+
+			for _, subset := range endpoints.Subsets {
+				if len(subset.Addresses) > 0 {
+					return true, nil
+				}
+			}
+
+			t.Logf("service %s has no ready endpoints yet", serviceName)
+			return false, nil
+		},
+	))
+}
+
 func logPods(ctx context.Context, sts *appsv1.StatefulSet, cfg *rest.Config, t *testing.T) {
 	// create a new clientset to talk to k8s.
 	clientset, err := kubernetes.NewForConfig(cfg)

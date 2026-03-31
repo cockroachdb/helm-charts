@@ -33,42 +33,18 @@ func newPublicOperatorToCockroachDbOperator() *PublicOperatorToCockroachDbOperat
 }
 
 func TestPublicOperatorToCockroachDbOperator(t *testing.T) {
+	ensureMigrationTestEnv(t)
+
 	h := newPublicOperatorToCockroachDbOperator()
 	h.TestDefaultMigration(t)
 }
 
 func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T) {
+	require.NoError(t, cleanupMigrationSuiteState(t))
+
 	o.Namespace = "cockroach" + strings.ToLower(random.UniqueId())
 	kubectlOptions := k8s.NewKubectlOptions("", "", o.Namespace)
 	k8s.CreateNamespace(t, k8s.NewKubectlOptions("", "", o.Namespace), o.Namespace)
-
-	// Clean up any CRDs from previous test runs to avoid storedVersions conflicts
-	t.Log("Cleaning up CRDs and instances from previous test runs")
-
-	// Helper to patch finalizers and delete resources
-	cleanupResources := func(resourceType string) {
-		// Get all resources of this type
-		output, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", resourceType, "--all-namespaces", "-o", "jsonpath={.items[*].metadata.name}")
-		if err == nil && output != "" {
-			resources := strings.Split(output, " ")
-			for _, res := range resources {
-				// Patch finalizers to empty to ensure deletion doesn't hang
-				k8s.RunKubectl(t, kubectlOptions, "patch", resourceType, res, "-p", "{\"metadata\":{\"finalizers\":[]}}", "--type=merge")
-				// Delete the resource
-				k8s.RunKubectl(t, kubectlOptions, "delete", resourceType, res, "--ignore-not-found=true")
-			}
-		}
-	}
-
-	// Clean up instances first
-	cleanupResources("crdbclusters.crdb.cockroachlabs.com")
-	cleanupResources("crdbnodes.crdb.cockroachlabs.com")
-	cleanupResources("crdbtenants.crdb.cockroachlabs.com")
-
-	// Now delete CRDs
-	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "crdbclusters.crdb.cockroachlabs.com", "--ignore-not-found=true", "--wait")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "crdbnodes.crdb.cockroachlabs.com", "--ignore-not-found=true", "--wait")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "crdbtenants.crdb.cockroachlabs.com", "--ignore-not-found=true", "--wait")
 
 	testutil.InstallIngressAndMetalLB(t)
 	defer func() {
@@ -137,7 +113,6 @@ func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T)
 	o.InstallOperator(t)
 
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, o.CrdbCluster, 600*time.Second)
-	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, o.CrdbCluster, false)
 	testutil.TestIngressRoutingDirect(t, "ui.local.com")
 
@@ -159,19 +134,18 @@ func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T)
 
 	t.Log("Annotating the CrdbCluster with cloudProvider and regionCode")
 	retry.DoWithRetry(t, "Annotating CrdbCluster", 5, 2*time.Second, func() (string, error) {
-		err = k8s.RunKubectlE(t, kubectlOptions, "annotate", "crdbcluster", o.CrdbCluster.StatefulSetName, "crdb.cockroachlabs.com/cloudProvider=k3d", "--overwrite")
+		err = k8s.RunKubectlE(t, kubectlOptions, "annotate", v1alpha1CrdbClusterResource, o.CrdbCluster.StatefulSetName, "crdb.cockroachlabs.com/cloudProvider=k3d", "--overwrite")
 		if err != nil {
 			return "", err
 		}
-		err = k8s.RunKubectlE(t, kubectlOptions, "annotate", "crdbcluster", o.CrdbCluster.StatefulSetName, "crdb.cockroachlabs.com/regionCode=us-east-1", "--overwrite")
+		err = k8s.RunKubectlE(t, kubectlOptions, "annotate", v1alpha1CrdbClusterResource, o.CrdbCluster.StatefulSetName, "crdb.cockroachlabs.com/regionCode=us-east-1", "--overwrite")
 		if err != nil {
 			return "", err
 		}
 		return "Successfully annotated CrdbCluster", nil
 	})
 
-	o.UninstallConflictingResources(t)
-	t.Log("Create the priority class crdb-critical which will be owned by the cockroachdb CockroachDB operator")
+	t.Log("Create the priority class crdb-critical which will be owned by the CockroachDB operator")
 	k8s.RunKubectl(t, kubectlOptions, "create", "priorityclass", "crdb-critical", "--value", "500000000")
 	defer func() {
 		t.Log("Delete the priority class crdb-critical")
@@ -182,7 +156,7 @@ func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T)
 	k8s.KubectlApply(t, kubectlOptions, filepath.Join(manifestsDirPath, "rbac.yaml"))
 
 	t.Log("Install the CockroachDB operator")
-	operator.InstallCockroachDBOperator(t, kubectlOptions)
+	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, o.Namespace)
 	defer func() {
 		t.Log("Uninstall the CockroachDB operator")
 		operator.UninstallCockroachDBOperator(t, kubectlOptions)
@@ -249,7 +223,12 @@ func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T)
 
 // verifyOperatorMigration verifies that the operator has been correctly migrated
 // from the original operator to the running pods
-func verifyOperatorMigration(t *testing.T, kubectlOptions *k8s.KubectlOptions, crdbCluster *api.CrdbCluster, clusterName string) {
+func verifyOperatorMigration(
+	t *testing.T,
+	kubectlOptions *k8s.KubectlOptions,
+	crdbCluster *api.CrdbCluster,
+	clusterName string,
+) {
 	// Get all pods for this cluster
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
@@ -262,10 +241,15 @@ func verifyOperatorMigration(t *testing.T, kubectlOptions *k8s.KubectlOptions, c
 
 // verifyMutableModeAndCleanupPublicOperator verifies that the cluster is in MutableOnly mode
 // after helm install, then uninstalls the public operator and verifies cluster stability
-func verifyMutableModeAndCleanupPublicOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, clusterName string, crdbCluster *testutil.CockroachCluster) {
+func verifyMutableModeAndCleanupPublicOperator(
+	t *testing.T,
+	kubectlOptions *k8s.KubectlOptions,
+	clusterName string,
+	crdbCluster *testutil.CockroachCluster,
+) {
 	// Verify the CrdbCluster is in MutableOnly mode
 	t.Log("Verifying CrdbCluster reconciliation mode is MutableOnly")
-	output, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "crdbcluster", clusterName, "-o", "jsonpath={.spec.mode}")
+	output, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", v1beta1CrdbClusterResource, clusterName, "-o", "jsonpath={.spec.mode}")
 	require.NoError(t, err)
 	require.Equal(t, "MutableOnly", output, "CrdbCluster should be in MutableOnly mode after helm install")
 
@@ -279,9 +263,13 @@ func verifyMutableModeAndCleanupPublicOperator(t *testing.T, kubectlOptions *k8s
 	t.Log("Uninstalling public operator deployment")
 	publicOperatorKubectlOptions := k8s.NewKubectlOptions("", "", migration.OperatorNamespace)
 	k8s.RunKubectl(t, publicOperatorKubectlOptions, "delete", "deployment", migration.OperatorDeploymentName, "--ignore-not-found=true")
-
-	// Wait for public operator deployment to be deleted
-	time.Sleep(10 * time.Second)
+	retry.DoWithRetry(t, "wait for public operator deployment deletion", 30, 2*time.Second, func() (string, error) {
+		_, err := k8s.RunKubectlAndGetOutputE(t, publicOperatorKubectlOptions, "get", "deployment", migration.OperatorDeploymentName)
+		if err != nil {
+			return "public operator deployment deleted", nil
+		}
+		return "", fmt.Errorf("public operator deployment still exists")
+	})
 
 	// Verify cluster remains stable after public operator removal
 	t.Log("Verifying cluster stability after public operator removal")
