@@ -9,10 +9,6 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
@@ -23,6 +19,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 // LocalRegion implements CloudProvider for local Kubernetes providers (K3d and Kind)
@@ -124,9 +125,6 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 			Namespace: r.Namespace[cluster],
 			Domain:    operator.CustomDomains[i],
 		}
-		if !r.IsMultiRegion {
-			break
-		}
 	}
 
 	// Update Coredns config.
@@ -143,36 +141,34 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 		// restart coredns pods.
 		err = k8s.RunKubectlE(t, kubectlOptions, "rollout", "restart", "deployment", coreDNSDeploymentName)
 		require.NoError(t, err)
-		if !r.IsMultiRegion {
-			r.Clients = clients
-			r.ReusingInfra = true
-			return
-		}
 	}
 	r.Clients = clients
 	r.ReusingInfra = true
 
-	netConfig := calico.K3dCalicoBGPPeeringOptions{
-		ClusterConfig: map[string]calico.K3dClusterBGPConfig{},
-	}
-
-	// Update network config for each region.
-	for i, region := range r.RegionCodes {
-		rawConfig.CurrentContext = r.Clusters[i]
-		kubectlOptions := k8s.NewKubectlOptions(r.Clusters[i], kubeConfig, coreDNSNamespace)
-		err := r.setupNetworking(t, context.TODO(), region, netConfig, kubectlOptions, i)
-		if err != nil {
-			t.Logf("[%s] Failed to setup networking for region %s: %v", r.ProviderType, region, err)
+	// BGP peering setup only needed for multi-region (multiple clusters)
+	if len(r.Clusters) > 1 {
+		netConfig := calico.K3dCalicoBGPPeeringOptions{
+			ClusterConfig: map[string]calico.K3dClusterBGPConfig{},
 		}
-	}
 
-	objectsByRegion := calico.K3dCalicoBGPPeeringObjects(netConfig)
-	// Apply all the objects for each region on to the cluster.
-	for i, region := range r.RegionCodes {
-		ctl := clients[r.Clusters[i]]
-		for _, obj := range objectsByRegion[region] {
-			err := ctl.Create(context.Background(), obj)
-			require.NoError(t, err)
+		// Update network config for each region.
+		for i, region := range r.RegionCodes {
+			rawConfig.CurrentContext = r.Clusters[i]
+			kubectlOptions := k8s.NewKubectlOptions(r.Clusters[i], kubeConfig, coreDNSNamespace)
+			err := r.setupNetworking(t, context.TODO(), region, netConfig, kubectlOptions, i)
+			if err != nil {
+				t.Logf("[%s] Failed to setup networking for region %s: %v", r.ProviderType, region, err)
+			}
+		}
+
+		objectsByRegion := calico.K3dCalicoBGPPeeringObjects(netConfig)
+		// Apply all the objects for each region on to the cluster.
+		for i, region := range r.RegionCodes {
+			ctl := clients[r.Clusters[i]]
+			for _, obj := range objectsByRegion[region] {
+				err := ctl.Create(context.Background(), obj)
+				require.NoError(t, err)
+			}
 		}
 	}
 }
