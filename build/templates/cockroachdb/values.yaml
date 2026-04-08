@@ -624,6 +624,10 @@ tls:
       nodeCertDuration: 8760h
       # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
       nodeCertExpiryWindow: 168h
+      # Additional Subject Alternative Names (SANs) to include in node certificates.
+      # Useful for load balancers or external endpoints that need to be included in the certificate.
+      # Example: ["my-loadbalancer.example.com", "10.20.30.40"]
+      additionalSANs: []
       # If set, the cockroachdb cert selfSigner will rotate the certificates before expiry.
       rotateCerts: true
       # Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true
@@ -679,7 +683,7 @@ tls:
     # Image Placeholder for the selfSigner utility. This will be changed once the CI workflows for the image is in place.
     image:
       repository: cockroachlabs-helm-charts/cockroach-self-signer-cert
-      tag: "1.9"
+      tag: "1.10"
       pullPolicy: IfNotPresent
       registry: gcr.io
       credentials: {}

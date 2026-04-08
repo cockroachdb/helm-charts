@@ -92,6 +92,39 @@ There are 3 ways to configure a secure cluster, with this chart. This all relate
 
 For instructions on using self-signer to provision certificates for the statefulset-based Helm chart, see the [Installation of statefulset-based Helm Chart with self-signer](../docs/certificate-management/self-signer.md#Installation-of-statefulset-based-helm-chart-with-self-signer) section in the documentation.
 
+##### Additional Subject Alternative Names (SANs) for Load Balancers
+
+When using the self-signer, you can include additional Subject Alternative Names (SANs) in node certificates. This is useful when:
+- Routing traffic through load balancers with `sslmode=verify-full`
+- Setting up Physical Cluster Replication (PCR) through external endpoints
+- Accessing the cluster through custom DNS names or IP addresses
+
+To add custom SANs, configure `tls.certs.selfSigner.additionalSANs`:
+
+```yaml
+tls:
+  enabled: true
+  certs:
+    selfSigner:
+      enabled: true
+      additionalSANs:
+        - "my-loadbalancer.example.com"
+        - "192.168.1.100"
+        - "external-endpoint.domain.com"
+```
+
+Or using Helm command-line options:
+
+```shell
+$ helm install my-release cockroachdb/cockroachdb \
+  --set tls.enabled=true \
+  --set tls.certs.selfSigner.enabled=true \
+  --set 'tls.certs.selfSigner.additionalSANs[0]=my-loadbalancer.example.com' \
+  --set 'tls.certs.selfSigner.additionalSANs[1]=192.168.1.100'
+```
+
+**Note:** The additional SANs are automatically included in both initial certificate generation and subsequent certificate rotations.
+
 #### Manual
 
 If you wish to supply the certificates to the nodes yourself set `tls.certs.provided` to `yes`/`true`. You may want to use this if you want to use a different certificate authority from the one being used by Kubernetes or if your Kubernetes cluster doesn't fully support certificate-signing requests. To use this, first set up your certificates and load them into your Kubernetes cluster as Secrets using the commands below:
@@ -369,6 +402,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.selfSigner.rotateCerts`                        | Whether to rotate the certs generate by cockroachdb                                                                                                                                                                                                                                                                                      | `true`                                                 |
 | `tls.certs.selfSigner.readinessWait`                      | Wait time for each cockroachdb replica to become ready once it comes in running state. Only considered when rotateCerts is set to true                                                                                                                                                                                                   | `30s`                                                  |
 | `tls.certs.selfSigner.podUpdateTimeout`                   | Wait time for each cockroachdb replica to get to running state. Only considered when rotateCerts is set to true                                                                                                                                                                                                                          | `2m`                                                   |
+| `tls.certs.selfSigner.additionalSANs`                     | Additional Subject Alternative Names (hostnames or IP addresses) to include in node certificates. Useful for load balancers and external endpoints                                                                                                                                                                                       | `[]`                                                   |
 | `tls.certs.certManager`                                   | Provision certificates with cert-manager                                                                                                                                                                                                                                                                                                 | `false`                                                |
 | `tls.certs.certManagerIssuer.group`                       | IssuerRef group to use when generating certificates                                                                                                                                                                                                                                                                                      | `cert-manager.io`                                      |
 | `tls.certs.certManagerIssuer.kind`                        | IssuerRef kind to use when generating certificates                                                                                                                                                                                                                                                                                       | `Issuer`                                               |
