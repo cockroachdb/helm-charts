@@ -60,7 +60,7 @@ spec:
     {{- if $serviceMonitor.scrapeTimeout }}
     scrapeTimeout: {{ $serviceMonitor.scrapeTimeout }}
     {{- end }}
-    {{- if and not .Values.visus.insecure .Values.serviceMonitor.tlsConfig }}
+    {{- if and (not .Values.visus.insecure) .Values.serviceMonitor.tlsConfig }}
     tlsConfig: {{ toYaml .Values.serviceMonitor.tlsConfig | nindent 6 }}
     {{- end }}
   {{- end }}
