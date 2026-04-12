@@ -22,7 +22,8 @@ spec:
       restartPolicy: Never
       containers:
         - name: pre-upgrade-check
-          image: dtzar/helm-kubectl:latest
+          image: "{{ .Values.hooks.image.registry }}/{{ .Values.hooks.image.repository }}:{{ .Values.hooks.image.tag }}"
+          imagePullPolicy: {{ .Values.hooks.image.pullPolicy }}
           command: ["/bin/bash", "-c"]
           args:
             - |

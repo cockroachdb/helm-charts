@@ -1,0 +1,38 @@
+# CockroachDB Helm Charts - Container Image Manifest
+#
+# This file lists all container images required by the CockroachDB Helm charts.
+# Use it to mirror images into an internal registry for air-gapped environments.
+#
+# Format: <registry>/<repository>:<tag> or <registry>/<repository>@<digest>
+#
+# To mirror all images, run:
+#   scripts/mirror-images.sh --source-file cockroachdb-parent/images.txt --target-registry <your-registry>
+
+# === Operator chart images ===
+
+# CockroachDB Operator
+us-docker.pkg.dev/releases-prod/self-hosted/cockroachdb-operator@sha256:62796d0ad9c87cb0f1f85ebcbc905235ca6c1fc3549bf2a62f5c534af0497332
+
+# Operator pre-upgrade validation hook
+docker.io/dtzar/helm-kubectl:latest
+
+# === CockroachDB chart images ===
+
+# CockroachDB database
+docker.io/cockroachdb/cockroach:v26.1.2
+
+# Certificate self-signer
+gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert:1.9
+
+# CockroachDB pre-upgrade validation hook
+docker.io/bitnami/kubectl:latest
+
+# === Operator-managed images (embedded in operator binary) ===
+# These images are pulled by the operator at runtime, not referenced in Helm values.
+# They must also be mirrored for air-gapped environments.
+
+# Init container
+us-docker.pkg.dev/releases-prod/self-hosted/init-container@sha256:bcfc9312af84c7966f017c2325981b30314c0c293491f942e54da1667bedaf69
+
+# Cert reloader (inotifywait)
+us-docker.pkg.dev/releases-prod/self-hosted/inotifywait@sha256:94db3d416e3df8d1ee2605f05b0526b3bd7217ae69b4eeb147929fe0b77aeafc

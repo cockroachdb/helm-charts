@@ -21,7 +21,8 @@ spec:
       restartPolicy: Never
       containers:
         - name: validation
-          image: bitnami/kubectl:latest
+          image: "{{ .Values.hooks.image.registry }}/{{ .Values.hooks.image.repository }}:{{ .Values.hooks.image.tag }}"
+          imagePullPolicy: {{ .Values.hooks.image.pullPolicy }}
           command:
             - /bin/bash
             - -c
