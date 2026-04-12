@@ -14,6 +14,7 @@ import (
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	corev1 "k8s.io/api/core/v1"
+	networkingv1 "k8s.io/api/networking/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
@@ -21,6 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
+	"k8s.io/utils/ptr"
 	"sigs.k8s.io/yaml"
 )
 
@@ -187,6 +189,189 @@ func TestFromOperator(t *testing.T) {
 
 }
 
+func TestExportValuesFromV1beta1(t *testing.T) {
+	clientset := fake.NewSimpleClientset()
+	dynamicClient := dynamicfake.NewSimpleDynamicClient(runtime.NewScheme())
+	ctx := context.TODO()
+	namespace := "default"
+	outputDir := t.TempDir()
+
+	cluster := v1beta1.CrdbCluster{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "CrdbCluster",
+			APIVersion: "crdb.cockroachlabs.com/v1beta1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "cockroachdb",
+			Namespace: namespace,
+		},
+		Spec: v1beta1.CrdbClusterSpec{
+			TLSEnabled: true,
+			Mode:       ptr.To(v1beta1.MutableOnly),
+			Regions: []v1beta1.CrdbClusterRegion{
+				{
+					Code:          "us-east-1",
+					CloudProvider: "k3d",
+					Namespace:     namespace,
+					Nodes:         3,
+				},
+			},
+			Template: v1beta1.CrdbNodeTemplate{
+				ObjectMeta: metav1.ObjectMeta{
+					Annotations: map[string]string{"template-scope": "ignore-me"},
+					Labels:      map[string]string{"template-scope": "ignore-me"},
+				},
+				Spec: v1beta1.CrdbNodeSpec{
+					Image: "cockroachdb/cockroach:v25.3.1",
+					Certificates: v1beta1.Certificates{
+						ExternalCertificates: &v1beta1.ExternalCertificates{
+							CAConfigMapName:         "cockroachdb-ca-crt",
+							NodeSecretName:          "cockroachdb-node-secret",
+							RootSQLClientSecretName: "cockroachdb-client-secret",
+							HTTPSecretName:          "cockroachdb-client-secret",
+						},
+					},
+					DataStore: v1beta1.DataStore{
+						VolumeClaimTemplate: &corev1.PersistentVolumeClaim{
+							ObjectMeta: metav1.ObjectMeta{Name: "datadir"},
+							Spec: corev1.PersistentVolumeClaimSpec{
+								Resources: corev1.VolumeResourceRequirements{
+									Requests: corev1.ResourceList{
+										corev1.ResourceStorage: resource.MustParse("10Gi"),
+									},
+								},
+							},
+						},
+					},
+					WALFailoverSpec: &v1beta1.CrdbWalFailoverSpec{
+						Name:   "failoverdir",
+						Path:   "/cockroach/wal-failover",
+						Size:   "1Gi",
+						Status: v1beta1.WalEnable,
+					},
+					LoggingConfigMapName: "logging-config",
+					LocalityLabels:       []string{"topology.kubernetes.io/region"},
+					GRPCPort:             ptr.To(int32(26258)),
+					HTTPPort:             ptr.To(int32(8080)),
+					SQLPort:              ptr.To(int32(26257)),
+					PodTemplate: &v1beta1.PodTemplateSpec{
+						Metadata: v1beta1.PodMeta{
+							Annotations: map[string]string{"crdb": "isCool"},
+							Labels:      map[string]string{"app": "cockroachdb"},
+						},
+						Spec: corev1.PodSpec{
+							ServiceAccountName: "crdb-test-sa",
+							PriorityClassName:  "operator-critical",
+							Containers: []corev1.Container{
+								{
+									Name:  "cockroachdb",
+									Image: "cockroachdb/cockroach:v25.3.1",
+									Resources: corev1.ResourceRequirements{
+										Requests: corev1.ResourceList{
+											corev1.ResourceCPU: resource.MustParse("200m"),
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	clusterObj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&cluster)
+	require.NoError(t, err)
+	gvr := schema.GroupVersionResource{
+		Group:    "crdb.cockroachlabs.com",
+		Version:  "v1beta1",
+		Resource: "crdbclusters",
+	}
+	_, err = dynamicClient.Resource(gvr).Namespace(namespace).Create(ctx, &unstructured.Unstructured{Object: clusterObj}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	ingressClassName := "nginx"
+	_, err = clientset.NetworkingV1().Ingresses(namespace).Create(ctx, &networkingv1.Ingress{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:        "ui-cockroachdb",
+			Namespace:   namespace,
+			Annotations: map[string]string{"nginx.ingress.kubernetes.io/backend-protocol": "HTTPS"},
+		},
+		Spec: networkingv1.IngressSpec{
+			IngressClassName: &ingressClassName,
+			Rules: []networkingv1.IngressRule{
+				{Host: "ui.local.com"},
+			},
+		},
+	}, metav1.CreateOptions{})
+	require.NoError(t, err)
+
+	m := &Manifest{
+		objectName:    cluster.Name,
+		namespace:     namespace,
+		outputDir:     outputDir,
+		clientset:     clientset,
+		dynamicClient: dynamicClient,
+	}
+
+	err = m.ExportValuesFromV1beta1()
+	require.NoError(t, err)
+
+	valuesBytes, err := os.ReadFile(filepath.Join(outputDir, "values.yaml"))
+	require.NoError(t, err)
+
+	var valuesData map[string]interface{}
+	err = yaml.Unmarshal(valuesBytes, &valuesData)
+	require.NoError(t, err)
+
+	k8sValues, ok := valuesData["k8s"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "cockroachdb", k8sValues["fullnameOverride"])
+
+	cockroachdbValues, ok := valuesData["cockroachdb"].(map[string]interface{})
+	require.True(t, ok)
+
+	tlsValues, ok := cockroachdbValues["tls"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, true, tlsValues["enabled"])
+	externalCertificates, ok := tlsValues["externalCertificates"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, true, externalCertificates["enabled"])
+
+	crdbClusterValues, ok := cockroachdbValues["crdbCluster"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "logging-config", crdbClusterValues["loggingConfigMapName"])
+	rbacValues, ok := crdbClusterValues["rbac"].(map[string]interface{})
+	require.True(t, ok)
+	serviceAccountValues, ok := rbacValues["serviceAccount"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, false, serviceAccountValues["create"])
+	assert.Equal(t, "crdb-test-sa", serviceAccountValues["name"])
+
+	podTemplateValues, ok := crdbClusterValues["podTemplate"].(map[string]interface{})
+	require.True(t, ok)
+	podTemplateMetadata, ok := podTemplateValues["metadata"].(map[string]interface{})
+	require.True(t, ok)
+	podTemplateAnnotations, ok := podTemplateMetadata["annotations"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "isCool", podTemplateAnnotations["crdb"])
+	_, templateScopeAnnotationExists := podTemplateAnnotations["template-scope"]
+	assert.False(t, templateScopeAnnotationExists)
+
+	walFailoverSpec, ok := crdbClusterValues["walFailoverSpec"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "/cockroach/wal-failover", walFailoverSpec["path"])
+
+	serviceValues, ok := crdbClusterValues["service"].(map[string]interface{})
+	require.True(t, ok)
+	ingressValues, ok := serviceValues["ingress"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, true, ingressValues["enabled"])
+	uiValues, ok := ingressValues["ui"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "ui.local.com", uiValues["host"])
+}
+
 // validateGoldenFile compares the generated file with the golden file
 func validateGoldenFile(t *testing.T, generatedFile, goldenFile string) {
 	generated, err := os.ReadFile(generatedFile)
@@ -196,9 +381,7 @@ func validateGoldenFile(t *testing.T, generatedFile, goldenFile string) {
 	require.NoError(t, err)
 
 	if *updateGolden {
-		generatedData, err := os.ReadFile(generatedFile)
-		require.NoError(t, err)
-		err = os.WriteFile(goldenFile, generatedData, 0644)
+		err = os.WriteFile(goldenFile, generated, 0644)
 		require.NoError(t, err)
 		t.Logf("Updated golden file: %s", goldenFile)
 	}

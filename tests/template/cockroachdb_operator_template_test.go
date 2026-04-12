@@ -6,15 +6,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gruntwork-io/terratest/modules/helm"
+	"github.com/gruntwork-io/terratest/modules/k8s"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
-
-	"github.com/gruntwork-io/terratest/modules/helm"
-	"github.com/gruntwork-io/terratest/modules/k8s"
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -279,49 +278,27 @@ func TestOperatorImageDigestUpdated(t *testing.T) {
 	require.Equal(t, expectedOperatorImage(t), res.Deployment.Spec.Template.Spec.Containers[0].Image)
 }
 
-// TestOperatorPreUpgradeValidationRequiresV1beta1OnlyState checks the phase 3 upgrade guardrails.
-func TestOperatorPreUpgradeValidationRequiresV1beta1OnlyState(t *testing.T) {
+// TestOperatorPreUpgradeValidationRemoved verifies the operator pre-upgrade validation
+// hook is no longer present. The operator image handles CRD version management at runtime.
+func TestOperatorPreUpgradeValidationRemoved(t *testing.T) {
 	t.Parallel()
 
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 	}
-	output, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/pre-upgrade-validation.yaml"}, "--is-upgrade")
-	require.NoError(t, err)
-
-	require.Contains(t, output, `V1BETA1_STORAGE=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com`)
-	require.Contains(t, output, `UPGRADE BLOCKED - v1alpha1 is still served`)
-	require.Contains(t, output, `UPGRADE BLOCKED - storedVersions must be [\"v1beta1\"]`)
-	require.NotContains(t, output, `Cannot skip Phase 1`)
-	require.NotContains(t, output, `helm get manifest`)
+	_, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/pre-upgrade-validation.yaml"}, "--is-upgrade")
+	require.Error(t, err, "pre-upgrade-validation.yaml should not exist in operator chart")
 }
 
-// TestOperatorHookRBACIsPreUpgradeOnly keeps the hook permissions scoped to upgrade validation.
-func TestOperatorHookRBACIsPreUpgradeOnly(t *testing.T) {
+// TestOperatorHookRBACRemoved verifies the hook RBAC template is no longer present.
+func TestOperatorHookRBACRemoved(t *testing.T) {
 	t.Parallel()
 
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 	}
-	output, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/clusterrole-hooks.yaml"})
-	require.NoError(t, err)
-
-	decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(output), 4096)
-	var role rbacv1.ClusterRole
-	var binding rbacv1.ClusterRoleBinding
-	require.NoError(t, decoder.Decode(&role))
-	require.NoError(t, decoder.Decode(&binding))
-
-	require.Equal(t, "pre-upgrade", role.Annotations["helm.sh/hook"])
-	require.Equal(t, "pre-upgrade", binding.Annotations["helm.sh/hook"])
-
-	for _, rule := range role.Rules {
-		require.NotContains(t, rule.Resources, "customresourcedefinitions/status")
-		require.NotContains(t, rule.Resources, "secrets")
-		if len(rule.APIGroups) == 1 && rule.APIGroups[0] == "crdb.cockroachlabs.com" {
-			require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
-		}
-	}
+	_, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/clusterrole-hooks.yaml"})
+	require.Error(t, err, "clusterrole-hooks.yaml should not exist in operator chart")
 }
 
 // TestOperatorStorageMigrationTemplateRemoved verifies the old storage migration hook is gone in phase 3.

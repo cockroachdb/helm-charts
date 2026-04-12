@@ -166,6 +166,40 @@ Modify the required configuration in [`cockroachdb/values.yaml`](/cockroachdb-pa
 $ helm upgrade --reuse-values $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --values ./cockroachdb-parent/charts/cockroachdb/values.yaml -n $NAMESPACE
 ```
 
+## Migration
+
+This chart can be adopted after a cluster has been migrated to the CockroachDB Operator.
+
+The supported migration paths are:
+
+* Public Operator `v1alpha1` `CrdbCluster` to CockroachDB Operator `v1beta1` `CrdbCluster`
+* StatefulSet based Helm deployment to CockroachDB Operator `v1beta1` `CrdbCluster`
+
+This is different from the older CockroachDB Operator API transition where existing
+CockroachDB Operator users moved from the Operator's own `v1alpha1` API to `v1beta1`.
+
+For the migration steps, use the dedicated guides:
+
+* Automatic migration from Public Operator to CockroachDB Operator: [docs/migration/operator/controller_migration.md](../../../docs/migration/operator/controller_migration.md)
+* Automatic migration from StatefulSet to CockroachDB Operator: [docs/migration/helm/controller_migration.md](../../../docs/migration/helm/controller_migration.md)
+* Manual migration guides: [docs/migration/operator/README.md](../../../docs/migration/operator/README.md) and [docs/migration/helm/README.md](../../../docs/migration/helm/README.md)
+
+After migration is complete, generate a values file from the live migrated resources before
+adopting this chart with Helm:
+
+```shell
+$ ./bin/migration-helper export-values --crdb-cluster $CRDBCLUSTER --namespace $NAMESPACE --output-dir ./manifests
+$ helm upgrade $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --set migration.enabled=true --values ./manifests/values.yaml -n $NAMESPACE
+```
+
+For controller migration flows:
+
+* install the operator chart with `--set migration.enabled=true`
+* adopt the `cockroachdb` chart with `--set migration.enabled=true`
+
+Do not set `migration.enabled=true` for the normal CockroachDB Operator API version
+transition covered by the phase 3 upgrade path.
+
 ## Scale Up/Down CockroachDB cluster
 
 Update the nodes accordingly under `regions` section and perform the helm upgrade:
