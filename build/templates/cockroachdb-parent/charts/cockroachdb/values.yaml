@@ -544,6 +544,19 @@ cockroachdb:
     #   # Possible Values: disabled, primary, standby
     #   mode: "disabled"
 
+# hooks captures the configuration for Helm hook jobs (pre-upgrade validation, etc.).
+# Override these values to use images from an internal registry in air-gapped environments.
+hooks:
+  image:
+    # registry defines the container registry for the hook image.
+    registry: docker.io
+    # repository defines the image repository for the hook container.
+    repository: bitnami/kubectl
+    # tag defines the image tag for the hook container.
+    tag: latest
+    # pullPolicy defines the image pull policy for the hook container.
+    pullPolicy: IfNotPresent
+
 k8s:
   # nameOverride overrides the name of the chart. If not set, the chart name will be used.
   # For example, if the chart name is "cockroachdb" and nameOverride is set to "crdb",
