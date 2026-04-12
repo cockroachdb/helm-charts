@@ -22,7 +22,10 @@ spec:
       restartPolicy: Never
       containers:
         - name: pre-upgrade-check
-          image: dtzar/helm-kubectl:latest
+          {{- $hooks := .Values.hooks | default dict }}
+          {{- $kubectlImage := $hooks.kubectlImage | default dict }}
+          image: "{{ $kubectlImage.registry | default "docker.io" }}/{{ $kubectlImage.repository | default "dtzar/helm-kubectl" }}:{{ $kubectlImage.tag | default "3.19" }}"
+          imagePullPolicy: {{ $kubectlImage.pullPolicy | default "IfNotPresent" }}
           command: ["/bin/bash", "-c"]
           args:
             - |

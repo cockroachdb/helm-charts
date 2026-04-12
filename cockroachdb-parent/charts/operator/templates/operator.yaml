@@ -525,6 +525,10 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: RELATED_IMAGE_INIT_CONTAINER
+              value: "{{ .Values.image.registry }}/cockroachdb-init-container:{{ .Values.image.tag }}"
+            - name: RELATED_IMAGE_INOTIFYWAIT
+              value: "{{ .Values.image.registry }}/cockroachdb-cert-reloader:{{ .Values.image.tag }}"
             - name: CLOUD_REGION
               value: {{ .Values.cloudRegion }}
             # When watchNamespaces is set, restrict the operator to those namespaces only.

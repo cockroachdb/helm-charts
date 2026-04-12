@@ -3,13 +3,13 @@
 # image captures the container image settings for Operator pods.
 image:
   # registry is the container registry where the image is stored.
-  registry: "us-docker.pkg.dev/releases-prod/self-hosted"
+  registry: "docker.io/cockroachdb"
   # repository defines the image repository.
-  repository: "cockroachdb-operator@sha256"
+  repository: "cockroachdb-operator-v2"
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
   # tag is the image tag.
-  tag: "62796d0ad9c87cb0f1f85ebcbc905235ca6c1fc3549bf2a62f5c534af0497332"
+  tag: "1.0.0-rc.1"
 # certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.
@@ -38,3 +38,20 @@ appLabel: "cockroach-operator"
 # startup; certs rotate on every pod restart. When false (default), Helm provisions a stable
 # cockroach-operator-certs Secret. Switching requires deleting that Secret first.
 selfSignedOperatorCerts: false
+# hooks captures the configuration for Helm hook jobs (pre-upgrade validation, etc.).
+# All hook jobs use the image defined here by default. Override these
+# values to use images from an internal registry in air-gapped environments.
+hooks:
+  # kubectlImage is the container image used by hook jobs that run kubectl commands.
+  # If a future hook requires a different image (e.g., cockroach sql), add a new
+  # sibling key (e.g., hooks.cockroachImage) rather than overloading this one.
+  kubectlImage:
+    # registry defines the container registry for the hook image.
+    registry: docker.io
+    # repository defines the image repository for the hook container.
+    repository: dtzar/helm-kubectl
+    # tag defines the image tag for the hook container. Pinned for reproducibility
+    # in air-gapped environments.
+    tag: "3.19"
+    # pullPolicy defines the image pull policy for the hook container.
+    pullPolicy: IfNotPresent
