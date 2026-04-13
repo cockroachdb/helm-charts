@@ -35,8 +35,8 @@ func InstallCertManager(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 	_, err := helm.RunHelmCommandAndGetOutputE(t, &helm.Options{}, "repo", jetStackRepoAdd...)
 	require.NoError(t, err)
 
-	certManagerInstall := []string{"cert-manager", "jetstack/cert-manager", "--create-namespace", "--set", "installCRDs=true", "--wait"}
-	output, err := helm.RunHelmCommandAndGetOutputE(t, certManagerHelmOptions, "install", certManagerInstall...)
+	certManagerInstall := []string{"cert-manager", "jetstack/cert-manager", "--install", "--create-namespace", "--set", "installCRDs=true", "--wait"}
+	output, err := helm.RunHelmCommandAndGetOutputE(t, certManagerHelmOptions, "upgrade", certManagerInstall...)
 	require.NoError(t, err)
 	t.Log(output)
 
@@ -53,9 +53,9 @@ func InstallTrustManager(t *testing.T, kubectlOptions *k8s.KubectlOptions, trust
 	trustManagerHelmOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
 	}
-	trustManagerInstall := []string{"trust-manager", "jetstack/trust-manager", "--create-namespace",
+	trustManagerInstall := []string{"trust-manager", "jetstack/trust-manager", "--install", "--create-namespace",
 		"--set", fmt.Sprintf("app.trust.namespace=%s", trustNamespace), "--wait"}
-	output, err := helm.RunHelmCommandAndGetOutputE(t, trustManagerHelmOptions, "install", trustManagerInstall...)
+	output, err := helm.RunHelmCommandAndGetOutputE(t, trustManagerHelmOptions, "upgrade", trustManagerInstall...)
 	require.NoError(t, err)
 	t.Log(output)
 
@@ -94,7 +94,9 @@ func DeleteCertManager(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 	certManagerHelmOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
 	}
-	helm.Delete(t, certManagerHelmOptions, "cert-manager", true)
+	if err := helm.DeleteE(t, certManagerHelmOptions, "cert-manager", true); err != nil {
+		t.Logf("Warning: failed to delete cert-manager release: %v", err)
+	}
 }
 
 // DeleteTrustManager deletes the trust-manager release.
@@ -102,14 +104,18 @@ func DeleteTrustManager(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 	certManagerHelmOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
 	}
-	helm.Delete(t, certManagerHelmOptions, "trust-manager", true)
+	if err := helm.DeleteE(t, certManagerHelmOptions, "trust-manager", true); err != nil {
+		t.Logf("Warning: failed to delete trust-manager release: %v", err)
+	}
 
 	// Clean up Bundle CRD if it still exists
 	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "bundles.trust.cert-manager.io", "--ignore-not-found=true")
 }
 
 // CreateSelfSignedIssuer creates a self-signed issuer which is used to sign the self signed CA certificate.
-func CreateSelfSignedIssuer(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
+func CreateSelfSignedIssuer(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string,
+) {
 	issuerCreateData := fmt.Sprintf(`
 apiVersion: cert-manager.io/v1
 kind: Issuer
@@ -127,13 +133,17 @@ spec:
 }
 
 // DeleteSelfSignedIssuer deletes the self-signed issuer.
-func DeleteSelfSignedIssuer(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
+func DeleteSelfSignedIssuer(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string,
+) {
 	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", selfSignedIssuerYaml)
 	_ = os.Remove(selfSignedIssuerYaml)
 }
 
 // CreateSelfSignedCertificate creates a self-signed certificate which is stored in a secret.
-func CreateSelfSignedCertificate(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
+func CreateSelfSignedCertificate(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string,
+) {
 	certCreateData := fmt.Sprintf(`
 apiVersion: cert-manager.io/v1
 kind: Certificate
@@ -161,7 +171,9 @@ spec:
 	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", caCertYaml)
 }
 
-func DeleteSelfSignedCertificate(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
+func DeleteSelfSignedCertificate(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string,
+) {
 	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", caCertYaml)
 	_ = os.Remove(caCertYaml)
 }
@@ -192,7 +204,9 @@ func DeleteCAIssuer(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerName
 }
 
 // CreateBundle creates a bundle which transfers the CA certificate from secret to configmap in the target namespace.
-func CreateBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions, caSecretName, caConfigMapName string) {
+func CreateBundle(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, caSecretName, caConfigMapName string,
+) {
 	bundleCreateData := fmt.Sprintf(`
 apiVersion: trust.cert-manager.io/v1alpha1
 kind: Bundle

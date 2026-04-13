@@ -6,11 +6,11 @@ image:
   # registry is the container registry where the image is stored.
   registry: "us-docker.pkg.dev/releases-prod/self-hosted"
   # repository defines the image repository.
-  repository: "cockroachdb-operator@sha256"
+  repository: "cockroachdb-operator"
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
   # tag is the image tag.
-  tag: "62796d0ad9c87cb0f1f85ebcbc905235ca6c1fc3549bf2a62f5c534af0497332"
+  tag: "sh-migration-v0.0.1"
 # certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.
@@ -39,3 +39,7 @@ appLabel: "cockroach-operator"
 # startup; certs rotate on every pod restart. When false (default), Helm provisions a stable
 # cockroach-operator-certs Secret. Switching requires deleting that Secret first.
 selfSignedOperatorCerts: false
+# migration defines the migration settings for the Operator.
+migration:
+  # enabled determines if the migration controller should be enabled.
+  enabled: false

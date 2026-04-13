@@ -196,11 +196,15 @@ kubectl delete poddisruptionbudget $CRDBCLUSTER
 Finally, install the CrdbCluster via helm. Use the `--force` flag to handle field ownership transfer:
 
 ```bash
-helm upgrade --install $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb -f manifests/values.yaml --force
+helm upgrade --install $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --set migration.enabled=true -f manifests/values.yaml --force
 ```
 
 **Why `--force` is needed:**
 The `--force` flag tells helm to recreate the CrdbCluster resource, which transfers field ownership from the public operator to helm. This allows helm to apply all values from `values.yaml` including `mode: MutableOnly`.
+
+Use `migration.enabled=true` only for migration adoption. Existing CockroachDB Operator
+customers following the phase 3 API version transition should use the normal upgrade path
+without this flag.
 
 **Note**: The `--force` flag only recreates the CRD resource object, not the actual pods. Since:
 - The CockroachDB operator starts in Disabled mode (from conversion webhook)

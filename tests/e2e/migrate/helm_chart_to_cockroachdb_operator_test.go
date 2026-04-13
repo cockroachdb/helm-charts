@@ -3,8 +3,10 @@ package migrate
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -35,6 +37,22 @@ var (
 	NodeSecret          = fmt.Sprintf("%s-cockroachdb-node-secret", releaseName)
 	CASecret            = fmt.Sprintf("%s-cockroachdb-ca-secret", releaseName)
 	isCaUserProvided    = false
+	migrationEnvOnce    sync.Once
+	migrationEnvErr     error
+)
+
+var (
+	migrationSuiteResources = []string{
+		"crdbnodes.v1beta1.crdb.cockroachlabs.com",
+		"crdbtenants.v1beta1.crdb.cockroachlabs.com",
+		"crdbclusters.v1beta1.crdb.cockroachlabs.com",
+		"crdbclusters.v1alpha1.crdb.cockroachlabs.com",
+	}
+	migrationSuiteCRDs = []string{
+		"crdbclusters.crdb.cockroachlabs.com",
+		"crdbnodes.crdb.cockroachlabs.com",
+		"crdbtenants.crdb.cockroachlabs.com",
+	}
 )
 
 type HelmChartToOperator struct {
@@ -45,21 +63,122 @@ func newHelmChartToOperator() *HelmChartToOperator {
 	return &HelmChartToOperator{}
 }
 
-func init() {
+func ensureMigrationTestEnv(t *testing.T) {
+	t.Helper()
+
+	migrationEnvOnce.Do(func() {
+		migrationEnvErr = ensureMigrationHelperBinary()
+		if migrationEnvErr != nil {
+			return
+		}
+		migrationEnvErr = ensureK3DCluster()
+		if migrationEnvErr != nil {
+			return
+		}
+		migrationEnvErr = cleanupMigrationSuiteState(t)
+		if migrationEnvErr != nil {
+			return
+		}
+		migrationEnvErr = initMigrationClient()
+	})
+
+	require.NoError(t, migrationEnvErr)
+}
+
+func ensureMigrationHelperBinary() error {
+	cmd := exec.Command("make", "bin/migration-helper")
+	cmd.Dir = rootPath
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func cleanupMigrationSuiteState(t *testing.T) error {
+	t.Helper()
+	t.Log("Cleaning migrate CRDs and custom resources")
+
+	kubectlPath := filepath.Join(rootPath, "bin", "kubectl")
+	if _, err := os.Stat(kubectlPath); err != nil {
+		return err
+	}
+
+	for _, resource := range migrationSuiteResources {
+		listCmd := exec.Command(kubectlPath, "get", resource, "--all-namespaces",
+			"-o", "jsonpath={range .items[*]}{.metadata.namespace}{\"\\t\"}{.metadata.name}{\"\\n\"}{end}")
+		listCmd.Dir = rootPath
+		output, err := listCmd.Output()
+		if err != nil {
+			continue
+		}
+
+		for _, line := range strings.Split(strings.TrimSpace(string(output)), "\n") {
+			if line == "" {
+				continue
+			}
+			parts := strings.Split(line, "\t")
+			if len(parts) != 2 {
+				continue
+			}
+
+			patchCmd := exec.Command(kubectlPath, "patch", resource, parts[1], "-n", parts[0],
+				"--type=merge", "-p", "{\"metadata\":{\"finalizers\":[]}}")
+			patchCmd.Dir = rootPath
+			_, _ = patchCmd.CombinedOutput()
+
+			deleteCmd := exec.Command(kubectlPath, "delete", resource, parts[1], "-n", parts[0],
+				"--ignore-not-found=true", "--wait=true", "--timeout=60s")
+			deleteCmd.Dir = rootPath
+			_, _ = deleteCmd.CombinedOutput()
+		}
+	}
+
+	for _, crd := range migrationSuiteCRDs {
+		deleteCmd := exec.Command(kubectlPath, "delete", "crd", crd, "--ignore-not-found=true", "--wait=true", "--timeout=60s")
+		deleteCmd.Dir = rootPath
+		_, _ = deleteCmd.CombinedOutput()
+	}
+
+	return nil
+}
+
+func ensureK3DCluster() error {
+	k3dPath := filepath.Join(rootPath, "bin", "k3d")
+	expectedClusterName := strings.TrimPrefix(k3dClusterName, "k3d-")
+
+	if _, err := os.Stat(k3dPath); err == nil {
+		cmd := exec.Command(k3dPath, "cluster", "list", "--output", "name")
+		cmd.Dir = rootPath
+		output, err := cmd.Output()
+		if err == nil && strings.Contains(string(output), expectedClusterName) {
+			return nil
+		}
+	}
+
+	cmd := exec.Command("make", "test/cluster/up/3")
+	cmd.Dir = rootPath
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	return cmd.Run()
+}
+
+func initMigrationClient() error {
 	var err error
 	runtimeScheme := runtime.NewScheme()
 	_ = kscheme.AddToScheme(runtimeScheme)
 	_ = api.AddToScheme(runtimeScheme)
-	cfg = ctrl.GetConfigOrDie()
+	cfg, err = ctrl.GetConfig()
+	if err != nil {
+		return err
+	}
 	k8sClient, err = client.New(cfg, client.Options{
 		Scheme: runtimeScheme,
 	})
-	if err != nil {
-		panic(err)
-	}
+	return err
 }
 
 func TestHelmChartToOperatorMigration(t *testing.T) {
+	ensureMigrationTestEnv(t)
+
 	h := newHelmChartToOperator()
 	t.Run("helm chart to CockroachDB operator migration", h.TestDefaultMigration)
 	t.Run("helm chart to CockroachDB operator migration with cert manager", h.TestCertManagerMigration)
@@ -101,52 +220,28 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 
 	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
 
-	// Clean up any CRDs from previous test runs to avoid storedVersions conflicts
-	t.Log("Cleaning up CRDs and instances from previous test runs")
-
-	// Helper to patch finalizers and delete resources
-	cleanupResources := func(resourceType string) {
-		// Get all resources of this type
-		output, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", resourceType, "--all-namespaces", "-o", "jsonpath={.items[*].metadata.name}")
-		if err == nil && output != "" {
-			resources := strings.Split(output, " ")
-			for _, res := range resources {
-				// Patch finalizers to empty to ensure deletion doesn't hang
-				k8s.RunKubectl(t, kubectlOptions, "patch", resourceType, res, "-p", "{\"metadata\":{\"finalizers\":[]}}", "--type=merge")
-				// Delete the resource
-				k8s.RunKubectl(t, kubectlOptions, "delete", resourceType, res, "--ignore-not-found=true")
-			}
-		}
-	}
-
-	// Clean up instances first
-	cleanupResources("crdbclusters.crdb.cockroachlabs.com")
-	cleanupResources("crdbnodes.crdb.cockroachlabs.com")
-	cleanupResources("crdbtenants.crdb.cockroachlabs.com")
-
-	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "crdbclusters.crdb.cockroachlabs.com", "--ignore-not-found=true", "--wait")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "crdbnodes.crdb.cockroachlabs.com", "--ignore-not-found=true", "--wait")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "crd", "crdbtenants.crdb.cockroachlabs.com", "--ignore-not-found=true", "--wait")
-
 	h.InstallHelm(t)
 	h.ValidateCRDB(t)
 
-	t.Log("Migrate the existing helm chart to Cockroach CockroachDB Operator")
+	t.Log("Migrate the existing helm chart to CockroachDB Operator")
 
 	prepareForMigration(t, h.CrdbCluster.StatefulSetName, h.Namespace, CASecret, "helm")
 	defer func() {
 		_ = os.RemoveAll(manifestsDirPath)
 	}()
 
-	t.Log("Install the cockroachdb CockroachDB operator")
+	t.Log("Install the CockroachDB operator")
 	k8s.RunKubectl(t, kubectlOptions, "create", "priorityclass", "crdb-critical", "--value", "500000000")
 	defer func() {
 		t.Log("Delete the priority class crdb-critical")
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBOperator(t, kubectlOptions)
+	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace)
 	defer func() {
+		t.Log("helm uninstall the crdbcluster CR from the helm chart")
+		h.Uninstall(t)
+		waitForClusterResourcesGone(t, kubectlOptions)
 		t.Log("Uninstall the CockroachDB operator")
 		operator.UninstallCockroachDBOperator(t, kubectlOptions)
 	}()
@@ -167,13 +262,13 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	require.Contains(t, string(valuesContent), "size: 1Gi")
 	require.Contains(t, string(valuesContent), "status: enable")
 
-	t.Log("helm upgrade the cockroach CockroachDB operator")
+	t.Log("helm upgrade the CockroachDB operator")
 	helmPath, _ := operator.HelmChartPaths()
 	err = helm.UpgradeE(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 	}, helmPath, releaseName)
-	require.ErrorContains(t, err, "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB CockroachDB Operator.")
+	require.ErrorContains(t, err, "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Operator.")
 
 	t.Log("Delete the StatefulSet as helm upgrade can proceed only if no StatefulSet is present")
 	k8s.RunKubectl(t, kubectlOptions, "delete", "statefulset", h.CrdbCluster.StatefulSetName)
@@ -187,10 +282,6 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 		podName := fmt.Sprintf("%s-%d", h.CrdbCluster.StatefulSetName, i)
 		testutil.RequirePodToBeCreatedAndReady(t, kubectlOptions, podName, 300*time.Second)
 	}
-	defer func() {
-		t.Log("helm uninstall the crdbcluster CR from the helm chart")
-		h.Uninstall(t)
-	}()
 
 	h.ValidateExistingData = true
 	h.ValidateCRDB(t)
@@ -205,6 +296,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 	testutil.InstallCertManager(t, certManagerK8sOptions)
 	// ... and make sure to delete the helm release at the end of the test.
 	defer func() {
+		testutil.DeleteTrustManager(t, certManagerK8sOptions)
 		testutil.DeleteCertManager(t, certManagerK8sOptions)
 		k8s.DeleteNamespace(t, certManagerK8sOptions, testutil.CertManagerNamespace)
 	}()
@@ -242,7 +334,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 	h.InstallHelm(t)
 	h.ValidateCRDB(t)
 
-	t.Log("Migrate the existing helm chart to Cockroach CockroachDB Operator")
+	t.Log("Migrate the existing helm chart to CockroachDB Operator")
 
 	prepareForMigration(t, h.CrdbCluster.StatefulSetName, h.Namespace, CASecret, "helm")
 	defer func() {
@@ -256,15 +348,18 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 		testutil.DeleteBundle(t, kubectlOptions)
 	}()
 
-	t.Log("Install the cockroachdb CockroachDB operator")
+	t.Log("Install the CockroachDB operator")
 	k8s.RunKubectl(t, kubectlOptions, "create", "priorityclass", "crdb-critical", "--value", "500000000")
 	defer func() {
 		t.Log("Delete the priority class crdb-critical")
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBOperator(t, kubectlOptions)
+	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace)
 	defer func() {
+		t.Log("helm uninstall the crdbcluster CR from the helm chart")
+		h.Uninstall(t)
+		waitForClusterResourcesGone(t, kubectlOptions)
 		t.Log("Uninstall the CockroachDB operator")
 		operator.UninstallCockroachDBOperator(t, kubectlOptions)
 	}()
@@ -290,17 +385,9 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 		podName := fmt.Sprintf("%s-%d", h.CrdbCluster.StatefulSetName, i)
 		testutil.RequirePodToBeCreatedAndReady(t, kubectlOptions, podName, 300*time.Second)
 	}
-	defer func() {
-		t.Log("helm uninstall the crdbcluster CR from the helm chart")
-		h.Uninstall(t)
-	}()
-
-	k8s.RunKubectl(t, kubectlOptions, "create", "-f", filepath.Join(manifestsDirPath, fmt.Sprintf("%s-cockroachdb-ca-cert.yaml", releaseName)))
-	k8s.RunKubectl(t, kubectlOptions, "create", "-f", filepath.Join(manifestsDirPath, fmt.Sprintf("%s-cockroachdb-ca-issuer.yaml", releaseName)))
 
 	h.ValidateExistingData = true
 	h.ValidateCRDB(t)
-	h.ValidateCertManagerResources(t)
 }
 
 func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
@@ -319,19 +406,19 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 	}
 	h.HelmOptions = &helm.Options{
 		SetValues: testutil.PatchHelmValues(map[string]string{
-			"operator.enabled":                           "false",
-			"conf.cluster-name":                         "test",
-			"init.provisioning.enabled":                 "true",
-			"init.provisioning.databases[0].name":       migration.TestDBName,
-			"init.provisioning.databases[0].owners[0]":  "root",
-			"statefulset.labels.app":                    "cockroachdb",
-			"conf.locality":                             "topology.kubernetes.io/region=us-east-1",
-			"storage.PersistentVolume.enabled":          "true",
-			"conf.log.enabled":                          "true",
-			"conf.log.config.file-defaults.dir":         "/cockroach/test-logs",
-			"conf.log.persistentVolume.enabled":         "true",
-			"conf.log.persistentVolume.path":            "test-logs",
-			"conf.log.persistentVolume.size":            "1Gi",
+			"operator.enabled":                         "false",
+			"conf.cluster-name":                        "test",
+			"init.provisioning.enabled":                "true",
+			"init.provisioning.databases[0].name":      migration.TestDBName,
+			"init.provisioning.databases[0].owners[0]": "root",
+			"statefulset.labels.app":                   "cockroachdb",
+			"conf.locality":                            "topology.kubernetes.io/region=us-east-1",
+			"storage.PersistentVolume.enabled":         "true",
+			"conf.log.enabled":                         "true",
+			"conf.log.config.file-defaults.dir":        "/cockroach/test-logs",
+			"conf.log.persistentVolume.enabled":        "true",
+			"conf.log.persistentVolume.path":           "test-logs",
+			"conf.log.persistentVolume.size":           "1Gi",
 		}),
 	}
 
@@ -346,7 +433,7 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "get", "pvc", pvcName)
 	}
 
-	t.Log("Migrate the existing helm chart to Cockroach Enterprise Operator")
+	t.Log("Migrate the existing helm chart to CockroachDB Operator")
 	prepareForMigration(t, h.CrdbCluster.StatefulSetName, h.Namespace, CASecret, "helm")
 	defer func() {
 		_ = os.RemoveAll(manifestsDirPath)
@@ -374,17 +461,20 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 		require.Contains(t, string(nodeManifest), "mountPath: /cockroach/test-logs")
 	}
 
-	t.Log("Install the cockroachdb enterprise operator")
+	t.Log("Install the CockroachDB Operator")
 	k8s.RunKubectl(t, kubectlOptions, "create", "priorityclass", "crdb-critical", "--value", "500000000")
 	defer func() {
 		t.Log("Delete the priority class crdb-critical")
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace)
 	defer func() {
-		t.Log("Uninstall the cockroachdb enterprise operator")
-		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+		t.Log("helm uninstall the crdbcluster CR from the helm chart")
+		h.Uninstall(t)
+		waitForClusterResourcesGone(t, kubectlOptions)
+		t.Log("Uninstall the CockroachDB Operator")
+		operator.UninstallCockroachDBOperator(t, kubectlOptions)
 	}()
 
 	migratePodsToCrdbNodes(t, h.CrdbCluster, h.Namespace)
@@ -400,13 +490,13 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "get", "pvc", pvcName)
 	}
 
-	t.Log("helm upgrade the cockroach enterprise operator")
+	t.Log("helm upgrade the CockroachDB Operator")
 	helmPath, _ := operator.HelmChartPaths()
 	err = helm.UpgradeE(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{valuesFile},
 	}, helmPath, releaseName)
-	require.ErrorContains(t, err, "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Enterprise Operator.")
+	require.ErrorContains(t, err, "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Operator.")
 
 	t.Log("Delete the StatefulSet as helm upgrade can proceed only if no StatefulSet is present")
 	k8s.RunKubectl(t, kubectlOptions, "delete", "statefulset", h.CrdbCluster.StatefulSetName)
@@ -469,15 +559,18 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 		_ = os.RemoveAll(manifestsDirPath)
 	}()
 
-	t.Log("Install the cockroachdb CockroachDB operator")
+	t.Log("Install the CockroachDB operator")
 	k8s.RunKubectl(t, kubectlOptions, "create", "priorityclass", "crdb-critical", "--value", "500000000")
 	defer func() {
 		t.Log("Delete the priority class crdb-critical")
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBOperator(t, kubectlOptions)
+	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace)
 	defer func() {
+		t.Log("helm uninstall the crdbcluster CR from the helm chart")
+		h.Uninstall(t)
+		waitForClusterResourcesGone(t, kubectlOptions)
 		t.Log("Uninstall the CockroachDB operator")
 		operator.UninstallCockroachDBOperator(t, kubectlOptions)
 	}()
@@ -502,7 +595,7 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 	}, helmPath, releaseName)
-	require.ErrorContains(t, err, "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB CockroachDB Operator.")
+	require.ErrorContains(t, err, "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Operator.")
 
 	t.Log("Delete the StatefulSet as helm upgrade can proceed only if no StatefulSet is present")
 	k8s.RunKubectl(t, kubectlOptions, "delete", "statefulset", h.CrdbCluster.StatefulSetName)
@@ -516,10 +609,6 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 		podName := fmt.Sprintf("%s-%d", h.CrdbCluster.StatefulSetName, i)
 		testutil.RequirePodToBeCreatedAndReady(t, kubectlOptions, podName, 300*time.Second)
 	}
-	defer func() {
-		t.Log("helm uninstall the crdbcluster CR from the helm chart")
-		h.Uninstall(t)
-	}()
 
 	h.ValidateExistingData = true
 	h.ValidateCRDB(t)
