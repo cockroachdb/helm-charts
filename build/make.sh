@@ -38,7 +38,7 @@ chart_version_exists() {
   helm repo add cockroachdb "https://${charts_hostname}" --force-update
   helm repo update
 
-  existing_version=$(grep 'version:' cockroachdb/Chart.yaml | awk '{print $2}')
+  existing_version=$(bin/yq '.version' cockroachdb/Chart.yaml)
   if helm search repo cockroachdb/cockroachdb --version "$existing_version" | grep $existing_version; then
     echo "Chart version $existing_version already exists in the repository."
     return 1
@@ -67,7 +67,7 @@ v2_chart_version_exists() {
   helm repo update cockroachdb-v2 2>/dev/null || true
 
   local existing_version
-  existing_version=$(grep 'version:' "${chart_dir}/Chart.yaml" | awk '{print $2}')
+  existing_version=$(bin/yq '.version' "${chart_dir}/Chart.yaml")
   # Use --devel to also match prerelease versions (e.g., 26.1.2-preview).
   if helm search repo "cockroachdb-v2/${chart_name}" --devel --version "$existing_version" 2>/dev/null | grep -q "$existing_version"; then
     echo "Chart ${chart_name} version $existing_version already exists in v2 repository."

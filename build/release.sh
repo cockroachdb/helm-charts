@@ -68,8 +68,13 @@ release_v2() {
 
   gcs_authenticate
 
-  # Push v2 chart packages and index.yaml to GCS under /v2/ prefix.
-  gsutil rsync -x old-index.yaml "build/artifacts/v2/" "gs://${gcs_bucket}/v2/"
+  # Upload v2 chart packages and index.yaml individually to GCS.
+  # Using explicit cp instead of rsync to avoid any risk of deleting
+  # previously published charts that were skipped in this build.
+  for tgz in build/artifacts/v2/*.tgz; do
+    gsutil cp "$tgz" "gs://${gcs_bucket}/v2/"
+  done
+  gsutil cp "build/artifacts/v2/index.yaml" "gs://${gcs_bucket}/v2/index.yaml"
 
   # Invalidate cached v2 index.yaml.
   gcloud --project "$google_project" compute url-maps invalidate-cdn-cache "$lb_name" --path "/v2/index.yaml" --async
