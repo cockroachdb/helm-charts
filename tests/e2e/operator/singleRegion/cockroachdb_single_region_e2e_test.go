@@ -38,6 +38,8 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			provider = infra.ProviderKind
 		case "gcp":
 			provider = infra.ProviderGCP
+		case "azure":
+			provider = infra.ProviderAzure
 		default:
 			t.Fatalf("Unsupported provider override: %s", p)
 		}
@@ -61,8 +63,21 @@ func TestOperatorInSingleRegion(t *testing.T) {
 
 		providerRegion.Provider = provider
 		clusterName := fmt.Sprintf("%s-%s", providerRegion.Provider, operator.Clusters[0])
+		// For Azure, use AZURE_RESOURCE_PREFIX as the base name so resources are
+		// easy to identify and clean up in a shared subscription.
+		if provider == infra.ProviderAzure {
+			if prefix := strings.TrimSpace(os.Getenv("AZURE_RESOURCE_PREFIX")); prefix != "" {
+				clusterName = fmt.Sprintf("%s-cluster-0", prefix)
+			}
+		}
 		if provider != infra.ProviderK3D && provider != infra.ProviderKind {
-			clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
+			if names := strings.TrimSpace(os.Getenv("CLUSTER_NAMES")); names != "" {
+				// Use the first name from the comma-separated list so that an
+				// existing cluster from a previous INFRA_ONLY run can be reused.
+				clusterName = strings.TrimSpace(strings.SplitN(names, ",", 2)[0])
+			} else {
+				clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
+			}
 		}
 		providerRegion.Clusters = append(providerRegion.Clusters, clusterName)
 
@@ -432,6 +447,23 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 func (r *singleRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.CloudProvider) {
 	cluster := r.Clusters[0]
 	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
+
+	// Capture the original node count and schedule a scale-back BEFORE the other cleanup
+	// defers so that this scale-back runs LAST (Go defers are LIFO). This ensures the
+	// node pool is scaled back only after CockroachDB pods have been removed, preventing
+	// the AKS autoscaler from draining nodes and transiently creating extra pods during
+	// subsequent tests (e.g. TestClusterRollingRestart).
+	originalNodeCount := r.NodeCount
+	r.NodeCount += 1
+	if cloudProvider.CanScale() {
+		defer func() {
+			t.Logf("Scaling node pool back to %d after TestClusterScaleUp", originalNodeCount)
+			cloudProvider.ScaleNodePool(t, r.RegionCodes[0], originalNodeCount, 0)
+			r.NodeCount = originalNodeCount
+		}()
+	} else {
+		defer func() { r.NodeCount = originalNodeCount }()
+	}
 
 	// Cleanup resources.
 	defer r.CleanupResources(t)
