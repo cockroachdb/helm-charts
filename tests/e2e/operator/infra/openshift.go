@@ -454,17 +454,20 @@ func (r *OpenShiftRegion) provisionCluster(
 	}
 	f.Close()
 
-	t.Logf("[%s] Running: openshift-install create cluster --dir=%s", ProviderOpenShift, installDir)
+	// Use debug log level to capture full bootstrap diagnostics in the test
+	// output (bootstrap serial console, ignition status, container pull progress).
+	logLevel := "debug"
+	if os.Getenv("OPENSHIFT_INSTALL_LOG_LEVEL") != "" {
+		logLevel = os.Getenv("OPENSHIFT_INSTALL_LOG_LEVEL")
+	}
+	t.Logf("[%s] Running: openshift-install create cluster --dir=%s --log-level=%s", ProviderOpenShift, installDir, logLevel)
 
 	cmd := exec.Command("openshift-install", "create", "cluster",
 		"--dir", installDir,
-		"--log-level", "info",
+		"--log-level", logLevel,
 	)
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr
-	// Clear GOOGLE_APPLICATION_CREDENTIALS from the installer environment so
-	// that ADC does not take precedence over GOOGLE_CREDENTIALS (Mint mode),
-	// which is expected to be set in the CI environment.
 	cmd.Env = installerEnv()
 
 	if err := cmd.Run(); err != nil {
@@ -476,7 +479,15 @@ func (r *OpenShiftRegion) provisionCluster(
 		destroyCmd.Stderr = os.Stderr
 		destroyCmd.Env = installerEnv()
 		_ = destroyCmd.Run()
-		_ = os.RemoveAll(installDir)
+		// Preserve the install directory (which contains the log bundle and
+		// .openshift_install.log) when SKIP_CLEANUP is set so the operator can
+		// inspect bootstrap diagnostics after a failure.
+		if os.Getenv("SKIP_CLEANUP") == "true" || os.Getenv("PRESERVE_INFRA_ON_FAILURE") == "true" {
+			t.Logf("[%s] Install dir preserved for debugging: %s", ProviderOpenShift, installDir)
+			t.Logf("[%s] Check for log bundle: %s/log-bundle-*.tar.gz", ProviderOpenShift, installDir)
+		} else {
+			_ = os.RemoveAll(installDir)
+		}
 		return "", "", fmt.Errorf("openshift-install create cluster failed: %w", err)
 	}
 
@@ -1141,13 +1152,31 @@ func getOpenShiftProjectID() string {
 }
 
 // installerEnv returns the environment slice for openshift-install commands.
-// It propagates the current environment but explicitly removes
-// GOOGLE_APPLICATION_CREDENTIALS so that ADC does not take precedence over
-// the service-account key supplied via GOOGLE_CREDENTIALS (Mint mode).
+// It propagates the current environment and ensures the Go GCP client inside
+// openshift-install uses the correct service-account credentials.
+//
+// Credential handling:
+//   - If GOOGLE_CREDENTIALS is JSON content (CI "Mint mode"), strip
+//     GOOGLE_APPLICATION_CREDENTIALS so that ADC does not override it.
+//   - If GOOGLE_CREDENTIALS is a file path (local dev), replace
+//     GOOGLE_APPLICATION_CREDENTIALS with that path so that both Terraform
+//     and the Go GCP client (used for GCS bucket creation, etc.) use the
+//     same SA key.  Without this, the Go client falls back to ADC user
+//     credentials which may lack storage.buckets.create in the target project.
 func installerEnv() []string {
+	googleCreds := os.Getenv("GOOGLE_CREDENTIALS")
+	// isFilePath is true when GOOGLE_CREDENTIALS holds a file path rather than
+	// raw JSON (i.e. not valid JSON and not empty).
+	isFilePath := googleCreds != "" && !json.Valid([]byte(googleCreds))
+
 	env := make([]string, 0, len(os.Environ()))
 	for _, e := range os.Environ() {
 		if strings.HasPrefix(e, "GOOGLE_APPLICATION_CREDENTIALS=") {
+			if isFilePath {
+				// Forward the SA key file so the Go GCP client can find it.
+				env = append(env, "GOOGLE_APPLICATION_CREDENTIALS="+googleCreds)
+			}
+			// Always skip the original entry (replaced above or stripped for CI).
 			continue
 		}
 		env = append(env, e)

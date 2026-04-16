@@ -528,7 +528,7 @@ func (r *Region) CleanupResources(t *testing.T) {
 				"validatingwebhookconfiguration/cockroach-webhook-config",
 				"priorityclass/cockroach-operator",
 			} {
-				_ = k8s.RunKubectlE(t, kubectlOptions, "delete", resource, "--ignore-not-found")
+				_ = k8s.RunKubectlE(t, clusterOptions, "delete", resource, "--ignore-not-found")
 			}
 		}
 		if r.IsCertManager {
@@ -565,8 +565,6 @@ func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 // We place other clusters' regions first so their join addresses are tried first,
 // allowing the current cluster to join the existing cluster immediately.
 func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[int]string) []map[string]interface{} {
-	regions := make([]map[string]interface{}, 0, len(r.Clusters))
-
 	// OpenShift is deployed on GCP; the cockroach operator webhook only supports
 	// "aws", "gcp", "azure", and "k3d" as cloudProvider values.
 	cloudProvider := r.Provider
@@ -574,11 +572,7 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 		cloudProvider = "gcp"
 	}
 
-	for i := 0; i < len(r.Clusters); i++ {
-		if i > index {
-			break
-		}
-
+	buildRegion := func(i int) map[string]interface{} {
 		region := map[string]interface{}{
 			"code":          r.RegionCodes[i],
 			"cloudProvider": cloudProvider,
@@ -600,7 +594,8 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 
 	regions := make([]map[string]interface{}, 0, index+1)
 
-	// Add all preceding regions first so their join addresses are tried first.
+	// Add all preceding regions first so their join addresses are tried first,
+	// allowing the current cluster to join the existing cluster immediately.
 	for i := 0; i < index; i++ {
 		regions = append(regions, buildRegion(i))
 	}
@@ -836,13 +831,23 @@ func (r *Region) BaseRegionConfig(cluster string, index int) map[string]interfac
 	if len(r.RegionCodes) > index {
 		code = r.RegionCodes[index]
 	}
+	// OpenShift runs on GCP; the operator webhook only accepts "gcp" (not "openshift").
+	cloudProvider := r.Provider
+	if cloudProvider == "openshift" {
+		cloudProvider = "gcp"
+	}
 	region := map[string]interface{}{
 		"code":          code,
-		"cloudProvider": r.Provider,
+		"cloudProvider": cloudProvider,
 		"nodes":         r.NodeCount,
 		"namespace":     r.Namespace[cluster],
 	}
 	if domain, ok := CustomDomains[index]; ok {
+		// For single-region OpenShift use cluster.local — the built-in DNS already
+		// handles it and forwarding cluster1.local causes join RPC failures.
+		if r.Provider == "openshift" && !r.IsMultiRegion {
+			domain = "cluster.local"
+		}
 		region["domain"] = domain
 	}
 	return region
@@ -922,8 +927,9 @@ func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, i
 	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
 
 	// create CA Secret.
-	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
-		"--from-file=ca.key")
+	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret,
+		"--from-file="+filepath.Join(r.certDir, "ca.crt"),
+		"--from-file="+filepath.Join(r.certDir, "ca.key"))
 	require.NoError(t, err)
 
 	// Create encryption key secret if encryption is enabled
@@ -955,8 +961,14 @@ func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, i
 	}
 
 	// Build helm values
+	clusterDomain := CustomDomains[index]
+	// For single-region OpenShift use cluster.local — the built-in DNS already
+	// handles it and cluster1.local causes join RPC DNS failures.
+	if r.Provider == "openshift" && !r.IsMultiRegion {
+		clusterDomain = "cluster.local"
+	}
 	helmValues := PatchHelmValues(map[string]string{
-		"cockroachdb.clusterDomain":             CustomDomains[index],
+		"cockroachdb.clusterDomain":             clusterDomain,
 		"cockroachdb.tls.selfSigner.caProvided": "true",
 		"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 	})
@@ -1340,7 +1352,13 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 	// Step 4a: Generate external connection URI for replication
 	// Following: https://www.cockroachlabs.com/docs/stable/set-up-physical-cluster-replication#step-4-start-replication
 	t.Log("Generating connection URI for primary cluster using cockroach encode-uri...")
-	primaryHost := fmt.Sprintf("cockroachdb-public.%s.svc.%s:26257", primaryNamespace, CustomDomains[0])
+	pcrDomain := CustomDomains[0]
+	// For single-region OpenShift use cluster.local — the built-in DNS handles it
+	// and cluster1.local causes DNS lookup failures when connecting across namespaces.
+	if r.Provider == "openshift" && !r.IsMultiRegion {
+		pcrDomain = "cluster.local"
+	}
+	primaryHost := fmt.Sprintf("cockroachdb-public.%s.svc.%s:26257", primaryNamespace, pcrDomain)
 	primaryConnString := fmt.Sprintf("postgresql://%s:%s@%s", "pcr_source", "repl_password_123", primaryHost)
 	t.Logf("Primary connection string format: postgresql://pcr_source:***@%s", primaryHost)
 
