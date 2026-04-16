@@ -37,6 +37,8 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			provider = infra.ProviderGCP
 		case "openshift":
 			provider = infra.ProviderOpenShift
+		case "azure":
+			provider = infra.ProviderAzure
 		default:
 			t.Fatalf("Unsupported provider override: %s", p)
 		}
@@ -60,8 +62,21 @@ func TestOperatorInSingleRegion(t *testing.T) {
 
 		providerRegion.Provider = provider
 		clusterName := fmt.Sprintf("%s-%s", providerRegion.Provider, operator.Clusters[0])
+		// For Azure, use AZURE_RESOURCE_PREFIX as the base name so resources are
+		// easy to identify and clean up in a shared subscription.
+		if provider == infra.ProviderAzure {
+			if prefix := strings.TrimSpace(os.Getenv("AZURE_RESOURCE_PREFIX")); prefix != "" {
+				clusterName = fmt.Sprintf("%s-cluster-0", prefix)
+			}
+		}
 		if provider != infra.ProviderK3D && provider != infra.ProviderKind {
-			clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
+			if names := strings.TrimSpace(os.Getenv("CLUSTER_NAMES")); names != "" {
+				// Use the first name from the comma-separated list so that an
+				// existing cluster from a previous INFRA_ONLY run can be reused.
+				clusterName = strings.TrimSpace(strings.SplitN(names, ",", 2)[0])
+			} else {
+				clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
+			}
 		}
 		providerRegion.Clusters = append(providerRegion.Clusters, clusterName)
 
@@ -69,6 +84,14 @@ func TestOperatorInSingleRegion(t *testing.T) {
 		cloudProvider := infra.ProviderFactory(providerRegion.Provider, &providerRegion.Region)
 		if cloudProvider == nil {
 			t.Fatalf("Unsupported provider: %s", provider)
+		}
+
+		// CLEANUP_ONLY=true: skip setup and tests — just tear down the infrastructure.
+		// For Azure, set AZURE_RESOURCE_GROUP to the resource group from a prior run.
+		if os.Getenv("CLEANUP_ONLY") == "true" {
+			t.Logf("CLEANUP_ONLY=true: running infrastructure teardown (no setup or tests) for provider: %s", provider)
+			cloudProvider.TeardownInfra(t)
+			return
 		}
 
 		// Set PRESERVE_INFRA_ON_FAILURE=true to keep the cluster alive after a
@@ -100,6 +123,8 @@ func TestOperatorInSingleRegion(t *testing.T) {
 		// When INFRA_ONLY=true, stop here — clusters are left running for manual test runs.
 		if os.Getenv("INFRA_ONLY") == "true" {
 			t.Logf("INFRA_ONLY=true: skipping tests, infrastructure is ready")
+			t.Logf("To re-run tests against this cluster set: PROVIDER=%s REUSE_INFRA=true CLUSTER_NAMES=%s",
+				provider, clusterName)
 			return
 		}
 
@@ -492,6 +517,23 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Clou
 	cluster := r.Clusters[0]
 	r.Namespace[cluster] = fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
 
+	// Capture the original node count and schedule a scale-back BEFORE the other cleanup
+	// defers so that this scale-back runs LAST (Go defers are LIFO). This ensures the
+	// node pool is scaled back only after CockroachDB pods have been removed, preventing
+	// the AKS autoscaler from draining nodes and transiently creating extra pods during
+	// subsequent tests (e.g. TestClusterRollingRestart).
+	originalNodeCount := r.NodeCount
+	r.NodeCount += 1
+	if cloudProvider.CanScale() {
+		defer func() {
+			t.Logf("Scaling node pool back to %d after TestClusterScaleUp", originalNodeCount)
+			cloudProvider.ScaleNodePool(t, r.RegionCodes[0], originalNodeCount, 0)
+			r.NodeCount = originalNodeCount
+		}()
+	} else {
+		defer func() { r.NodeCount = originalNodeCount }()
+	}
+
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
@@ -516,7 +558,7 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Clou
 	// Get helm chart paths.
 	helmChartPath, _ := operator.HelmChartPaths()
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-	r.NodeCount += 1
+
 	if cloudProvider.CanScale() {
 		t.Logf("Scaling node pool for provider: %s", r.Provider)
 		cloudProvider.ScaleNodePool(t, r.RegionCodes[0], r.NodeCount, 0)

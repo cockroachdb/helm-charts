@@ -43,6 +43,10 @@ func ProviderFactory(providerType string, region *operator.Region) CloudProvider
 		provider := OpenShiftRegion{Region: region}
 		provider.RegionCodes = GetRegionCodes(providerType)
 		return &provider
+	case ProviderAzure:
+		provider := AzureRegion{Region: region}
+		provider.RegionCodes = GetRegionCodes(providerType)
+		return &provider
 	default:
 		return nil
 	}

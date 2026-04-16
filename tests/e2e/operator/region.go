@@ -84,6 +84,12 @@ type Region struct {
 	VirtualClusterModeStandby bool
 	IsOperatorInstalled       bool
 
+	// KubeconfigRefreshHook is called after operations that may cause the kubeconfig
+	// to be overwritten or the context to be removed (e.g. cert-manager install on Azure
+	// with Netskope TLS inspection). Cloud providers that need special kubeconfig handling
+	// (like setting insecure-skip-tls-verify) should set this to restore the context.
+	KubeconfigRefreshHook func(t *testing.T)
+
 	// certDir is the per-test temp directory holding ca.crt/ca.key.
 	// Populated by CreateCACertificate; cleaned up automatically by t.TempDir().
 	certDir string
@@ -144,6 +150,13 @@ subjects:
 	if r.IsCertManager {
 		testutil.InstallCertManager(t, certManagerK8sOptions)
 		testutil.InstallTrustManager(t, certManagerK8sOptions, r.Namespace[cluster])
+		// Refresh the kubeconfig context after helm install operations.
+		// On Azure with Netskope TLS inspection, helm operations can cause the kubeconfig
+		// to be overwritten (losing insecure-skip-tls-verify) or the context to be removed.
+		// The hook restores the context and required settings.
+		if r.KubeconfigRefreshHook != nil {
+			r.KubeconfigRefreshHook(t)
+		}
 		testutil.CreateSelfSignedIssuer(t, kubectlOptions, r.Namespace[cluster])
 		testutil.CreateSelfSignedCertificate(t, kubectlOptions, r.Namespace[cluster])
 		testutil.CreateCAIssuer(t, kubectlOptions, r.Namespace[cluster])
@@ -255,6 +268,29 @@ func (r *Region) ValidateCRDB(t *testing.T, cluster string) {
 	if !r.IsCertManager {
 		testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	}
+
+	// On failure, log pod describe and logs to aid diagnosis. This defer runs before
+	// CleanupResources (registered earlier in the test function, LIFO order) so the
+	// pods are still present when we dump their state.
+	defer func() {
+		if t.Failed() {
+			t.Logf("[diagnostics] Pod readiness check failed for cluster %s (namespace %s), dumping diagnostics:", cluster, namespaceName)
+			pods, err := k8s.ListPodsE(t, kubectlOptions, metav1.ListOptions{LabelSelector: LabelSelector})
+			if err != nil {
+				t.Logf("[diagnostics] could not list pods: %v", err)
+			}
+			for _, pod := range pods {
+				t.Logf("[diagnostics] Pod %s: phase=%s, ready=%v", pod.Name, pod.Status.Phase, k8s.IsPodAvailable(&pod))
+				if podDesc, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "describe", "pod", pod.Name); err == nil {
+					t.Logf("[diagnostics] describe pod %s:\n%s", pod.Name, podDesc)
+				}
+				if logs, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "logs", pod.Name, "--tail=100"); err == nil {
+					t.Logf("[diagnostics] logs pod %s:\n%s", pod.Name, logs)
+				}
+			}
+		}
+	}()
+
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 900*time.Second)
 
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
@@ -456,7 +492,13 @@ func (r *Region) GetCurrentContext(t *testing.T) (string, api.Config) {
 }
 
 // EnsureKubeConfigPath ensures that the kubeconfig file exists and returns its path.
+// If the KUBECONFIG environment variable is set (e.g. by Azure's SetUpInfra to point
+// at an isolated temp file), that path is returned directly — the file must already exist.
 func (r *Region) EnsureKubeConfigPath() (string, error) {
+	if kc := os.Getenv("KUBECONFIG"); kc != "" {
+		return kc, nil
+	}
+
 	kubeConfigPath, err := k8s.KubeConfigPathFromHomeDirE()
 	kubeConfigDir := filepath.Dir(kubeConfigPath)
 	if err != nil {
@@ -490,7 +532,6 @@ func (r *Region) CleanupResources(t *testing.T) {
 	for cluster, namespace := range r.Namespace {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, namespace)
 		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
-		clusterOptions := k8s.NewKubectlOptions(cluster, kubeConfig, "")
 
 		deleteFlags := []string{"--wait", "--debug"}
 		// On OpenShift the self-signer-cleaner pre-delete hook pod is blocked by
@@ -574,10 +615,7 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 		cloudProvider = "gcp"
 	}
 
-	for i := 0; i < len(r.Clusters); i++ {
-		if i > index {
-			break
-		}
+	for i := 0; i <= index; i++ {
 
 		region := map[string]interface{}{
 			"code":          r.RegionCodes[i],
@@ -595,18 +633,8 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 				region["domain"] = domain
 			}
 		}
-		return region
+		regions = append(regions, region)
 	}
-
-	regions := make([]map[string]interface{}, 0, index+1)
-
-	// Add all preceding regions first so their join addresses are tried first.
-	for i := 0; i < index; i++ {
-		regions = append(regions, buildRegion(i))
-	}
-
-	// Add the current cluster's region last.
-	regions = append(regions, buildRegion(index))
 
 	return regions
 }
@@ -921,9 +949,11 @@ func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, i
 	// Create a namespace.
 	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
 
-	// create CA Secret.
-	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
-		"--from-file=ca.key")
+	// create CA Secret using full paths to r.certDir so kubectl finds the files
+	// regardless of the process working directory.
+	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret,
+		"--from-file=ca.crt="+filepath.Join(r.certDir, "ca.crt"),
+		"--from-file=ca.key="+filepath.Join(r.certDir, "ca.key"))
 	require.NoError(t, err)
 
 	// Create encryption key secret if encryption is enabled
