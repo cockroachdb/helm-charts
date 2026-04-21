@@ -130,7 +130,17 @@ test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Single region tests failed with exit code $$?" && exit 1)
 
 test/e2e/migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/self-signer test/cluster/up/3
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 30m -v ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 120m -v ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
+	$(MAKE) test/cluster/down; \
+	exit $${EXIT_CODE:-0}
+
+test/e2e/controller-migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/self-signer test/cluster/up/3
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestAutoMigration ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
+	$(MAKE) test/cluster/down; \
+	exit $${EXIT_CODE:-0}
+
+test/e2e/manual-migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/self-signer test/cluster/up/3
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run 'Test(HelmChartToOperatorMigration|PublicOperatorToCockroachDbOperator)$$' ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
 	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
 

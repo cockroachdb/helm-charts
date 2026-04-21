@@ -85,7 +85,6 @@ func (h *HelmInstall) ValidateCRDB(t *testing.T) {
 		testutil.RequireCertificatesToBeValid(t, h.CrdbCluster)
 	}
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, h.CrdbCluster, 600*time.Second)
-	time.Sleep(20 * time.Second)
 	testutil.RequireCRDBToFunction(t, h.CrdbCluster, h.ValidateExistingData)
 }
 
@@ -115,9 +114,6 @@ func (h *HelmInstall) Uninstall(t *testing.T) {
 		_, err := k8s.GetSecretE(t, kubectlOptions, h.CrdbCluster.CaSecret)
 		require.NoError(t, err)
 	}
-
-	// Wait for breathing time
-	time.Sleep(10 * time.Second)
 }
 
 // ValidateCertManagerResources checks if the cert-manager resources are retained after helm upgrade.
@@ -135,33 +131,38 @@ func cleanupResources(
 	danglingSecrets []string,
 ) {
 	err := helm.DeleteE(t, options, releaseName, true)
-	// Ignore the error if the operation timed out.
-	if err == nil || !strings.Contains(err.Error(), "timed out") {
-		require.NoError(t, err)
-	} else {
-		t.Logf("Error while deleting helm release: %v", err)
+	// Ignore the error if the operation timed out or the release was already removed.
+	if err != nil {
+		if strings.Contains(err.Error(), "timed out") || strings.Contains(err.Error(), "not found") {
+			t.Logf("Error while deleting helm release (ignored): %v", err)
+		} else {
+			require.NoError(t, err)
+		}
 	}
 
 	for i := range danglingSecrets {
 		_, err = k8s.GetSecretE(t, kubectlOptions, danglingSecrets[i])
-		if err != nil && !kube.IsNotFound(err) {
-			t.Fatalf("Error getting secret %s: %v", danglingSecrets[i], err)
-			t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
-		} else if err == nil {
+		if err != nil {
+			if kube.IsNotFound(err) {
+				t.Logf("Secret %s deleted by helm uninstall", danglingSecrets[i])
+			} else {
+				t.Fatalf("Error getting secret %s: %v", danglingSecrets[i], err)
+			}
+		} else {
 			_ = k8s.RunKubectlE(t, kubectlOptions, "delete", "secret", danglingSecrets[i])
 		}
 	}
 
 	crb := &rbacv1.ClusterRoleBinding{}
-	if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: role}, crb); err != nil {
+	if err = k8sClient.Get(context.Background(), types.NamespacedName{Name: role}, crb); err != nil {
 		t.Logf("Error getting ClusterRoleBinding %s: %v", role, err)
 	}
 
-	if err := k8sClient.Delete(context.Background(), crb); err != nil {
+	if err = k8sClient.Delete(context.Background(), crb); err != nil {
 		t.Logf("Error deleting ClusterRoleBinding %s: %v", role, err)
 	}
 	cr := &rbacv1.ClusterRole{}
-	if err := k8sClient.Get(context.Background(), types.NamespacedName{Name: role}, cr); err != nil {
+	if err = k8sClient.Get(context.Background(), types.NamespacedName{Name: role}, cr); err != nil {
 		t.Logf("Error getting ClusterRole %s: %v", role, err)
 	}
 

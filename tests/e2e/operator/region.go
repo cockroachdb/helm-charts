@@ -124,7 +124,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	// Setup kubectl options for this cluster.
 	kubectlOptions = k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	if !r.IsOperatorInstalled {
-		InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+		InstallCockroachDBOperator(t, kubectlOptions)
 	}
 
 	if r.IsCertManager {
@@ -517,28 +517,53 @@ func VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOp
 	require.Contains(t, logs, expected, "operator logs did not contain expected init command")
 }
 
-func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+func InstallCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+	installCockroachDBOperator(t, kubectlOptions, nil)
+}
+
+func InstallCockroachDBOperatorScoped(t *testing.T, kubectlOptions *k8s.KubectlOptions, watchNamespaces string) {
+	installCockroachDBOperator(t, kubectlOptions, map[string]string{
+		"watchNamespaces": watchNamespaces,
+	})
+}
+
+func InstallCockroachDBOperatorScopedForMigration(t *testing.T, kubectlOptions *k8s.KubectlOptions, watchNamespaces string) {
+	installCockroachDBOperator(t, kubectlOptions, map[string]string{
+		"watchNamespaces":    watchNamespaces,
+		"migration.enabled": "true",
+	})
+}
+
+func installCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, overrides map[string]string) {
 	_, operatorChartPath := HelmChartPaths()
+
+	setValues := map[string]string{
+		"numReplicas": "1",
+	}
+	for key, value := range overrides {
+		setValues[key] = value
+	}
 
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
-		SetValues: map[string]string{
-			"numReplicas": "1",
-		},
-		ExtraArgs: helmExtraArgs,
+		SetValues:      setValues,
+		ExtraArgs:      helmExtraArgs,
 	}
 
 	// Install Operator on the cluster.
 	helm.Install(t, operatorOpts, operatorChartPath, operatorReleaseName)
 
-	// Wait for operator and webhook service to be available with endpoints.
-	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator", 30, 2*time.Second)
-	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-webhook-service", 30, 2*time.Second)
-
-	// Wait for crd to be installed.
-	_, _ = retry.DoWithRetryE(t, "wait-for-crd", 60, time.Second*5, func() (string, error) {
-		return k8s.RunKubectlAndGetOutputE(t, operatorOpts.KubectlOptions, "get", "crd", "crdbclusters.crdb.cockroachlabs.com")
-	})
+	// Wait for all operator CRDs required by migration flows to be installed.
+	for _, crd := range []string{
+		"crdbclusters.crdb.cockroachlabs.com",
+		"crdbnodes.crdb.cockroachlabs.com",
+		"crdbtenants.crdb.cockroachlabs.com",
+	} {
+		_, err := retry.DoWithRetryE(t, "wait-for-crd", 60, time.Second*5, func() (string, error) {
+			return k8s.RunKubectlAndGetOutputE(t, operatorOpts.KubectlOptions, "get", "crd", crd)
+		})
+		require.NoError(t, err)
+	}
 
 	// wait for the operator pod to be running
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
@@ -548,16 +573,19 @@ func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.Kube
 	for i := range pods {
 		testutil.RequirePodToBeCreatedAndReady(t, operatorOpts.KubectlOptions, pods[i].Name, 300*time.Second)
 	}
+
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator", 30, 5*time.Second)
+	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-webhook-service", 30, 5*time.Second)
+	testutil.RequireServiceEndpointsAvailable(t, kubectlOptions, "cockroach-webhook-service", 2*time.Minute)
 }
 
-func UninstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+func UninstallCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
 	}
 	helm.Delete(t, operatorOpts, operatorReleaseName, true)
-	k8s.RunKubectl(t, kubectlOptions, "delete", "service", "cockroach-webhook-service")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "validatingwebhookconfiguration", "cockroach-webhook-config")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "mutatingwebhookconfiguration", "cockroach-mutating-webhook-config")
+	// Delete the operator's PriorityClass (cluster-scoped resource)
+	k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "cockroach-operator", "--ignore-not-found=true")
 	k8s.DeleteNamespace(t, kubectlOptions, kubectlOptions.Namespace)
 }
 

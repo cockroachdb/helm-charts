@@ -351,10 +351,10 @@ so that CockroachDB writes logs to the dedicated volume.
 {{- $stsName := include "cockroachdb.fullname" . -}}
 {{- $sts := lookup "apps/v1" "StatefulSet" .Release.Namespace $stsName -}}
 {{- if $sts -}}
-  {{- fail (print `You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Enterprise Operator.
-Before proceeding, you must first migrate your existing CockroachDB cluster to one managed by the CockroachDB Enterprise Operator.
+  {{- fail (print `You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Operator.
+Before proceeding, you must first migrate your existing CockroachDB cluster to one managed by the CockroachDB Operator.
 
-👉 Learn more about the CockroachDB Enterprise Operator: cockroachdb-parent/charts/cockroachdb/README.md
+👉 Learn more about the CockroachDB Operator: cockroachdb-parent/charts/cockroachdb/README.md
 🔄 Follow the migration steps at scripts/migration/helm/README.md`) -}}
 {{- end -}}
 {{- end }}
