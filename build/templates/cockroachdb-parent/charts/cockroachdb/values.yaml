@@ -259,6 +259,14 @@ cockroachdb:
           # If not set, this will be interpreted as "plain", i.e., unencrypted.
           # oldKeySecretName: ""
           #
+    # cloudConfig holds cloud-provider-specific configuration shared across all regions.
+    # Only set the block for the provider in use.
+    cloudConfig: ~
+      # azure:
+      #   # clusterIdentitySecretName is the name of the Kubernetes secret containing
+      #   # Azure application credentials for backups and KMS authentication.
+      #   # Defaults to "azure-cluster-identity-credentials-secret" when not set.
+      #   clusterIdentitySecretName: my-azure-identity-secret
     # walFailoverSpec captures the configuration for WAL Failover.
     walFailoverSpec: {}
       # name determines the prefix of the pvc name that we want to provide

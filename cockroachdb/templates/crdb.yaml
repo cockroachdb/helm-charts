@@ -23,6 +23,9 @@ spec:
   {{- with .Values.operator.regions }}
   regions: {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.operator.cloudConfig }}
+  cloudConfig: {{- toYaml . | nindent 4 }}
+  {{- end }}
   features:
     - reconcile
     - reconcile-beta
