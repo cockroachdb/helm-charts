@@ -134,6 +134,8 @@ For instructions on using cert-manager to provision certificates for the statefu
 
 The chart supports zero-downtime certificate rotation using SIGHUP signal when `tls.enableSighupRotation` is set to `true`. This allows you to rotate TLS certificates without restarting CockroachDB pods.
 
+**Important:** Zero-downtime SIGHUP-based rotation is only supported with externally managed certificates (user-provided or cert-manager) where the user controls the rotation and signaling process. It is **not compatible** with self-signed certificates (`tls.certs.selfSigner.enabled=true`), as the self-signer handles rotation by triggering pod restarts.
+
 **How it works:**
 
 When `enableSighupRotation` is enabled:

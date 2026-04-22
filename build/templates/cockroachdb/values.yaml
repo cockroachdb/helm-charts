@@ -591,6 +591,8 @@ tls:
   # reload certificates via SIGHUP signal without pod restarts.
   # When false (default), an initContainer copies certs to ensure 0400 permissions
   # (owner read only) but pod restarts are required for certificate rotation.
+  # NOTE: Only supported with externally managed certificates (user-provided or cert-manager).
+  # Not compatible with self-signed certificates (tls.certs.selfSigner.enabled=true).
   enableSighupRotation: false
   copyCerts:
     image: busybox

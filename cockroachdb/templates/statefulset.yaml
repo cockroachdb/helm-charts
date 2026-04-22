@@ -58,7 +58,7 @@ spec:
           command:
             - /bin/sh
             - -c
-            - "cp -f /certs/* /cockroach-certs/; chmod 0400 /cockroach-certs/*.key"
+            - "cp -f /certs/* /cockroach/cockroach-certs/; chmod 0400 /cockroach/cockroach-certs/*.key"
           env:
             - name: POD_NAMESPACE
               valueFrom:
@@ -75,7 +75,7 @@ spec:
         {{- end }}
           volumeMounts:
             - name: certs
-              mountPath: /cockroach-certs/
+              mountPath: /cockroach/cockroach-certs/
             - name: certs-secret
               mountPath: /certs/
         {{- with .Values.tls.copyCerts.resources }}
@@ -119,8 +119,6 @@ spec:
             {{- if .Values.tls.enableSighupRotation }}
             - name: certs-combined
               mountPath: /cockroach-certs/
-            - name: certs-combined
-              mountPath: /cockroach/node/
             - name: client-secret
               mountPath: /cockroach/client
             {{- else }}
@@ -349,6 +347,10 @@ spec:
             {{- if .Values.tls.enableSighupRotation }}
             - name: certs-combined
               mountPath: /cockroach/cockroach-certs/
+              {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
+            - name: client-secret
+              mountPath: /cockroach/certs/
+              {{- end }}
             {{- else }}
             - name: certs
               mountPath: /cockroach/cockroach-certs/
@@ -518,20 +520,9 @@ spec:
                   path: node.key
                   mode: 256
           {{- else }}
-          projected:
-            sources:
-            - secret:
-                name: {{ .Values.tls.certs.nodeSecret }}
-                items:
-                - key: ca.crt
-                  path: ca.crt
-                  mode: 256
-                - key: node.crt
-                  path: node.crt
-                  mode: 256
-                - key: node.key
-                  path: node.key
-                  mode: 256
+          secret:
+            secretName: {{ .Values.tls.certs.nodeSecret }}
+            defaultMode: 256
           {{- end }}
           {{- end }}
         {{- end }}

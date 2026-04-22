@@ -4,6 +4,9 @@
     "tls": {
       "type": "object",
       "properties": {
+        "enableSighupRotation": {
+          "type": "boolean"
+        },
         "certs": {
           "type": "object",
           "properties": {

@@ -55,7 +55,7 @@ spec:
         - name: {{ template "cockroachdb.fullname" . }}.db.registry
     {{- end }}
       serviceAccountName: {{ template "cockroachdb.serviceAccount.name" . }}
-    {{- if .Values.tls.enabled }}
+    {{- if and .Values.tls.enabled (not .Values.tls.enableSighupRotation) }}
       initContainers:
         - name: copy-certs
           image: {{ .Values.tls.copyCerts.image | quote }}
@@ -251,8 +251,15 @@ spec:
         {{- end }}
         {{- if .Values.tls.enabled }}
           volumeMounts:
+          {{- if .Values.tls.enableSighupRotation }}
+            {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
+            - name: client-secret
+              mountPath: /cockroach-certs/
+            {{- end }}
+          {{- else }}
             - name: client-certs
               mountPath: /cockroach-certs/
+          {{- end }}
         {{- end }}
         {{- with .Values.init.resources }}
           resources: {{- toYaml . | nindent 12 }}
@@ -265,6 +272,35 @@ spec:
         {{- end }}
     {{- if .Values.tls.enabled }}
       volumes:
+      {{- if .Values.tls.enableSighupRotation }}
+        {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
+        - name: client-secret
+          {{- if or .Values.tls.certs.tlsSecret .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
+          projected:
+            sources:
+            - secret:
+                {{- if .Values.tls.certs.selfSigner.enabled }}
+                name: {{ template "cockroachdb.fullname" . }}-client-secret
+                {{ else }}
+                name: {{ .Values.tls.certs.clientRootSecret }}
+                {{ end -}}
+                items:
+                - key: ca.crt
+                  path: ca.crt
+                  mode: 0400
+                - key: tls.crt
+                  path: client.root.crt
+                  mode: 0400
+                - key: tls.key
+                  path: client.root.key
+                  mode: 0400
+          {{- else }}
+          secret:
+            secretName: {{ .Values.tls.certs.clientRootSecret }}
+            defaultMode: 0400
+          {{- end }}
+        {{- end }}
+      {{- else }}
         - name: client-certs
           emptyDir: {}
           {{- if or .Values.tls.certs.provided .Values.tls.certs.certManager .Values.tls.certs.selfSigner.enabled }}
@@ -294,5 +330,6 @@ spec:
             defaultMode: 0400
           {{- end }}
           {{- end }}
+      {{- end }}
     {{- end }}
 {{- end }}
