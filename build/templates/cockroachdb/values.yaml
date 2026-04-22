@@ -919,6 +919,15 @@ operator:
         # store key. If nil, this will be interpreted as "plain" i.e. unencrypted.
         # oldKeySecretName: ""
 
+  # cloudConfig holds cloud-provider-specific configuration shared across all
+  # regions. Only set the block for the provider in use.
+  cloudConfig: ~
+    # azure:
+    #   # clusterIdentitySecretName is the name of the Kubernetes secret containing
+    #   # Azure application credentials for backups and KMS authentication.
+    #   # Defaults to "azure-cluster-identity-credentials-secret" when not set.
+    #   clusterIdentitySecretName: my-azure-identity-secret
+
   # WALFailover indicates whether we are attaching a new PVC to the node to be used
   # for WAL writes while the data dir disk encounters a stall or increased latency
   walFailoverSpec: {}
