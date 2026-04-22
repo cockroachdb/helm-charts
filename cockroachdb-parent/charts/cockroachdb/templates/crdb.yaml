@@ -24,6 +24,9 @@ spec:
   {{- with .Values.cockroachdb.crdbCluster.regions }}
   regions: {{- toYaml . | nindent 4 }}
   {{- end }}
+  {{- with .Values.cockroachdb.crdbCluster.cloudConfig }}
+  cloudConfig: {{- toYaml . | nindent 4 }}
+  {{- end }}
   rollingRestartDelay: {{ .Values.cockroachdb.crdbCluster.rollingRestartDelay }}
   template:
     spec:
