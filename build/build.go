@@ -29,13 +29,21 @@ import (
 )
 
 const usage = `Usage:
-// Bump cockroachdb app and chart version in Chart.yaml file.
-- go run build/build.go bump <crdbversion>
-// Bump cockroachdb chart version in Chart.yaml file.
-- go run build/build.go bump helm
-// Generate files based on templates in build/templates directory.
-- go run build/build.go generate
+- go run build/build.go bump <crdbversion>                      Bump CRDB version (cockroachdb + legacy charts)
+- go run build/build.go bump --chart cockroachdb <crdbversion>  Bump cockroachdb chart for new CRDB version
+- go run build/build.go bump --chart operator <version>         Bump operator chart version
+- go run build/build.go bump helm                               Chart-only fix (patch bump, no appVersion change)
+- go run build/build.go generate                                Regenerate files from templates
 `
+
+type chartKind int
+
+const (
+	chartKindLegacy      chartKind = iota // cockroachdb/
+	chartKindCockroachDB                  // cockroachdb-parent/charts/cockroachdb/
+	chartKindOperator                     // cockroachdb-parent/charts/operator/
+	chartKindParent                       // cockroachdb-parent/
+)
 
 type parsedVersion struct {
 	*semver.Version
@@ -46,8 +54,10 @@ type versions struct {
 }
 
 type templateArgs struct {
-	Version    string
-	AppVersion string
+	Version            string
+	AppVersion         string
+	OperatorVersion    string
+	CockroachDBVersion string
 }
 
 // UnmarshalYAML implements the Unmarshaller interface for the version fields
@@ -73,35 +83,79 @@ func main() {
 			os.Exit(1)
 		}
 
-		if err := generate(os.Args[2]); err != nil {
+		chartTarget := ""
+		version := ""
+
+		if os.Args[2] == "--chart" {
+			if len(os.Args) < 5 {
+				fmt.Print(usage)
+				os.Exit(1)
+			}
+			chartTarget = os.Args[3]
+			version = os.Args[4]
+		} else {
+			version = os.Args[2]
+		}
+
+		if err := validateChartTarget(chartTarget); err != nil {
+			fmt.Fprintf(os.Stderr, "%s\n", err)
+			os.Exit(1)
+		}
+
+		if err := generate(chartTarget, version); err != nil {
 			fmt.Fprintf(os.Stderr, "cannot run: %s", err)
 			os.Exit(1)
 		}
-		return
 	case "generate":
-		if len(os.Args) < 2 {
-			fmt.Print(usage)
-			os.Exit(1)
-		}
-
-		if err := generate(""); err != nil {
+		if err := generate("", ""); err != nil {
 			fmt.Fprintf(os.Stderr, "cannot run: %s", err)
 			os.Exit(1)
 		}
-		return
+	default:
+		fmt.Print(usage)
+		os.Exit(1)
 	}
-
-	fmt.Print(usage)
-	os.Exit(1)
 }
 
-// regenerate destination files based on templates, which should
-// result in a zero diff, if template is up-to-date with destination files.
-// If version is specified, it will be used to bump the version in Chart.yaml file.
-func generate(version string) error {
+var chartPaths = map[chartKind]string{
+	chartKindLegacy:      "cockroachdb/Chart.yaml",
+	chartKindCockroachDB: "cockroachdb-parent/charts/cockroachdb/Chart.yaml",
+	chartKindOperator:    "cockroachdb-parent/charts/operator/Chart.yaml",
+	chartKindParent:      "cockroachdb-parent/Chart.yaml",
+}
+
+func validateChartTarget(target string) error {
+	switch target {
+	case "", "cockroachdb", "operator":
+		return nil
+	default:
+		return fmt.Errorf("unknown chart target %q, must be 'cockroachdb' or 'operator'", target)
+	}
+}
+
+func validateNoDowngrade(current, proposed *semver.Version, component string) error {
+	if proposed.LessThan(current) {
+		return fmt.Errorf("cannot downgrade %s from %s to %s", component, current, proposed)
+	}
+	return nil
+}
+
+func chartKindFromPath(relPath string) chartKind {
+	switch {
+	case strings.HasPrefix(relPath, "cockroachdb-parent/charts/operator"):
+		return chartKindOperator
+	case strings.HasPrefix(relPath, "cockroachdb-parent/charts/cockroachdb"):
+		return chartKindCockroachDB
+	case strings.HasPrefix(relPath, "cockroachdb-parent"):
+		return chartKindParent
+	default:
+		return chartKindLegacy
+	}
+}
+
+func generate(chartTarget, version string) error {
 	const templatesDir = "build/templates"
 	const outputDir = "."
-	var args templateArgs
 
 	dirInfo, err := os.Stat(templatesDir)
 	if err != nil {
@@ -111,15 +165,19 @@ func generate(version string) error {
 		return fmt.Errorf("%s is not a directory", templatesDir)
 	}
 
+	allArgs, err := computeAllArgs(chartTarget, version)
+	if err != nil {
+		return fmt.Errorf("cannot compute chart versions: %w", err)
+	}
+
 	return filepath.Walk(templatesDir, func(filePath string, fileInfo os.FileInfo, e error) error {
 		if e != nil {
 			return e
 		}
-		// Skip directories
 		if !fileInfo.Mode().IsRegular() {
 			return nil
 		}
-		// calculate file directory relative to the given root directory.
+
 		dir := filepath.Dir(filePath)
 		fileName := filepath.Base(filePath)
 		relDir, err := filepath.Rel(templatesDir, dir)
@@ -128,12 +186,10 @@ func generate(version string) error {
 		}
 		destDir := filepath.Join(outputDir, relDir)
 		destFile := filepath.Join(destDir, fileInfo.Name())
-		if fileName == "Chart.yaml" {
-			args, err = buildTemplateArgs(destFile, version)
-			if err != nil {
-				return err
-			}
-		}
+
+		kind := chartKindFromPath(relDir)
+		args := allArgs[kind]
+
 		doNotEditStatement := fmt.Sprintf("# Generated file, DO NOT EDIT. Source: %s\n", filePath)
 		if fileName == "README.md" {
 			doNotEditStatement = fmt.Sprintf("<!--- Generated file, DO NOT EDIT. Source: %s --->\n", filePath)
@@ -151,35 +207,100 @@ func generate(version string) error {
 	})
 }
 
-// buildTemplateArgs reads the Chart.yaml file and returns the template arguments.
-func buildTemplateArgs(destFile, version string) (templateArgs, error) {
-	chart, err := getVersions(destFile)
+func computeAllArgs(chartTarget, version string) (map[chartKind]templateArgs, error) {
+	result := make(map[chartKind]templateArgs)
+
+	legacyChart, err := getVersions(chartPaths[chartKindLegacy])
 	if err != nil {
-		return templateArgs{}, fmt.Errorf("cannot get chart versions: %w", err)
+		return nil, fmt.Errorf("cannot read legacy chart: %w", err)
 	}
-	if version == "" {
-		return templateArgs{
-			Version:    chart.Version.String(),
-			AppVersion: chart.AppVersion.String(),
-		}, nil
+	cockroachdbChart, err := getVersions(chartPaths[chartKindCockroachDB])
+	if err != nil {
+		return nil, fmt.Errorf("cannot read cockroachdb chart: %w", err)
+	}
+	operatorChart, err := getVersions(chartPaths[chartKindOperator])
+	if err != nil {
+		return nil, fmt.Errorf("cannot read operator chart: %w", err)
 	}
 
-	crdbVersion := semver.MustParse(chart.AppVersion.String())
-	if version != "helm" {
-		crdbVersion, err = semver.NewVersion(strings.TrimPrefix(version, "v"))
+	if version == "" {
+		result[chartKindLegacy] = templateArgs{
+			Version:    legacyChart.Version.String(),
+			AppVersion: legacyChart.AppVersion.String(),
+		}
+		result[chartKindCockroachDB] = templateArgs{
+			Version:    cockroachdbChart.Version.String(),
+			AppVersion: cockroachdbChart.AppVersion.String(),
+		}
+		result[chartKindOperator] = templateArgs{
+			Version:    operatorChart.Version.String(),
+			AppVersion: operatorChart.AppVersion.String(),
+		}
+	} else if chartTarget == "operator" {
+		newVersion := strings.TrimPrefix(version, "v")
+		newVer, err := semver.NewVersion(newVersion)
 		if err != nil {
-			return templateArgs{}, fmt.Errorf("cannot parse version %s: %w", version, err)
+			return nil, fmt.Errorf("cannot parse operator version %s: %w", version, err)
+		}
+		if err := validateNoDowngrade(operatorChart.Version.Version, newVer, "operator chart"); err != nil {
+			return nil, err
+		}
+		result[chartKindOperator] = templateArgs{
+			Version:    newVersion,
+			AppVersion: newVersion,
+		}
+		result[chartKindCockroachDB] = templateArgs{
+			Version:    cockroachdbChart.Version.String(),
+			AppVersion: cockroachdbChart.AppVersion.String(),
+		}
+		result[chartKindLegacy] = templateArgs{
+			Version:    legacyChart.Version.String(),
+			AppVersion: legacyChart.AppVersion.String(),
+		}
+	} else {
+		crdbVersion := cockroachdbChart.AppVersion.Version
+		if version != "helm" {
+			crdbVersion, err = semver.NewVersion(strings.TrimPrefix(version, "v"))
+			if err != nil {
+				return nil, fmt.Errorf("cannot parse CRDB version %s: %w", version, err)
+			}
+			if err := validateNoDowngrade(cockroachdbChart.AppVersion.Version, crdbVersion, "CRDB version"); err != nil {
+				return nil, err
+			}
+		}
+
+		newCockroachDBVersion, err := bumpCockroachDBChart(cockroachdbChart, crdbVersion)
+		if err != nil {
+			return nil, fmt.Errorf("cannot bump cockroachdb chart: %w", err)
+		}
+		result[chartKindCockroachDB] = templateArgs{
+			Version:    newCockroachDBVersion,
+			AppVersion: crdbVersion.Original(),
+		}
+
+		newLegacyVersion, err := bumpLegacyChart(legacyChart, crdbVersion)
+		if err != nil {
+			return nil, fmt.Errorf("cannot bump legacy chart: %w", err)
+		}
+		result[chartKindLegacy] = templateArgs{
+			Version:    newLegacyVersion,
+			AppVersion: crdbVersion.Original(),
+		}
+
+		result[chartKindOperator] = templateArgs{
+			Version:    operatorChart.Version.String(),
+			AppVersion: operatorChart.AppVersion.String(),
 		}
 	}
 
-	newChartVersion, err := bumpVersion(chart, crdbVersion)
-	if err != nil {
-		return templateArgs{}, fmt.Errorf("cannot bump chart version: %w", err)
+	result[chartKindParent] = templateArgs{
+		Version:            result[chartKindCockroachDB].AppVersion,
+		AppVersion:         result[chartKindCockroachDB].AppVersion,
+		OperatorVersion:    result[chartKindOperator].Version,
+		CockroachDBVersion: result[chartKindCockroachDB].Version,
 	}
-	return templateArgs{
-		Version:    newChartVersion,
-		AppVersion: crdbVersion.Original(),
-	}, nil
+
+	return result, nil
 }
 
 // processTemplate reads a template file, applies the template arguments and writes it to the specified location
@@ -205,68 +326,25 @@ func processTemplate(
 	return nil
 }
 
-// bumpVersion increases the patch release version (the last digit) of a given version
-func bumpVersion(chart versions, newCRDBVersion *semver.Version) (string, error) {
-	isOperatorBasedChart := isEnterpriseOperatorChart(chart)
-	// Bump chart major version in case appVersion changes its major or minor version
-	// For example, 22.1.0 or 22.2.0 should trigger this behaviour. \
-	// This is applicable only for the old chart, not for the enterprise operator chart.
-	if !isOperatorBasedChart &&
-		(chart.AppVersion.Major() != newCRDBVersion.Major() || chart.AppVersion.Minor() != newCRDBVersion.Minor()) {
+// bumpCockroachDBChart implements locked major.minor versioning:
+// chart major.minor follows CRDB major.minor, chart patch increments independently.
+func bumpCockroachDBChart(chart versions, newCRDBVersion *semver.Version) (string, error) {
+	if chart.AppVersion.Major() != newCRDBVersion.Major() || chart.AppVersion.Minor() != newCRDBVersion.Minor() {
+		return fmt.Sprintf("%d.%d.0", newCRDBVersion.Major(), newCRDBVersion.Minor()), nil
+	}
+	nextPatch := chart.Version.IncPatch()
+	return nextPatch.Original(), nil
+}
+
+// bumpLegacyChart preserves the old statefulset chart's versioning behavior:
+// major bump on CRDB major.minor change, patch bump otherwise.
+func bumpLegacyChart(chart versions, newCRDBVersion *semver.Version) (string, error) {
+	if chart.AppVersion.Major() != newCRDBVersion.Major() || chart.AppVersion.Minor() != newCRDBVersion.Minor() {
 		nextMajor := chart.Version.IncMajor()
-		nextVersion, err := semver.NewVersion(fmt.Sprintf("%d.0.0", nextMajor.Major()))
-		if err != nil {
-			return "", fmt.Errorf("cannot parse next version: %w", err)
-		}
-		return nextVersion.Original(), nil
+		return fmt.Sprintf("%d.0.0", nextMajor.Major()), nil
 	}
-
-	// For enterprise operator charts, if appVersion changes, set the chart version to the new CRDB version,
-	// preserving any existing prerelease information from the current chart version.
-	if isOperatorBasedChart && (chart.AppVersion.String() != newCRDBVersion.String()) {
-		newVer := newCRDBVersion.String()
-		if chart.Version.Prerelease() != "" {
-			newVer = fmt.Sprintf("%s-%s", newVer, chart.Version.Prerelease())
-		}
-		nextVersion, err := semver.NewVersion(newVer)
-		if err != nil {
-			return "", err
-		}
-		return nextVersion.Original(), nil
-	}
-
-	// If the chart version is the same as the new CRDB version, we increment the BUILD number.
-	// Increment BUILD number for the new chart version where AppVersion and Version are the same.
-	if chart.AppVersion.String() == newCRDBVersion.String() && chart.Version.Major() == chart.AppVersion.Major() {
-		build := chart.Version.Metadata()
-		newBuild := "1"
-		if build != "" {
-			parts := strings.Split(build, ".")
-			if len(parts) == 1 {
-				if n, err := fmt.Sscanf(parts[0], "%s", &newBuild); n == 1 && err == nil {
-					var val int
-					_, _ = fmt.Sscanf(parts[0], "%d", &val)
-					newBuild = fmt.Sprintf("%d", val+1)
-				}
-			}
-		}
-
-		baseVersionStr := fmt.Sprintf("%d.%d.%d", chart.Version.Major(), chart.Version.Minor(), chart.Version.Patch())
-		if chart.Version.Prerelease() != "" {
-			baseVersionStr = fmt.Sprintf("%s-%s", baseVersionStr, chart.Version.Prerelease())
-		}
-
-		v, err := semver.NewVersion(fmt.Sprintf("%s+%s", baseVersionStr, newBuild))
-		if err != nil {
-			return "", fmt.Errorf("cannot parse new version with build metadata: %w", err)
-		}
-		// Construct the new version string
-		return v.Original(), nil
-	}
-
-	// This will be executed for the old chart versions, where we just increment the patch version.
-	nextVersion := chart.Version.IncPatch()
-	return nextVersion.Original(), nil
+	nextPatch := chart.Version.IncPatch()
+	return nextPatch.Original(), nil
 }
 
 // getVersions reads chart and app versions from Chart.yaml file
@@ -280,10 +358,4 @@ func getVersions(chartPath string) (versions, error) {
 		return versions{}, fmt.Errorf("cannot unmarshal %s: %w", chartPath, err)
 	}
 	return chart, nil
-}
-
-// isEnterpriseOperatorChart checks if the chart is an enterprise operator chart.
-func isEnterpriseOperatorChart(chart versions) bool {
-	return chart.Version.Major() == chart.AppVersion.Major() && chart.Version.Minor() == chart.AppVersion.Minor() &&
-		chart.Version.Patch() == chart.AppVersion.Patch()
 }

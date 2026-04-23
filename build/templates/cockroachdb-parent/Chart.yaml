@@ -6,10 +6,10 @@ version: {{ .Version }}
 appVersion: {{ .AppVersion }}
 dependencies:
   - name: operator
-    version: {{ .Version }}
+    version: {{ .OperatorVersion }}
     condition: operator.enabled
     repository: "file://charts/operator"
   - name: cockroachdb
-    version: {{ .Version }}
+    version: {{ .CockroachDBVersion }}
     condition: cockroachdb.enabled
     repository: "file://charts/cockroachdb"
