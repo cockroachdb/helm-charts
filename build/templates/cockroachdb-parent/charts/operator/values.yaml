@@ -3,13 +3,13 @@
 # image captures the container image settings for Operator pods.
 image:
   # registry is the container registry where the image is stored.
-  registry: "us-docker.pkg.dev/releases-prod/self-hosted"
+  registry: "docker.io/cockroachdb"
   # repository defines the image repository.
-  repository: "cockroachdb-operator@sha256"
+  repository: "cockroachdb-operator-v2"
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
   # tag is the image tag.
-  tag: "62796d0ad9c87cb0f1f85ebcbc905235ca6c1fc3549bf2a62f5c534af0497332"
+  tag: "v{{ .AppVersion }}"
 # certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.

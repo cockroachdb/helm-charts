@@ -215,7 +215,19 @@ build-and-push-bundle-image:
 	docker buildx build --platform=linux/amd64,linux/arm64 \
 		-t $(QUAY_DOCKER_REGISTRY)/$(QUAY_PROJECT)/$(BUNDLE_IMAGE):$(VERSION) --push -f build/docker-image/olm-catalog/bundle.Dockerfile ./
 
-bump/%:
+bump/cockroachdb/%: ## bump cockroachdb chart for new CRDB version
+	@bazel build //build
+	$$(bazel info bazel-bin)/build/build_/build bump --chart cockroachdb $*
+	@helm dependency update ./cockroachdb-parent
+	@rm -rf ./cockroachdb-parent/charts/*.tgz
+
+bump/operator/%: ## bump operator chart version
+	@bazel build //build
+	$$(bazel info bazel-bin)/build/build_/build bump --chart operator $*
+	@helm dependency update ./cockroachdb-parent
+	@rm -rf ./cockroachdb-parent/charts/*.tgz
+
+bump/%: ## bump CRDB version (cockroachdb + legacy charts)
 	@bazel build //build
 	$$(bazel info bazel-bin)/build/build_/build bump $*
 	@helm dependency update ./cockroachdb-parent

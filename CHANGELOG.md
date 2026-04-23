@@ -2,6 +2,29 @@
 
 All notable changes to this project will be documented in this file.
 
+## [operator-1.0.0] [cockroachdb-26.1.0] — GA Release
+### Changed
+- **GA release**: Removed `-preview` suffix from all chart versions. Charts are now production-ready.
+- **Operator chart versioning**: The operator chart now uses its own semantic version (starting at 1.0.0),
+  independent of CockroachDB versions. A single operator version supports multiple CockroachDB versions.
+- **CockroachDB chart versioning**: Chart major.minor tracks the CockroachDB series (e.g., chart 26.1.x
+  is for CockroachDB 26.1). The chart patch version increments independently. Check `appVersion` in
+  Chart.yaml for the exact CockroachDB version bundled.
+- **Operator image tags**: The operator image now uses semantic version tags (`v1.0.0`) instead of SHA
+  digests. Users who need digest pinning can override with `tag: "v1.0.0@sha256:..."`.
+- **Default image registry**: All images now default to DockerHub (`docker.io/cockroachdb`) instead of
+  Google Artifact Registry.
+
+### Upgrade Notes
+- **Operator chart**: Version changes from `26.1.x-preview` to `1.0.0`. Use `--force` because Helm
+  treats this as a version format change:
+  `helm upgrade <release> cockroachdb/operator --version 1.0.0 --force`
+- **CockroachDB chart**: Version changes from `26.1.x-preview` to `26.1.0`. Use `--force` for the
+  same reason:
+  `helm upgrade <release> cockroachdb/cockroachdb --version 26.1.0 --force`
+- **Upgrade order**: Always upgrade the operator chart before the cockroachdb chart. The cockroachdb
+  chart's pre-upgrade hook validates that the operator CRDs are in the expected state.
+
 ## [cockroachdb-parent-26.1.1-preview+2] 2026-03-26
 ### Changed
 - **API Version Migration**: The operator now uses an image that removes `v1alpha1` entirely and keeps only `v1beta1`.
