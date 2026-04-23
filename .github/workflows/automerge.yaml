@@ -34,6 +34,7 @@ jobs:
           set -euxo pipefail
           version="$(cat cockroachdb/Chart.yaml | yq -r '.version')"
           appVersion="$(cat cockroachdb/Chart.yaml | yq -r '.appVersion')"
+          pr_operator_version="$(cat cockroachdb-parent/charts/operator/Chart.yaml | yq -r '.version')"
           git checkout origin/master -- cockroachdb cockroachdb-parent
           git restore --staged cockroachdb cockroachdb-parent
           master_version="$(cat cockroachdb/Chart.yaml | yq -r '.version')"
@@ -41,13 +42,31 @@ jobs:
           latest_version="$(echo -e "$version\n$master_version" | sort --version-sort -r | head -n1)"
           latest_appVersion="$(echo -e "$appVersion\n$master_appVersion" | sort --version-sort -r | head -n1)"
           if [[ $latest_version != $version ]]; then
-            echo "Downgrades are not permitteed in automatic mode, $version < $latest_version"
+            echo "Downgrades are not permitted in automatic mode, $version < $latest_version"
             exit 1
           fi
           if [[ $latest_appVersion != $appVersion ]]; then
-            echo "Downgrades are not permitteed in automatic mode, $appVersion < $latest_appVersion"
+            echo "Downgrades are not permitted in automatic mode, $appVersion < $latest_appVersion"
             exit 1
           fi
+
+          # Block auto-merge for CRDB major or minor version changes.
+          # These require manual review to validate operator compatibility.
+          master_major_minor=$(echo "$master_appVersion" | cut -d. -f1-2)
+          pr_major_minor=$(echo "$appVersion" | cut -d. -f1-2)
+          if [[ "$master_major_minor" != "$pr_major_minor" ]]; then
+            echo "CRDB major/minor version change detected ($master_appVersion -> $appVersion). Manual review required."
+            exit 1
+          fi
+
+          # Block auto-merge if the operator chart version changed.
+          # Operator chart updates always require manual review.
+          master_operator_version="$(cat cockroachdb-parent/charts/operator/Chart.yaml | yq -r '.version')"
+          if [[ "$master_operator_version" != "$pr_operator_version" ]]; then
+            echo "Operator chart version changed ($master_operator_version -> $pr_operator_version). Manual review required."
+            exit 1
+          fi
+
           make bump/$appVersion
           # `helm dependency update` is not idempotent and bumps the
           # `generated` field with the current date/TZ. Let's checkout the
