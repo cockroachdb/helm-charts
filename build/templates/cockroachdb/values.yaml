@@ -627,6 +627,8 @@ tls:
       # Additional Subject Alternative Names (SANs) to include in node certificates.
       # Useful for load balancers or external endpoints that need to be included in the certificate.
       # Example: ["my-loadbalancer.example.com", "10.20.30.40"]
+      # Note: Changes to this value will only take effect after the next certificate rotation cycle,
+      # or when certificates are manually regenerated (e.g., by deleting the node-secret).
       additionalSANs: []
       # If set, the cockroachdb cert selfSigner will rotate the certificates before expiry.
       rotateCerts: true

@@ -17,9 +17,9 @@ limitations under the License.
 package generator
 
 import (
+	"crypto/x509"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 	"time"
 
@@ -45,242 +45,116 @@ func tempDir(t *testing.T) (string, func()) {
 	}
 }
 
+// setupTestCertEnv creates a test environment with temp dir, CA pair, and GenerateCert instance.
+func setupTestCertEnv(t *testing.T, additionalSANs []string) (string, string, GenerateCert, func()) {
+	certsDir, cleanup := tempDir(t)
+	caKey := filepath.Join(certsDir, "ca.key")
+
+	// Create CA first
+	err := security.CreateCAPair(certsDir, caKey, defaultKeySize, testCALifetime, true, true)
+	require.NoError(t, err, "Failed to create CA pair")
+
+	genCert := GenerateCert{
+		CertsDir:             certsDir,
+		CAKey:                caKey,
+		PublicServiceName:    "test-public",
+		DiscoveryServiceName: "test-service",
+		ClusterDomain:        "cluster.local",
+		NodeCertConfig: &certConfig{
+			Duration:     testCertLifetime,
+			ExpiryWindow: 7 * 24 * time.Hour,
+		},
+		AdditionalSANs: additionalSANs,
+	}
+
+	return certsDir, caKey, genCert, cleanup
+}
+
+// buildStandardHosts creates the standard hosts list for node certificates.
+func buildStandardHosts(genCert GenerateCert, namespace string) []string {
+	return []string{
+		"localhost",
+		"127.0.0.1",
+		genCert.PublicServiceName,
+		genCert.PublicServiceName + "." + namespace,
+		genCert.PublicServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
+		"*." + genCert.DiscoveryServiceName,
+		"*." + genCert.DiscoveryServiceName + "." + namespace,
+		"*." + genCert.DiscoveryServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
+	}
+}
+
+// createAndParseCert creates a node certificate and returns the parsed x509 certificate.
+func createAndParseCert(t *testing.T, certsDir, caKey string, genCert GenerateCert, hosts []string) *x509.Certificate {
+	// Create node certificate
+	err := security.CreateNodePair(
+		certsDir,
+		caKey,
+		defaultKeySize,
+		genCert.NodeCertConfig.Duration,
+		true,
+		hosts,
+	)
+	require.NoError(t, err, "Failed to create node certificate")
+
+	// Read and parse the generated certificate
+	pemCert, err := os.ReadFile(filepath.Join(certsDir, "node.crt"))
+	require.NoError(t, err, "Failed to read node certificate")
+
+	cert, err := security.GetCertObj(pemCert)
+	require.NoError(t, err, "Failed to parse certificate")
+
+	return cert
+}
+
+// getStandardSANs returns the list of standard SANs expected in all node certificates.
+func getStandardSANs() []string {
+	return []string{
+		"localhost",
+		"test-public",
+		"test-public.default",
+		"test-public.default.svc.cluster.local",
+		"*.test-service",
+		"*.test-service.default",
+		"*.test-service.default.svc.cluster.local",
+	}
+}
+
 // TestCreateNodeCertWithAdditionalSANs tests node certificate generation with various
-// additional SAN configurations.
+// additional SAN configurations using a table-driven approach.
 func TestCreateNodeCertWithAdditionalSANs(t *testing.T) {
-	t.Run("WithAdditionalSANs", func(t *testing.T) {
-		certsDir, cleanup := tempDir(t)
-		defer cleanup()
-		caKey := filepath.Join(certsDir, "ca.key")
-
-		// Create CA first
-		err := security.CreateCAPair(certsDir, caKey, defaultKeySize, testCALifetime, true, true)
-		require.NoError(t, err, "Failed to create CA pair")
-
-		// Create GenerateCert instance with additional SANs
-		genCert := GenerateCert{
-			CertsDir:             certsDir,
-			CAKey:                caKey,
-			PublicServiceName:    "test-public",
-			DiscoveryServiceName: "test-service",
-			ClusterDomain:        "cluster.local",
-			NodeCertConfig: &certConfig{
-				Duration:     testCertLifetime,
-				ExpiryWindow: 7 * 24 * time.Hour,
-			},
-			AdditionalSANs: []string{
+	tests := []struct {
+		name                string
+		additionalSANs      []string
+		expectedDNSSANs     []string
+		expectedIPSANs      []string
+		unexpectedDNSSANs   []string
+		sanitizeAndValidate bool
+	}{
+		{
+			name: "WithAdditionalSANs",
+			additionalSANs: []string{
 				"my-loadbalancer.example.com",
 				"10.20.30.40",
 				"backup-lb.example.com",
 			},
-		}
-
-		// Generate node certificate (simplified version without K8s client)
-		namespace := "default"
-		hosts := []string{
-			"localhost",
-			"127.0.0.1",
-			genCert.PublicServiceName,
-			genCert.PublicServiceName + "." + namespace,
-			genCert.PublicServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
-			"*." + genCert.DiscoveryServiceName,
-			"*." + genCert.DiscoveryServiceName + "." + namespace,
-			"*." + genCert.DiscoveryServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
-		}
-
-		// Append additional SANs using the same sanitization as production code
-		validSANs := SanitizeAdditionalSANs(genCert.AdditionalSANs)
-		if len(validSANs) > 0 {
-			hosts = append(hosts, validSANs...)
-		}
-
-		// Create node certificate with all hosts
-		err = security.CreateNodePair(
-			certsDir,
-			caKey,
-			defaultKeySize,
-			genCert.NodeCertConfig.Duration,
-			true,
-			hosts,
-		)
-		require.NoError(t, err, "Failed to create node certificate")
-
-		// Read and parse the generated certificate
-		pemCert, err := os.ReadFile(filepath.Join(certsDir, "node.crt"))
-		require.NoError(t, err, "Failed to read node certificate")
-
-		cert, err := security.GetCertObj(pemCert)
-		require.NoError(t, err, "Failed to parse certificate")
-
-		// Verify standard SANs are present
-		standardSANs := []string{
-			"localhost",
-			"test-public",
-			"test-public.default",
-			"test-public.default.svc.cluster.local",
-			"*.test-service",
-			"*.test-service.default",
-			"*.test-service.default.svc.cluster.local",
-		}
-
-		for _, san := range standardSANs {
-			assert.Contains(t, cert.DNSNames, san, "Standard SAN %s should be present", san)
-		}
-
-		// Verify additional SANs are present
-		additionalDNSSANs := []string{
-			"my-loadbalancer.example.com",
-			"backup-lb.example.com",
-		}
-
-		for _, san := range additionalDNSSANs {
-			assert.Contains(t, cert.DNSNames, san, "Additional DNS SAN %s should be present", san)
-		}
-
-		// Verify IP SANs are present in IPAddresses field
-		// The cockroach cert command parses numeric IPs into the IPAddresses field
-		require.NotEmpty(t, cert.IPAddresses, "Certificate should contain IP addresses")
-		foundIP := false
-		for _, ip := range cert.IPAddresses {
-			if ip.String() == "10.20.30.40" {
-				foundIP = true
-				break
-			}
-		}
-		assert.True(t, foundIP, "Additional IP SAN 10.20.30.40 should be present in IPAddresses")
-	})
-
-	t.Run("NoAdditionalSANs", func(t *testing.T) {
-		certsDir, cleanup := tempDir(t)
-		defer cleanup()
-		caKey := filepath.Join(certsDir, "ca.key")
-
-		// Create CA first
-		err := security.CreateCAPair(certsDir, caKey, defaultKeySize, testCALifetime, true, true)
-		require.NoError(t, err, "Failed to create CA pair")
-
-		// Create GenerateCert instance WITHOUT additional SANs
-		genCert := GenerateCert{
-			CertsDir:             certsDir,
-			CAKey:                caKey,
-			PublicServiceName:    "test-public",
-			DiscoveryServiceName: "test-service",
-			ClusterDomain:        "cluster.local",
-			NodeCertConfig: &certConfig{
-				Duration:     testCertLifetime,
-				ExpiryWindow: 7 * 24 * time.Hour,
+			expectedDNSSANs: []string{
+				"my-loadbalancer.example.com",
+				"backup-lb.example.com",
 			},
-			AdditionalSANs: nil, // No additional SANs
-		}
-
-		namespace := "default"
-		hosts := []string{
-			"localhost",
-			"127.0.0.1",
-			genCert.PublicServiceName,
-			genCert.PublicServiceName + "." + namespace,
-			genCert.PublicServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
-			"*." + genCert.DiscoveryServiceName,
-			"*." + genCert.DiscoveryServiceName + "." + namespace,
-			"*." + genCert.DiscoveryServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
-		}
-
-		// Append additional SANs using sanitization (should be skipped)
-		validSANs := SanitizeAdditionalSANs(genCert.AdditionalSANs)
-		if len(validSANs) > 0 {
-			hosts = append(hosts, validSANs...)
-		}
-
-		// Create node certificate
-		err = security.CreateNodePair(certsDir, caKey, defaultKeySize, genCert.NodeCertConfig.Duration, true, hosts)
-		require.NoError(t, err, "Failed to create node certificate")
-
-		// Read and parse the generated certificate
-		pemCert, err := os.ReadFile(filepath.Join(certsDir, "node.crt"))
-		require.NoError(t, err, "Failed to read node certificate")
-
-		cert, err := security.GetCertObj(pemCert)
-		require.NoError(t, err, "Failed to parse certificate")
-
-		// Verify only standard SANs are present
-		standardSANs := []string{
-			"localhost",
-			"test-public",
-			"test-public.default",
-			"test-public.default.svc.cluster.local",
-			"*.test-service",
-			"*.test-service.default",
-			"*.test-service.default.svc.cluster.local",
-		}
-
-		for _, san := range standardSANs {
-			assert.Contains(t, cert.DNSNames, san, "Standard SAN %s should be present", san)
-		}
-
-		// Verify no unexpected additional SANs
-		assert.NotContains(t, cert.DNSNames, "my-loadbalancer.example.com", "Should not contain additional SANs")
-		assert.NotContains(t, cert.DNSNames, "backup-lb.example.com", "Should not contain additional SANs")
-	})
-
-	t.Run("EmptyAdditionalSANs", func(t *testing.T) {
-		certsDir, cleanup := tempDir(t)
-		defer cleanup()
-		caKey := filepath.Join(certsDir, "ca.key")
-
-		// Create CA first
-		err := security.CreateCAPair(certsDir, caKey, defaultKeySize, testCALifetime, true, true)
-		require.NoError(t, err, "Failed to create CA pair")
-
-		genCert := GenerateCert{
-			CertsDir:             certsDir,
-			CAKey:                caKey,
-			PublicServiceName:    "test-public",
-			DiscoveryServiceName: "test-service",
-			ClusterDomain:        "cluster.local",
-			NodeCertConfig: &certConfig{
-				Duration:     testCertLifetime,
-				ExpiryWindow: 7 * 24 * time.Hour,
-			},
-			AdditionalSANs: make([]string, 0), // Empty slice
-		}
-
-		hosts := []string{
-			"localhost",
-			genCert.PublicServiceName,
-		}
-
-		// This should not append anything
-		validSANs := SanitizeAdditionalSANs(genCert.AdditionalSANs)
-		if len(validSANs) > 0 {
-			hosts = append(hosts, validSANs...)
-		}
-
-		// Verify hosts slice only has standard entries
-		assert.Equal(t, 2, len(hosts), "Should only have standard hosts")
-		assert.NotContains(t, hosts, "extra-san.example.com", "Should not have additional SANs")
-	})
-
-	t.Run("SanitizeAdditionalSANs", func(t *testing.T) {
-		certsDir, cleanup := tempDir(t)
-		defer cleanup()
-		caKey := filepath.Join(certsDir, "ca.key")
-
-		// Create CA first
-		err := security.CreateCAPair(certsDir, caKey, defaultKeySize, testCALifetime, true, true)
-		require.NoError(t, err, "Failed to create CA pair")
-
-		// Test with SANs that have whitespace, empty strings, and valid entries
-		genCert := GenerateCert{
-			CertsDir:             certsDir,
-			CAKey:                caKey,
-			PublicServiceName:    "test-public",
-			DiscoveryServiceName: "test-service",
-			ClusterDomain:        "cluster.local",
-			NodeCertConfig: &certConfig{
-				Duration:     testCertLifetime,
-				ExpiryWindow: 7 * 24 * time.Hour,
-			},
-			AdditionalSANs: []string{
+			expectedIPSANs:    []string{"10.20.30.40"},
+			unexpectedDNSSANs: nil,
+		},
+		{
+			name:              "NoAdditionalSANs",
+			additionalSANs:    nil,
+			expectedDNSSANs:   nil,
+			expectedIPSANs:    nil,
+			unexpectedDNSSANs: []string{"my-loadbalancer.example.com", "backup-lb.example.com"},
+		},
+		{
+			name: "SanitizeAdditionalSANs",
+			additionalSANs: []string{
 				"valid-san.example.com",
 				"  whitespace-before.example.com",
 				"whitespace-after.example.com  ",
@@ -290,68 +164,67 @@ func TestCreateNodeCertWithAdditionalSANs(t *testing.T) {
 				"192.168.1.1",
 				"  192.168.1.2  ",
 			},
-		}
+			expectedDNSSANs: []string{
+				"valid-san.example.com",
+				"whitespace-before.example.com",
+				"whitespace-after.example.com",
+				"whitespace-both.example.com",
+			},
+			expectedIPSANs:      []string{"192.168.1.1", "192.168.1.2"},
+			sanitizeAndValidate: true,
+		},
+	}
 
-		namespace := "default"
-		hosts := []string{
-			"localhost",
-			"127.0.0.1",
-			genCert.PublicServiceName,
-			genCert.PublicServiceName + "." + namespace,
-			genCert.PublicServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
-		}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			certsDir, caKey, genCert, cleanup := setupTestCertEnv(t, tt.additionalSANs)
+			defer cleanup()
 
-		// Apply sanitization like production code
-		validSANs := SanitizeAdditionalSANs(genCert.AdditionalSANs)
-		require.Len(t, validSANs, 6, "Should have 6 valid SANs after filtering empty/whitespace")
+			namespace := "default"
+			hosts := buildStandardHosts(genCert, namespace)
 
-		// Verify sanitized SANs are trimmed
-		assert.Contains(t, validSANs, "valid-san.example.com")
-		assert.Contains(t, validSANs, "whitespace-before.example.com")
-		assert.Contains(t, validSANs, "whitespace-after.example.com")
-		assert.Contains(t, validSANs, "whitespace-both.example.com")
-		assert.Contains(t, validSANs, "192.168.1.1")
-		assert.Contains(t, validSANs, "192.168.1.2")
+			// Apply sanitization and append additional SANs
+			validSANs := SanitizeAdditionalSANs(genCert.AdditionalSANs)
+			if tt.sanitizeAndValidate {
+				// For sanitization test, verify the sanitization worked correctly
+				expectedValidCount := len(tt.expectedDNSSANs) + len(tt.expectedIPSANs)
+				require.Len(t, validSANs, expectedValidCount, "Should have correct number of valid SANs after filtering empty/whitespace")
+			}
+			if len(validSANs) > 0 {
+				hosts = append(hosts, validSANs...)
+			}
 
-		// Verify no entries with leading/trailing whitespace
-		for _, san := range validSANs {
-			assert.Equal(t, strings.TrimSpace(san), san, "SAN should not have leading/trailing whitespace: %q", san)
-		}
+			// Create and parse certificate
+			cert := createAndParseCert(t, certsDir, caKey, genCert, hosts)
 
-		hosts = append(hosts, validSANs...)
+			// Verify standard SANs are always present
+			for _, san := range getStandardSANs() {
+				assert.Contains(t, cert.DNSNames, san, "Standard SAN %s should be present", san)
+			}
 
-		// Create node certificate with sanitized hosts
-		err = security.CreateNodePair(
-			certsDir,
-			caKey,
-			defaultKeySize,
-			genCert.NodeCertConfig.Duration,
-			true,
-			hosts,
-		)
-		require.NoError(t, err, "Failed to create node certificate")
+			// Verify expected additional DNS SANs
+			for _, san := range tt.expectedDNSSANs {
+				assert.Contains(t, cert.DNSNames, san, "Additional DNS SAN %s should be present", san)
+			}
 
-		// Read and parse the generated certificate
-		pemCert, err := os.ReadFile(filepath.Join(certsDir, "node.crt"))
-		require.NoError(t, err, "Failed to read node certificate")
+			// Verify expected IP SANs
+			if len(tt.expectedIPSANs) > 0 {
+				require.NotEmpty(t, cert.IPAddresses, "Certificate should contain IP addresses")
+				ipStrings := make([]string, len(cert.IPAddresses))
+				for i, ip := range cert.IPAddresses {
+					ipStrings[i] = ip.String()
+				}
+				for _, expectedIP := range tt.expectedIPSANs {
+					assert.Contains(t, ipStrings, expectedIP, "IP SAN %s should be present", expectedIP)
+				}
+			}
 
-		cert, err := security.GetCertObj(pemCert)
-		require.NoError(t, err, "Failed to parse certificate")
-
-		// Verify sanitized DNS SANs are present
-		assert.Contains(t, cert.DNSNames, "valid-san.example.com")
-		assert.Contains(t, cert.DNSNames, "whitespace-before.example.com")
-		assert.Contains(t, cert.DNSNames, "whitespace-after.example.com")
-		assert.Contains(t, cert.DNSNames, "whitespace-both.example.com")
-
-		// Verify IP SANs are present
-		ipStrings := make([]string, len(cert.IPAddresses))
-		for i, ip := range cert.IPAddresses {
-			ipStrings[i] = ip.String()
-		}
-		assert.Contains(t, ipStrings, "192.168.1.1")
-		assert.Contains(t, ipStrings, "192.168.1.2")
-	})
+			// Verify unexpected SANs are not present
+			for _, san := range tt.unexpectedDNSSANs {
+				assert.NotContains(t, cert.DNSNames, san, "Should not contain unexpected SAN %s", san)
+			}
+		})
+	}
 }
 
 // TestSanitizeAdditionalSANs tests the SAN sanitization helper function directly.

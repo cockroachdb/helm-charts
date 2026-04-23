@@ -570,11 +570,10 @@ func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, na
 		hosts = append(hosts, operatorJoinServiceHosts...)
 	}
 
-	// Append additional user-provided SANs (after sanitizing)
-	validSANs := SanitizeAdditionalSANs(rc.AdditionalSANs)
-	if len(validSANs) > 0 {
-		logrus.Infof("Adding additional SANs to node certificate: %v", validSANs)
-		hosts = append(hosts, validSANs...)
+	// Append additional user-provided SANs
+	if len(rc.AdditionalSANs) > 0 {
+		logrus.Infof("Adding additional SANs to node certificate: %v", rc.AdditionalSANs)
+		hosts = append(hosts, rc.AdditionalSANs...)
 	}
 
 	// create the Node Pair certificates

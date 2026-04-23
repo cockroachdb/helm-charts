@@ -83,20 +83,8 @@ func init() {
 	}
 }
 
-// getInitialConfig initializes and configures a GenerateCert instance with certificate
-// durations, service names, and optional additional SANs from environment variables.
-//
-// It reads the following environment variables:
-//   - STATEFULSET_NAME: Name of the StatefulSet (required for non-client-only mode)
-//   - CLUSTER_DOMAIN: Kubernetes cluster domain (required for non-client-only mode)
-//   - ADDITIONAL_SANS: Comma-separated list of additional SANs for node certificates (optional)
-//
-// The function configures certificate durations for CA, node, and client certificates,
-// derives service names from the StatefulSet name, and parses any additional SANs
-// to be included in node certificates.
-//
-// Returns an error if required environment variables are missing or if certificate
-// configuration parsing fails.
+// getInitialConfig initializes a GenerateCert instance from certificate durations
+// and environment variables (STATEFULSET_NAME, CLUSTER_DOMAIN, ADDITIONAL_SANS).
 func getInitialConfig(
 	caDuration, caExpiry, nodeDuration, nodeExpiry, clientDuration,
 	clientExpiry string,

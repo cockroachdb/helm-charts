@@ -60,22 +60,6 @@ func (h *HelmInstall) InstallHelm(t *testing.T) {
 		k8s.CreateNamespace(t, kubectlOptions, h.Namespace)
 	}
 
-	// Add default timeout for helm install if not already specified by user
-	// This allows self-signer jobs to complete in slower CI environments
-	if h.HelmOptions.ExtraArgs == nil {
-		h.HelmOptions.ExtraArgs = make(map[string][]string)
-	}
-	hasTimeout := false
-	for _, arg := range h.HelmOptions.ExtraArgs["install"] {
-		if arg == "--timeout" || arg == "-t" || strings.HasPrefix(arg, "--timeout=") {
-			hasTimeout = true
-			break
-		}
-	}
-	if !hasTimeout {
-		h.HelmOptions.ExtraArgs["install"] = append(h.HelmOptions.ExtraArgs["install"], "--timeout", "10m")
-	}
-
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
 	helmChartPath := filepath.Join(testutil.GetGitRoot(), "cockroachdb")
 	helm.Install(t, h.HelmOptions, helmChartPath, ReleaseName)
