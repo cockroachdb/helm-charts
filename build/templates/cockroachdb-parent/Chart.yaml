@@ -5,11 +5,12 @@ type: application
 version: {{ .Version }}
 appVersion: {{ .AppVersion }}
 dependencies:
-  - name: operator
-    version: {{ .Version }}
+  - name: cockroachdb-operator
+    alias: operator
+    version: {{ .OperatorVersion }}
     condition: operator.enabled
     repository: "file://charts/operator"
   - name: cockroachdb
-    version: {{ .Version }}
+    version: {{ .CockroachDBVersion }}
     condition: cockroachdb.enabled
     repository: "file://charts/cockroachdb"

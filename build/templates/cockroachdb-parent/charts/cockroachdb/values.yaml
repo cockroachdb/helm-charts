@@ -468,7 +468,7 @@ cockroachdb:
         # # initContainers captures the list of init containers for CockroachDB pods.
         # initContainers:
         #   - name : cockroachdb-init
-        #     image: docker.io/cockroachdb/cockroachdb-init-container:1.0.0-rc.1
+        #     image: docker.io/cockroachdb/cockroachdb-init-container:v1.0.0-rc.1
         # containers captures the list of containers for CockroachDB pods.
         containers:
           - name: cockroachdb
@@ -483,8 +483,8 @@ cockroachdb:
             resources: {}
             # image: cockroachdb/cockroach:v{{ .AppVersion }}
             # - name: cert-reloader
-            #   image: docker.io/cockroachdb/cockroachdb-cert-reloader:1.0.0-rc.1
-        
+            #   image: docker.io/cockroachdb/cockroachdb-cert-reloader:v1.0.0-rc.1
+
         # topologySpreadConstraints captures pod topology spread constraints.
         # It is recommended to spread CockroachDB pods across zones to ensure high availability.
         topologySpreadConstraints:
