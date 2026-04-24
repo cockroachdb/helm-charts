@@ -33,9 +33,9 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
     "coredns/coredns:1.9.2"
     "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
-    "us-docker.pkg.dev/releases-prod/self-hosted/inotifywait@sha256:94db3d416e3df8d1ee2605f05b0526b3bd7217ae69b4eeb147929fe0b77aeafc"
+    "docker.io/cockroachdb/cockroachdb-cert-reloader:1.0.0-rc.1"
     "bash:latest"
-    "us-docker.pkg.dev/releases-prod/self-hosted/init-container@sha256:bcfc9312af84c7966f017c2325981b30314c0c293491f942e54da1667bedaf69"
+    "docker.io/cockroachdb/cockroachdb-init-container:1.0.0-rc.1"
     "${REGISTRY}/${REPOSITORY}:$(bin/yq '.cockroachdb.tls.selfSigner.image.tag' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
 )
 

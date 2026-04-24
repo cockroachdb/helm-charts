@@ -4,4 +4,4 @@ name: operator
 description: A Helm chart for managing the CockroachDB operator.
 type: application
 appVersion: 26.1.3
-version: 26.1.3-preview
+version: 26.1.3-preview+1

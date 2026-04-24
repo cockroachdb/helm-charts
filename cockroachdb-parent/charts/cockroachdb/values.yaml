@@ -469,7 +469,7 @@ cockroachdb:
         # # initContainers captures the list of init containers for CockroachDB pods.
         # initContainers:
         #   - name : cockroachdb-init
-        #     image: us-docker.pkg.dev/releases-prod/self-hosted/init-container@sha256:bcfc9312af84c7966f017c2325981b30314c0c293491f942e54da1667bedaf69
+        #     image: docker.io/cockroachdb/cockroachdb-init-container:1.0.0-rc.1
         # containers captures the list of containers for CockroachDB pods.
         containers:
           - name: cockroachdb
@@ -482,9 +482,9 @@ cockroachdb:
             #     fieldRef:
             #       fieldPath: metadata.name
             resources: {}
-            # image: cockroachdb/cockroach:v26.1.0
+            # image: cockroachdb/cockroach:v26.1.3
             # - name: cert-reloader
-            #   image: us-docker.pkg.dev/releases-prod/self-hosted/inotifywait@sha256:94db3d416e3df8d1ee2605f05b0526b3bd7217ae69b4eeb147929fe0b77aeafc
+            #   image: docker.io/cockroachdb/cockroachdb-cert-reloader:1.0.0-rc.1
         
         # topologySpreadConstraints captures pod topology spread constraints.
         # It is recommended to spread CockroachDB pods across zones to ensure high availability.
@@ -544,6 +544,24 @@ cockroachdb:
     #   # depending on which cluster you want to initialise.
     #   # Possible Values: disabled, primary, standby
     #   mode: "disabled"
+
+# hooks captures the configuration for Helm hook jobs (pre-upgrade validation, etc.).
+# All hook jobs use the image defined here by default. Override these
+# values to use images from an internal registry in air-gapped environments.
+hooks:
+  # kubectlImage is the container image used by hook jobs that run kubectl commands.
+  # If a future hook requires a different image (e.g., cockroach sql), add a new
+  # sibling key (e.g., hooks.cockroachImage) rather than overloading this one.
+  kubectlImage:
+    # registry defines the container registry for the hook image.
+    registry: docker.io
+    # repository defines the image repository for the hook container.
+    repository: dtzar/helm-kubectl
+    # tag defines the image tag for the hook container. Pinned for reproducibility
+    # in air-gapped environments.
+    tag: "3.19"
+    # pullPolicy defines the image pull policy for the hook container.
+    pullPolicy: IfNotPresent
 
 k8s:
   # nameOverride overrides the name of the chart. If not set, the chart name will be used.

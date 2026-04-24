@@ -1,0 +1,38 @@
+# CockroachDB Helm Charts - Container Image Manifest
+#
+# This file lists all container images required by the CockroachDB Helm charts.
+# Use it to mirror images into an internal registry for air-gapped environments.
+#
+# Format: <registry>/<repository>:<tag> or <registry>/<repository>@<digest>
+#
+# To mirror all images, run:
+#   scripts/mirror-images.sh --source-file cockroachdb-parent/images.txt --target-registry <your-registry>
+
+# === Operator chart images ===
+
+# CockroachDB Operator
+docker.io/cockroachdb/cockroachdb-operator-v2:1.0.0-rc.1
+
+# Operator pre-upgrade validation hook
+docker.io/dtzar/helm-kubectl:3.19
+
+# === CockroachDB chart images ===
+
+# CockroachDB database
+docker.io/cockroachdb/cockroach:v26.1.3
+
+# Certificate self-signer
+gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert:1.9
+
+# CockroachDB pre-upgrade validation hook
+docker.io/dtzar/helm-kubectl:3.19
+
+# === Operator-managed images (embedded in operator binary) ===
+# These images are pulled by the operator at runtime, not referenced in Helm values.
+# They must also be mirrored for air-gapped environments.
+
+# Init container
+docker.io/cockroachdb/cockroachdb-init-container:1.0.0-rc.1
+
+# Cert reloader (inotifywait)
+docker.io/cockroachdb/cockroachdb-cert-reloader:1.0.0-rc.1

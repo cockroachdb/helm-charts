@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [cockroachdb-parent-26.1.3-preview+1] 2026-04-24
+### Added
+- Hook images (`bitnami/kubectl`, `dtzar/helm-kubectl`) are now configurable via
+  `hooks.kubectlImage.{registry,repository,tag,pullPolicy}` in both charts. This
+  unblocks air-gapped deployments where pulling from public registries is not possible.
+- Added `cockroachdb-parent/images.txt` manifest listing all container images
+  required by both charts, including operator-managed runtime images.
+- Added `scripts/mirror-images.sh` to mirror images from the manifest into an
+  internal registry using `crane` or `skopeo`.
+
+### Changed
+- Operator image now uses semantic version tags from DockerHub
+  instead of SHA digests from Google Artifact Registry.
+- Operator now cleans up cluster-scoped webhook configurations and the webhook Service
+  when the operator is removed. In namespace-scoped mode, each operator instance only
+  cleans up its own resources.
+- Operator now sets CrdbNode ownerReferences on all PVCs (data, logs, WAL) for improved
+  resource hierarchy visibility.
+
 ## [cockroachdb-parent-26.1.1-preview+2] 2026-03-26
 ### Changed
 - **API Version Migration**: The operator now uses an image that removes `v1alpha1` entirely and keeps only `v1beta1`.
