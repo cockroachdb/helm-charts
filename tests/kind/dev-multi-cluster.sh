@@ -272,10 +272,12 @@ remove_control_plane_taint() {
     echo "Control-plane nodes are now schedulable"
 }
 
-# Pull images that don't exist locally and import them into the Kind cluster.
+# Pull images directly into each Kind node using crictl to avoid import-date naming issues.
+# Using "kind load docker-image" causes digest-only images to be stored with a date-based
+# name (import-YYYY-MM-DD) in containerd, which breaks pod image lookups.
 import_container_images() {
     local cluster_name="$1"
-    echo "Pulling and importing required container images..."
+    echo "Pulling required container images directly into Kind nodes..."
 
     for image in "${REQUIRED_IMAGES[@]}"; do
         # Skip empty image names
@@ -285,20 +287,14 @@ import_container_images() {
 
         echo "Processing image: $image"
 
-        # Pull image if it doesn't exist locally
-        if ! docker image inspect "$image" >/dev/null 2>&1; then
-            echo "Pulling image: $image"
-            if ! docker pull "$image"; then
-                echo "Warning: Failed to pull image $image, skipping..."
-                continue
+        # Pull image directly inside each node using crictl.
+        # This stores the image with the correct reference name in containerd.
+        for node in $("${KIND_PATH}" get nodes --name "${cluster_name}" 2>/dev/null); do
+            echo "Pulling $image on node $node..."
+            if ! docker exec "$node" crictl pull "$image"; then
+                echo "Warning: Failed to pull image $image on node $node"
             fi
-        fi
-
-        # Load image into Kind cluster one by one to avoid bulk loading issues
-        echo "Loading image $image into cluster $cluster_name..."
-        if ! "${KIND_PATH}" load docker-image "$image" --name "${cluster_name}"; then
-            echo "Warning: Failed to load image $image into cluster $cluster_name"
-        fi
+        done
     done
 
     echo "Finished importing container images"

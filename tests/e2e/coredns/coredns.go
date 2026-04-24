@@ -148,6 +148,46 @@ func CoreDNSService(IpAddress *string, annotations map[string]string) *corev1.Se
 	return svc
 }
 
+// CoreDNSInternalService returns a ClusterIP-only Service that exposes both UDP/53 and TCP/53
+// to the CoreDNS pods. This is used by OpenShift so the built-in DNS operator can forward
+// queries via UDP (its default protocol) to our custom CoreDNS. The main LoadBalancer service
+// (CoreDNSService) only exposes TCP/53 due to GCP LB constraints.
+func CoreDNSInternalService() *corev1.Service {
+	return &corev1.Service{
+		TypeMeta: metav1.TypeMeta{
+			Kind:       "Service",
+			APIVersion: "v1",
+		},
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "crl-core-dns-internal",
+			Namespace: "kube-system",
+			Labels: map[string]string{
+				"k8s-app": "kube-dns",
+			},
+		},
+		Spec: corev1.ServiceSpec{
+			Type: corev1.ServiceTypeClusterIP,
+			Ports: []corev1.ServicePort{
+				{
+					Name:       "dns-udp",
+					Port:       53,
+					Protocol:   corev1.ProtocolUDP,
+					TargetPort: intstr.Parse("53"),
+				},
+				{
+					Name:       "dns-tcp",
+					Port:       53,
+					Protocol:   corev1.ProtocolTCP,
+					TargetPort: intstr.Parse("53"),
+				},
+			},
+			Selector: map[string]string{
+				"k8s-app": "kube-dns",
+			},
+		},
+	}
+}
+
 // CoreDNSDeployment returns coredns deployment object.
 func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
 	healthCheckPort := intstr.FromInt32(8080)

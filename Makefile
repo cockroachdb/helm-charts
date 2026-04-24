@@ -123,11 +123,20 @@ test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/cluster/up
 	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
 
+# E2E_MULTI_REGION_TIMEOUT controls the go test timeout for multi-region tests.
+# OpenShift clusters take ~40–60 min to provision, so the default is generous.
+# Override to a lower value (e.g. 60m) when running against faster providers.
+E2E_MULTI_REGION_TIMEOUT ?= 300m
+
 test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer bin/k3d bin/kind
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Multi region tests failed with exit code $$?" && exit 1)
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout $(E2E_MULTI_REGION_TIMEOUT) -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Multi region tests failed with exit code $$?" && exit 1)
+
+# E2E_SINGLE_REGION_TIMEOUT controls the go test timeout for single-region tests.
+# OpenShift provisioning takes ~40-60 min, so override when running against it.
+E2E_SINGLE_REGION_TIMEOUT ?= 60m
 
 test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/k3d bin/kind
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Single region tests failed with exit code $$?" && exit 1)
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout $(E2E_SINGLE_REGION_TIMEOUT) -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Single region tests failed with exit code $$?" && exit 1)
 
 test/e2e/migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/self-signer test/cluster/up/3
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
@@ -139,6 +148,34 @@ test/single-cluster/up: bin/k3d
 
 test/multi-cluster/down: bin/k3d
 	 ./tests/k3d/dev-multi-cluster.sh down
+
+test/nightly-e2e/advanced: bin/cockroach bin/kubectl bin/helm build/self-signer bin/k3d bin/kind
+	@PATH="$(PWD)/bin:${PATH}" TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Advanced features tests failed with exit code $$?" && exit 1)
+
+test/nightly-e2e/advanced/multi-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/k3d bin/kind
+	@PATH="$(PWD)/bin:${PATH}" TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Advanced features multi-region tests failed with exit code $$?" && exit 1)
+
+# Run advanced e2e tests using kind clusters on a GCE worker.
+# Creates kind clusters, runs all advanced feature tests, and leaves clusters running (no cleanup).
+# Use this for the first run or whenever you want a fresh cluster.
+test/nightly-e2e/advanced/kind: bin/cockroach bin/kubectl bin/helm build/self-signer bin/kind
+	@PATH="$(PWD)/bin:${PATH}" PROVIDER=kind SKIP_CLEANUP=true TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Advanced features tests (kind) failed with exit code $$?" && exit 1)
+
+# Re-run advanced e2e tests on existing kind clusters (skips cluster creation).
+# Use this after test/nightly-e2e/advanced/kind when clusters are already up and you want to
+# iterate on failures without recreating infrastructure.
+test/nightly-e2e/advanced/kind/reuse: bin/cockroach bin/kubectl bin/helm build/self-signer bin/kind
+	@PATH="$(PWD)/bin:${PATH}" PROVIDER=kind REUSE_INFRA=true SKIP_CLEANUP=true TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Advanced features tests (kind reuse) failed with exit code $$?" && exit 1)
+
+# Run multi-region advanced e2e tests using kind clusters on a GCE worker.
+# Creates kind clusters, runs all multi-region advanced feature tests, and leaves clusters running.
+test/nightly-e2e/advanced/kind/multi-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/kind
+	@PATH="$(PWD)/bin:${PATH}" PROVIDER=kind SKIP_CLEANUP=true TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Advanced features tests (kind multi-region) failed with exit code $$?" && exit 1)
+
+# Re-run multi-region advanced e2e tests on existing kind clusters (skips cluster creation).
+test/nightly-e2e/advanced/kind/multi-region/reuse: bin/cockroach bin/kubectl bin/helm build/self-signer bin/kind
+	@PATH="$(PWD)/bin:${PATH}" PROVIDER=kind REUSE_INFRA=true SKIP_CLEANUP=true TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Advanced features tests (kind multi-region reuse) failed with exit code $$?" && exit 1)
+
 
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && \

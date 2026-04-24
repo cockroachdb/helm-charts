@@ -3,3 +3,8 @@ bin/
 build/artifacts
 bazel-*
 /vendor/
+
+# Submariner broker credentials — generated at runtime by subctl deploy-broker,
+# never committed. Contains service account tokens, CA certs, and PSK.
+broker-info.subm
+*.subm
