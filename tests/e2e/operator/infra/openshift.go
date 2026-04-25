@@ -24,31 +24,15 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
-// ─── OPENSHIFT CONSTANTS ──────────────────────────────────────────────────────
-
 const (
-	// env vars consumed by openshift.go
 	envOpenShiftPullSecret = "OPENSHIFT_PULL_SECRET"
 	envOpenShiftSSHPubKey  = "OPENSHIFT_SSH_PUB_KEY"
 	envOpenShiftBaseDomain = "OPENSHIFT_BASE_DOMAIN"
-	// envOpenShiftInstallDir points to an existing openshift-install state directory.
-	// When set, SetUpInfra skips provisioning and reuses the existing cluster.
-	// Example: OPENSHIFT_INSTALL_DIR=/var/folders/.../ocp-ocp-0qaif4-2872850045
+	// single directory for single-region reuse
 	envOpenShiftInstallDir = "OPENSHIFT_INSTALL_DIR"
-	// envOpenShiftInstallDirs is a comma-separated list of existing openshift-install
-	// state directories, one per cluster in order. When set, SetUpInfra skips
-	// provisioning for all clusters and reuses the existing ones. VPC peering,
-	// CoreDNS, and DNS operator setup still run (they are idempotent).
-	// Example: OPENSHIFT_INSTALL_DIRS=/path/to/cluster-0,/path/to/cluster-1
 	envOpenShiftInstallDirs = "OPENSHIFT_INSTALL_DIRS"
-
-	// defaultOpenShiftProjectID is the GCP project used when GCP_PROJECT_ID is not set.
-	// TODO: Change this to "helm-testing" to match the GCP provider default and avoid
-	// accidental provisioning into a personal project when GCP_PROJECT_ID is unset.
+	// TODO: Change this to "helm-testing" to match the GCP provider default 
 	defaultOpenShiftProjectID = "cockroach-shreyaskm"
-
-	// maxInstallerNameLen is the maximum length of the cluster name in install-config.yaml.
-	// OpenShift enforces a 14-character limit on metadata.name.
 	maxInstallerNameLen = 14
 )
 
@@ -127,8 +111,6 @@ type installConfigData struct {
 	ServiceNetwork string
 }
 
-// ─── OPENSHIFT REGION ─────────────────────────────────────────────────────────
-
 // openShiftMetadata mirrors the fields we need from the metadata.json file
 // that openshift-install writes to the install directory after provisioning.
 type openShiftMetadata struct {
@@ -155,12 +137,6 @@ type OpenShiftRegion struct {
 
 // SetUpInfra provisions one OpenShift cluster per entry in r.Clusters.
 // For single-region tests there is exactly one cluster.
-//
-// Cluster reuse modes (skip provisioning):
-//   - OPENSHIFT_INSTALL_DIRS: comma-separated list of existing openshift-install
-//     state directories, one per cluster in order. VPC peering, CoreDNS, and DNS
-//     operator setup still run (they are idempotent). Use this for multi-region.
-//   - OPENSHIFT_INSTALL_DIR: single directory for single-region reuse.
 func (r *OpenShiftRegion) SetUpInfra(t *testing.T) {
 	if r.ReusingInfra {
 		t.Logf("[%s] Reusing existing infrastructure, skipping setup", ProviderOpenShift)
@@ -214,7 +190,6 @@ func (r *OpenShiftRegion) SetUpInfra(t *testing.T) {
 			r.Clients[clusterName] = k8sClient
 			t.Logf("[%s] Cluster %q client ready (reused)", ProviderOpenShift, clusterName)
 		}
-		// Fall through to VPC peering + CoreDNS + DNS operator setup below.
 
 	case reuseDir != "":
 		// Single-region reuse: existing OPENSHIFT_INSTALL_DIR behavior.
@@ -236,11 +211,8 @@ func (r *OpenShiftRegion) SetUpInfra(t *testing.T) {
 		}
 		r.Clients[clusterName] = k8sClient
 		t.Logf("[%s] Cluster %q client ready (reused)", ProviderOpenShift, clusterName)
-		// Fall through to the common post-setup block below (DNS patching, autoscaler)
-		// so single-cluster reuse behaves identically to fresh provisioning.
 
 	default:
-		// Fresh provisioning.
 		pullSecret := mustEnv(t, envOpenShiftPullSecret)
 		sshPubKey := mustEnv(t, envOpenShiftSSHPubKey)
 		baseDomain := mustEnv(t, envOpenShiftBaseDomain)
@@ -284,7 +256,7 @@ func (r *OpenShiftRegion) SetUpInfra(t *testing.T) {
 		}
 	}
 
-	// Common: VPC peering, CoreDNS deployment, and DNS operator patching.
+	// VPC peering, CoreDNS deployment, and DNS operator patching.
 	kubeConfigPath, err := r.EnsureKubeConfigPath()
 	require.NoError(t, err)
 
@@ -320,22 +292,11 @@ func (r *OpenShiftRegion) SetUpInfra(t *testing.T) {
 			t.Fatalf("[%s] Failed to set up Submariner: %v", ProviderOpenShift, err)
 		}
 
-		// Enable cluster autoscaler so TestClusterScaleUp can schedule the 4th
-		// CockroachDB pod on a new node (mirrors GKE's --enable-autoscaling).
-		if err := r.setupClusterAutoscaler(t, kubeConfigPath); err != nil {
-			t.Fatalf("[%s] Failed to set up cluster autoscaler: %v", ProviderOpenShift, err)
-		}
-	} else {
-		// Single-region: the charts use the cluster's default domain (cluster.local),
-		// which the OpenShift DNS operator already handles natively. Forwarding
-		// cluster1.local → dns-default would create a self-referential loop, so we
-		// skip DNS patching entirely here.
+	}
 
-		// Enable cluster autoscaler so TestClusterScaleUp can schedule the 4th
-		// CockroachDB pod on a new node (mirrors GKE's --enable-autoscaling).
-		if err := r.setupClusterAutoscaler(t, kubeConfigPath); err != nil {
-			t.Fatalf("[%s] Failed to set up cluster autoscaler: %v", ProviderOpenShift, err)
-		}
+	// Enable cluster autoscaler
+	if err := r.setupClusterAutoscaler(t, kubeConfigPath); err != nil {
+		t.Fatalf("[%s] Failed to set up cluster autoscaler: %v", ProviderOpenShift, err)
 	}
 
 	r.ReusingInfra = true
@@ -343,9 +304,6 @@ func (r *OpenShiftRegion) SetUpInfra(t *testing.T) {
 }
 
 // TeardownInfra destroys all provisioned OpenShift clusters.
-// openshift-install destroy cluster handles all GCP resource cleanup automatically.
-// Clusters that were reused via OPENSHIFT_INSTALL_DIR/OPENSHIFT_INSTALL_DIRS are
-// left untouched — only clusters this test provisioned itself are destroyed.
 func (r *OpenShiftRegion) TeardownInfra(t *testing.T) {
 	t.Logf("[%s] Starting infrastructure teardown", ProviderOpenShift)
 
@@ -365,7 +323,6 @@ func (r *OpenShiftRegion) TeardownInfra(t *testing.T) {
 		cmd.Stderr = os.Stderr
 
 		if err := cmd.Run(); err != nil {
-			// Log but don't fatal — best-effort cleanup.
 			t.Logf("[%s] Warning: destroy cluster %q failed: %v", ProviderOpenShift, clusterName, err)
 		} else {
 			t.Logf("[%s] Cluster %q destroyed successfully", ProviderOpenShift, clusterName)
@@ -380,25 +337,17 @@ func (r *OpenShiftRegion) TeardownInfra(t *testing.T) {
 	t.Logf("[%s] Infrastructure teardown complete", ProviderOpenShift)
 }
 
-// ScaleNodePool is a no-op for OpenShift: the ClusterAutoscaler provisioned
-// in SetUpInfra handles node scaling transparently when pods are Pending.
+// ScaleNodePool is a no-op for OpenShift
 func (r *OpenShiftRegion) ScaleNodePool(t *testing.T, location string, nodeCount, index int) {
 	t.Logf("[%s] Node pool scaling delegated to ClusterAutoscaler (no explicit action needed)", ProviderOpenShift)
 }
 
 // CanScale reports whether this provider supports scaling.
-// OpenShift uses the ClusterAutoscaler + MachineAutoscaler set up in SetUpInfra
-// to provision new nodes automatically when pods are Pending.
 func (r *OpenShiftRegion) CanScale() bool {
 	return true
 }
 
-// ─── CLUSTER PROVISIONING ────────────────────────────────────────────────────
-
-// shortInstallerName derives a ≤14-character name for install-config.yaml metadata.name.
-// OpenShift enforces this limit; our internal cluster names are much longer.
-// The last component of the cluster name is the random UniqueId (e.g. "ab12cd"),
-// so we prefix it with "ocp-" to get a unique, short, valid name.
+// OpenShift enforces a limit of ≤14-character name
 func shortInstallerName(clusterName string) string {
 	parts := strings.Split(clusterName, "-")
 	suffix := parts[len(parts)-1]
@@ -482,7 +431,7 @@ func (r *OpenShiftRegion) provisionCluster(
 		// Preserve the install directory (which contains the log bundle and
 		// .openshift_install.log) when SKIP_CLEANUP is set so the operator can
 		// inspect bootstrap diagnostics after a failure.
-		if os.Getenv("SKIP_CLEANUP") == "true" || os.Getenv("PRESERVE_INFRA_ON_FAILURE") == "true" {
+		if os.Getenv("SKIP_CLEANUP") == "true" {
 			t.Logf("[%s] Install dir preserved for debugging: %s", ProviderOpenShift, installDir)
 			t.Logf("[%s] Check for log bundle: %s/log-bundle-*.tar.gz", ProviderOpenShift, installDir)
 		} else {
@@ -496,8 +445,6 @@ func (r *OpenShiftRegion) provisionCluster(
 	// (e.g., the VPC is "<infraID>-network", not "<installerName>-network").
 	infraID, err := readOpenShiftInfraID(installDir)
 	if err != nil {
-		// Non-fatal: fall back to the installer name so VPC peering can still
-		// be attempted (it may fail gracefully if the name is wrong).
 		t.Logf("[%s] Warning: could not read infraID from metadata.json, using installer name %q: %v",
 			ProviderOpenShift, installerName, err)
 		infraID = installerName
@@ -524,8 +471,6 @@ func readOpenShiftInfraID(installDir string) (string, error) {
 	}
 	return meta.InfraID, nil
 }
-
-// ─── VPC PEERING ─────────────────────────────────────────────────────────────
 
 // setupOpenShiftVPCPeering creates bidirectional GCP VPC peering between the
 // two OpenShift cluster VPCs so that pods can reach each other cross-cluster.
@@ -663,20 +608,9 @@ func (r *OpenShiftRegion) setupOpenShiftVPCPeering(t *testing.T, projectID strin
 	return nil
 }
 
-// ─── SUBMARINER ──────────────────────────────────────────────────────────────
-
 // setupSubmariner installs Submariner on both clusters to provide cross-cluster
 // pod-to-pod networking. OpenShift uses OVN-Kubernetes overlay networking whose
-// pod IPs are not routable across VPC-peered networks by default. Submariner
-// creates IPsec tunnels between gateway nodes (which use routable machine IPs)
-// and programs OVN-K routing policies for remote pod CIDRs.
-//
-// Prerequisites (handled by setupOpenShiftVPCPeering):
-//   - VPC peering with ImportCustomRoutes/ExportCustomRoutes enabled
-//   - Firewall rule allowing ESP (IP protocol 50) for IPsec data plane
-//
-// This function is idempotent: if the submariner-operator namespace already
-// exists on cluster-0, setup is skipped.
+// pod IPs are not routable across VPC-peered networks by default.
 func (r *OpenShiftRegion) setupSubmariner(t *testing.T, kubeConfigPath string) error {
 	if len(r.Clusters) < 2 {
 		return nil
@@ -783,20 +717,7 @@ func (r *OpenShiftRegion) setupSubmariner(t *testing.T, kubeConfigPath string) e
 	return nil
 }
 
-// ─── CLUSTER AUTOSCALER ──────────────────────────────────────────────────────
-
-// setupClusterAutoscaler enables the OpenShift cluster autoscaler on each cluster,
-// mirroring GKE's --enable-autoscaling flag. This is required for TestClusterScaleUp:
-// when CockroachDB scales from 3 → 4 replicas, the 4th pod goes Pending (anti-affinity
-// prevents two pods per node), the autoscaler detects it and provisions a new node via
-// MachineSet — exactly the same flow as GKE node pool autoscaling.
-//
-// Two resources are created per cluster:
-//   - ClusterAutoscaler: watches for Pending pods and triggers scale-up/down
-//   - MachineAutoscaler: per MachineSet, sets min/max replicas (equivalent to
-//     GKE's --min-nodes/--max-nodes)
-//
-// This function is idempotent: kubectl apply is used throughout.
+// setupClusterAutoscaler enables the OpenShift cluster autoscaler on each cluster
 func (r *OpenShiftRegion) setupClusterAutoscaler(t *testing.T, kubeConfigPath string) error {
 	const clusterAutoscalerYAML = `apiVersion: autoscaling.openshift.io/v1
 kind: ClusterAutoscaler
@@ -868,16 +789,10 @@ spec:
 	return nil
 }
 
-// ─── COREDNS DEPLOYMENT ───────────────────────────────────────────────────────
-
 // deployAndConfigureOpenShiftCoreDNS deploys a custom CoreDNS instance to
-// kube-system on each cluster with an external LoadBalancer service. It then:
-//  1. Grants SCC permissions for the CoreDNS pods (OpenShift security).
-//  2. Waits for the external LB IP.
-//  3. Populates r.CorednsClusterOptions with those IPs.
-//  4. Applies the full cross-cluster Corefile to every cluster.
+// kube-system on each cluster with an external LoadBalancer service.
 func (r *OpenShiftRegion) deployAndConfigureOpenShiftCoreDNS(t *testing.T, kubeConfigPath string) error {
-	// Phase 1: deploy CoreDNS on each cluster and collect external LB IPs.
+	// deploy CoreDNS on each cluster and collect external LB IPs.
 	for i, clusterName := range r.Clusters {
 		t.Logf("[%s] Deploying custom CoreDNS on cluster %q", ProviderOpenShift, clusterName)
 
@@ -889,10 +804,6 @@ func (r *OpenShiftRegion) deployAndConfigureOpenShiftCoreDNS(t *testing.T, kubeC
 		}
 
 		// Grant anyuid SCC to the CoreDNS SA in kube-system so the pods can run.
-		// Must come after RBAC deployment so the SA exists.
-		// Use "kubectl create clusterrolebinding" instead of "oc adm policy add-scc-to-user":
-		// k8s.RunKubectlE prepends --context before the subcommand, which the oc adm
-		// plugin rejects with "flags cannot be placed before plugin name: --context".
 		if err := k8s.RunKubectlE(t, kubectlOpts,
 			"create", "clusterrolebinding", "crl-coredns-anyuid",
 			"--clusterrole=system:openshift:scc:anyuid",
@@ -922,17 +833,13 @@ func (r *OpenShiftRegion) deployAndConfigureOpenShiftCoreDNS(t *testing.T, kubeC
 		t.Logf("[%s] CoreDNS LB IPs for cluster %q: %v", ProviderOpenShift, clusterName, ips)
 	}
 
-	// Phase 2: update the Corefile on every cluster with the full cross-cluster config.
+	// update the Corefile on every cluster with the full cross-cluster config.
 	UpdateCoreDNSConfiguration(t, r.Region, kubeConfigPath)
 
 	return nil
 }
 
 // getCoreDNSClusterIP returns the ClusterIP of the crl-core-dns-internal service in kube-system.
-// This is a ClusterIP-only service exposing both UDP/53 and TCP/53 to the CoreDNS pods.
-// The DNS operator patch uses this IP so that the built-in OpenShift DNS can forward
-// queries via UDP (its default) to our custom CoreDNS. The LoadBalancer service
-// (crl-core-dns) is TCP-only due to GCP LB constraints and cannot be used here.
 func (r *OpenShiftRegion) getCoreDNSClusterIP(t *testing.T, clusterName, kubeConfigPath string) (string, error) {
 	kubectlOpts := k8s.NewKubectlOptions(clusterName, kubeConfigPath, coreDNSNamespace)
 
@@ -955,8 +862,6 @@ func (r *OpenShiftRegion) getCoreDNSClusterIP(t *testing.T, clusterName, kubeCon
 	}
 	return clusterIP, nil
 }
-
-// ─── DNS ─────────────────────────────────────────────────────────────────────
 
 // patchOpenShiftDNSAllDomains patches the OpenShift DNS operator to forward ALL
 // custom cluster domains (cluster1.local, cluster2.local, …) to the local custom
@@ -1004,8 +909,6 @@ func (r *OpenShiftRegion) patchOpenShiftDNSAllDomains(
 	return nil
 }
 
-// ─── GCP COMPUTE CLIENT ──────────────────────────────────────────────────────
-
 // createOpenShiftComputeClient creates a GCP Compute Service client using
 // the same credential resolution as the GCP provider.
 func createOpenShiftComputeClient(ctx context.Context) (*compute.Service, error) {
@@ -1016,18 +919,9 @@ func createOpenShiftComputeClient(ctx context.Context) (*compute.Service, error)
 	return compute.NewService(ctx, opts...)
 }
 
-// ─── KUBECONFIG ──────────────────────────────────────────────────────────────
-
 // mergeOpenShiftKubeconfig merges the installer-generated kubeconfig into the
 // current user kubeconfig and renames the context to clusterAlias so the rest
 // of the test framework can reference it by name.
-//
-// Every OpenShift cluster generates a kubeconfig whose user is named "admin".
-// When multiple clusters are merged sequentially, the second cluster's "admin"
-// entry would silently overwrite the first cluster's credentials, breaking
-// authentication to the first cluster. To prevent this, we rename the user to
-// "admin-<clusterAlias>" in a temporary copy before merging so each cluster's
-// credentials coexist under distinct names.
 func mergeOpenShiftKubeconfig(t *testing.T, generatedKubeconfig, clusterAlias string) error {
 	// Determine destination kubeconfig path.
 	// KUBECONFIG may legally be a colon-separated list of paths; normalize to a
@@ -1141,8 +1035,6 @@ func renamedKubeconfigUser(src, oldName, newName string) (string, error) {
 	return tmpFile.Name(), nil
 }
 
-// ─── HELPERS ─────────────────────────────────────────────────────────────────
-
 // getOpenShiftProjectID returns the GCP project ID for OpenShift provisioning.
 func getOpenShiftProjectID() string {
 	if id := os.Getenv("GCP_PROJECT_ID"); id != "" {
@@ -1154,15 +1046,6 @@ func getOpenShiftProjectID() string {
 // installerEnv returns the environment slice for openshift-install commands.
 // It propagates the current environment and ensures the Go GCP client inside
 // openshift-install uses the correct service-account credentials.
-//
-// Credential handling:
-//   - If GOOGLE_CREDENTIALS is JSON content (CI "Mint mode"), strip
-//     GOOGLE_APPLICATION_CREDENTIALS so that ADC does not override it.
-//   - If GOOGLE_CREDENTIALS is a file path (local dev), replace
-//     GOOGLE_APPLICATION_CREDENTIALS with that path so that both Terraform
-//     and the Go GCP client (used for GCS bucket creation, etc.) use the
-//     same SA key.  Without this, the Go client falls back to ADC user
-//     credentials which may lack storage.buckets.create in the target project.
 func installerEnv() []string {
 	googleCreds := os.Getenv("GOOGLE_CREDENTIALS")
 	// isFilePath is true when GOOGLE_CREDENTIALS holds a file path rather than

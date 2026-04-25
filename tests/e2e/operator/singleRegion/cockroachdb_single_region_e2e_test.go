@@ -71,20 +71,12 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			t.Fatalf("Unsupported provider: %s", provider)
 		}
 
-		// Set PRESERVE_INFRA_ON_FAILURE=true to keep the cluster alive after a
-		// test failure for debugging. By default teardown always runs.
-		preserveInfra := os.Getenv("PRESERVE_INFRA_ON_FAILURE") == "true"
-
 		skipCleanup := os.Getenv("SKIP_CLEANUP") == "true" ||
 			os.Getenv("REUSE_INFRA") == "true" ||
 			os.Getenv("INFRA_ONLY") == "true"
 
 		// Use t.Cleanup for guaranteed cleanup even on test timeout/panic
 		t.Cleanup(func() {
-			if preserveInfra {
-				t.Logf("PRESERVE_INFRA_ON_FAILURE=true: skipping infrastructure teardown for provider: %s", provider)
-				return
-			}
 			t.Logf("Starting infrastructure cleanup for provider: %s", provider)
 			if skipCleanup {
 				t.Logf("Skipping infrastructure teardown (SKIP_CLEANUP/REUSE_INFRA/INFRA_ONLY is set)")
@@ -137,10 +129,6 @@ func TestOperatorInSingleRegion(t *testing.T) {
 				defer func() {
 					if t.Failed() {
 						testFailed = true
-						if preserveInfra {
-							t.Logf("PRESERVE_INFRA_ON_FAILURE=true: preserving infrastructure after failure in test %s", name)
-							return
-						}
 						t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
 						if skipCleanup {
 							t.Logf("Skipping infrastructure teardown (SKIP_CLEANUP/REUSE_INFRA/INFRA_ONLY is set)")

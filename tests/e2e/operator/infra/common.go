@@ -33,10 +33,6 @@ const (
 	loadBalancerInterval  = 10 * time.Second
 	coreDNSDeploymentName = "coredns"
 	coreDNSServiceName    = "crl-core-dns"
-	// coreDNSInternalServiceName is a ClusterIP-only service with both UDP/53 and TCP/53.
-	// OpenShift's built-in DNS operator forwards to our custom CoreDNS via UDP by default,
-	// but the crl-core-dns LoadBalancer service only exposes TCP/53 (GCP LB constraint).
-	// This internal service allows UDP+TCP so the DNS operator forwarding works correctly.
 	coreDNSInternalServiceName = "crl-core-dns-internal"
 	coreDNSNamespace           = "kube-system"
 	coreDNSReplicas       = 2
@@ -71,7 +67,7 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 	},
 	ProviderK3D:       {},
 	ProviderKind:      {},
-	ProviderOpenShift: {}, // GKE-specific annotations don't apply; LB gets external GCP IP
+	ProviderOpenShift: {},
 }
 
 // NetworkConfigs defines standard network configurations for each provider and region.
@@ -224,10 +220,7 @@ func deployCoreDNSService(t *testing.T, kubectlOpts *k8s.KubectlOptions, staticI
 		return fmt.Errorf("failed to apply CoreDNS Service: %w", err)
 	}
 
-	// For OpenShift, also create a ClusterIP-only service with both UDP/53 and TCP/53.
-	// The LoadBalancer service (crl-core-dns) exposes only TCP/53 due to GCP LB constraints,
-	// but the OpenShift DNS operator forwards queries via UDP by default. The internal service
-	// allows both protocols so that in-cluster DNS forwarding works correctly.
+	// For OpenShift, also deploy an internal ClusterIP service 
 	if provider == ProviderOpenShift {
 		internalSvc := coredns.CoreDNSInternalService()
 		internalSvcYAML := coredns.ToYAML(t, internalSvc)
