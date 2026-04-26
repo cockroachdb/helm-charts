@@ -473,6 +473,7 @@ func (r *Region) EnsureKubeConfigPath() (string, error) {
 // Any failure in doing so might cause issues in other tests as some of the
 // cluster resources are tied to the namespace.
 func (r *Region) CleanupResources(t *testing.T) {
+	kubeConfig, _ := r.GetCurrentContext(t)
 	for cluster, namespace := range r.Namespace {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, namespace)
 		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)

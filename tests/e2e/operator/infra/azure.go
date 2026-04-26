@@ -22,16 +22,13 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
-// ─── AZURE CONSTANTS ──────────────────────────────────────────────────────────
-
 const (
 	azureDefaultNodeVMSize = "Standard_D4s_v3"
 	azureDefaultMaxPods    = 30
 
-	// Environment variables consumed by azure.go — mirror GCP's pattern.
 	envAzureSubscriptionID  = "AZURE_SUBSCRIPTION_ID"
 	envAzureClientID        = "AZURE_CLIENT_ID"
-	envAzureClientSecret    = "AZURE_CLIENT_SECRET" // #nosec G101 - env var name, not a credential
+	envAzureClientSecret    = "AZURE_CLIENT_SECRET"
 	envAzureTenantID        = "AZURE_TENANT_ID"
 	envAzureResourcePrefix  = "AZURE_RESOURCE_PREFIX"
 )
@@ -67,8 +64,6 @@ var azureClusterConfigTemplates = []AzureClusterConfig{
 	},
 }
 
-// ─── AZURE REGION ─────────────────────────────────────────────────────────────
-
 // AzureRegion implements CloudProvider for AKS clusters on Azure.
 type AzureRegion struct {
 	*operator.Region
@@ -81,8 +76,6 @@ type AzureRegion struct {
 	// to ~/.kube/config from removing our AKS context during long-running tests.
 	kubeConfigPath string
 }
-
-// ─── CLOUD PROVIDER INTERFACE ─────────────────────────────────────────────────
 
 // SetUpInfra creates Azure infrastructure: resource group, VNets, subnets, AKS clusters,
 // VNet peering (for multi-region), and deploys CoreDNS.
@@ -265,8 +258,6 @@ func (r *AzureRegion) CanScale() bool {
 	return true
 }
 
-// ─── RESOURCE CREATION ────────────────────────────────────────────────────────
-
 // createResourceGroup creates an Azure resource group.
 func (r *AzureRegion) createResourceGroup(t *testing.T, location string) error {
 	cmd := exec.Command("az", "group", "create",
@@ -416,8 +407,6 @@ func createAKSCluster(t *testing.T, resourceGroup, clusterName string, cfg Azure
 	return nil
 }
 
-// ─── VNET PEERING ─────────────────────────────────────────────────────────────
-
 // setupVNetPeering creates bidirectional VNet peering between the two cluster VNets
 // so that pods and services (including CoreDNS LB IPs) can communicate cross-cluster.
 func (r *AzureRegion) setupVNetPeering(t *testing.T) error {
@@ -473,28 +462,8 @@ func (r *AzureRegion) setupVNetPeering(t *testing.T) error {
 	return nil
 }
 
-// ─── COREDNS (AZURE-SPECIFIC) ─────────────────────────────────────────────────
-//
-// AKS manages its own CoreDNS Deployment. We must NOT replace it (its selector
-// is immutable) and must NOT write to its `coredns` ConfigMap (that would break
-// cluster DNS). Instead we use two AKS-native mechanisms:
-//
-//   1. `coredns-custom` ConfigMap  — AKS CoreDNS watches this for custom
-//      forwarding/rewrite rules (keys ending in .server or .override).
-//   2. A separate `crl-core-dns` LoadBalancer Service whose selector is
-//      dynamically detected (either `k8s-app: kube-dns` or `k8s-app: coredns`)
-//      depending on the AKS version. Using the wrong label results in an LB
-//      with no endpoints and silent DNS failures.
-//
-// Other clusters query the `crl-core-dns` LB IP → hits AKS CoreDNS pods →
-// which apply the forwarding rules from `coredns-custom` → cross-cluster DNS works.
-
-// deployAndConfigureCoreDNS is the Azure-specific CoreDNS setup. It:
-//  1. Applies the `coredns-custom` ConfigMap with placeholder IPs.
-//  2. Creates the `crl-core-dns` internal LB Service targeting AKS CoreDNS pods.
-//  3. Restarts AKS CoreDNS so it picks up the new ConfigMap immediately.
-//  4. Waits for the LB to be assigned an IP, then records it.
-//  5. Does a final pass to update all clusters with the real cross-cluster IPs.
+// deployAndConfigureCoreDNS sets up cross-cluster DNS on AKS using the coredns-custom
+// ConfigMap and a crl-core-dns internal LoadBalancer Service targeting AKS CoreDNS pods.
 func (r *AzureRegion) deployAndConfigureCoreDNS(t *testing.T, kubeConfigPath string) error {
 	for i, clusterName := range r.Clusters {
 		kubectlOpts := k8s.NewKubectlOptions(clusterName, kubeConfigPath, coreDNSNamespace)
@@ -614,16 +583,9 @@ func buildAzureCoreDNSCustomData(thisDomain string, allClusters map[string]cored
 	return data
 }
 
-// detectCoreDNSPodLabel dynamically detects the label used by AKS CoreDNS pods.
-// AKS versions use either "k8s-app: kube-dns" (standard Kubernetes DNS label, most common)
-// or "k8s-app: coredns" (seen in some AKS configurations). We try both and use whichever
-// has running pods. Using the wrong label results in an LB with no endpoints, silently
-// breaking cross-cluster DNS forwarding.
-//
-// Uses kubectl (not the Go k8s client) because corporate Netskope proxies sometimes
-// return "Bad Gateway" for Go k8s client connections while kubectl succeeds (kubectl
-// uses the macOS system keychain which includes the Netskope CA, so it can verify
-// Netskope's intercepted certificate). Verified: AKS uses k8s-app=kube-dns.
+// detectCoreDNSPodLabel returns the k8s-app label used by AKS CoreDNS pods (either
+// "kube-dns" or "coredns" depending on AKS version). Uses kubectl instead of the Go
+// k8s client to avoid Netskope proxy "Bad Gateway" errors on corporate networks.
 func detectCoreDNSPodLabel(t *testing.T, kubectlOpts *k8s.KubectlOptions) map[string]string {
 	for _, label := range []string{"kube-dns", "coredns"} {
 		output, err := k8s.RunKubectlAndGetOutputE(t, kubectlOpts,
@@ -689,8 +651,6 @@ func applyAzureCoreDNSService(t *testing.T, kubectlOpts *k8s.KubectlOptions) err
 	return nil
 }
 
-// ─── HELPERS ──────────────────────────────────────────────────────────────────
-
 // getResourcePrefix returns the prefix used for all Azure resource names (resource groups,
 // VNets, clusters). Set AZURE_RESOURCE_PREFIX to override the default prefix.
 // Defaults to "shreyaskm" to make resources easy to identify and clean up in a shared subscription.
@@ -750,17 +710,8 @@ func ensureAzureLogin(t *testing.T) error {
 	return nil
 }
 
-// UpdateKubeconfigAzure fetches AKS credentials and adds them to the local kubeconfig
-// under the given context alias (--context sets the name directly, unlike gcloud).
-//
-// After merging credentials, insecure-skip-tls-verify is set on the cluster entry.
-// This is required because corporate Netskope TLS inspection proxies intercept HTTPS
-// connections to the AKS API server and replace the server certificate with one signed
-// by the Netskope CA (ca.cockroachlabs.goskope.com). kubectl works because macOS
-// has the Netskope CA installed in the system keychain, but the Go k8s client used by
-// terratest only trusts the certificate-authority-data in the kubeconfig (the cluster's
-// self-signed CA). Enabling insecure-skip-tls-verify is the appropriate workaround for
-// test clusters in this corporate network environment.
+// UpdateKubeconfigAzure fetches AKS credentials into the kubeconfig under the given
+// context alias and sets insecure-skip-tls-verify to handle Netskope TLS inspection.
 func UpdateKubeconfigAzure(t *testing.T, resourceGroup, clusterName, alias string) error {
 	args := []string{
 		"aks", "get-credentials",
