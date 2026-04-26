@@ -14,6 +14,8 @@ import (
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/client/config"
 )
 
 // Provider types.
@@ -21,6 +23,7 @@ const (
 	ProviderK3D  = "k3d"
 	ProviderKind = "kind"
 	ProviderGCP  = "gcp"
+	ProviderAzure     = "azure"
 )
 
 // Common constants.
@@ -53,6 +56,7 @@ var RegionCodes = map[string][]string{
 	ProviderK3D:  {"us-east1", "us-east2"},
 	ProviderKind: {"us-east1", "us-east2"},
 	ProviderGCP:  {"us-central1", "us-east1"},
+	ProviderAzure:     {"eastus", "westus2"},
 }
 
 // LoadBalancerAnnotations contains provider-specific service annotations.
@@ -64,10 +68,29 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 	},
 	ProviderK3D:  {},
 	ProviderKind: {},
+	ProviderAzure: {
+		// Use an internal Azure Load Balancer so the IP is allocated from the VNet subnet.
+		// This makes the CoreDNS LB IP reachable from peered VNets without a public IP.
+		"service.beta.kubernetes.io/azure-load-balancer-internal": "true",
+	},
 }
 
 // NetworkConfigs defines standard network configurations for each provider and region.
 var NetworkConfigs = map[string]map[string]interface{}{
+	ProviderAzure: {
+		"eastus": map[string]string{
+			"VNetCIDR":     "10.10.0.0/16",
+			"SubnetCIDR":   "10.10.0.0/24",
+			"ServiceCIDR":  "172.28.17.0/24",
+			"DNSServiceIP": "172.28.17.10",
+		},
+		"westus2": map[string]string{
+			"VNetCIDR":     "10.20.0.0/16",
+			"SubnetCIDR":   "10.20.0.0/24",
+			"ServiceCIDR":  "172.28.49.0/24",
+			"DNSServiceIP": "172.28.49.10",
+		},
+	},
 	ProviderGCP: {
 		"us-central1": map[string]string{
 			"ClusterCIDR": "172.28.0.0/20",
@@ -319,20 +342,85 @@ func UpdateCoreDNSConfiguration(t *testing.T, r *operator.Region, kubeConfigPath
 	for i, clusterName := range r.Clusters {
 		kubectlOpts := k8s.NewKubectlOptions(clusterName, kubeConfigPath, coreDNSNamespace)
 
-		// Create and apply the updated CoreDNS ConfigMap with complete cluster information
-		cm := coredns.CoreDNSConfigMap(operator.CustomDomains[i], r.CorednsClusterOptions)
-		cmYAML := coredns.ToYAML(t, cm)
-		if err := k8s.KubectlApplyFromStringE(t, kubectlOpts, cmYAML); err != nil {
-			require.NoError(t, err, "failed to update CoreDNS ConfigMap for cluster %s", clusterName)
+		if r.Provider == ProviderAzure {
+			// For Azure, update the coredns-custom ConfigMap (AKS-native custom DNS mechanism).
+			// Writing to the coredns ConfigMap would overwrite AKS's built-in DNS configuration
+			// and break cluster DNS entirely.
+			if err := applyAzureCoreDNSCustom(t, kubectlOpts, operator.CustomDomains[i], r.CorednsClusterOptions); err != nil {
+				require.NoError(t, err, "failed to update coredns-custom ConfigMap for cluster %s", clusterName)
+			}
+		} else {
+			// For all other providers: update the coredns ConfigMap directly.
+			cm := coredns.CoreDNSConfigMap(operator.CustomDomains[i], r.CorednsClusterOptions)
+			cmYAML := coredns.ToYAML(t, cm)
+			if err := k8s.KubectlApplyFromStringE(t, kubectlOpts, cmYAML); err != nil {
+				require.NoError(t, err, "failed to update CoreDNS ConfigMap for cluster %s", clusterName)
+			}
 		}
 
-		// Restart CoreDNS to pick up the updated configuration
+		// Restart CoreDNS to pick up the updated configuration.
 		if err := k8s.RunKubectlE(t, kubectlOpts, "rollout", "restart", "deployment", coreDNSDeploymentName); err != nil {
 			require.NoError(t, err, "failed to restart CoreDNS deployment for cluster %s", clusterName)
 		}
 
+		// Wait for CoreDNS rollout to complete so cross-cluster DNS is ready before
+		// CockroachDB pods start. Without this, CockroachDB may start resolving
+		// cross-cluster addresses before the new CoreDNS config is active.
+		if err := k8s.RunKubectlE(t, kubectlOpts, "rollout", "status", "deployment", coreDNSDeploymentName, "--timeout=120s"); err != nil {
+			// Log but don't fail — CoreDNS typically recovers quickly.
+			t.Logf("[%s] Warning: CoreDNS rollout status check timed out for cluster %s: %v", r.Provider, clusterName, err)
+		}
+
 		t.Logf("[%s] Updated CoreDNS configuration for cluster %s with namespace %s", r.Provider, clusterName, r.Namespace[clusterName])
 	}
+}
+
+// ReinitFromExistingClusters rebuilds Clients and CorednsClusterOptions by reading
+// state from clusters that were provisioned in a previous run. Cloud providers call
+// this inside SetUpInfra when ReusingInfra=true so that tests can proceed without
+// re-provisioning.
+func ReinitFromExistingClusters(t *testing.T, r *operator.Region) error {
+	kubeConfigPath, err := r.EnsureKubeConfigPath()
+	if err != nil {
+		return fmt.Errorf("get kubeconfig path: %w", err)
+	}
+
+	r.CorednsClusterOptions = make(map[string]coredns.CoreDNSClusterOption)
+	clients := make(map[string]client.Client)
+
+	for i, clusterName := range r.Clusters {
+		// Build a k8s client for this kubeconfig context.
+		restCfg, err := config.GetConfigWithContext(clusterName)
+		if err != nil {
+			return fmt.Errorf("get REST config for context %s: %w", clusterName, err)
+		}
+		k8sClient, err := client.New(restCfg, client.Options{})
+		if err != nil {
+			return fmt.Errorf("create k8s client for %s: %w", clusterName, err)
+		}
+		clients[clusterName] = k8sClient
+
+		// Rediscover the CoreDNS LoadBalancer IPs from the existing crl-core-dns service.
+		// The service was created during the original SetUpInfra, so it already has an IP
+		// and WaitForCoreDNSServiceIPs will succeed on the first attempt.
+		kubectlOpts := k8s.NewKubectlOptions(clusterName, kubeConfigPath, coreDNSNamespace)
+		ips, err := WaitForCoreDNSServiceIPs(t, kubectlOpts)
+		if err != nil {
+			// Non-fatal: single-region tests do not rely on CorednsClusterOptions.
+			t.Logf("[reuse] Warning: could not get CoreDNS IPs for cluster %s: %v", clusterName, err)
+			ips = []string{}
+		}
+
+		r.CorednsClusterOptions[operator.CustomDomains[i]] = coredns.CoreDNSClusterOption{
+			IPs:       ips,
+			Namespace: r.Namespace[clusterName],
+			Domain:    operator.CustomDomains[i],
+		}
+		t.Logf("[reuse] Cluster %s: CoreDNS IPs=%v", clusterName, ips)
+	}
+
+	r.Clients = clients
+	return nil
 }
 
 // UpdateCoreDNSWithNamespaces updates CoreDNS configuration with the current test namespaces.

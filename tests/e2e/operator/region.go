@@ -81,6 +81,16 @@ type Region struct {
 	VirtualClusterModePrimary bool
 	VirtualClusterModeStandby bool
 	IsOperatorInstalled       bool
+
+	// KubeconfigRefreshHook is called after operations that may cause the kubeconfig
+	// to be overwritten or the context to be removed (e.g. cert-manager install on Azure
+	// with Netskope TLS inspection). Cloud providers that need special kubeconfig handling
+	// (like setting insecure-skip-tls-verify) should set this to restore the context.
+	KubeconfigRefreshHook func(t *testing.T)
+
+	// certDir is the per-test temp directory holding ca.crt/ca.key.
+	// Populated by CreateCACertificate; cleaned up automatically by t.TempDir().
+	certDir string
 }
 
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
@@ -110,6 +120,13 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	if r.IsCertManager {
 		testutil.InstallCertManager(t, certManagerK8sOptions)
 		testutil.InstallTrustManager(t, certManagerK8sOptions, r.Namespace[cluster])
+		// Refresh the kubeconfig context after helm install operations.
+		// On Azure with Netskope TLS inspection, helm operations can cause the kubeconfig
+		// to be overwritten (losing insecure-skip-tls-verify) or the context to be removed.
+		// The hook restores the context and required settings.
+		if r.KubeconfigRefreshHook != nil {
+			r.KubeconfigRefreshHook(t)
+		}
 		testutil.CreateSelfSignedIssuer(t, kubectlOptions, r.Namespace[cluster])
 		testutil.CreateSelfSignedCertificate(t, kubectlOptions, r.Namespace[cluster])
 		testutil.CreateCAIssuer(t, kubectlOptions, r.Namespace[cluster])
@@ -199,6 +216,29 @@ func (r *Region) ValidateCRDB(t *testing.T, cluster string) {
 	if !r.IsCertManager {
 		testutil.RequireCertificatesToBeValid(t, crdbCluster)
 	}
+
+	// On failure, log pod describe and logs to aid diagnosis. This defer runs before
+	// CleanupResources (registered earlier in the test function, LIFO order) so the
+	// pods are still present when we dump their state.
+	defer func() {
+		if t.Failed() {
+			t.Logf("[diagnostics] Pod readiness check failed for cluster %s (namespace %s), dumping diagnostics:", cluster, namespaceName)
+			pods, err := k8s.ListPodsE(t, kubectlOptions, metav1.ListOptions{LabelSelector: LabelSelector})
+			if err != nil {
+				t.Logf("[diagnostics] could not list pods: %v", err)
+			}
+			for _, pod := range pods {
+				t.Logf("[diagnostics] Pod %s: phase=%s, ready=%v", pod.Name, pod.Status.Phase, k8s.IsPodAvailable(&pod))
+				if podDesc, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "describe", "pod", pod.Name); err == nil {
+					t.Logf("[diagnostics] describe pod %s:\n%s", pod.Name, podDesc)
+				}
+				if logs, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "logs", pod.Name, "--tail=100"); err == nil {
+					t.Logf("[diagnostics] logs pod %s:\n%s", pod.Name, logs)
+				}
+			}
+		}
+	}()
+
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 900*time.Second)
 
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
@@ -397,7 +437,13 @@ func (r *Region) GetCurrentContext(t *testing.T) (string, api.Config) {
 }
 
 // EnsureKubeConfigPath ensures that the kubeconfig file exists and returns its path.
+// If the KUBECONFIG environment variable is set (e.g. by Azure's SetUpInfra to point
+// at an isolated temp file), that path is returned directly — the file must already exist.
 func (r *Region) EnsureKubeConfigPath() (string, error) {
+	if kc := os.Getenv("KUBECONFIG"); kc != "" {
+		return kc, nil
+	}
+
 	kubeConfigPath, err := k8s.KubeConfigPathFromHomeDirE()
 	kubeConfigDir := filepath.Dir(kubeConfigPath)
 	if err != nil {
@@ -427,9 +473,10 @@ func (r *Region) EnsureKubeConfigPath() (string, error) {
 // Any failure in doing so might cause issues in other tests as some of the
 // cluster resources are tied to the namespace.
 func (r *Region) CleanupResources(t *testing.T) {
+	kubeConfig, _ := r.GetCurrentContext(t)
 	for cluster, namespace := range r.Namespace {
-		kubectlOptions := k8s.NewKubectlOptions(cluster, "", namespace)
-		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, "", testutil.CertManagerNamespace)
+		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, namespace)
+		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
 
 		extraArgs := map[string][]string{
 			"delete": {
@@ -493,7 +540,6 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 				region["domain"] = domain
 			}
 		}
-
 		regions = append(regions, region)
 	}
 
