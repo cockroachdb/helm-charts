@@ -38,6 +38,8 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			provider = infra.ProviderKind
 		case "gcp":
 			provider = infra.ProviderGCP
+		case "openshift":
+			provider = infra.ProviderOpenShift
 		default:
 			t.Fatalf("Unsupported provider override: %s", p)
 		}
@@ -101,8 +103,8 @@ func TestOperatorInSingleRegion(t *testing.T) {
 				continue
 			}
 
+			// Add immediate cleanup trigger if this individual test fails
 			t.Run(name, func(t *testing.T) {
-				// Add immediate cleanup trigger if this individual test fails
 				defer func() {
 					if t.Failed() {
 						testFailed = true
@@ -219,8 +221,34 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 	}
 	defer r.CleanupResources(t)
 	defer func() {
-		kubectlOptions := k8s.NewKubectlOptions("", "", standByNamespace)
-		k8s.DeleteNamespace(t, kubectlOptions, standByNamespace)
+		if standByNamespace == "" {
+			return
+		}
+		cluster := r.Clusters[0]
+		kubectlOptions := k8s.NewKubectlOptions(cluster, "", standByNamespace)
+		// Helm-delete the cockroachdb release from the standby namespace first so
+		// that CrdbCluster finalizers are removed before we delete the namespace.
+		// On OpenShift, skip pre-delete hooks (self-signer-cleaner is blocked by SCC).
+		deleteFlags := []string{"--wait", "--debug"}
+		if r.Provider == "openshift" {
+			deleteFlags = append(deleteFlags, "--no-hooks")
+		}
+		if err := helm.DeleteE(t, &helm.Options{
+			KubectlOptions: kubectlOptions,
+			ExtraArgs:      map[string][]string{"delete": deleteFlags},
+		}, operator.ReleaseName, true); err != nil {
+			t.Logf("[cleanup] Warning: helm delete %s in standby namespace %s: %v", operator.ReleaseName, standByNamespace, err)
+		}
+		// Remove the OpenShift SCC ClusterRoleBinding created for the standby namespace.
+		if r.Provider == "openshift" {
+			bindingName := fmt.Sprintf("cockroach-anyuid-%s", standByNamespace)
+			_ = k8s.RunKubectlE(t, kubectlOptions, "delete", "clusterrolebinding/"+bindingName, "--ignore-not-found")
+		}
+		// Delete the standby namespace. Use kubectl directly with --ignore-not-found
+		// so cleanup doesn't fail the test if the namespace was already removed.
+		if err := k8s.RunKubectlE(t, kubectlOptions, "delete", "namespace", standByNamespace, "--ignore-not-found"); err != nil {
+			t.Logf("[cleanup] Warning: delete standby namespace %s: %v", standByNamespace, err)
+		}
 	}()
 	defer r.CleanUpCACertificate(t)
 
@@ -459,7 +487,6 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Clou
 	helmChartPath, _ := operator.HelmChartPaths()
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	r.NodeCount += 1
-
 	// Check if scaling is supported by the cloud provider.
 	if cloudProvider.CanScale() {
 		t.Logf("Scaling node pool for provider: %s", r.Provider)

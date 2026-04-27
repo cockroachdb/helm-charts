@@ -123,11 +123,20 @@ test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/cluster/up
 	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
 
+# E2E_MULTI_REGION_TIMEOUT controls the go test timeout for multi-region tests.
+# OpenShift clusters take ~40–60 min to provision, so the default is generous.
+# Override to a lower value (e.g. 60m) when running against faster providers.
+E2E_MULTI_REGION_TIMEOUT ?= 300m
+
 test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer bin/k3d bin/kind
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Multi region tests failed with exit code $$?" && exit 1)
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout $(E2E_MULTI_REGION_TIMEOUT) -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Multi region tests failed with exit code $$?" && exit 1)
+
+# E2E_SINGLE_REGION_TIMEOUT controls the go test timeout for single-region tests.
+# OpenShift provisioning takes ~40-60 min, so override when running against it.
+E2E_SINGLE_REGION_TIMEOUT ?= 60m
 
 test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/k3d bin/kind
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Single region tests failed with exit code $$?" && exit 1)
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout $(E2E_SINGLE_REGION_TIMEOUT) -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Single region tests failed with exit code $$?" && exit 1)
 
 test/e2e/migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/self-signer test/cluster/up/3
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v ./tests/e2e/migrate/... || EXIT_CODE=$$?; \

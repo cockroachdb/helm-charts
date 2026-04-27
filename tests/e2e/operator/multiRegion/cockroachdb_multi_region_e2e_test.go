@@ -38,6 +38,8 @@ func TestOperatorInMultiRegion(t *testing.T) {
 			provider = infra.ProviderKind
 		case "gcp":
 			provider = infra.ProviderGCP
+		case "openshift":
+			provider = infra.ProviderOpenShift
 		default:
 			t.Fatalf("Unsupported provider override: %s", p)
 		}
@@ -100,8 +102,8 @@ func TestOperatorInMultiRegion(t *testing.T) {
 				continue
 			}
 
+			// Add immediate cleanup trigger if this individual test fails
 			t.Run(name, func(t *testing.T) {
-				// Add immediate cleanup trigger if this individual test fails
 				defer func() {
 					if t.Failed() {
 						testFailed = true
