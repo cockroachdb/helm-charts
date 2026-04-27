@@ -279,6 +279,9 @@ Validate that if user enabled tls, then either self-signed certificates or certi
 {{- if and .Values.tls.certs.selfSigner.enabled .Values.tls.certs.certManager -}}
     {{ fail "Can not enable the self signed certificates and certificate manager at the same time" }}
 {{- end -}}
+{{- if and .Values.tls.enableSighupRotation .Values.tls.certs.selfSigner.enabled -}}
+    {{ fail "Can not enable SIGHUP rotation with self-signed certificates. SIGHUP rotation is only supported with externally managed certificates (user-provided or cert-manager)" }}
+{{- end -}}
 {{- if and (not .Values.tls.certs.selfSigner.enabled) (not .Values.tls.certs.certManager) -}}
     {{- if not .Values.tls.certs.provided -}}
         {{ fail "You have to enable either self signed certificates or certificate manager, if you have enabled tls" }}
