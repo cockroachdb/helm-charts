@@ -48,6 +48,10 @@ cockroachdb:
       # podUpdateTimeout specifies the timeout for pods to reach the running state.
       # Only considered when rotateCerts is true.
       podUpdateTimeout: 2m
+      # additionalSANs specifies additional Subject Alternative Names (SANs) to include in node certificates.
+      # This is useful for load balancers or external endpoints that need SSL verification.
+      # Example: ["my-loadbalancer.example.com", "10.20.30.40"]
+      additionalSANs: []
       # svcAccountAnnotations defines annotations for the ServiceAccount used by the self-signer job.
       svcAccountAnnotations: {}
       # labels defines additional labels for pods of the self-signer job.
