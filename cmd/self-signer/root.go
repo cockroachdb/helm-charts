@@ -22,6 +22,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/spf13/cobra"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -82,8 +83,12 @@ func init() {
 	}
 }
 
-func getInitialConfig(caDuration, caExpiry, nodeDuration, nodeExpiry, clientDuration,
-	clientExpiry string) (generator.GenerateCert, error) {
+// getInitialConfig initializes a GenerateCert instance from certificate durations
+// and environment variables (STATEFULSET_NAME, CLUSTER_DOMAIN, ADDITIONAL_SANS).
+func getInitialConfig(
+	caDuration, caExpiry, nodeDuration, nodeExpiry, clientDuration,
+	clientExpiry string,
+) (generator.GenerateCert, error) {
 
 	genCert := generator.NewGenerateCert(cl)
 
@@ -113,6 +118,13 @@ func getInitialConfig(caDuration, caExpiry, nodeDuration, nodeExpiry, clientDura
 			return genCert, errors.New("Required CLUSTER_DOMAIN env not found")
 		}
 		genCert.ClusterDomain = domain
+
+		// Parse additional SANs if provided
+		if additionalSANsStr, exists := os.LookupEnv("ADDITIONAL_SANS"); exists && additionalSANsStr != "" {
+			sans := strings.Split(additionalSANsStr, ",")
+			// Use shared sanitization helper to trim whitespace and filter out empty strings
+			genCert.AdditionalSANs = generator.SanitizeAdditionalSANs(sans)
+		}
 	}
 
 	return genCert, nil
