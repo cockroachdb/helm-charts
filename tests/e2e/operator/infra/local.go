@@ -9,10 +9,6 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
@@ -23,6 +19,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/encryption"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 // LocalRegion implements CloudProvider for local Kubernetes providers (K3d and Kind)
@@ -124,9 +126,6 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 			Namespace: r.Namespace[cluster],
 			Domain:    operator.CustomDomains[i],
 		}
-		if !r.IsMultiRegion {
-			break
-		}
 	}
 
 	// Update Coredns config.
@@ -143,38 +142,43 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 		// restart coredns pods.
 		err = k8s.RunKubectlE(t, kubectlOptions, "rollout", "restart", "deployment", coreDNSDeploymentName)
 		require.NoError(t, err)
-		if !r.IsMultiRegion {
-			r.Clients = clients
-			r.ReusingInfra = true
-			return
-		}
 	}
 	r.Clients = clients
 	r.ReusingInfra = true
 
-	netConfig := calico.K3dCalicoBGPPeeringOptions{
-		ClusterConfig: map[string]calico.K3dClusterBGPConfig{},
+	// Setup cross-cluster networking only for multi-region deployments
+	// Single-region deployments don't need BGP peering between clusters
+	if len(r.Clusters) > 1 {
+		netConfig := calico.K3dCalicoBGPPeeringOptions{
+			ClusterConfig: map[string]calico.K3dClusterBGPConfig{},
+		}
+
+		// Update network config for each region.
+		for i, region := range r.RegionCodes {
+			rawConfig.CurrentContext = r.Clusters[i]
+			kubectlOptions := k8s.NewKubectlOptions(r.Clusters[i], kubeConfig, coreDNSNamespace)
+			err := r.setupNetworking(t, context.TODO(), region, netConfig, kubectlOptions, i)
+			if err != nil {
+				t.Logf("[%s] Failed to setup networking for region %s: %v", r.ProviderType, region, err)
+			}
+		}
+
+		objectsByRegion := calico.K3dCalicoBGPPeeringObjects(netConfig)
+		// Apply all the objects for each region on to the cluster.
+		for i, region := range r.RegionCodes {
+			ctl := clients[r.Clusters[i]]
+			for _, obj := range objectsByRegion[region] {
+				err := ctl.Create(context.Background(), obj)
+				require.NoError(t, err)
+			}
+		}
+		t.Logf("[%s] Multi-region networking setup complete for %d clusters", r.ProviderType, len(r.Clusters))
+	} else {
+		t.Logf("[%s] Single-region setup - skipping cross-cluster networking", r.ProviderType)
 	}
 
-	// Update network config for each region.
-	for i, region := range r.RegionCodes {
-		rawConfig.CurrentContext = r.Clusters[i]
-		kubectlOptions := k8s.NewKubectlOptions(r.Clusters[i], kubeConfig, coreDNSNamespace)
-		err := r.setupNetworking(t, context.TODO(), region, netConfig, kubectlOptions, i)
-		if err != nil {
-			t.Logf("[%s] Failed to setup networking for region %s: %v", r.ProviderType, region, err)
-		}
-	}
-
-	objectsByRegion := calico.K3dCalicoBGPPeeringObjects(netConfig)
-	// Apply all the objects for each region on to the cluster.
-	for i, region := range r.RegionCodes {
-		ctl := clients[r.Clusters[i]]
-		for _, obj := range objectsByRegion[region] {
-			err := ctl.Create(context.Background(), obj)
-			require.NoError(t, err)
-		}
-	}
+	// Set the encryption provider on the region so it's available for advanced installs
+	r.Region.SetEncryptionProvider(r.GetEncryptionProvider())
 }
 
 // TeardownInfra cleans up all resources created by SetUpInfra
@@ -221,6 +225,38 @@ func (r *LocalRegion) ScaleNodePool(t *testing.T, location string, nodeCount, in
 
 func (r *LocalRegion) CanScale() bool {
 	return false
+}
+
+// ─── Encryption At Rest Methods ─────────────────────────────────────────────────
+
+// GetEncryptionProvider returns the local provider itself as it implements encryption.Provider
+func (r *LocalRegion) GetEncryptionProvider() encryption.Provider {
+	return r
+}
+
+// SetupEncryptionInfrastructure is a no-op for local providers (file-based encryption)
+// Returns a no-op cleanup function
+func (r *LocalRegion) SetupEncryptionInfrastructure(t *testing.T) (func(), error) {
+	t.Log("Local provider: No KMS infrastructure needed for file-based encryption (UNKNOWN_KEY_TYPE)")
+	// Return no-op cleanup function
+	return func() {
+		t.Log("Local provider: No KMS infrastructure to clean up")
+	}, nil
+}
+
+// GetEncryptionPlatformConfig returns file-based encryption platform configuration for local providers
+func (r *LocalRegion) GetEncryptionPlatformConfig() *encryption.EncryptionPlatformConfig {
+	return &encryption.EncryptionPlatformConfig{
+		Platform:                     "UNKNOWN_KEY_TYPE",
+		RequiresCredentialsSecret:    false,
+		DefaultCredentialsSecretName: "", // Not needed for file-based encryption
+	}
+}
+
+// SetupEncryptionSecrets creates Kubernetes secrets for file-based encryption (UNKNOWN_KEY_TYPE)
+func (r *LocalRegion) SetupEncryptionSecrets(t *testing.T, kubectlOptions *k8s.KubectlOptions, clusterRegion string) error {
+	// Use shared utility for file-based encryption (UNKNOWN_KEY_TYPE)
+	return encryption.SetupFileBasedEncryptionSecrets(t, kubectlOptions, r.ProviderType)
 }
 
 // setupNetworking ensures there is cross-cluster network connectivity and

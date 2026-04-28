@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/encryption"
 )
 
 // CloudProvider defines the interface that all cloud providers must implement
@@ -22,6 +23,11 @@ type CloudProvider interface {
 
 	// CanScale checks if the provider supports scaling.
 	CanScale() bool
+
+	// GetEncryptionProvider returns an encryption.Provider implementation for this cloud provider.
+	// The provider can return itself since CloudProvider implementations also implement encryption.Provider.
+	// All encryption-related operations are accessed through the returned encryption.Provider interface.
+	GetEncryptionProvider() encryption.Provider
 }
 
 // ProviderFactory creates a CloudProvider instance for the given provider type.

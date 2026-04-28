@@ -24,6 +24,7 @@ import (
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/encryption"
 )
 
 // ─── GCP CONSTANTS ───────────────────────────────────────────────────────────────
@@ -227,6 +228,9 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 	require.NoError(t, err)
 	err = r.deployAndConfigureCoreDNS(t, kubeConfigPath)
 	require.NoError(t, err, "failed to deploy and configure CoreDNS")
+
+	// 8) Set the encryption provider on the region so it's available for advanced installs
+	r.Region.SetEncryptionProvider(r.GetEncryptionProvider())
 }
 
 // TeardownInfra deletes all GCP resources created by SetUpInfra.
@@ -316,6 +320,43 @@ func (r *GcpRegion) ScaleNodePool(t *testing.T, location string, nodeCount, inde
 
 func (r *GcpRegion) CanScale() bool {
 	return false
+}
+
+// ─── Encryption At Rest Methods ─────────────────────────────────────────────────
+
+// GetEncryptionProvider returns the GCP provider itself as it implements encryption.Provider
+func (r *GcpRegion) GetEncryptionProvider() encryption.Provider {
+	return r
+}
+
+// SetupEncryptionInfrastructure is simplified for GCP (uses file-based encryption for now)
+// TODO: Implement full GCP Cloud KMS support similar to AWS
+// Returns a no-op cleanup function
+func (r *GcpRegion) SetupEncryptionInfrastructure(t *testing.T) (func(), error) {
+	t.Log("GCP provider: Using file-based encryption (UNKNOWN_KEY_TYPE)")
+	t.Log("TODO: Implement full GCP Cloud KMS support for production use")
+	// Return no-op cleanup function
+	return func() {
+		t.Log("GCP provider: No KMS infrastructure to clean up")
+	}, nil
+}
+
+// GetEncryptionPlatformConfig returns GCP-specific encryption platform configuration
+// Currently uses UNKNOWN_KEY_TYPE (file-based) - can be extended to GCP_CLOUD_KMS
+func (r *GcpRegion) GetEncryptionPlatformConfig() *encryption.EncryptionPlatformConfig {
+	// TODO: Switch to GCP_CLOUD_KMS and implement full KMS support
+	return &encryption.EncryptionPlatformConfig{
+		Platform:                     "UNKNOWN_KEY_TYPE",
+		RequiresCredentialsSecret:    false,
+		DefaultCredentialsSecretName: "",
+	}
+}
+
+// SetupEncryptionSecrets creates Kubernetes secrets for file-based encryption (UNKNOWN_KEY_TYPE)
+// TODO: Implement GCP Cloud KMS support (encrypt with GCP KMS, add KMS metadata to secret)
+func (r *GcpRegion) SetupEncryptionSecrets(t *testing.T, kubectlOptions *k8s.KubectlOptions, clusterRegion string) error {
+	// Use shared utility for file-based encryption (UNKNOWN_KEY_TYPE)
+	return encryption.SetupFileBasedEncryptionSecrets(t, kubectlOptions, "GCP")
 }
 
 // createGKEClusters handles the complex logic of creating GKE clusters in parallel.

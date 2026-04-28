@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -23,6 +20,10 @@ import (
 	"k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/encryption"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 const (
@@ -83,6 +84,27 @@ type Region struct {
 	VirtualClusterModePrimary bool
 	VirtualClusterModeStandby bool
 	IsOperatorInstalled       bool
+
+	// Encryption infrastructure tracking
+	encryptionProvider       encryption.Provider
+	encryptionInfraSetup     bool
+	encryptionCleanupFunc    func()
+	encryptionPlatformConfig *encryption.EncryptionPlatformConfig
+	encryptionCredSecretName string
+}
+
+// SetEncryptionProvider sets the encryption provider for this region.
+// This should be called by the infrastructure setup code with the provider's GetEncryptionProvider() result.
+func (r *Region) SetEncryptionProvider(provider encryption.Provider) {
+	r.encryptionProvider = provider
+}
+
+// CleanupEncryptionInfra calls the stored encryption cleanup function
+// Call this in test cleanup/defer to clean up KMS resources
+func (r *Region) CleanupEncryptionInfra() {
+	if r.encryptionCleanupFunc != nil {
+		r.encryptionCleanupFunc()
+	}
 }
 
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
@@ -795,9 +817,8 @@ type AdvancedInstallConfig struct {
 	WALFailoverSize    string
 
 	// Encryption at Rest configuration
-	EncryptionEnabled      bool
-	EncryptionKeySecret    string
-	EncryptionKeySecretName string // defaults to "cmek-key-secret" if empty
+	// Note: The encryption provider is automatically obtained from the CloudProvider via Region.SetEncryptionProvider()
+	EncryptionEnabled bool
 
 	// Virtual Cluster configuration (for PCR)
 	VirtualClusterMode string // "primary", "standby", or ""
@@ -836,27 +857,29 @@ func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, i
 		"--from-file=ca.key")
 	require.NoError(t, err)
 
-	// Create encryption key secret if encryption is enabled
-	if config.EncryptionEnabled && config.EncryptionKeySecret != "" {
-		encryptionSecretName := config.EncryptionKeySecretName
-		if encryptionSecretName == "" {
-			encryptionSecretName = "cmek-key-secret"
+	// Setup encryption if enabled and provider is available
+	if config.EncryptionEnabled && r.encryptionProvider != nil {
+		// Setup encryption infrastructure once (creates KMS keys, IAM roles, etc.)
+		// This is called once and the cleanup function is stored for later cleanup
+		if !r.encryptionInfraSetup {
+			t.Log("Setting up encryption infrastructure (KMS keys, IAM roles, etc.)")
+			cleanup, err := r.encryptionProvider.SetupEncryptionInfrastructure(t)
+			require.NoError(t, err, "Failed to setup encryption infrastructure")
+			r.encryptionCleanupFunc = cleanup
+			r.encryptionInfraSetup = true
+			t.Log("Encryption infrastructure setup complete")
 		}
 
-		// Use --from-literal with the base64-encoded key string. Kubernetes base64-encodes
-		// secret values for storage, so the pod receives the original base64 string when
-		// the secret is mounted — which the init container then decodes to get the raw key.
-		err = k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", encryptionSecretName,
-			fmt.Sprintf("--from-literal=StoreKeyData=%s", config.EncryptionKeySecret))
-		require.NoError(t, err)
+		// Get platform configuration from provider
+		r.encryptionPlatformConfig = r.encryptionProvider.GetEncryptionPlatformConfig()
+		t.Logf("Using encryption platform: %s (requires credentials: %v)",
+			r.encryptionPlatformConfig.Platform, r.encryptionPlatformConfig.RequiresCredentialsSecret)
 
-		// Verify secret was created with data
-		secretSize, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-			"get", "secret", encryptionSecretName,
-			"-o", "jsonpath={.data.StoreKeyData}")
-		require.NoError(t, err)
-		require.True(t, len(secretSize) > 0, "Secret StoreKeyData should be >0")
-		t.Logf("Created encryption secret %s with size: %d bytes", encryptionSecretName, len(secretSize))
+		// Create all encryption secrets (key secret + credentials secret if needed)
+		// The provider handles all details: key generation, encryption, secret names, etc.
+		err = r.encryptionProvider.SetupEncryptionSecrets(t, kubectlOptions, cluster)
+		require.NoError(t, err, "Failed to setup encryption secrets")
+		t.Logf("Successfully set up encryption secrets for cluster %s", cluster)
 	}
 
 	// Install the operator when it is not skipped and not already marked as installed.
@@ -983,29 +1006,10 @@ func (r *Region) ValidateWALFailover(t *testing.T, cluster string, cfg *Advanced
 }
 
 // GenerateEncryptionKey generates a 256-bit AES encryption key and returns base64 encoded value
+// This is a convenience wrapper around encryption.GenerateAndEncodeEncryptionKey for backward compatibility
 func (r *Region) GenerateEncryptionKey(t *testing.T) string {
-	tempDir := t.TempDir()
-	keyPath := filepath.Join(tempDir, "store.key")
-
-	// Generate 256-bit AES key using cockroach gen encryption-key
-	cmd := shell.Command{
-		Command:    "cockroach",
-		Args:       []string{"gen", "encryption-key", "--size", "256", "store.key"},
-		WorkingDir: tempDir,
-	}
-
-	_, err := shell.RunCommandAndGetOutputE(t, cmd)
-	require.NoError(t, err)
-
-	// Read the generated key file
-	keyBytes, err := os.ReadFile(keyPath)
-	require.NoError(t, err)
-
-	// Base64 encode the key (removing any newlines)
-	storeKeyB64 := base64.StdEncoding.EncodeToString(keyBytes)
-	storeKeyB64 = strings.ReplaceAll(storeKeyB64, "\n", "")
-
-	return storeKeyB64
+	_, base64Key := encryption.GenerateAndEncodeEncryptionKey(t)
+	return base64Key
 }
 
 // ValidateEncryptionAtRest verifies that encryption at rest is properly configured by checking flags and encryption status.
