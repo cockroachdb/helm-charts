@@ -176,9 +176,6 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 	} else {
 		t.Logf("[%s] Single-region setup - skipping cross-cluster networking", r.ProviderType)
 	}
-
-	// Set the encryption provider on the region so it's available for advanced installs
-	r.Region.SetEncryptionProvider(r.GetEncryptionProvider())
 }
 
 // TeardownInfra cleans up all resources created by SetUpInfra

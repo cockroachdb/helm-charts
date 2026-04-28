@@ -228,9 +228,6 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 	require.NoError(t, err)
 	err = r.deployAndConfigureCoreDNS(t, kubeConfigPath)
 	require.NoError(t, err, "failed to deploy and configure CoreDNS")
-
-	// 8) Set the encryption provider on the region so it's available for advanced installs
-	r.Region.SetEncryptionProvider(r.GetEncryptionProvider())
 }
 
 // TeardownInfra deletes all GCP resources created by SetUpInfra.

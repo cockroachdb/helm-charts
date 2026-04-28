@@ -31,21 +31,30 @@ type CloudProvider interface {
 }
 
 // ProviderFactory creates a CloudProvider instance for the given provider type.
+// It also automatically sets the encryption provider on the region so it's available for advanced installs.
 func ProviderFactory(providerType string, region *operator.Region) CloudProvider {
+	var cloudProvider CloudProvider
+
 	switch providerType {
 	case ProviderK3D:
 		provider := LocalRegion{Region: region, ProviderType: ProviderK3D}
 		provider.RegionCodes = GetRegionCodes(providerType)
-		return &provider
+		cloudProvider = &provider
 	case ProviderKind:
 		provider := LocalRegion{Region: region, ProviderType: ProviderKind}
 		provider.RegionCodes = GetRegionCodes(providerType)
-		return &provider
+		cloudProvider = &provider
 	case ProviderGCP:
 		provider := GcpRegion{Region: region}
 		provider.RegionCodes = GetRegionCodes(providerType)
-		return &provider
+		cloudProvider = &provider
 	default:
 		return nil
 	}
+
+	// Automatically set the encryption provider on the region
+	// This makes it available for encryption-enabled advanced installs
+	region.SetEncryptionProvider(cloudProvider.GetEncryptionProvider())
+
+	return cloudProvider
 }
