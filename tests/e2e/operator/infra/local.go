@@ -9,10 +9,6 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
@@ -23,6 +19,11 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 // LocalRegion implements CloudProvider for local Kubernetes providers (K3d and Kind)
@@ -124,9 +125,6 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 			Namespace: r.Namespace[cluster],
 			Domain:    operator.CustomDomains[i],
 		}
-		if !r.IsMultiRegion {
-			break
-		}
 	}
 
 	// Update Coredns config.
@@ -143,11 +141,6 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 		// restart coredns pods.
 		err = k8s.RunKubectlE(t, kubectlOptions, "rollout", "restart", "deployment", coreDNSDeploymentName)
 		require.NoError(t, err)
-		if !r.IsMultiRegion {
-			r.Clients = clients
-			r.ReusingInfra = true
-			return
-		}
 	}
 	r.Clients = clients
 	r.ReusingInfra = true
@@ -221,6 +214,55 @@ func (r *LocalRegion) ScaleNodePool(t *testing.T, location string, nodeCount, in
 
 func (r *LocalRegion) CanScale() bool {
 	return false
+}
+
+// ─── Encryption At Rest Methods ─────────────────────────────────────────────────
+
+// SetupEncryptionInfrastructure is a no-op for local providers (file-based encryption)
+// Returns a no-op cleanup function
+func (r *LocalRegion) SetupEncryptionInfrastructure(t *testing.T) (func(), error) {
+	t.Log("Local provider: No KMS infrastructure needed for file-based encryption (UNKNOWN_KEY_TYPE)")
+	// Return no-op cleanup function
+	return func() {
+		t.Log("Local provider: No KMS infrastructure to clean up")
+	}, nil
+}
+
+// GetEncryptionPlatformConfig returns file-based encryption platform configuration for local providers
+func (r *LocalRegion) GetEncryptionPlatformConfig() operator.EncryptionPlatformConfig {
+	return operator.EncryptionPlatformConfig{
+		Platform:                     "UNKNOWN_KEY_TYPE",
+		RequiresCredentialsSecret:    false,
+		DefaultCredentialsSecretName: "", // Not needed for file-based encryption
+	}
+}
+
+// EncryptStoreKey is a no-op for local providers
+// The test code handles encryption key preparation directly (same as original behavior)
+func (r *LocalRegion) EncryptStoreKey(_ *testing.T, _ []byte, _ string) (string, error) {
+	// No-op: Local provider tests handle key encoding directly in test code
+	return "", nil
+}
+
+// CreateEncryptionKeySecret is a no-op for local providers
+// The test code creates the encryption secret directly (same as original behavior)
+func (r *LocalRegion) CreateEncryptionKeySecret(
+	_ *testing.T,
+	_ *k8s.KubectlOptions,
+	_ string,
+	_ string,
+	_ string,
+) {
+	// No-op: Local provider tests create secrets directly in test code
+	// This maintains compatibility with the original test implementation
+}
+
+// CreateEncryptionCredentialsSecret is a no-op for local providers
+// File-based encryption doesn't require KMS credentials
+// Returns empty string since no secret is created
+func (r *LocalRegion) CreateEncryptionCredentialsSecret(_ *testing.T, _ *k8s.KubectlOptions) string {
+	// No credentials needed for file-based encryption
+	return ""
 }
 
 // setupNetworking ensures there is cross-cluster network connectivity and

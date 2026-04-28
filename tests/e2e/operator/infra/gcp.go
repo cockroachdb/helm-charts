@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -316,6 +317,64 @@ func (r *GcpRegion) ScaleNodePool(t *testing.T, location string, nodeCount, inde
 
 func (r *GcpRegion) CanScale() bool {
 	return false
+}
+
+// ─── Encryption At Rest Methods ─────────────────────────────────────────────────
+
+// SetupEncryptionInfrastructure is simplified for GCP (uses file-based encryption for now)
+// TODO: Implement full GCP Cloud KMS support similar to AWS
+// Returns a no-op cleanup function
+func (r *GcpRegion) SetupEncryptionInfrastructure(t *testing.T) (func(), error) {
+	t.Log("GCP provider: Using file-based encryption (UNKNOWN_KEY_TYPE)")
+	t.Log("TODO: Implement full GCP Cloud KMS support for production use")
+	// Return no-op cleanup function
+	return func() {
+		t.Log("GCP provider: No KMS infrastructure to clean up")
+	}, nil
+}
+
+// GetEncryptionPlatformConfig returns GCP-specific encryption platform configuration
+// Currently uses UNKNOWN_KEY_TYPE (file-based) - can be extended to GCP_CLOUD_KMS
+func (r *GcpRegion) GetEncryptionPlatformConfig() operator.EncryptionPlatformConfig {
+	// TODO: Switch to GCP_CLOUD_KMS and implement full KMS support
+	return operator.EncryptionPlatformConfig{
+		Platform:                     "UNKNOWN_KEY_TYPE",
+		RequiresCredentialsSecret:    false,
+		DefaultCredentialsSecretName: "",
+	}
+}
+
+// EncryptStoreKey is a no-op for GCP providers
+// The test code handles encryption key preparation directly (same as original behavior)
+// TODO: Implement actual GCP Cloud KMS encryption when needed
+func (r *GcpRegion) EncryptStoreKey(_ *testing.T, _ []byte, _ string) (string, error) {
+	// No-op: GCP provider tests handle key encoding directly in test code
+	// TODO: Implement GCP Cloud KMS encryption similar to AWS
+	return "", nil
+}
+
+// CreateEncryptionKeySecret is a no-op for GCP providers
+// The test code creates the encryption secret directly (same as original behavior)
+// TODO: Extend to include GCP Cloud KMS fields when full KMS support is implemented
+func (r *GcpRegion) CreateEncryptionKeySecret(
+	_ *testing.T,
+	_ *k8s.KubectlOptions,
+	_ string,
+	_ string,
+	_ string,
+) {
+	// No-op: GCP provider tests create secrets directly in test code
+	// TODO: Add GCP Cloud KMS fields when full KMS support is implemented
+}
+
+// CreateEncryptionCredentialsSecret is a no-op for GCP providers
+// File-based encryption doesn't require KMS credentials
+// Returns empty string since no secret is created
+// TODO: Implement when full GCP Cloud KMS support is added
+func (r *GcpRegion) CreateEncryptionCredentialsSecret(_ *testing.T, _ *k8s.KubectlOptions) string {
+	// No credentials needed for file-based encryption (UNKNOWN_KEY_TYPE)
+	// TODO: Create GCP service account credentials secret when implementing full GCP Cloud KMS
+	return ""
 }
 
 // createGKEClusters handles the complex logic of creating GKE clusters in parallel.

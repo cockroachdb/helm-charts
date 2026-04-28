@@ -32,6 +32,20 @@ const (
 	OperatorLabelSelector = "app=cockroach-operator"
 )
 
+// EncryptionPlatformConfig holds provider-specific encryption configuration defaults
+type EncryptionPlatformConfig struct {
+	// Platform is the KMS platform type: "AWS_KMS", "GCP_CLOUD_KMS", or "UNKNOWN_KEY_TYPE"
+	Platform string
+
+	// RequiresCredentialsSecret indicates if cmekCredentialsSecretName is required
+	// True for AWS_KMS and GCP_KMS, false for UNKNOWN_KEY_TYPE (file-based)
+	RequiresCredentialsSecret bool
+
+	// DefaultCredentialsSecretName is the default name for the credentials secret
+	// Used when RequiresCredentialsSecret is true
+	DefaultCredentialsSecretName string
+}
+
 var (
 	Clusters      = []string{"chart-testing-cluster-0", "chart-testing-cluster-1"}
 	CustomDomains = map[int]string{
