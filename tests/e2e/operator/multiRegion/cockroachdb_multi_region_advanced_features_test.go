@@ -5,11 +5,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 )
 
 // TestWALFailoverMultiRegion tests WAL failover with different paths in each region
@@ -75,42 +76,26 @@ func (r *multiRegion) TestWALFailoverMultiRegion(t *testing.T) {
 	t.Logf("WAL failover multi-region test completed successfully")
 }
 
-// TestEncryptionAtRestMultiRegion tests encryption at rest with different secrets per region
-// Region 0: Encryption enabled with secret "cmek-key-secret-region-0"
+// TestEncryptionAtRestMultiRegion tests encryption at rest with different configurations per region
+// Region 0: Encryption enabled with the default secret "cmek-key-secret"
 // Region 1: Encryption disabled (no encryption)
+// Each region has its own namespace, so using the same secret name is safe.
 func (r *multiRegion) TestEncryptionAtRestMultiRegion(t *testing.T) {
 	// Setup namespaces and CA for each region
 	cleanup := r.SetupMultiClusterWithCA(t)
 	defer cleanup()
 
-	// Generate encryption key for region 0
-	encryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated encryption key for region 0 (base64 length: %d)", len(encryptionKeyB64))
-
 	// Region 0: Install with encryption at rest enabled
 	cluster0 := r.Clusters[0]
-	secretName0 := "cmek-key-secret-region-0"
 
-	encryptionRegions0 := []map[string]interface{}{
-		{
-			"code":          r.RegionCodes[0],
-			"cloudProvider": r.Provider,
-			"nodes":         r.NodeCount,
-			"namespace":     r.Namespace[cluster0],
-			"domain":        operator.CustomDomains[0],
-			"encryptionAtRest": map[string]interface{}{
-				"platform":      "UNKNOWN_KEY_TYPE",
-				"keySecretName": secretName0,
-			},
-		},
-	}
+	// Use BuildEncryptionRegions to ensure consistency with single-region tests
+	// This uses the default secret name "cmek-key-secret" and gets platform config from provider
+	encryptionRegions0 := r.BuildEncryptionRegions(cluster0, 0, nil)
 
 	t.Logf("Installing region 0 (%s) with encryption at rest enabled", cluster0)
 	config0 := operator.AdvancedInstallConfig{
-		EncryptionEnabled:       true,
-		EncryptionKeySecret:     encryptionKeyB64,
-		EncryptionKeySecretName: secretName0,
-		CustomRegions:           encryptionRegions0,
+		EncryptionEnabled: true,
+		CustomRegions:     encryptionRegions0,
 	}
 	r.InstallChartsWithAdvancedConfig(t, cluster0, 0, config0)
 
@@ -129,12 +114,9 @@ func (r *multiRegion) TestEncryptionAtRestMultiRegion(t *testing.T) {
 	r.ValidateMultiRegionSetup(t)
 
 	// Validate encryption in region 0
-	t.Log("Validating encryption at rest in region 0")
-	r.ValidateEncryptionAtRest(t, cluster0, &operator.AdvancedValidationConfig{
-		EncryptionAtRest: operator.EncryptionAtRestValidation{
-			SecretName: secretName0,
-		},
-	})
+	// Use nil config to rely on default secret name "cmek-key-secret"
+	t.Log("Validating encryption at rest in region 0...")
+	r.ValidateEncryptionAtRest(t, cluster0, nil)
 
 	// Validate NO encryption in region 1
 	t.Log("Validating NO encryption at rest in region 1")

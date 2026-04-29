@@ -7,61 +7,69 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/utils"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 type singleRegion struct {
-	operator.OperatorUseCases
 	operator.Region
 }
 
 func newSingleRegion() *singleRegion {
 	return &singleRegion{}
 }
+
+// mapProviderToInfra maps utils package provider constants to infra package constants.
+// This avoids import cycles while allowing centralized provider parsing.
+func mapProviderToInfra(provider string) string {
+	switch provider {
+	case utils.ProviderK3D:
+		return infra.ProviderK3D
+	case utils.ProviderKind:
+		return infra.ProviderKind
+	case utils.ProviderGCP:
+		return infra.ProviderGCP
+	default:
+		return provider
+	}
+}
 func TestOperatorInSingleRegion(t *testing.T) {
-	// Fetch provider from env
-	var provider string
-	if p := strings.TrimSpace(strings.ToLower(os.Getenv("PROVIDER"))); p != "" {
-		switch p {
-		case "kind":
-			provider = infra.ProviderKind
-		case "gcp":
-			provider = infra.ProviderGCP
-		default:
-			t.Fatalf("Unsupported provider override: %s", p)
-		}
-	} else {
-		provider = infra.ProviderK3D
+	// Fetch provider from env using centralized utility
+	provider, err := utils.GetProviderFromEnv()
+	if err != nil {
+		t.Fatalf("Failed to get provider: %v", err)
 	}
 
-	t.Run(provider, func(t *testing.T) {
+	// Map utils provider constants to infra provider constants
+	infraProvider := mapProviderToInfra(provider)
+
+	t.Run(infraProvider, func(t *testing.T) {
 		// Run tests for different providers in parallel.
 		t.Parallel()
 
 		// Create a provider-specific instance to avoid race conditions.
 		providerRegion := newSingleRegion()
 		providerRegion.Region = operator.Region{
-			IsMultiRegion: false,
-			NodeCount:     3,
-			ReusingInfra:  false,
+			NodeCount:    3,
+			ReusingInfra: false,
 		}
 		providerRegion.Clients = make(map[string]client.Client)
 		providerRegion.Namespace = make(map[string]string)
 
-		providerRegion.Provider = provider
-		clusterName := fmt.Sprintf("%s-%s", providerRegion.Provider, operator.Clusters[0])
-		if provider != infra.ProviderK3D && provider != infra.ProviderKind {
-			clusterName = fmt.Sprintf("%s-%s", clusterName, strings.ToLower(random.UniqueId()))
-		}
-		providerRegion.Clusters = append(providerRegion.Clusters, clusterName)
+		providerRegion.Provider = infraProvider
+
+		// Generate cluster names with better context (PR number or username)
+		clusterNames := utils.GenerateClusterNames(provider, 1)
+		providerRegion.Clusters = clusterNames
 
 		// Create and reuse the same provider instance for both setup and teardown.
 		cloudProvider := infra.ProviderFactory(providerRegion.Provider, &providerRegion.Region)

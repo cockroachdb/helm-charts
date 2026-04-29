@@ -9,10 +9,6 @@ import (
 	"time"
 
 	"github.com/cockroachdb/errors"
-	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
@@ -23,6 +19,12 @@ import (
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/encryption"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 // LocalRegion implements CloudProvider for local Kubernetes providers (K3d and Kind)
@@ -32,9 +34,10 @@ type LocalRegion struct {
 	ProviderType string
 }
 
-// SetUpInfra Creates local k3d and kind clusters, deploy CNI, deploy coredns in each cluster.
+// SetUpInfra Creates local k3d and kind clusters, deploy CNI, and optionally deploy coredns for multi-cluster.
 //
-// Multi-region networking approach:
+// Single-cluster: Uses cluster's default DNS, no MetalLB, no custom CoreDNS.
+// Multi-cluster networking approach:
 //   - K3D: Calico CNI with BGP for cross-cluster pod routing, built-in ServiceLB for LBs.
 //   - Kind: default kindnet for in-cluster, Calico objects + BGP peering to advertise
 //     pod/service CIDRs between clusters. MetalLB for CoreDNS LBs.
@@ -84,96 +87,104 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		// For Kind, install MetalLB before creating LoadBalancer services
-		// Calico+BGP provides pod routing; MetalLB provides external LB IPs when needed
-		if r.ProviderType == ProviderKind {
+		// For Kind multi-cluster, install MetalLB before creating LoadBalancer services
+		// Calico+BGP provides pod routing; MetalLB provides external LB IPs for cross-cluster communication
+		// Single-cluster setups don't need MetalLB as there's no cross-cluster networking
+		if r.ProviderType == ProviderKind && len(r.Clusters) > 1 {
 			// Install MetalLB with Docker network IPs
 			err = r.installMetalLBWithDockerIPs(t, kubectlOptions, i)
 			require.NoError(t, err)
 		}
 
-		// Create or update CoreDNS deployment.
-		deployment := coredns.CoreDNSDeployment(coreDNSReplicas)
-		// Apply deployment.
-		deploymentYaml := coredns.ToYAML(t, deployment)
-		err = k8s.KubectlApplyFromStringE(t, kubectlOptions, deploymentYaml)
-		require.NoError(t, err)
+		// CoreDNS is only needed for multi-cluster setups to enable cross-cluster DNS resolution
+		// Single-cluster deployments use the cluster's default DNS (CoreDNS or kube-dns)
+		if len(r.Clusters) > 1 {
+			// Create or update CoreDNS deployment.
+			deployment := coredns.CoreDNSDeployment(coreDNSReplicas)
+			// Apply deployment.
+			deploymentYaml := coredns.ToYAML(t, deployment)
+			err = k8s.KubectlApplyFromStringE(t, kubectlOptions, deploymentYaml)
+			require.NoError(t, err)
 
-		// Wait for deployment to be ready.
-		_, err = retry.DoWithRetryE(t, "waiting for coredns deployment",
-			defaultRetries, defaultRetryInterval,
-			func() (string, error) {
-				return k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-					"wait", "--for=condition=Available", fmt.Sprintf("deployment/%s", coreDNSDeploymentName))
-			})
-		require.NoError(t, err)
+			// Wait for deployment to be ready.
+			_, err = retry.DoWithRetryE(t, "waiting for coredns deployment",
+				defaultRetries, defaultRetryInterval,
+				func() (string, error) {
+					return k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+						"wait", "--for=condition=Available", fmt.Sprintf("deployment/%s", coreDNSDeploymentName))
+				})
+			require.NoError(t, err)
 
-		// Create a CoreDNS service.
-		service := coredns.CoreDNSService(nil, GetLoadBalancerAnnotations(r.ProviderType))
-		serviceYaml := coredns.ToYAML(t, service)
-		// Apply service.
-		err = k8s.KubectlApplyFromStringE(t, kubectlOptions, serviceYaml)
-		require.NoError(t, err)
+			// Create a CoreDNS service.
+			service := coredns.CoreDNSService(nil, GetLoadBalancerAnnotations(r.ProviderType))
+			serviceYaml := coredns.ToYAML(t, service)
+			// Apply service.
+			err = k8s.KubectlApplyFromStringE(t, kubectlOptions, serviceYaml)
+			require.NoError(t, err)
 
-		// Now get the DNS IPs.
-		ips, err := WaitForCoreDNSServiceIPs(t, kubectlOptions)
-		require.NoError(t, err)
+			// Now get the DNS IPs.
+			ips, err := WaitForCoreDNSServiceIPs(t, kubectlOptions)
+			require.NoError(t, err)
 
-		r.CorednsClusterOptions[operator.CustomDomains[i]] = coredns.CoreDNSClusterOption{
-			IPs:       ips,
-			Namespace: r.Namespace[cluster],
-			Domain:    operator.CustomDomains[i],
-		}
-		if !r.IsMultiRegion {
-			break
+			r.CorednsClusterOptions[operator.CustomDomains[i]] = coredns.CoreDNSClusterOption{
+				IPs:       ips,
+				Namespace: r.Namespace[cluster],
+				Domain:    operator.CustomDomains[i],
+			}
+		} else {
+			t.Logf("[%s] Skipping CoreDNS setup for single-cluster deployment", r.ProviderType)
 		}
 	}
 
-	// Update Coredns config.
-	for i, cluster := range r.Clusters {
-		// Create or update CoreDNS configmap.
-		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, coreDNSNamespace)
-		cm := coredns.CoreDNSConfigMap(operator.CustomDomains[i], r.CorednsClusterOptions)
+	// Update Coredns config (only for multi-cluster).
+	if len(r.Clusters) > 1 {
+		for i, cluster := range r.Clusters {
+			// Create or update CoreDNS configmap.
+			kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, coreDNSNamespace)
+			cm := coredns.CoreDNSConfigMap(operator.CustomDomains[i], r.CorednsClusterOptions)
 
-		// Apply the updated ConfigMap to Kubernetes.
-		cmYaml := coredns.ToYAML(t, cm)
-		err := k8s.KubectlApplyFromStringE(t, kubectlOptions, cmYaml)
-		require.NoError(t, err)
+			// Apply the updated ConfigMap to Kubernetes.
+			cmYaml := coredns.ToYAML(t, cm)
+			err := k8s.KubectlApplyFromStringE(t, kubectlOptions, cmYaml)
+			require.NoError(t, err)
 
-		// restart coredns pods.
-		err = k8s.RunKubectlE(t, kubectlOptions, "rollout", "restart", "deployment", coreDNSDeploymentName)
-		require.NoError(t, err)
-		if !r.IsMultiRegion {
-			r.Clients = clients
-			r.ReusingInfra = true
-			return
+			// restart coredns pods.
+			err = k8s.RunKubectlE(t, kubectlOptions, "rollout", "restart", "deployment", coreDNSDeploymentName)
+			require.NoError(t, err)
 		}
 	}
 	r.Clients = clients
 	r.ReusingInfra = true
 
-	netConfig := calico.K3dCalicoBGPPeeringOptions{
-		ClusterConfig: map[string]calico.K3dClusterBGPConfig{},
-	}
-
-	// Update network config for each region.
-	for i, region := range r.RegionCodes {
-		rawConfig.CurrentContext = r.Clusters[i]
-		kubectlOptions := k8s.NewKubectlOptions(r.Clusters[i], kubeConfig, coreDNSNamespace)
-		err := r.setupNetworking(t, context.TODO(), region, netConfig, kubectlOptions, i)
-		if err != nil {
-			t.Logf("[%s] Failed to setup networking for region %s: %v", r.ProviderType, region, err)
+	// Setup cross-cluster networking only for multi-region deployments
+	// Single-region deployments don't need BGP peering between clusters
+	if len(r.Clusters) > 1 {
+		netConfig := calico.K3dCalicoBGPPeeringOptions{
+			ClusterConfig: map[string]calico.K3dClusterBGPConfig{},
 		}
-	}
 
-	objectsByRegion := calico.K3dCalicoBGPPeeringObjects(netConfig)
-	// Apply all the objects for each region on to the cluster.
-	for i, region := range r.RegionCodes {
-		ctl := clients[r.Clusters[i]]
-		for _, obj := range objectsByRegion[region] {
-			err := ctl.Create(context.Background(), obj)
-			require.NoError(t, err)
+		// Update network config for each region.
+		for i, region := range r.RegionCodes {
+			rawConfig.CurrentContext = r.Clusters[i]
+			kubectlOptions := k8s.NewKubectlOptions(r.Clusters[i], kubeConfig, coreDNSNamespace)
+			err := r.setupNetworking(t, context.TODO(), region, netConfig, kubectlOptions, i)
+			if err != nil {
+				t.Logf("[%s] Failed to setup networking for region %s: %v", r.ProviderType, region, err)
+			}
 		}
+
+		objectsByRegion := calico.K3dCalicoBGPPeeringObjects(netConfig)
+		// Apply all the objects for each region on to the cluster.
+		for i, region := range r.RegionCodes {
+			ctl := clients[r.Clusters[i]]
+			for _, obj := range objectsByRegion[region] {
+				err := ctl.Create(context.Background(), obj)
+				require.NoError(t, err)
+			}
+		}
+		t.Logf("[%s] Multi-region networking setup complete for %d clusters", r.ProviderType, len(r.Clusters))
+	} else {
+		t.Logf("[%s] Single-region setup - skipping cross-cluster networking", r.ProviderType)
 	}
 }
 
@@ -221,6 +232,50 @@ func (r *LocalRegion) ScaleNodePool(t *testing.T, location string, nodeCount, in
 
 func (r *LocalRegion) CanScale() bool {
 	return false
+}
+
+// ─── Encryption At Rest Methods ─────────────────────────────────────────────────
+
+// GetEncryptionProvider returns the local provider itself as it implements encryption.Provider
+func (r *LocalRegion) GetEncryptionProvider() encryption.Provider {
+	return r
+}
+
+// SetupEncryptionInfrastructure is a no-op for local providers (file-based encryption)
+// Returns a no-op cleanup function
+func (r *LocalRegion) SetupEncryptionInfrastructure(t *testing.T) (func(), error) {
+	t.Log("Local provider: No KMS infrastructure needed for file-based encryption (UNKNOWN_KEY_TYPE)")
+	// Return no-op cleanup function
+	return func() {
+		t.Log("Local provider: No KMS infrastructure to clean up")
+	}, nil
+}
+
+// GetEncryptionPlatformConfig returns file-based encryption platform configuration for local providers
+func (r *LocalRegion) GetEncryptionPlatformConfig() *encryption.PlatformConfig {
+	return &encryption.PlatformConfig{
+		Platform:                     "UNKNOWN_KEY_TYPE",
+		RequiresCredentialsSecret:    false,
+		DefaultCredentialsSecretName: "", // Not needed for file-based encryption
+	}
+}
+
+// ─── CMEK Methods (Not Used for File-Based Encryption) ─────────────────────────
+// These methods are part of the encryption.Provider interface but not used for UNKNOWN_KEY_TYPE
+
+// EncryptKey is not used for local providers (file-based encryption)
+func (r *LocalRegion) EncryptKey(plaintextKey []byte, clusterRegion string) (string, error) {
+	return "", fmt.Errorf("EncryptKey not supported for file-based encryption (UNKNOWN_KEY_TYPE)")
+}
+
+// CreateKeySecret is not used for local providers (file-based encryption)
+func (r *LocalRegion) CreateKeySecret(kubectlOptions *k8s.KubectlOptions, secretName string, encryptedKeyData string, clusterRegion string) error {
+	return fmt.Errorf("CreateKeySecret not supported for file-based encryption (UNKNOWN_KEY_TYPE)")
+}
+
+// CreateCredentialsSecret is not used for local providers (file-based encryption)
+func (r *LocalRegion) CreateCredentialsSecret(kubectlOptions *k8s.KubectlOptions) (string, error) {
+	return "", fmt.Errorf("CreateCredentialsSecret not supported for file-based encryption (UNKNOWN_KEY_TYPE)")
 }
 
 // setupNetworking ensures there is cross-cluster network connectivity and

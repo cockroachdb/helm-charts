@@ -5,12 +5,13 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 )
 
 // TestWALFailover tests the WAL failover functionality by:
@@ -79,7 +80,7 @@ func (r *singleRegion) TestWALFailoverDisable(t *testing.T) {
 
 	// Upgrade with WAL failover disabled
 	disableConfig := operator.PatchHelmValues(map[string]string{
-		"cockroachdb.clusterDomain":                      operator.CustomDomains[0],
+		"cockroachdb.clusterDomain":                      r.GetClusterDomain(0),
 		"cockroachdb.tls.selfSigner.caProvided":          "true",
 		"cockroachdb.tls.selfSigner.caSecret":            "cockroachdb-ca-secret",
 		"cockroachdb.crdbCluster.walFailoverSpec.status": "disable",
@@ -141,19 +142,13 @@ func (r *singleRegion) TestEncryptionAtRestEnable(t *testing.T) {
 	cleanup := r.SetupSingleClusterWithCA(t, cluster)
 	defer cleanup()
 
-	// Generate proper 256-bit AES encryption key
-	t.Log("Generating 256-bit AES encryption key")
-	encryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated encryption key (base64 length: %d)", len(encryptionKeyB64))
-
 	// Configure encryption at rest regions
 	encryptionRegions := r.BuildEncryptionRegions(cluster, 0, nil)
 
 	// Install CockroachDB with encryption at rest enabled using common method
 	config := operator.AdvancedInstallConfig{
-		EncryptionEnabled:   true,
-		EncryptionKeySecret: encryptionKeyB64,
-		CustomRegions:       encryptionRegions,
+		EncryptionEnabled: true,
+		CustomRegions:     encryptionRegions,
 	}
 	r.InstallChartsWithAdvancedConfig(t, cluster, 0, config)
 
@@ -199,17 +194,14 @@ func (r *singleRegion) TestEncryptionAtRestDisable(t *testing.T) {
 	defer cleanup()
 
 	// Step 1: Install CockroachDB with encryption at rest enabled
-	t.Log("Installing CockroachDB with encryption at rest enabled")
-	encryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated encryption key (base64 length: %d)", len(encryptionKeyB64))
+	t.Log("Installing CockroachDB with encryption at rest enabled...")
 
 	// Configure encryption at rest regions
 	encryptionRegions := r.BuildEncryptionRegions(cluster, 0, nil)
 
 	config := operator.AdvancedInstallConfig{
-		EncryptionEnabled:   true,
-		EncryptionKeySecret: encryptionKeyB64,
-		CustomRegions:       encryptionRegions,
+		EncryptionEnabled: true,
+		CustomRegions:     encryptionRegions,
 	}
 	r.InstallChartsWithAdvancedConfig(t, cluster, 0, config)
 
@@ -306,17 +298,14 @@ func (r *singleRegion) TestEncryptionAtRestModifySecret(t *testing.T) {
 	defer cleanup()
 
 	// Step 1: Install CockroachDB with encryption at rest enabled
-	t.Log("Installing CockroachDB with encryption at rest enabled")
-	encryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated initial encryption key (base64 length: %d)", len(encryptionKeyB64))
+	t.Log("Installing CockroachDB with encryption at rest enabled...")
 
 	// Configure encryption at rest regions
 	encryptionRegions := r.BuildEncryptionRegions(cluster, 0, nil)
 
 	config := operator.AdvancedInstallConfig{
-		EncryptionEnabled:   true,
-		EncryptionKeySecret: encryptionKeyB64,
-		CustomRegions:       encryptionRegions,
+		EncryptionEnabled: true,
+		CustomRegions:     encryptionRegions,
 	}
 	r.InstallChartsWithAdvancedConfig(t, cluster, 0, config)
 
@@ -436,21 +425,15 @@ func (r *singleRegion) TestWALFailoverWithEncryption(t *testing.T) {
 	cleanup := r.SetupSingleClusterWithCA(t, cluster)
 	defer cleanup()
 
-	// Step 1: Generate encryption key
-	t.Log("Generating 256-bit AES encryption key")
-	encryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated encryption key (base64 length: %d)", len(encryptionKeyB64))
-
 	// Configure encryption at rest regions
 	encryptionRegions := r.BuildEncryptionRegions(cluster, 0, nil)
 
 	// Install CockroachDB with both WAL failover and encryption enabled
 	config := operator.AdvancedInstallConfig{
-		WALFailoverEnabled:  true,
-		WALFailoverSize:     "5Gi",
-		EncryptionEnabled:   true,
-		EncryptionKeySecret: encryptionKeyB64,
-		CustomRegions:       encryptionRegions,
+		WALFailoverEnabled: true,
+		WALFailoverSize:    "5Gi",
+		EncryptionEnabled:  true,
+		CustomRegions:      encryptionRegions,
 	}
 	r.InstallChartsWithAdvancedConfig(t, cluster, 0, config)
 
@@ -588,4 +571,3 @@ func (r *singleRegion) TestPCR(t *testing.T) {
 
 	t.Logf("PCR (Physical Cluster Replication) test completed successfully")
 }
-

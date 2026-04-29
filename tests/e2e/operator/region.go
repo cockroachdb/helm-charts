@@ -1,7 +1,6 @@
 package operator
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,8 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -23,6 +20,10 @@ import (
 	"k8s.io/client-go/tools/clientcmd/api"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/encryption"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 const (
@@ -56,21 +57,9 @@ var (
 	}
 )
 
-// OperatorUseCases defines use cases for the CockroachDB cluster.
-type OperatorUseCases interface {
-	TestHelmInstall(t *testing.T)
-	TestHelmUpgrade(t *testing.T)
-	TestClusterScaleUp(t *testing.T)
-	TestClusterRollingRestart(t *testing.T)
-	TestKillingCockroachNode(t *testing.T)
-	TestInstallWithCertManager(t *testing.T)
-}
-
 type Region struct {
 	// IsCertManager is true if the cockroachdb cluster is using cert-manager.
 	IsCertManager bool
-	// IsMultiRegion is true if the region is multi-region.
-	IsMultiRegion bool
 	// NodeCount is the desired CockroachDB nodes in the region.
 	NodeCount int
 	// Namespace stores mapping between cluster name and namespace.
@@ -90,6 +79,27 @@ type Region struct {
 	// OperatorNamespace tracks the namespace in which the operator was installed,
 	// keyed by cluster name.
 	OperatorNamespace map[string]string
+
+	// Encryption infrastructure tracking
+	encryptionProvider       encryption.Provider
+	encryptionInfraSetup     bool
+	encryptionCleanupFunc    func()
+	encryptionPlatformConfig *encryption.PlatformConfig
+	encryptionCredSecretName string
+}
+
+// SetEncryptionProvider sets the encryption provider for this region.
+// This should be called by the infrastructure setup code with the provider's GetEncryptionProvider() result.
+func (r *Region) SetEncryptionProvider(provider encryption.Provider) {
+	r.encryptionProvider = provider
+}
+
+// CleanupEncryptionInfra calls the stored encryption cleanup function
+// Call this in test cleanup/defer to clean up KMS resources
+func (r *Region) CleanupEncryptionInfra() {
+	if r.encryptionCleanupFunc != nil {
+		r.encryptionCleanupFunc()
+	}
 }
 
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
@@ -138,7 +148,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 
 	if r.IsCertManager {
 		crdbOp = PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain":               CustomDomains[index],
+			"cockroachdb.clusterDomain":               r.GetClusterDomain(index),
 			"cockroachdb.tls.enabled":                 "true",
 			"cockroachdb.tls.selfSigner.enabled":      "false",
 			"cockroachdb.tls.certManager.enabled":     "true",
@@ -147,7 +157,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 		})
 	} else {
 		crdbOp = PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain":             CustomDomains[index],
+			"cockroachdb.clusterDomain":             r.GetClusterDomain(index),
 			"cockroachdb.tls.enabled":               "true",
 			"cockroachdb.tls.selfSigner.caProvided": "true",
 			"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
@@ -357,6 +367,10 @@ func (r *Region) ValidateCRDBContainerResources(t *testing.T, kubectlOptions *k8
 
 // CreateCACertificate creates CA cert and key at the same path.
 func (r *Region) CreateCACertificate(t *testing.T) error {
+	// Clean up any existing CA files first to ensure a fresh start
+	// This handles cases where previous test runs were interrupted or failed cleanup
+	r.CleanUpCACertificate(t)
+
 	// Create CA secret in all regions.
 	cmd := shell.Command{
 		Command:    "cockroach",
@@ -464,7 +478,7 @@ func (r *Region) CleanupResources(t *testing.T) {
 // OperatorRegions returns the regions config based on the index
 // which is referring to cluster index.
 func (r *Region) OperatorRegions(index int, nodes int) []map[string]interface{} {
-	return r.createOperatorRegions(index, nodes, CustomDomains)
+	return r.createOperatorRegions(index, nodes)
 }
 
 func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
@@ -479,18 +493,14 @@ func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 // required while installing CockroachDb charts.
 // Other clusters' regions are listed first so their join addresses are tried
 // before the current cluster's, allowing it to join the existing cluster immediately.
-func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[int]string) []map[string]interface{} {
+func (r *Region) createOperatorRegions(index int, nodes int) []map[string]interface{} {
 	buildRegion := func(i int) map[string]interface{} {
 		region := map[string]interface{}{
 			"code":          r.RegionCodes[i],
 			"cloudProvider": r.Provider,
 			"nodes":         nodes,
 			"namespace":     r.Namespace[r.Clusters[i]],
-		}
-		if len(r.Clusters) > i && r.Clusters[i] != "" {
-			if domain, ok := customDomains[i]; ok {
-				region["domain"] = domain
-			}
+			"domain":        r.GetClusterDomain(i),
 		}
 		return region
 	}
@@ -774,6 +784,21 @@ func (r *Region) SetupMultiClusterWithCA(t *testing.T) func() {
 	}
 }
 
+// GetClusterDomain returns the appropriate cluster domain for the given index.
+// For single-cluster setups, returns "cluster.local" (default Kubernetes domain).
+// For multi-cluster setups, returns CustomDomains[index] (e.g., "cluster1.local", "cluster2.local").
+func (r *Region) GetClusterDomain(index int) string {
+	// For single-cluster setups, use the default Kubernetes cluster domain.
+	// CustomDomains (cluster1.local, cluster2.local) are only for multi-cluster with custom CoreDNS.
+	if len(r.Clusters) == 1 {
+		return "cluster.local"
+	}
+	if domain, ok := CustomDomains[index]; ok {
+		return domain
+	}
+	return "cluster.local" // fallback to default
+}
+
 // BaseRegionConfig returns a baseline region configuration map for the provided cluster and index.
 func (r *Region) BaseRegionConfig(cluster string, index int) map[string]interface{} {
 	code := fmt.Sprintf("region-%d", index)
@@ -785,9 +810,7 @@ func (r *Region) BaseRegionConfig(cluster string, index int) map[string]interfac
 		"cloudProvider": r.Provider,
 		"nodes":         r.NodeCount,
 		"namespace":     r.Namespace[cluster],
-	}
-	if domain, ok := CustomDomains[index]; ok {
-		region["domain"] = domain
+		"domain":        r.GetClusterDomain(index),
 	}
 	return region
 }
@@ -800,10 +823,30 @@ func (r *Region) EncryptionAtRestConfig(secretName string, overrides map[string]
 	if secretName == "" {
 		secretName = DefaultEncryptionSecret
 	}
+
+	// Get platform configuration from the encryption provider if available
+	platform := "UNKNOWN_KEY_TYPE"
+	var cmekCredentialsSecretName string
+	if r.encryptionProvider != nil {
+		platformConfig := r.encryptionProvider.GetEncryptionPlatformConfig()
+		if platformConfig != nil {
+			platform = platformConfig.Platform
+			if platformConfig.RequiresCredentialsSecret && platformConfig.DefaultCredentialsSecretName != "" {
+				cmekCredentialsSecretName = platformConfig.DefaultCredentialsSecretName
+			}
+		}
+	}
+
 	config := map[string]interface{}{
-		"platform":      "UNKNOWN_KEY_TYPE",
+		"platform":      platform,
 		"keySecretName": secretName,
 	}
+
+	// Add cmekCredentialsSecretName if required by the platform
+	if cmekCredentialsSecretName != "" {
+		config["cmekCredentialsSecretName"] = cmekCredentialsSecretName
+	}
+
 	for k, v := range overrides {
 		if v == nil || v == "" {
 			// Delete the key so it is omitted from JSON (nil pointer in operator = "plain").
@@ -829,9 +872,8 @@ type AdvancedInstallConfig struct {
 	WALFailoverSize    string
 
 	// Encryption at Rest configuration
-	EncryptionEnabled      bool
-	EncryptionKeySecret    string
-	EncryptionKeySecretName string // defaults to "cmek-key-secret" if empty
+	// Note: The encryption provider is automatically obtained from the CloudProvider via Region.SetEncryptionProvider()
+	EncryptionEnabled bool
 
 	// Virtual Cluster configuration (for PCR)
 	VirtualClusterMode string // "primary", "standby", or ""
@@ -870,27 +912,29 @@ func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, i
 		"--from-file=ca.key")
 	require.NoError(t, err)
 
-	// Create encryption key secret if encryption is enabled
-	if config.EncryptionEnabled && config.EncryptionKeySecret != "" {
-		encryptionSecretName := config.EncryptionKeySecretName
-		if encryptionSecretName == "" {
-			encryptionSecretName = DefaultEncryptionSecret
+	// Setup encryption if enabled and provider is available
+	if config.EncryptionEnabled && r.encryptionProvider != nil {
+		// Setup encryption infrastructure once (creates KMS keys, IAM roles, etc.)
+		// This is called once and the cleanup function is stored for later cleanup
+		if !r.encryptionInfraSetup {
+			t.Log("Setting up encryption infrastructure (KMS keys, IAM roles, etc.)")
+			cleanup, err := r.encryptionProvider.SetupEncryptionInfrastructure(t)
+			require.NoError(t, err, "Failed to setup encryption infrastructure")
+			r.encryptionCleanupFunc = cleanup
+			r.encryptionInfraSetup = true
+			t.Log("Encryption infrastructure setup complete")
 		}
 
-		// Use --from-literal with the base64-encoded key string. Kubernetes base64-encodes
-		// secret values for storage, so the pod receives the original base64 string when
-		// the secret is mounted — which the init container then decodes to get the raw key.
-		err = k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", encryptionSecretName,
-			fmt.Sprintf("--from-literal=StoreKeyData=%s", config.EncryptionKeySecret))
-		require.NoError(t, err)
+		// Get platform configuration from provider
+		r.encryptionPlatformConfig = r.encryptionProvider.GetEncryptionPlatformConfig()
+		t.Logf("Using encryption platform: %s (requires credentials: %v)",
+			r.encryptionPlatformConfig.Platform, r.encryptionPlatformConfig.RequiresCredentialsSecret)
 
-		// Verify secret was created with data
-		secretSize, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-			"get", "secret", encryptionSecretName,
-			"-o", "jsonpath={.data.StoreKeyData}")
-		require.NoError(t, err)
-		require.True(t, len(secretSize) > 0, "Secret StoreKeyData should be >0")
-		t.Logf("Created encryption secret %s with size: %d bytes", encryptionSecretName, len(secretSize))
+		// Create all encryption secrets (key secret + credentials secret if needed)
+		// Use the generic function that calls either CMEK or file-based setup based on provider
+		err = encryption.SetupEncryptionSecrets(t, r.encryptionProvider, kubectlOptions, cluster)
+		require.NoError(t, err, "Failed to setup encryption secrets")
+		t.Logf("Successfully set up encryption secrets for cluster %s", cluster)
 	}
 
 	// Install the operator when it is not skipped and not already marked as installed.
@@ -911,7 +955,7 @@ func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, i
 
 	// Build helm values
 	helmValues := PatchHelmValues(map[string]string{
-		"cockroachdb.clusterDomain":             CustomDomains[index],
+		"cockroachdb.clusterDomain":             r.GetClusterDomain(index),
 		"cockroachdb.tls.selfSigner.caProvided": "true",
 		"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 	})
@@ -1025,29 +1069,10 @@ func (r *Region) ValidateWALFailover(t *testing.T, cluster string, cfg *Advanced
 }
 
 // GenerateEncryptionKey generates a 256-bit AES encryption key and returns base64 encoded value
+// This is a convenience wrapper around encryption.GenerateAndEncodeEncryptionKey for backward compatibility
 func (r *Region) GenerateEncryptionKey(t *testing.T) string {
-	tempDir := t.TempDir()
-	keyPath := filepath.Join(tempDir, "store.key")
-
-	// Generate 256-bit AES key using cockroach gen encryption-key
-	cmd := shell.Command{
-		Command:    "cockroach",
-		Args:       []string{"gen", "encryption-key", "--size", "256", "store.key"},
-		WorkingDir: tempDir,
-	}
-
-	_, err := shell.RunCommandAndGetOutputE(t, cmd)
-	require.NoError(t, err)
-
-	// Read the generated key file
-	keyBytes, err := os.ReadFile(keyPath)
-	require.NoError(t, err)
-
-	// Base64 encode the key (removing any newlines)
-	storeKeyB64 := base64.StdEncoding.EncodeToString(keyBytes)
-	storeKeyB64 = strings.ReplaceAll(storeKeyB64, "\n", "")
-
-	return storeKeyB64
+	_, base64Key := encryption.GenerateAndEncodeEncryptionKey(t)
+	return base64Key
 }
 
 // ValidateEncryptionAtRest verifies that encryption at rest is properly configured by checking flags and encryption status.
@@ -1324,7 +1349,7 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 	// Step 4a: Generate external connection URI for replication
 	// Following: https://www.cockroachlabs.com/docs/stable/set-up-physical-cluster-replication#step-4-start-replication
 	t.Log("Generating connection URI for primary cluster using cockroach convert-url")
-	primaryHost := fmt.Sprintf("cockroachdb-public.%s.svc.%s:26257", primaryNamespace, CustomDomains[0])
+	primaryHost := fmt.Sprintf("cockroachdb-public.%s.svc.%s:26257", primaryNamespace, r.GetClusterDomain(0))
 	primaryConnString := fmt.Sprintf("postgresql://%s:%s@%s?options=-ccluster%%3Dsystem", pcrSourceUser, pcrSourcePassword, primaryHost)
 	t.Logf("Primary connection string format: postgresql://pcr_source:***@%s?options=-ccluster%%3Dsystem", primaryHost)
 

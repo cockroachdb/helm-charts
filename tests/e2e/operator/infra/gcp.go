@@ -24,6 +24,7 @@ import (
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/encryption"
 )
 
 // ─── GCP CONSTANTS ───────────────────────────────────────────────────────────────
@@ -316,6 +317,55 @@ func (r *GcpRegion) ScaleNodePool(t *testing.T, location string, nodeCount, inde
 
 func (r *GcpRegion) CanScale() bool {
 	return false
+}
+
+// ─── Encryption At Rest Methods ─────────────────────────────────────────────────
+
+// GetEncryptionProvider returns the GCP provider itself as it implements encryption.Provider
+func (r *GcpRegion) GetEncryptionProvider() encryption.Provider {
+	return r
+}
+
+// SetupEncryptionInfrastructure is simplified for GCP (uses file-based encryption for now)
+// TODO: Implement full GCP Cloud KMS support similar to AWS
+// Returns a no-op cleanup function
+func (r *GcpRegion) SetupEncryptionInfrastructure(t *testing.T) (func(), error) {
+	t.Log("GCP provider: Using file-based encryption (UNKNOWN_KEY_TYPE)")
+	t.Log("TODO: Implement full GCP Cloud KMS support for production use")
+	// Return no-op cleanup function
+	return func() {
+		t.Log("GCP provider: No KMS infrastructure to clean up")
+	}, nil
+}
+
+// GetEncryptionPlatformConfig returns GCP-specific encryption platform configuration
+// Currently uses UNKNOWN_KEY_TYPE (file-based) - can be extended to GCP_CLOUD_KMS
+func (r *GcpRegion) GetEncryptionPlatformConfig() *encryption.PlatformConfig {
+	// TODO: Switch to GCP_CLOUD_KMS and implement full KMS support
+	return &encryption.PlatformConfig{
+		Platform:                     "UNKNOWN_KEY_TYPE",
+		RequiresCredentialsSecret:    false,
+		DefaultCredentialsSecretName: "",
+	}
+}
+
+// ─── CMEK Methods (Not Yet Implemented for GCP) ────────────────────────────────
+// These methods are part of the encryption.Provider interface but not yet implemented for GCP
+// TODO: Implement full GCP Cloud KMS support for these methods
+
+// EncryptKey is not yet implemented for GCP (currently uses file-based encryption)
+func (r *GcpRegion) EncryptKey(plaintextKey []byte, clusterRegion string) (string, error) {
+	return "", fmt.Errorf("EncryptKey not yet implemented for GCP - currently using file-based encryption (UNKNOWN_KEY_TYPE)")
+}
+
+// CreateKeySecret is not yet implemented for GCP (currently uses file-based encryption)
+func (r *GcpRegion) CreateKeySecret(kubectlOptions *k8s.KubectlOptions, secretName string, encryptedKeyData string, clusterRegion string) error {
+	return fmt.Errorf("CreateKeySecret not yet implemented for GCP - currently using file-based encryption (UNKNOWN_KEY_TYPE)")
+}
+
+// CreateCredentialsSecret is not yet implemented for GCP (currently uses file-based encryption)
+func (r *GcpRegion) CreateCredentialsSecret(kubectlOptions *k8s.KubectlOptions) (string, error) {
+	return "", fmt.Errorf("CreateCredentialsSecret not yet implemented for GCP - currently using file-based encryption (UNKNOWN_KEY_TYPE)")
 }
 
 // createGKEClusters handles the complex logic of creating GKE clusters in parallel.
