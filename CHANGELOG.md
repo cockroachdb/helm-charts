@@ -2,6 +2,17 @@
 
 All notable changes to this project will be documented in this file.
 
+The operator and cockroachdb charts are versioned independently. The operator supports all
+CockroachDB chart versions. Any exceptions, such as a minimum operator version required for
+new CockroachDB features or unsupported CockroachDB settings, will be explicitly noted in the
+relevant changelog entry. See [VERSIONING.md](cockroachdb-parent/docs/VERSIONING.md) for details.
+
+Each chart maintains its own changelog:
+- [Operator chart CHANGELOG](cockroachdb-parent/charts/operator/CHANGELOG.md)
+- [CockroachDB chart CHANGELOG](cockroachdb-parent/charts/cockroachdb/CHANGELOG.md)
+
+Historical entries from the preview era (before per-chart versioning) are preserved below.
+
 ## [cockroachdb-parent-26.1.3-preview+1] 2026-04-24
 ### Added
 - Hook images (`bitnami/kubectl`, `dtzar/helm-kubectl`) are now configurable via

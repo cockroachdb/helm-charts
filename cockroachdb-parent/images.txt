@@ -11,7 +11,7 @@
 # === Operator chart images ===
 
 # CockroachDB Operator
-docker.io/cockroachdb/cockroachdb-operator-v2:1.0.0-rc.1
+docker.io/cockroachdb/cockroachdb-operator-v2:v1.0.0-rc.1
 
 # Operator pre-upgrade validation hook
 docker.io/dtzar/helm-kubectl:3.19
@@ -32,7 +32,7 @@ docker.io/dtzar/helm-kubectl:3.19
 # They must also be mirrored for air-gapped environments.
 
 # Init container
-docker.io/cockroachdb/cockroachdb-init-container:1.0.0-rc.1
+docker.io/cockroachdb/cockroachdb-init-container:v1.0.0-rc.1
 
 # Cert reloader (inotifywait)
-docker.io/cockroachdb/cockroachdb-cert-reloader:1.0.0-rc.1
+docker.io/cockroachdb/cockroachdb-cert-reloader:v1.0.0-rc.1
