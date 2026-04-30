@@ -42,7 +42,7 @@ func (o *PublicOperatorToCockroachEnterpriseOperator) TestDefaultMigration(t *te
 
 	// Clean up any CRDs from previous test runs to avoid storedVersions conflicts
 	t.Log("Cleaning up CRDs and instances from previous test runs")
-	
+
 	// Helper to patch finalizers and delete resources
 	cleanupResources := func(resourceType string) {
 		// Get all resources of this type

@@ -90,7 +90,7 @@ compute_target() {
   # Examples:
   #   docker.io/cockroachdb/cockroachdb-operator-v2:1.0.0-rc.1 -> cockroachdb/cockroachdb-operator-v2:1.0.0-rc.1
   #   docker.io/cockroachdb/cockroach:v26.1.3 -> cockroachdb/cockroach:v26.1.3
-  #   gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert:1.9 -> cockroach-self-signer-cert:1.9
+  #   docker.io/cockroachdb/cockroach-self-signer-cert:1.10 -> cockroachdb/cockroach-self-signer-cert:1.10
   #   us-docker.pkg.dev/releases-prod/self-hosted/cockroachdb-operator:v1.0.0 -> cockroachdb-operator:v1.0.0
   case "${src}" in
     us-docker.pkg.dev/*/*/*)

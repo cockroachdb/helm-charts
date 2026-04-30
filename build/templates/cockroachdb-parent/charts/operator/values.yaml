@@ -10,6 +10,23 @@ image:
   pullPolicy: IfNotPresent
   # tag is the image tag.
   tag: "v{{ .AppVersion }}"
+# relatedImages configures images the operator injects into CockroachDB pods.
+# By default these images share the operator image registry and tag.
+relatedImages:
+  initContainer:
+    # registry overrides image.registry for the init container image when set.
+    registry: ""
+    # repository defines the init container image repository.
+    repository: "cockroachdb-init-container"
+    # tag overrides image.tag for the init container image when set.
+    tag: ""
+  inotifywait:
+    # registry overrides image.registry for the cert-reloader image when set.
+    registry: ""
+    # repository defines the cert-reloader image repository.
+    repository: "cockroachdb-cert-reloader"
+    # tag overrides image.tag for the cert-reloader image when set.
+    tag: ""
 # certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.

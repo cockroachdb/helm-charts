@@ -32,6 +32,11 @@ import (
 
 const (
 	TestDBName = "test_db"
+
+	// TestSelfSignerImageRegistry and TestSelfSignerImageRepository match the
+	// self-signer image produced by build/self-signer on gcr.io for e2e tests.
+	TestSelfSignerImageRegistry   = "gcr.io"
+	TestSelfSignerImageRepository = "cockroachlabs-helm-charts/cockroach-self-signer-cert"
 )
 
 type CockroachCluster struct {
@@ -458,7 +463,7 @@ func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values ma
 ) {
 	var args []string
 	var jobName string
-	imageName := fmt.Sprintf("gcr.io/cockroachlabs-helm-charts/cockroach-self-signer-cert:%s", values["tls.selfSigner.image.tag"])
+	imageName := selfSignerImageName(values)
 	backoffLimit := int32(1)
 	if caRotate {
 		jobName = "ca-certificate-rotate"
@@ -530,6 +535,18 @@ func RequireToRunRotateJob(t *testing.T, crdbCluster CockroachCluster, values ma
 	if err := crdbCluster.K8sClient.Create(context.TODO(), job); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func selfSignerImageName(values map[string]string) string {
+	imageRegistry := values["tls.selfSigner.image.registry"]
+	if imageRegistry == "" {
+		imageRegistry = TestSelfSignerImageRegistry
+	}
+	imageRepository := values["tls.selfSigner.image.repository"]
+	if imageRepository == "" {
+		imageRepository = TestSelfSignerImageRepository
+	}
+	return fmt.Sprintf("%s/%s:%s", imageRegistry, imageRepository, values["tls.selfSigner.image.tag"])
 }
 
 // RequireCertRotateJobToBeCompleted waits for the certificate rotation job to complete.
@@ -610,6 +627,9 @@ func WaitUntilPodDeleted(
 
 func PatchHelmValues(inputValues map[string]string) map[string]string {
 	overrides := map[string]string{
+		// Keep self-signer e2e tests aligned with the image built by the Makefile.
+		"tls.selfSigner.image.registry":   TestSelfSignerImageRegistry,
+		"tls.selfSigner.image.repository": TestSelfSignerImageRepository,
 		// Override the persistent storage size to 1Gi so that we do not run out of space.
 		"storage.persistentVolume.size": "1Gi",
 		// Override the terminationGracePeriodSeconds from 300s to 30 as it makes pod delete take longer.

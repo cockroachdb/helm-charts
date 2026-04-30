@@ -28,6 +28,10 @@ const (
 	Namespace             = "cockroach-ns"
 	LabelSelector         = "app=cockroachdb"
 	OperatorLabelSelector = "app=cockroach-operator"
+	testOperatorRegistry  = "us-docker.pkg.dev/releases-prod/self-hosted"
+	testOperatorRepo      = "cockroachdb-operator"
+	testInitContainerRepo = "init-container"
+	testInotifywaitRepo   = "inotifywait"
 )
 
 var (
@@ -523,7 +527,13 @@ func InstallCockroachDBEnterpriseOperator(t *testing.T, kubectlOptions *k8s.Kube
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		SetValues: map[string]string{
-			"numReplicas": "1",
+			"numReplicas":                            "1",
+			"image.registry":                         testOperatorRegistry,
+			"image.repository":                       testOperatorRepo,
+			"relatedImages.initContainer.registry":   testOperatorRegistry,
+			"relatedImages.initContainer.repository": testInitContainerRepo,
+			"relatedImages.inotifywait.registry":     testOperatorRegistry,
+			"relatedImages.inotifywait.repository":   testInotifywaitRepo,
 		},
 		ExtraArgs: helmExtraArgs,
 	}
@@ -575,6 +585,9 @@ func PatchHelmValues(inputValues map[string]string) map[string]string {
 	overrides := map[string]string{
 		// Override the persistent storage size to 1Gi so that we do not run out of space.
 		"cockroachdb.crdbCluster.dataStore.volumeClaimTemplate.spec.resources.requests.storage": "1Gi",
+		// Keep self-signer e2e tests aligned with the image built by the Makefile.
+		"cockroachdb.tls.selfSigner.image.registry":   testutil.TestSelfSignerImageRegistry,
+		"cockroachdb.tls.selfSigner.image.repository": testutil.TestSelfSignerImageRepository,
 		// Override the terminationGracePeriodSeconds from 300s to 30 as it makes pod delete take longer.
 		"cockroachdb.crdbCluster.terminationGracePeriod": "30s",
 		// Override the rolling restart delay 30s as few times cockroachdb takes few seconds to come up.

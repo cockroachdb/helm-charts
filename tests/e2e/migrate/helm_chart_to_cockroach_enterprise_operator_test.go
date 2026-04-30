@@ -319,19 +319,19 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 	}
 	h.HelmOptions = &helm.Options{
 		SetValues: testutil.PatchHelmValues(map[string]string{
-			"operator.enabled":                           "false",
-			"conf.cluster-name":                         "test",
-			"init.provisioning.enabled":                 "true",
-			"init.provisioning.databases[0].name":       migration.TestDBName,
-			"init.provisioning.databases[0].owners[0]":  "root",
-			"statefulset.labels.app":                    "cockroachdb",
-			"conf.locality":                             "topology.kubernetes.io/region=us-east-1",
-			"storage.PersistentVolume.enabled":          "true",
-			"conf.log.enabled":                          "true",
-			"conf.log.config.file-defaults.dir":         "/cockroach/test-logs",
-			"conf.log.persistentVolume.enabled":         "true",
-			"conf.log.persistentVolume.path":            "test-logs",
-			"conf.log.persistentVolume.size":            "1Gi",
+			"operator.enabled":                         "false",
+			"conf.cluster-name":                        "test",
+			"init.provisioning.enabled":                "true",
+			"init.provisioning.databases[0].name":      migration.TestDBName,
+			"init.provisioning.databases[0].owners[0]": "root",
+			"statefulset.labels.app":                   "cockroachdb",
+			"conf.locality":                            "topology.kubernetes.io/region=us-east-1",
+			"storage.PersistentVolume.enabled":         "true",
+			"conf.log.enabled":                         "true",
+			"conf.log.config.file-defaults.dir":        "/cockroach/test-logs",
+			"conf.log.persistentVolume.enabled":        "true",
+			"conf.log.persistentVolume.path":           "test-logs",
+			"conf.log.persistentVolume.size":           "1Gi",
 		}),
 	}
 
