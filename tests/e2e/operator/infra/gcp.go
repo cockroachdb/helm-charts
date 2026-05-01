@@ -2,6 +2,7 @@ package infra
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
+	cloudkms "google.golang.org/api/cloudkms/v1"
 	"google.golang.org/api/compute/v1"
 	"google.golang.org/api/container/v1"
 	"google.golang.org/api/googleapi"
@@ -24,6 +26,7 @@ import (
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/encryption"
 )
 
 // ─── GCP CONSTANTS ───────────────────────────────────────────────────────────────
@@ -44,11 +47,14 @@ const (
 // Default project ID to use if not specified in the environment.
 const defaultProjectID = "helm-testing"
 
-// getNodeServiceAccount returns the GKE node service account from the environment.
-// If empty, gcloud falls back to the project's default Compute Engine service account.
 func getNodeServiceAccount() string {
 	return os.Getenv("GCP_NODE_SERVICE_ACCOUNT")
 }
+
+const (
+	gcpKMSKeyRingID   = "cockroachdb-cmek-test"
+	gcpKMSCryptoKeyID = "cockroachdb-cmek-key"
+)
 
 // getProjectID returns the GCP project ID from the environment variable or falls back to default.
 func getProjectID() string {
@@ -131,7 +137,8 @@ var clusterConfigurations = []ClusterSetupConfig{
 // GcpRegion wraps operator.Region and manages GCP infra.
 type GcpRegion struct {
 	*operator.Region
-	vpcName string
+	vpcName   string
+	kmsKeyURI string
 }
 
 // SetUpInfra creates VPC, subnet, static IP, firewall rules, GKE clusters, and deploys CoreDNS
@@ -233,6 +240,160 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 	require.NoError(t, err)
 	err = r.deployAndConfigureCoreDNS(t, kubeConfigPath)
 	require.NoError(t, err, "failed to deploy and configure CoreDNS")
+}
+
+func (r *GcpRegion) GetEncryptionProvider() encryption.Provider {
+	return r
+}
+
+func (r *GcpRegion) SetupEncryptionInfrastructure(t *testing.T) (func(), error) {
+	ctx := context.Background()
+	svc, err := cloudkms.NewService(ctx, gcpKMSCredentialOptions()...)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create GCP KMS client: %w", err)
+	}
+
+	project := getProjectID()
+	location := gcpKMSLocation()
+	parent := fmt.Sprintf("projects/%s/locations/%s", project, location)
+
+	t.Logf("GCP provider: ensuring KMS key ring %s/%s", parent, gcpKMSKeyRingID)
+	_, err = svc.Projects.Locations.KeyRings.Create(parent, &cloudkms.KeyRing{}).
+		KeyRingId(gcpKMSKeyRingID).Context(ctx).Do()
+	if err != nil && !IsResourceConflict(err) {
+		return nil, fmt.Errorf("failed to create GCP KMS key ring: %w", err)
+	}
+
+	keyRingName := fmt.Sprintf("%s/keyRings/%s", parent, gcpKMSKeyRingID)
+
+	t.Logf("GCP provider: ensuring KMS crypto key %s/%s", keyRingName, gcpKMSCryptoKeyID)
+	_, err = svc.Projects.Locations.KeyRings.CryptoKeys.Create(keyRingName, &cloudkms.CryptoKey{
+		Purpose: "ENCRYPT_DECRYPT",
+		VersionTemplate: &cloudkms.CryptoKeyVersionTemplate{
+			Algorithm: "GOOGLE_SYMMETRIC_ENCRYPTION",
+		},
+	}).CryptoKeyId(gcpKMSCryptoKeyID).Context(ctx).Do()
+	if err != nil && !IsResourceConflict(err) {
+		return nil, fmt.Errorf("failed to create GCP KMS crypto key: %w", err)
+	}
+
+	r.kmsKeyURI = fmt.Sprintf("%s/cryptoKeys/%s", keyRingName, gcpKMSCryptoKeyID)
+	t.Logf("GCP provider: KMS crypto key ready at %s", r.kmsKeyURI)
+
+	return func() {
+		t.Logf("GCP provider: KMS key %s retained (GCP keys cannot be deleted)", r.kmsKeyURI)
+	}, nil
+}
+
+func (r *GcpRegion) GetEncryptionPlatformConfig() *encryption.PlatformConfig {
+	return &encryption.PlatformConfig{
+		Platform:                     "GCP_CLOUD_KMS",
+		RequiresCredentialsSecret:    true,
+		DefaultCredentialsSecretName: "cmek-gcp-credentials",
+	}
+}
+
+func (r *GcpRegion) EncryptKey(plaintextKey []byte, clusterRegion string) (string, error) {
+	if r.kmsKeyURI == "" {
+		return "", fmt.Errorf("GCP KMS key URI not set: call SetupEncryptionInfrastructure first")
+	}
+
+	ctx := context.Background()
+	svc, err := cloudkms.NewService(ctx, gcpKMSCredentialOptions()...)
+	if err != nil {
+		return "", fmt.Errorf("failed to create GCP KMS client: %w", err)
+	}
+
+	req := &cloudkms.EncryptRequest{
+		Plaintext: base64.StdEncoding.EncodeToString(plaintextKey),
+	}
+	resp, err := svc.Projects.Locations.KeyRings.CryptoKeys.Encrypt(r.kmsKeyURI, req).Context(ctx).Do()
+	if err != nil {
+		return "", fmt.Errorf("GCP KMS encrypt (%s): %w", r.kmsKeyURI, err)
+	}
+	return resp.Ciphertext, nil
+}
+
+func (r *GcpRegion) CreateKeySecret(kubectlOptions *k8s.KubectlOptions, secretName string, encryptedKeyData string, clusterRegion string) error {
+	if r.kmsKeyURI == "" {
+		return fmt.Errorf("GCP KMS key URI not set: call SetupEncryptionInfrastructure first")
+	}
+	authPrincipal := os.Getenv("GCP_KMS_AUTH_PRINCIPAL")
+	if authPrincipal == "" {
+		return fmt.Errorf("GCP_KMS_AUTH_PRINCIPAL environment variable not set")
+	}
+	kmsRegion := gcpKMSLocation()
+
+	return gcpRunKubectl(kubectlOptions,
+		"create", "secret", "generic", secretName,
+		fmt.Sprintf("--from-literal=StoreKeyData=%s", encryptedKeyData),
+		fmt.Sprintf("--from-literal=URI=%s", r.kmsKeyURI),
+		fmt.Sprintf("--from-literal=AuthPrincipal=%s", authPrincipal),
+		fmt.Sprintf("--from-literal=Region=%s", kmsRegion),
+		"--from-literal=Type=GCP_CLOUD_KMS",
+	)
+}
+
+func (r *GcpRegion) CreateCredentialsSecret(kubectlOptions *k8s.KubectlOptions) (string, error) {
+	const credSecretName = "cmek-gcp-credentials"
+
+	saKeyPath := os.Getenv("GCP_KMS_SA_KEY_PATH")
+	if saKeyPath == "" {
+		saKeyPath = getServiceAccountKeyPath()
+	}
+	if saKeyPath == "" {
+		return "", fmt.Errorf("neither GCP_KMS_SA_KEY_PATH nor GOOGLE_APPLICATION_CREDENTIALS is set")
+	}
+
+	saKeyBytes, err := os.ReadFile(saKeyPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to read GCP SA key file %s: %w", saKeyPath, err)
+	}
+
+	if err := gcpRunKubectl(kubectlOptions,
+		"create", "secret", "generic", credSecretName,
+		fmt.Sprintf("--from-literal=gcp_service_account_key=%s", base64.StdEncoding.EncodeToString(saKeyBytes)),
+	); err != nil {
+		return "", fmt.Errorf("failed to create GCP credentials secret: %w", err)
+	}
+	return credSecretName, nil
+}
+
+func gcpKMSLocation() string {
+	if loc := os.Getenv("GCP_KMS_REGION"); loc != "" {
+		return loc
+	}
+	return "us-central1"
+}
+
+func gcpKMSCredentialOptions() []option.ClientOption {
+	if path := os.Getenv("GCP_KMS_SA_KEY_PATH"); path != "" {
+		return []option.ClientOption{option.WithCredentialsFile(path)}
+	}
+	if path := getServiceAccountKeyPath(); path != "" {
+		return []option.ClientOption{option.WithCredentialsFile(path)}
+	}
+	return nil
+}
+
+func gcpRunKubectl(kubectlOptions *k8s.KubectlOptions, args ...string) error {
+	var cmdArgs []string
+	if kubectlOptions.ContextName != "" {
+		cmdArgs = append(cmdArgs, "--context", kubectlOptions.ContextName)
+	}
+	if kubectlOptions.ConfigPath != "" {
+		cmdArgs = append(cmdArgs, "--kubeconfig", kubectlOptions.ConfigPath)
+	}
+	if kubectlOptions.Namespace != "" {
+		cmdArgs = append(cmdArgs, "-n", kubectlOptions.Namespace)
+	}
+	cmdArgs = append(cmdArgs, args...)
+
+	out, err := exec.Command("kubectl", cmdArgs...).CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("kubectl %s: %w\nOutput: %s", strings.Join(args, " "), err, string(out))
+	}
+	return nil
 }
 
 // TeardownInfra deletes all GCP resources created by SetUpInfra.

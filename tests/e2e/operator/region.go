@@ -1,16 +1,17 @@
 package operator
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/encryption"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
@@ -31,7 +32,7 @@ const (
 	Namespace             = "cockroach-ns"
 	LabelSelector         = "app=cockroachdb"
 	OperatorLabelSelector = "app=cockroach-operator"
-	testOperatorRegistry  = "us-docker.pkg.dev/releases-prod/self-hosted"
+	testOperatorRegistry = "us-docker.pkg.dev/releases-prod/self-hosted"
 	testOperatorRepo      = "cockroachdb-operator"
 	testInitContainerRepo = "init-container"
 	testInotifywaitRepo   = "inotifywait"
@@ -91,6 +92,32 @@ type Region struct {
 	// OperatorNamespace tracks the namespace in which the operator was installed,
 	// keyed by cluster name.
 	OperatorNamespace map[string]string
+
+	encryptionProvider    encryption.Provider
+	encryptionInfraSetup  bool
+	encryptionCleanupFunc func()
+}
+
+func (r *Region) SetEncryptionProvider(p encryption.Provider) {
+	r.encryptionProvider = p
+}
+
+func (r *Region) CleanupEncryptionInfra() {
+	if r.encryptionCleanupFunc != nil {
+		r.encryptionCleanupFunc()
+	}
+}
+
+func (r *Region) EncryptionOverridesFromProvider() map[string]interface{} {
+	if r.encryptionProvider == nil {
+		return map[string]interface{}{}
+	}
+	cfg := r.encryptionProvider.GetEncryptionPlatformConfig()
+	overrides := map[string]interface{}{"platform": cfg.Platform}
+	if cfg.RequiresCredentialsSecret {
+		overrides["cmekCredentialsSecretName"] = cfg.DefaultCredentialsSecretName
+	}
+	return overrides
 }
 
 // InstallCharts Installs both Operator and CockroachDB charts by providing custom CA secret
@@ -469,6 +496,10 @@ func (r *Region) CleanupResources(t *testing.T) {
 			t.Logf("Warning: failed to delete namespace %s (cluster may be unreachable): %v", namespace, err)
 		}
 	}
+
+	// Release any encryption infrastructure (KMS keys, IAM bindings, etc.)
+	// that was provisioned during InstallChartsWithAdvancedConfig.
+	r.CleanupEncryptionInfra()
 }
 
 // OperatorRegions returns the regions config based on the index
@@ -649,6 +680,13 @@ func waitForCockroachDBOperator(
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-operator", 30, 5*time.Second)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-webhook-service", 30, 5*time.Second)
 	testutil.RequireServiceEndpointsAvailable(t, kubectlOptions, "cockroach-webhook-service", 2*time.Minute)
+
+	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+		LabelSelector: OperatorLabelSelector,
+	})
+	for i := range pods {
+		testutil.RequirePodToBeCreatedAndReady(t, operatorOpts.KubectlOptions, pods[i].Name, 300*time.Second)
+	}
 }
 
 // ExtendOperatorWatchNamespace patches the operator deployment in operatorNamespace to also
@@ -770,6 +808,8 @@ type PCRValidation struct {
 	Cluster          string
 	PrimaryNamespace string
 	StandbyNamespace string
+	// PrimaryClusterDomain overrides the cluster domain for the primary connection URI.
+	PrimaryClusterDomain string
 }
 
 // DefaultAdvancedValidationConfig returns default validation values used when a test does not override them.
@@ -848,6 +888,7 @@ func (r *Region) SetupSingleClusterWithCA(t *testing.T, cluster string) func() {
 	r.AssignRandomNamespace(cluster)
 	cleanupCA := r.RequireCACertificate(t)
 	return func() {
+		r.CleanupEncryptionInfra()
 		r.CleanupResources(t)
 		cleanupCA()
 	}
@@ -858,6 +899,7 @@ func (r *Region) SetupMultiClusterWithCA(t *testing.T) func() {
 	r.AssignRandomNamespacesWithPrefix(Namespace)
 	cleanupCA := r.RequireCACertificate(t)
 	return func() {
+		r.CleanupEncryptionInfra()
 		r.CleanupResources(t)
 		cleanupCA()
 	}
@@ -915,16 +957,13 @@ func (r *Region) BuildEncryptionRegions(
 	return []map[string]interface{}{region}
 }
 
-// AdvancedInstallConfig holds configuration for advanced feature installations
+// AdvancedInstallConfig holds configuration for advanced feature installations.
 type AdvancedInstallConfig struct {
 	// WAL Failover configuration
 	WALFailoverEnabled bool
 	WALFailoverSize    string
 
-	// Encryption at Rest configuration
-	EncryptionEnabled       bool
-	EncryptionKeySecret     string
-	EncryptionKeySecretName string // defaults to "cmek-key-secret" if empty
+	EncryptionEnabled bool
 
 	// Virtual Cluster configuration (for PCR)
 	VirtualClusterMode string // "primary", "standby", or ""
@@ -965,27 +1004,18 @@ func (r *Region) InstallChartsWithAdvancedConfig(
 		"--from-file=ca.key")
 	require.NoError(t, err)
 
-	// Create encryption key secret if encryption is enabled
-	if config.EncryptionEnabled && config.EncryptionKeySecret != "" {
-		encryptionSecretName := config.EncryptionKeySecretName
-		if encryptionSecretName == "" {
-			encryptionSecretName = DefaultEncryptionSecret
+	if config.EncryptionEnabled && r.encryptionProvider != nil {
+		if !r.encryptionInfraSetup {
+			t.Log("Setting up encryption infrastructure")
+			cleanup, err := r.encryptionProvider.SetupEncryptionInfrastructure(t)
+			require.NoError(t, err, "Failed to setup encryption infrastructure")
+			r.encryptionCleanupFunc = cleanup
+			r.encryptionInfraSetup = true
+			t.Log("Encryption infrastructure setup complete")
 		}
 
-		// Use --from-literal with the base64-encoded key string. Kubernetes base64-encodes
-		// secret values for storage, so the pod receives the original base64 string when
-		// the secret is mounted — which the init container then decodes to get the raw key.
-		err = k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", encryptionSecretName,
-			fmt.Sprintf("--from-literal=StoreKeyData=%s", config.EncryptionKeySecret))
-		require.NoError(t, err)
-
-		// Verify secret was created with data
-		secretSize, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-			"get", "secret", encryptionSecretName,
-			"-o", "jsonpath={.data.StoreKeyData}")
-		require.NoError(t, err)
-		require.True(t, len(secretSize) > 0, "Secret StoreKeyData should be >0")
-		t.Logf("Created encryption secret %s with size: %d bytes", encryptionSecretName, len(secretSize))
+		err = encryption.SetupEncryptionSecretsWithName(t, r.encryptionProvider, kubectlOptions, r.RegionCodes[index], DefaultEncryptionSecret)
+		require.NoError(t, err, "Failed to setup encryption secrets")
 	}
 
 	// Install the operator when it is not skipped and not already marked as installed.
@@ -1106,9 +1136,7 @@ func (r *Region) ValidateWALFailover(t *testing.T, cluster string, cfg *Advanced
 	volumes, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
 		"get", "pod", podName, "-o", "jsonpath={.spec.volumes[*].name}")
 	require.NoError(t, err)
-	// The volume name is always "wal-failover" regardless of the custom path or PVC name
 	require.Contains(t, volumes, "wal-failover", "WAL failover volume should be mounted")
-	t.Log("WAL failover volume is properly mounted")
 
 	// 4. Verify the custom WAL failover path exists in the container
 	t.Logf("Verifying custom WAL failover path %s exists in container", expectedPath)
@@ -1119,30 +1147,11 @@ func (r *Region) ValidateWALFailover(t *testing.T, cluster string, cfg *Advanced
 	t.Log("WAL failover validation completed successfully")
 }
 
-// GenerateEncryptionKey generates a 256-bit AES encryption key and returns base64 encoded value
-func (r *Region) GenerateEncryptionKey(t *testing.T) string {
-	tempDir := t.TempDir()
-	keyPath := filepath.Join(tempDir, "store.key")
-
-	// Generate 256-bit AES key using cockroach gen encryption-key
-	cmd := shell.Command{
-		Command:    "cockroach",
-		Args:       []string{"gen", "encryption-key", "--size", "256", "store.key"},
-		WorkingDir: tempDir,
+func (r *Region) CreateEncryptionKeySecret(t *testing.T, kubectlOptions *k8s.KubectlOptions, secretName string, clusterRegion string) error {
+	if r.encryptionProvider == nil {
+		return fmt.Errorf("no encryption provider configured")
 	}
-
-	_, err := shell.RunCommandAndGetOutputE(t, cmd)
-	require.NoError(t, err)
-
-	// Read the generated key file
-	keyBytes, err := os.ReadFile(keyPath)
-	require.NoError(t, err)
-
-	// Base64 encode the key (removing any newlines)
-	storeKeyB64 := base64.StdEncoding.EncodeToString(keyBytes)
-	storeKeyB64 = strings.ReplaceAll(storeKeyB64, "\n", "")
-
-	return storeKeyB64
+	return encryption.SetupEncryptionSecretsWithName(t, r.encryptionProvider, kubectlOptions, clusterRegion, secretName)
 }
 
 // ValidateEncryptionAtRest verifies that encryption at rest is properly configured by checking flags and encryption status.
@@ -1179,12 +1188,11 @@ func (r *Region) ValidateEncryptionAtRest(
 
 	// 2. Verify the encryption key secret exists and has data
 	t.Logf("Verifying encryption key secret %s", secretName)
-	secretSize, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+	secretData, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
 		"get", "secret", secretName,
 		"-o", "jsonpath={.data.StoreKeyData}")
 	require.NoError(t, err)
-	require.True(t, len(secretSize) > 0, "Secret StoreKeyData should not be empty")
-	t.Logf("Encryption key secret %s exists with data", secretName)
+	require.True(t, len(secretData) > 0, "Secret StoreKeyData should not be empty")
 
 	// 3. Verify cockroach start command contains encryption flags
 	t.Log("Verifying cockroach start command contains encryption flags")
@@ -1203,6 +1211,10 @@ func (r *Region) ValidateEncryptionAtRest(
 	t.Log("Encryption flag verified: path, key, and old-key are all present")
 
 	// 5. Verify encryption algorithm via node metrics.
+	// TODO(CC-35895): investigate why "cockroach debug encryption-active-key" does not work in
+	// the test environment. It would be a more direct validation than relying on rocksdb metrics.
+	// TODO(CC-35895): rocksdb.encryption.algorithm is a legacy metric name. Evaluate whether a
+	// pebble-native metric is available in newer CRDB versions.
 	// rocksdb.encryption.algorithm: 0=Plaintext, 1=AES-128-CTR, 2=AES-192-CTR, 3=AES-256-CTR
 	t.Log("Verifying encryption algorithm via node metrics")
 	encAlgorithm, err := execSQL(t, kubectlOptions, podName,
@@ -1210,7 +1222,6 @@ func (r *Region) ValidateEncryptionAtRest(
 	require.NoError(t, err)
 	require.Contains(t, encAlgorithm, "3", "rocksdb.encryption.algorithm should be 3 (AES-256-CTR)")
 	t.Logf("Encryption algorithm verified: AES-256-CTR (value=3)")
-
 	t.Log("Encryption at rest validation completed successfully")
 }
 
@@ -1220,19 +1231,51 @@ func generateLocalTenantURI(cluster string) string {
 	return fmt.Sprintf("postgresql://root:root@localhost:26257?options=-ccluster%%3D%s", cluster)
 }
 
-// generateExternalConnectionURI creates external connection URI using cockroach convert-url
-// This is used for cross-cluster connections (e.g., replication from primary to standby)
-// Format: cockroach convert-url 'postgresql://USERNAME:PASSWORD@HOST' [flags]
-func generateExternalConnectionURI(
-	t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, connString string,
-) string {
+// TODO(CC-35895): once all supported CRDB versions ship convert-url, drop the encode-uri fallback.
+func generateExternalConnectionURI(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, connString string) string {
+	versionOutput, err := execInCockroachdbContainer(t, kubectlOpts, pod,
+		"/cockroach/cockroach", "version", "--build-tag")
+	require.NoError(t, err, "failed to get CRDB version from pod")
+	version := strings.TrimSpace(versionOutput)
+
+	if crdbVersionAtLeast(version, 26, 2) {
+		output, err := execInCockroachdbContainer(t, kubectlOpts, pod,
+			"/cockroach/cockroach", "convert-url",
+			"--url", connString,
+			"--ca-cert=/cockroach/cockroach-certs/ca.crt",
+			"--inline")
+		require.NoError(t, err, "failed to run cockroach convert-url")
+		return strings.TrimSpace(output)
+	}
+
 	output, err := execInCockroachdbContainer(t, kubectlOpts, pod,
-		"/cockroach/cockroach", "convert-url",
-		"--url", connString, // Format: postgresql://user:pass@host:port
+		"/cockroach/cockroach", "encode-uri",
+		connString,
 		"--ca-cert=/cockroach/cockroach-certs/ca.crt",
 		"--inline")
-	require.NoError(t, err)
+	require.NoError(t, err, "failed to run cockroach encode-uri")
 	return strings.TrimSpace(output)
+}
+
+// crdbVersionAtLeast reports whether a CRDB version string (e.g. "v26.1.3") is >= major.minor.
+func crdbVersionAtLeast(version string, major, minor int) bool {
+	v := strings.TrimPrefix(version, "v")
+	parts := strings.SplitN(v, ".", 3)
+	if len(parts) < 2 {
+		return false
+	}
+	maj, err := strconv.Atoi(parts[0])
+	if err != nil {
+		return false
+	}
+	min, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return false
+	}
+	if maj != major {
+		return maj > major
+	}
+	return min >= minor
 }
 
 // execInCockroachdbContainer runs any command inside the cockroachdb container of a pod.
@@ -1434,7 +1477,11 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 	// Step 4a: Generate external connection URI for replication
 	// Following: https://www.cockroachlabs.com/docs/stable/set-up-physical-cluster-replication#step-4-start-replication
 	t.Log("Generating connection URI for primary cluster using cockroach convert-url")
-	primaryHost := fmt.Sprintf("cockroachdb-public.%s.svc.%s:26257", primaryNamespace, CustomDomains[0])
+	primaryClusterDomain := validationConfig.PCR.PrimaryClusterDomain
+	if primaryClusterDomain == "" {
+		primaryClusterDomain = CustomDomains[0]
+	}
+	primaryHost := fmt.Sprintf("cockroachdb-public.%s.svc.%s:26257", primaryNamespace, primaryClusterDomain)
 	primaryConnString := fmt.Sprintf("postgresql://%s:%s@%s?options=-ccluster%%3Dsystem", pcrSourceUser, pcrSourcePassword, primaryHost)
 	t.Logf("Primary connection string format: postgresql://pcr_source:***@%s?options=-ccluster%%3Dsystem", primaryHost)
 

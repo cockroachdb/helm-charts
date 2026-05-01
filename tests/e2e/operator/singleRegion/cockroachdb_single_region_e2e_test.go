@@ -27,21 +27,7 @@ func newSingleRegion() *singleRegion {
 	return &singleRegion{}
 }
 func TestOperatorInSingleRegion(t *testing.T) {
-	// Fetch provider from env
-	var provider string
-	os.Setenv("PROVIDER", "gcp")
-	if p := strings.TrimSpace(strings.ToLower(os.Getenv("PROVIDER"))); p != "" {
-		switch p {
-		case "kind":
-			provider = infra.ProviderKind
-		case "gcp":
-			provider = infra.ProviderGCP
-		default:
-			t.Fatalf("Unsupported provider override: %s", p)
-		}
-	} else {
-		provider = infra.ProviderK3D
-	}
+	provider := infra.ResolveProvider(t)
 
 	t.Run(provider, func(t *testing.T) {
 		// Run tests for different providers in parallel.
@@ -70,7 +56,7 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			t.Fatalf("Unsupported provider: %s", provider)
 		}
 
-		// Use t.Cleanup for guaranteed cleanup even on test timeout/panic
+		// Use t.Cleanup for guaranteed cleanup even on test timeout/panic.
 		t.Cleanup(func() {
 			t.Logf("Starting infrastructure cleanup for provider: %s", provider)
 			cloudProvider.TeardownInfra(t)
@@ -93,12 +79,12 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			testCases["TestPCR"] = providerRegion.TestPCR
 		} else {
 			testCases["TestHelmInstall"] = providerRegion.TestHelmInstall
-			//testCases["TestHelmInstallVirtualCluster"] = providerRegion.TestHelmInstallVirtualCluster
-			//testCases["TestHelmUpgrade"] = providerRegion.TestHelmUpgrade
-			//testCases["TestClusterRollingRestart"] = providerRegion.TestClusterRollingRestart
-			//testCases["TestKillingCockroachNode"] = providerRegion.TestKillingCockroachNode
-			//testCases["TestClusterScaleUp"] = func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) }
-			//testCases["TestInstallWithCertManager"] = providerRegion.TestInstallWithCertManager
+			testCases["TestHelmInstallVirtualCluster"] = providerRegion.TestHelmInstallVirtualCluster
+			testCases["TestHelmUpgrade"] = providerRegion.TestHelmUpgrade
+			testCases["TestClusterRollingRestart"] = providerRegion.TestClusterRollingRestart
+			testCases["TestKillingCockroachNode"] = providerRegion.TestKillingCockroachNode
+			testCases["TestClusterScaleUp"] = func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) }
+			testCases["TestInstallWithCertManager"] = providerRegion.TestInstallWithCertManager
 		}
 
 		// Run tests sequentially within a provider.
@@ -136,11 +122,8 @@ func (r *singleRegion) TestHelmInstall(t *testing.T) {
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
-
-	defer r.CleanUpCACertificate(t)
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
 
 	// Install Operator and CockroachDB charts.
 	r.InstallCharts(t, cluster, 0)
@@ -159,12 +142,26 @@ func (r *singleRegion) TestHelmInstall(t *testing.T) {
 // for both primary and standby virtual clusters and verifies if
 // CockroachDB service is up and running.
 func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
+	cluster := r.Clusters[0]
+
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
+
 	var (
 		operatorNamespace, standByNamespace string
 	)
+
+	// Register cleanup before the test loop so it runs even if the loop panics.
+	defer r.CleanupResources(t)
+	defer func() {
+		if standByNamespace != "" {
+			kubeConfig, _ := r.GetCurrentContext(t)
+			kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, standByNamespace)
+			if err := k8s.DeleteNamespaceE(t, kubectlOptions, standByNamespace); err != nil {
+				t.Logf("Warning: failed to delete standby namespace %s: %v", standByNamespace, err)
+			}
+		}
+	}()
 
 	tests := []struct {
 		name                string
@@ -189,7 +186,6 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			r.IsOperatorInstalled = tt.IsOperatorInstalled
-			cluster := r.Clusters[0]
 			namespace := fmt.Sprintf("%s-%s", operator.Namespace, strings.ToLower(random.UniqueId()))
 			r.Namespace[cluster] = namespace
 
@@ -197,7 +193,7 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 			if !tt.isPrimary {
 				vcMode = "standby"
 				r.VirtualClusterModeStandby = true
-				standByNamespace = r.Namespace[cluster]
+				standByNamespace = namespace
 				defer func() {
 					r.VirtualClusterModeStandby = false
 					r.IsOperatorInstalled = false
@@ -206,15 +202,12 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 				operatorNamespace = namespace
 			}
 
-			// Install Operator and CockroachDB charts.
 			r.InstallChartsWithAdvancedConfig(t, cluster, 0, operator.AdvancedInstallConfig{
 				VirtualClusterMode:  vcMode,
 				SkipOperatorInstall: tt.IsOperatorInstalled,
 			})
 
-			// Get the current context name.
 			kubeConfig, rawConfig := r.GetCurrentContext(t)
-
 			if _, ok := rawConfig.Contexts[cluster]; !ok {
 				t.Fatalf("cluster context '%s' not found in kubeconfig", cluster)
 			}
@@ -223,19 +216,10 @@ func (r *singleRegion) TestHelmInstallVirtualCluster(t *testing.T) {
 			r.ValidateCRDB(t, cluster)
 
 			kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, operatorNamespace)
-
-			// Verify init command in logs
 			operator.VerifyInitCommandInOperatorLogs(t, kubectlOptions, tt.initCommand)
 			r.Namespace[cluster] = operatorNamespace
 		})
 	}
-	defer r.CleanupResources(t)
-	defer func() {
-		kubectlOptions := k8s.NewKubectlOptions("", "", standByNamespace)
-		k8s.DeleteNamespace(t, kubectlOptions, standByNamespace)
-	}()
-	defer r.CleanUpCACertificate(t)
-
 }
 
 // TestHelmUpgrade will upgrade the existing charts in a single region
@@ -247,11 +231,8 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
-
-	defer r.CleanUpCACertificate(t)
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
 
 	// Install Operator and CockroachDB charts.
 	r.InstallCharts(t, cluster, 0)
@@ -301,11 +282,8 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
-
-	defer r.CleanUpCACertificate(t)
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
 
 	// Install Operator and CRDB charts.
 	r.InstallCharts(t, cluster, 0)
@@ -342,18 +320,11 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
-	if len(pods) == 0 {
-		require.Fail(t, "No initial pods found for deployment")
-	}
-
-	// Capture the creation timestamp of the last pod.
-	if len(pods) < 3 {
-		require.Fail(t, "Expected at least 3 pods but found %d", len(pods))
-	}
+	require.True(t, len(pods) >= 3, "Expected at least 3 pods but found %d", len(pods))
 	initialTimestamp := pods[2].CreationTimestamp.Time
 
 	// Verify if the pods are restarted after helm upgrade.
-	err = r.VerifyHelmUpgrade(t, initialTimestamp, kubectlOptions)
+	err := r.VerifyHelmUpgrade(t, initialTimestamp, kubectlOptions)
 	require.NoError(t, err)
 
 	crdbCluster := testutil.CockroachCluster{
@@ -379,11 +350,8 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
-
-	defer r.CleanUpCACertificate(t)
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
 
 	// Install Operator and CRDB charts.
 	r.InstallCharts(t, cluster, 0)
@@ -407,7 +375,7 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 	})
 
 	// Kill a node in the cluster.
-	err = k8s.RunKubectlE(t, kubectlOptions, "delete", "pod", pods[0].Name)
+	err := k8s.RunKubectlE(t, kubectlOptions, "delete", "pod", pods[0].Name)
 	require.NoError(t, err)
 
 	// Wait till the reconciliation is done and all the pods are up and running.
@@ -434,11 +402,8 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Clou
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
-
-	defer r.CleanUpCACertificate(t)
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
 
 	// Install Operator and CockroachDB charts.
 	r.InstallCharts(t, cluster, 0)

@@ -1,70 +1,19 @@
-name: integration-tests
+name: advanced-features-tests
 
 on:
   schedule:
-    - cron: "15 6 * * 1"  # Run at 6:15 AM on every Monday UTC to avoid peak times
+    - cron: "15 8 * * 2"  # Run at 8:15 AM on every Tuesday UTC to avoid peak times
   # Allow manual trigger on any branch
   workflow_dispatch:
 
 jobs:
-  integration-tests-multi-region:
+  advanced-features-single-region:
     runs-on: ubuntu-latest-4-core
     strategy:
       fail-fast: false
       matrix:
-        provider: [kind, gcp]
-    timeout-minutes: 90
-    permissions:
-      contents: 'read'
-      id-token: 'write'
-    env:
-      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
-    steps:
-      - uses: actions/checkout@v4
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: 1.26
-      - name: Authenticate to Google Cloud
-        uses: 'google-github-actions/auth@v2'
-        id: auth
-        with:
-          token_format: access_token
-          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
-      - name: Set up gcloud CLI
-        uses: google-github-actions/setup-gcloud@v2
-      - name: Install gke-gcloud-auth-plugin
-        run: |
-          gcloud components install gke-gcloud-auth-plugin
-      - name: Run tests (multi-region)
-        env:
-          PROVIDER: ${{ matrix.provider }}
-          USE_GKE_GCLOUD_AUTH_PLUGIN: True
-        run: |
-          set -euo pipefail
-          make test/e2e/multi-region | tee test_output.log
-      - name: Archive test results
-        if: ${{ always() }}
-        uses: actions/upload-artifact@v4
-        with:
-          name: multi-region-test-results-${{ matrix.provider }}
-          path: |
-            test_output.log
-            test_output.json
-      - name: Slack notification (multi-region)
-        if: ${{ always() && github.ref_name == 'master' }}
-        uses: ./.github/actions/slack-test-notification
-        with:
-          test-name: "Multi-region e2e"
-          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
-  integration-tests-single-region:
-    runs-on: ubuntu-latest-4-core
-    strategy:
-      fail-fast: false
-      matrix:
-        provider: [kind, gcp]
-    timeout-minutes: 90
+        provider: [k3d, kind, gcp]
+    timeout-minutes: 120
     permissions:
       contents: read
       id-token: write
@@ -89,24 +38,81 @@ jobs:
       - name: Install gke-gcloud-auth-plugin
         run: |
           gcloud components install gke-gcloud-auth-plugin
-      - name: Run tests (single-region)
+      - name: Run tests (advanced features - single region)
         env:
           PROVIDER: ${{ matrix.provider }}
+          TEST_ADVANCED_FEATURES: true
           USE_GKE_GCLOUD_AUTH_PLUGIN: True
         run: |
           set -euo pipefail
-          make test/e2e/single-region | tee test_output.log
+          make test/nightly-e2e/advanced/single-region | tee test_output.log
       - name: Archive test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
-          name: single-region-test-results-${{ matrix.provider }}
+          name: advanced-single-region-results-${{ matrix.provider }}
           path: |
             test_output.log
             test_output.json
-      - name: Slack notification (single-region)
+      - name: Slack notification
         if: ${{ always() && github.ref_name == 'master' }}
         uses: ./.github/actions/slack-test-notification
         with:
-          test-name: "Single-region e2e"
+          test-name: "Advanced features single-region"
+          provider: ${{ matrix.provider }}
+          slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
+
+  advanced-features-multi-region:
+    runs-on: ubuntu-latest-4-core
+    strategy:
+      fail-fast: false
+      matrix:
+        provider: [k3d, kind, gcp]
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        id: auth
+        with:
+          token_format: access_token
+          project_id: 'cockroach-helm-testing'
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - name: Set up gcloud CLI
+        uses: google-github-actions/setup-gcloud@v2
+      - name: Install gke-gcloud-auth-plugin
+        run: |
+          gcloud components install gke-gcloud-auth-plugin
+      - name: Run tests (advanced features - multi region)
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          TEST_ADVANCED_FEATURES: true
+          USE_GKE_GCLOUD_AUTH_PLUGIN: True
+        run: |
+          set -euo pipefail
+          make test/nightly-e2e/advanced/multi-region | tee test_output.log
+      - name: Archive test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: advanced-multi-region-results-${{ matrix.provider }}
+          path: |
+            test_output.log
+            test_output.json
+      - name: Slack notification
+        if: ${{ always() && github.ref_name == 'master' }}
+        uses: ./.github/actions/slack-test-notification
+        with:
+          test-name: "Advanced features multi-region"
+          provider: ${{ matrix.provider }}
           slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}

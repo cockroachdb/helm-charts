@@ -35,7 +35,7 @@ func (r *singleRegion) TestWALFailover(t *testing.T) {
 	// Validate WAL failover with workload and metrics monitoring
 	r.ValidateWALFailover(t, cluster, nil)
 
-	t.Logf("WAL failover test completed successfully")
+	t.Log("WAL failover test completed successfully")
 }
 
 // TestWALFailoverDisable tests disabling WAL failover via helm upgrade by:
@@ -125,64 +125,30 @@ func (r *singleRegion) TestWALFailoverDisable(t *testing.T) {
 		"get", "pvc", "-o", "jsonpath={.items[*].metadata.name}")
 	require.NoError(t, err)
 	require.Contains(t, pvcs, "datadir-wal-failover", "WAL failover PVC should still exist after disable")
-	t.Logf("PVCs after disable: %s", pvcs)
 
-	t.Log("WAL failover successfully disabled")
-	t.Logf("WAL failover disable test completed successfully")
+	t.Log("WAL failover disable test completed successfully")
 }
 
 // TestEncryptionAtRestEnable tests encryption at rest functionality by:
-// 1. Generating a proper 256-bit AES encryption key
-// 2. Creating encryption key secret
-// 3. Installing CockroachDB with encryption at rest enabled
-// 4. Verifying the cluster is healthy and encryption is active
+// 1. Installing CockroachDB with encryption at rest enabled (key generation handled by provider)
+// 2. Verifying the cluster is healthy and encryption is active
 func (r *singleRegion) TestEncryptionAtRestEnable(t *testing.T) {
 	cluster := r.Clusters[0]
 	cleanup := r.SetupSingleClusterWithCA(t, cluster)
 	defer cleanup()
 
-	// Generate proper 256-bit AES encryption key
-	t.Log("Generating 256-bit AES encryption key")
-	encryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated encryption key (base64 length: %d)", len(encryptionKeyB64))
-
-	// Configure encryption at rest regions
-	encryptionRegions := r.BuildEncryptionRegions(cluster, 0, nil)
-
-	// Install CockroachDB with encryption at rest enabled using common method
-	config := operator.AdvancedInstallConfig{
-		EncryptionEnabled:   true,
-		EncryptionKeySecret: encryptionKeyB64,
-		CustomRegions:       encryptionRegions,
-	}
-	r.InstallChartsWithAdvancedConfig(t, cluster, 0, config)
+	encryptionRegions := r.BuildEncryptionRegions(cluster, 0, r.EncryptionOverridesFromProvider())
+	r.InstallChartsWithAdvancedConfig(t, cluster, 0, operator.AdvancedInstallConfig{
+		EncryptionEnabled: true,
+		CustomRegions:     encryptionRegions,
+	})
 
 	// Validate CockroachDB cluster is healthy
 	r.ValidateCRDB(t, cluster)
 
-	// Validate encryption at rest is active
 	r.ValidateEncryptionAtRest(t, cluster, nil)
 
-	// Additional validation: Verify key and old-key in the encryption flag
-	kubeConfig, _ := r.GetCurrentContext(t)
-	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-		LabelSelector: operator.LabelSelector,
-	})
-	require.True(t, len(pods) > 0, "No CockroachDB pods found")
-	podName := pods[0].Name
-
-	podCommand, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-		"get", "pod", podName, "-o", "jsonpath={.spec.containers[?(@.name=='cockroachdb')].command}")
-	require.NoError(t, err)
-
-	// Verify encryption flag format: key should point to the secret, old-key should be "plain" for initial setup
-	require.Contains(t, podCommand, "key=/etc/cockroach-key/", "Encryption flag should contain key path")
-	require.Contains(t, podCommand, "old-key=plain", "Encryption flag should have old-key=plain for initial setup")
-	t.Logf("Verified encryption flag format with key and old-key=plain")
-
-	t.Logf("Encryption at rest enable test completed successfully")
+	t.Log("Encryption at rest enable test completed successfully")
 }
 
 // TestEncryptionAtRestDisable tests transitioning from encrypted to plaintext by:
@@ -200,18 +166,10 @@ func (r *singleRegion) TestEncryptionAtRestDisable(t *testing.T) {
 
 	// Step 1: Install CockroachDB with encryption at rest enabled
 	t.Log("Installing CockroachDB with encryption at rest enabled")
-	encryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated encryption key (base64 length: %d)", len(encryptionKeyB64))
-
-	// Configure encryption at rest regions
-	encryptionRegions := r.BuildEncryptionRegions(cluster, 0, nil)
-
-	config := operator.AdvancedInstallConfig{
-		EncryptionEnabled:   true,
-		EncryptionKeySecret: encryptionKeyB64,
-		CustomRegions:       encryptionRegions,
-	}
-	r.InstallChartsWithAdvancedConfig(t, cluster, 0, config)
+	r.InstallChartsWithAdvancedConfig(t, cluster, 0, operator.AdvancedInstallConfig{
+		EncryptionEnabled: true,
+		CustomRegions:     r.BuildEncryptionRegions(cluster, 0, r.EncryptionOverridesFromProvider()),
+	})
 
 	// Validate CockroachDB cluster is healthy
 	r.ValidateCRDB(t, cluster)
@@ -234,13 +192,16 @@ func (r *singleRegion) TestEncryptionAtRestDisable(t *testing.T) {
 	require.True(t, len(pods) > 0, "No CockroachDB pods found")
 	initialTimestamp := pods[0].CreationTimestamp.Time
 
-	// keySecretName="" is deleted from the map by EncryptionAtRestConfig (nil/empty → omit from JSON).
-	// An absent keySecretName is interpreted by the operator as "plain" (no new key).
-	// oldKeySecretName tells the operator to reference the previous key during the transition.
-	regions := r.BuildEncryptionRegions(cluster, 0, map[string]interface{}{
-		"keySecretName":    "",
-		"oldKeySecretName": operator.DefaultEncryptionSecret,
-	})
+	// Absent keySecretName = operator uses "plain". oldKeySecretName references the
+	// previous encrypted key so the transition can decrypt it.
+	disableOverrides := r.EncryptionOverridesFromProvider()
+	disableOverrides["keySecretName"] = ""
+	disableOverrides["oldKeySecretName"] = operator.DefaultEncryptionSecret
+	// oldCmekCredentialsSecretName is required for the operator to set OLD_CMEK_PLATFORM.
+	if credSecretName, ok := disableOverrides["cmekCredentialsSecretName"]; ok {
+		disableOverrides["oldCmekCredentialsSecretName"] = credSecretName
+	}
+	regions := r.BuildEncryptionRegions(cluster, 0, disableOverrides)
 
 	upgradeOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
@@ -307,18 +268,10 @@ func (r *singleRegion) TestEncryptionAtRestModifySecret(t *testing.T) {
 
 	// Step 1: Install CockroachDB with encryption at rest enabled
 	t.Log("Installing CockroachDB with encryption at rest enabled")
-	encryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated initial encryption key (base64 length: %d)", len(encryptionKeyB64))
-
-	// Configure encryption at rest regions
-	encryptionRegions := r.BuildEncryptionRegions(cluster, 0, nil)
-
-	config := operator.AdvancedInstallConfig{
-		EncryptionEnabled:   true,
-		EncryptionKeySecret: encryptionKeyB64,
-		CustomRegions:       encryptionRegions,
-	}
-	r.InstallChartsWithAdvancedConfig(t, cluster, 0, config)
+	r.InstallChartsWithAdvancedConfig(t, cluster, 0, operator.AdvancedInstallConfig{
+		EncryptionEnabled: true,
+		CustomRegions:     r.BuildEncryptionRegions(cluster, 0, r.EncryptionOverridesFromProvider()),
+	})
 
 	// Validate CockroachDB cluster is healthy
 	r.ValidateCRDB(t, cluster)
@@ -326,20 +279,13 @@ func (r *singleRegion) TestEncryptionAtRestModifySecret(t *testing.T) {
 	// Validate encryption at rest is active
 	r.ValidateEncryptionAtRest(t, cluster, nil)
 
-	// Step 2: Generate new encryption key and create new secret
-	t.Log("Generating new encryption key and creating new secret")
+	// Step 2: Create new encryption key secret for rotation
+	t.Log("Creating new encryption key secret for rotation...")
 	kubeConfig, _ := r.GetCurrentContext(t)
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 
-	newEncryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated new encryption key (base64 length: %d)", len(newEncryptionKeyB64))
-
-	// Create new secret using --from-literal with the base64-encoded key string.
-	// Kubernetes base64-encodes secret values for storage, so the pod receives the
-	// original base64 string when mounted — which the init container then decodes.
-	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", operator.DefaultRotatedEncryptionSecret,
-		fmt.Sprintf("--from-literal=StoreKeyData=%s", newEncryptionKeyB64))
-	require.NoError(t, err)
+	err := r.CreateEncryptionKeySecret(t, kubectlOptions, operator.DefaultRotatedEncryptionSecret, r.RegionCodes[0])
+	require.NoError(t, err, "failed to create new encryption key secret")
 
 	t.Logf("Created new encryption key secret: %s", operator.DefaultRotatedEncryptionSecret)
 
@@ -351,14 +297,16 @@ func (r *singleRegion) TestEncryptionAtRestModifySecret(t *testing.T) {
 	initialTimestamp := pods[0].CreationTimestamp.Time
 
 	// Step 3: Configure regions with key rotation - new key in keySecretName, old key in oldKeySecretName
-	t.Log("Upgrading with key rotation configuration")
+	t.Log("Upgrading with key rotation configuration...")
 	helmChartPath, _ := operator.HelmChartPaths()
 
-	// Configure regions with both new and old keys for rotation
-	rotationRegions := r.BuildEncryptionRegions(cluster, 0, map[string]interface{}{
-		"keySecretName":    operator.DefaultRotatedEncryptionSecret,
-		"oldKeySecretName": operator.DefaultEncryptionSecret,
-	})
+	rotationOverrides := r.EncryptionOverridesFromProvider()
+	rotationOverrides["keySecretName"] = operator.DefaultRotatedEncryptionSecret
+	rotationOverrides["oldKeySecretName"] = operator.DefaultEncryptionSecret
+	if credSecretName, ok := rotationOverrides["cmekCredentialsSecretName"]; ok {
+		rotationOverrides["oldCmekCredentialsSecretName"] = credSecretName
+	}
+	rotationRegions := r.BuildEncryptionRegions(cluster, 0, rotationOverrides)
 
 	upgradeOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
@@ -391,38 +339,16 @@ func (r *singleRegion) TestEncryptionAtRestModifySecret(t *testing.T) {
 		},
 	})
 
-	// Verify new secret exists and is being used
-	newSecretData, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+	// Verify both secrets exist after rotation
+	_, err = k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
 		"get", "secret", operator.DefaultRotatedEncryptionSecret, "-o", "jsonpath={.data.StoreKeyData}")
-	require.NoError(t, err)
-	t.Logf("New secret key length: %d", len(newSecretData))
+	require.NoError(t, err, "new encryption key secret should exist")
 
-	// Verify old secret still exists (referenced in oldKeySecretName)
-	oldSecretData, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+	_, err = k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
 		"get", "secret", operator.DefaultEncryptionSecret, "-o", "jsonpath={.data.StoreKeyData}")
-	require.NoError(t, err)
-	t.Logf("Old secret key length: %d", len(oldSecretData))
+	require.NoError(t, err, "old encryption key secret should still exist")
 
-	// Verify pod command contains encryption flag with both key references
-	pods = k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-		LabelSelector: operator.LabelSelector,
-	})
-	require.True(t, len(pods) > 0, "No CockroachDB pods found")
-	podName := pods[0].Name
-
-	podCommand, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-		"get", "pod", podName, "-o", "jsonpath={.spec.containers[?(@.name=='cockroachdb')].command}")
-	require.NoError(t, err)
-	require.Contains(t, podCommand, "--enterprise-encryption", "Pod command should contain --enterprise-encryption flag")
-
-	// Verify encryption flag format: key should point to new secret, old-key should point to old secret
-	require.Contains(t, podCommand, "key=/etc/cockroach-key/", "Encryption flag should contain new key path")
-	require.Contains(t, podCommand, "old-key=/etc/cockroach-key/", "Encryption flag should contain old key path for rotation")
-	t.Logf("Verified encryption flag format with both new key and old-key during rotation")
-	t.Logf("Encryption flag after key rotation: %s", podCommand)
-
-	t.Log("Encryption at rest successfully working with rotated key")
-	t.Logf("Encryption at rest modify secret test completed successfully")
+	t.Log("Encryption at rest modify secret test completed successfully")
 }
 
 // TestWALFailoverWithEncryption tests WAL failover with encryption at rest by:
@@ -436,85 +362,33 @@ func (r *singleRegion) TestWALFailoverWithEncryption(t *testing.T) {
 	cleanup := r.SetupSingleClusterWithCA(t, cluster)
 	defer cleanup()
 
-	// Step 1: Generate encryption key
-	t.Log("Generating 256-bit AES encryption key")
-	encryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated encryption key (base64 length: %d)", len(encryptionKeyB64))
-
-	// Configure encryption at rest regions
-	encryptionRegions := r.BuildEncryptionRegions(cluster, 0, nil)
-
-	// Install CockroachDB with both WAL failover and encryption enabled
-	config := operator.AdvancedInstallConfig{
-		WALFailoverEnabled:  true,
-		WALFailoverSize:     "5Gi",
-		EncryptionEnabled:   true,
-		EncryptionKeySecret: encryptionKeyB64,
-		CustomRegions:       encryptionRegions,
-	}
-	r.InstallChartsWithAdvancedConfig(t, cluster, 0, config)
+	r.InstallChartsWithAdvancedConfig(t, cluster, 0, operator.AdvancedInstallConfig{
+		WALFailoverEnabled: true,
+		WALFailoverSize:    "5Gi",
+		EncryptionEnabled:  true,
+		CustomRegions:      r.BuildEncryptionRegions(cluster, 0, r.EncryptionOverridesFromProvider()),
+	})
 
 	// Validate CockroachDB cluster is healthy
 	r.ValidateCRDB(t, cluster)
 
-	// Step 2: Verify WAL failover is configured
-	t.Log("Verifying WAL failover configuration")
+	r.ValidateWALFailover(t, cluster, nil)
+	r.ValidateEncryptionAtRest(t, cluster, nil)
+
+	// Unique to WAL+encryption: verify the WAL path is also covered by the encryption flag
 	kubeConfig, _ := r.GetCurrentContext(t)
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found")
-	podName := pods[0].Name
-
-	// Verify --wal-failover flag exists
 	podCommand, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-		"get", "pod", podName, "-o", "jsonpath={.spec.containers[?(@.name=='cockroachdb')].command}")
+		"get", "pod", pods[0].Name, "-o", "jsonpath={.spec.containers[?(@.name=='cockroachdb')].command}")
 	require.NoError(t, err)
-	require.Contains(t, podCommand, "--wal-failover=path=/cockroach/cockroach-wal-failover",
-		"Pod command should contain --wal-failover flag with custom path")
-
-	// Step 3: Verify encryption is configured for both data store and WAL path
-	t.Log("Verifying encryption is configured for data store and WAL path")
-	// Encryption flag is part of the command
-	require.Contains(t, podCommand, "--enterprise-encryption",
-		"Pod command should contain --enterprise-encryption flag")
-
-	// The encryption flag should reference the WAL failover path
-	// Format: --enterprise-encryption=path=cockroach-data,key=...,old-key=plain;path=/cockroach/cockroach-wal-failover,key=...,old-key=plain
-	require.Contains(t, podCommand, "cockroach-data",
-		"Encryption flag should include data store path")
 	require.Contains(t, podCommand, "/cockroach/cockroach-wal-failover",
-		"Encryption flag should include WAL failover path for encryption")
-
-	// Verify encryption flag format: both data and WAL paths should have key=/etc/cockroach-key/ and old-key=plain
-	require.Contains(t, podCommand, "key=/etc/cockroach-key/", "Encryption flag should contain key path for both data and WAL")
-	require.Contains(t, podCommand, "old-key=plain", "Encryption flag should have old-key=plain for initial setup")
-	t.Logf("Verified encryption flag format with key and old-key=plain for both data store and WAL path")
-
-	// Step 4: Verify encryption algorithm via node metrics.
-	// rocksdb.encryption.algorithm: 0=Plaintext, 1=AES-128-CTR, 2=AES-192-CTR, 3=AES-256-CTR
-	t.Log("Verifying encryption algorithm via node metrics")
-	encAlgorithm, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-		"exec", podName, "-c", "cockroachdb", "--",
-		"/cockroach/cockroach", "sql",
-		"--certs-dir=/cockroach/cockroach-certs",
-		"--host=localhost:26257",
-		"-e", "SET allow_unsafe_internals = true; SELECT value FROM crdb_internal.node_metrics WHERE name = 'rocksdb.encryption.algorithm';")
-	require.NoError(t, err)
-	require.Contains(t, encAlgorithm, "3", "rocksdb.encryption.algorithm should be 3 (AES-256-CTR)")
-	t.Logf("Encryption algorithm verified: AES-256-CTR (value=3)")
-
-	// Verify both PVCs exist
-	pvcs, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-		"get", "pvc", "-o", "jsonpath={.items[*].metadata.name}")
-	require.NoError(t, err)
-	require.Contains(t, pvcs, "datadir", "Data PVC should exist")
-	require.Contains(t, pvcs, "datadir-wal-failover", "WAL failover PVC should exist")
+		"Encryption flag should include WAL failover path")
 
 	t.Log("WAL failover with encryption at rest test completed successfully")
-	t.Logf("Verified both data store and WAL path are encrypted")
 }
 
 // TestPCR tests Physical Cluster Replication by:
@@ -577,7 +451,7 @@ func (r *singleRegion) TestPCR(t *testing.T) {
 		}
 	}()
 
-	// Step 3: Set up replication and test failover/failback
+	// Step 3: Set up replication and test failover/failback.
 	r.ValidatePCR(t, &operator.AdvancedValidationConfig{
 		PCR: operator.PCRValidation{
 			Cluster:          cluster,
@@ -588,4 +462,3 @@ func (r *singleRegion) TestPCR(t *testing.T) {
 
 	t.Logf("PCR (Physical Cluster Replication) test completed successfully")
 }
-

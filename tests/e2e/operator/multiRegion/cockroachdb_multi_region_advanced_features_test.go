@@ -75,50 +75,25 @@ func (r *multiRegion) TestWALFailoverMultiRegion(t *testing.T) {
 	t.Logf("WAL failover multi-region test completed successfully")
 }
 
-// TestEncryptionAtRestMultiRegion tests encryption at rest with different secrets per region
-// Region 0: Encryption enabled with secret "cmek-key-secret-region-0"
+// TestEncryptionAtRestMultiRegion tests encryption at rest with different configs per region:
+// Region 0: Encryption enabled with default secret
 // Region 1: Encryption disabled (no encryption)
 func (r *multiRegion) TestEncryptionAtRestMultiRegion(t *testing.T) {
 	// Setup namespaces and CA for each region
 	cleanup := r.SetupMultiClusterWithCA(t)
 	defer cleanup()
 
-	// Generate encryption key for region 0
-	encryptionKeyB64 := r.GenerateEncryptionKey(t)
-	t.Logf("Generated encryption key for region 0 (base64 length: %d)", len(encryptionKeyB64))
-
-	// Region 0: Install with encryption at rest enabled
 	cluster0 := r.Clusters[0]
-	secretName0 := "cmek-key-secret-region-0"
-
-	encryptionRegions0 := []map[string]interface{}{
-		{
-			"code":          r.RegionCodes[0],
-			"cloudProvider": r.Provider,
-			"nodes":         r.NodeCount,
-			"namespace":     r.Namespace[cluster0],
-			"domain":        operator.CustomDomains[0],
-			"encryptionAtRest": map[string]interface{}{
-				"platform":      "UNKNOWN_KEY_TYPE",
-				"keySecretName": secretName0,
-			},
-		},
-	}
-
 	t.Logf("Installing region 0 (%s) with encryption at rest enabled", cluster0)
-	config0 := operator.AdvancedInstallConfig{
-		EncryptionEnabled:       true,
-		EncryptionKeySecret:     encryptionKeyB64,
-		EncryptionKeySecretName: secretName0,
-		CustomRegions:           encryptionRegions0,
-	}
-	r.InstallChartsWithAdvancedConfig(t, cluster0, 0, config0)
+	r.InstallChartsWithAdvancedConfig(t, cluster0, 0, operator.AdvancedInstallConfig{
+		EncryptionEnabled: true,
+		CustomRegions:     r.BuildEncryptionRegions(cluster0, 0, r.EncryptionOverridesFromProvider()),
+	})
 
 	// Region 1: Install without encryption
 	cluster1 := r.Clusters[1]
 	t.Logf("Installing region 1 (%s) without encryption at rest", cluster1)
-	config1 := operator.AdvancedInstallConfig{}
-	r.InstallChartsWithAdvancedConfig(t, cluster1, 1, config1)
+	r.InstallChartsWithAdvancedConfig(t, cluster1, 1, operator.AdvancedInstallConfig{})
 
 	// Validate CockroachDB cluster health in both regions
 	for _, cluster := range r.Clusters {
@@ -128,13 +103,8 @@ func (r *multiRegion) TestEncryptionAtRestMultiRegion(t *testing.T) {
 	// Validate multi-region setup
 	r.ValidateMultiRegionSetup(t)
 
-	// Validate encryption in region 0
 	t.Log("Validating encryption at rest in region 0")
-	r.ValidateEncryptionAtRest(t, cluster0, &operator.AdvancedValidationConfig{
-		EncryptionAtRest: operator.EncryptionAtRestValidation{
-			SecretName: secretName0,
-		},
-	})
+	r.ValidateEncryptionAtRest(t, cluster0, nil)
 
 	// Validate NO encryption in region 1
 	t.Log("Validating NO encryption at rest in region 1")

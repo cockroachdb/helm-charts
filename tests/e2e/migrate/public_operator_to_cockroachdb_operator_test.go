@@ -157,7 +157,7 @@ func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T)
 	k8s.KubectlApply(t, kubectlOptions, filepath.Join(manifestsDirPath, "rbac.yaml"))
 
 	t.Log("Install the CockroachDB operator")
-	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, o.Namespace, providerCloudRegion())
+	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, o.Namespace, providerCloudRegion(t))
 	defer func() {
 		t.Log("helm uninstall the crdb cluster")
 		o.Uninstall(t)

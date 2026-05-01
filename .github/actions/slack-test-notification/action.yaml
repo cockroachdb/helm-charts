@@ -1,0 +1,99 @@
+name: Slack Test Notification
+description: Parse test results and send a Slack notification with pass/fail summary
+
+inputs:
+  test-name:
+    description: Label for the status message (e.g., "Multi-region e2e")
+    required: true
+  provider:
+    description: Provider name from matrix (shown as a field when non-empty)
+    required: false
+    default: ""
+  slack-webhook-url:
+    description: Slack webhook URL
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: Send Slack notification
+      shell: bash
+      run: |
+        if [ ! -f test_output.json ]; then
+          grep -E "=== RUN|--- PASS:|--- FAIL:" test_output.log | awk '
+            /=== RUN/ {
+              test_name = $3
+              tests[test_name] = "running"
+            }
+            /--- PASS:/ {
+              test_name = $3
+              if (test_name in tests) {
+                print "{\"Action\":\"pass\",\"Test\":\"" test_name "\"}"
+              }
+            }
+            /--- FAIL:/ {
+              test_name = $3
+              if (test_name in tests) {
+                print "{\"Action\":\"fail\",\"Test\":\"" test_name "\"}"
+              }
+            }' > test_output.json
+        fi
+
+        PASSED_TESTS=$(jq -r 'select(.Action=="pass") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | head -n 20 | paste -sd ", " -)
+        FAILED_TESTS=$(jq -r 'select(.Action=="fail") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | head -n 20 | paste -sd ", " -)
+        PASSED_COUNT=$(jq -r 'select(.Action=="pass") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | wc -l)
+        FAILED_COUNT=$(jq -r 'select(.Action=="fail") | .Test' test_output.json | sed 's|.*/||' | grep '^Test' | grep -v '^TestOperatorIn' | sort | uniq | wc -l)
+
+        TEST_NAME="${{ inputs.test-name }}"
+        if [ "$FAILED_COUNT" -gt 0 ]; then
+          STATUS="❌ *${TEST_NAME} tests failed!*"
+          COLOR="#ff0000"
+        else
+          STATUS="✅ *${TEST_NAME} tests passed!*"
+          COLOR="#36a64f"
+        fi
+
+        # Build fields array with optional provider
+        PROVIDER_FIELD=""
+        if [ -n "${{ inputs.provider }}" ]; then
+          PROVIDER_FIELD='{"title": "Provider", "value": "${{ inputs.provider }}", "short": true},'
+        fi
+
+        PAYLOAD=$(jq -n \
+          --arg text "$STATUS" \
+          --arg color "$COLOR" \
+          --arg repo "${{ github.repository }}" \
+          --arg branch "${{ github.ref_name }}" \
+          --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+          --arg passed "$PASSED_COUNT" \
+          --arg failed "$FAILED_COUNT" \
+          --arg passed_tests "$PASSED_TESTS" \
+          --arg failed_tests "$FAILED_TESTS" \
+          --argjson provider_field "${PROVIDER_FIELD:-null}" \
+          '{
+            text: $text,
+            attachments: [
+              {
+                color: $color,
+                fields: [
+                  {"title": "Repository", "value": $repo, "short": true},
+                  {"title": "Branch", "value": $branch, "short": true},
+                  {"title": "✅ Passed", "value": $passed, "short": true},
+                  {"title": "❌ Failed", "value": $failed, "short": true},
+                  {"title": "❌ Failed Tests", "value": (if $failed_tests == "" then "None" else $failed_tests end), "short": false},
+                  {"title": "✅ Passed Tests", "value": (if $passed_tests == "" then "None" else $passed_tests end), "short": false},
+                  {"title": "Run URL", "value": $url, "short": false}
+                ]
+              }
+            ]
+          }')
+
+        # Inject provider field if present
+        if [ -n "${{ inputs.provider }}" ]; then
+          PAYLOAD=$(echo "$PAYLOAD" | jq --arg provider "${{ inputs.provider }}" \
+            '.attachments[0].fields |= [.[0], .[1], {"title": "Provider", "value": $provider, "short": true}] + .[2:]')
+        fi
+
+        curl -X POST -H 'Content-type: application/json' \
+          --data "$PAYLOAD" \
+          "${{ inputs.slack-webhook-url }}"
