@@ -510,6 +510,14 @@ func (r *singleRegion) TestWALFailoverWithEncryption(t *testing.T) {
 func (r *singleRegion) TestPCR(t *testing.T) {
 	cluster := r.Clusters[0]
 
+	// Re-apply TLS verification settings before PCR test
+	// This is needed because cloud provider credential refresh may reset kubeconfig TLS settings
+	// after several minutes (observed on AWS after ~26 minutes)
+	// Only applies if KUBECTL_INSECURE_SKIP_TLS_VERIFY=true is set
+	if err := operator.EnsureKubeconfigTLSVerificationDisabled(t, r.Clusters); err != nil {
+		t.Logf("Warning: Failed to ensure kubeconfig TLS settings: %v", err)
+	}
+
 	// Create CA certificate once for both clusters
 	cleanupCA := r.RequireCACertificate(t)
 	defer cleanupCA()

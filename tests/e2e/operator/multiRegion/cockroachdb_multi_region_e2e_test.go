@@ -39,6 +39,8 @@ func mapProviderToInfra(provider string) string {
 		return infra.ProviderKind
 	case utils.ProviderGCP:
 		return infra.ProviderGCP
+	case utils.ProviderAWS:
+		return infra.ProviderAWS
 	default:
 		return provider
 	}

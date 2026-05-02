@@ -48,6 +48,10 @@ func ProviderFactory(providerType string, region *operator.Region) CloudProvider
 		provider := GcpRegion{Region: region}
 		provider.RegionCodes = GetRegionCodes(providerType)
 		cloudProvider = &provider
+	case ProviderAWS:
+		provider := AwsRegion{Region: region}
+		provider.RegionCodes = GetRegionCodes(providerType)
+		cloudProvider = &provider
 	default:
 		return nil
 	}

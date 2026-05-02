@@ -16,6 +16,7 @@ const (
 	ProviderK3D  = "k3d"
 	ProviderKind = "kind"
 	ProviderGCP  = "gcp"
+	ProviderAWS  = "aws"
 )
 
 // GetProviderFromEnv reads the PROVIDER environment variable and returns the provider string.
@@ -33,6 +34,8 @@ func GetProviderFromEnv() (string, error) {
 		return ProviderKind, nil
 	case "gcp":
 		return ProviderGCP, nil
+	case "aws":
+		return ProviderAWS, nil
 	default:
 		return "", fmt.Errorf("unsupported provider: %s", p)
 	}
@@ -46,7 +49,7 @@ func GetProviderFromEnv() (string, error) {
 //	(e.g., k3d-chart-testing-cluster-0 matches the context created by k3d)
 //
 // Parameters:
-//   - provider: The cloud provider (gcp, k3d, kind)
+//   - provider: The cloud provider (gcp, aws, k3d, kind)
 //   - clusterCount: Number of clusters to create names for
 //
 // Returns: Array of cluster names
@@ -56,7 +59,7 @@ func GenerateClusterNames(provider string, clusterCount int) []string {
 	var clusterPrefix string
 	clusterPrefix = fmt.Sprintf("%s-%s", provider, "chart-testing")
 
-	// For cloud providers (GCP), add GitHub PR number or username for isolation
+	// For cloud providers (GCP, AWS), add GitHub PR number or username for isolation
 	// For local providers (k3d, kind), keep simple names without PR/username
 	if provider != ProviderK3D && provider != ProviderKind {
 		// Add GitHub PR number if running in CI

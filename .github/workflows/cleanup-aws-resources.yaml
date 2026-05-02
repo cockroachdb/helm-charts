@@ -1,0 +1,142 @@
+name: Cleanup Old AWS Resources
+
+on:
+  schedule:
+    # Run every 2 days at 2:00 AM UTC
+    - cron: "0 2 */2 * *"
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      days_old:
+        description: 'Delete resources older than X days'
+        required: false
+        default: '2'
+        type: string
+      dry_run:
+        description: 'Dry run (show what would be deleted without deleting)'
+        required: false
+        default: false
+        type: boolean
+
+jobs:
+  cleanup-old-resources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: 'google-github-actions/auth@v2'
+        id: auth
+        with:
+          token_format: access_token
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+          role-session-name: GitHubActions-CleanupOldResources
+
+      - name: Install required tools
+        run: |
+          # Install eksctl
+          curl --silent --location "https://github.com/weaveworks/eksctl/releases/latest/download/eksctl_$(uname -s)_amd64.tar.gz" | tar xz -C /tmp
+          sudo mv /tmp/eksctl /usr/local/bin
+          eksctl version
+
+          # Verify AWS CLI and jq are available
+          aws --version
+          jq --version
+
+      - name: Calculate cutoff date
+        id: date
+        run: |
+          # Use manual input if provided, otherwise default to 2 days
+          DAYS_OLD="${{ github.event.inputs.days_old || '2' }}"
+
+          # Calculate date that's X days ago
+          if [[ "$OSTYPE" == "darwin"* ]]; then
+            # macOS
+            CUTOFF_DATE=$(date -v-${DAYS_OLD}d "+%m/%d/%Y")
+          else
+            # Linux
+            CUTOFF_DATE=$(date -d "$DAYS_OLD days ago" "+%m/%d/%Y")
+          fi
+
+          echo "cutoff_date=$CUTOFF_DATE" >> $GITHUB_OUTPUT
+          echo "Cleaning up resources created before: $CUTOFF_DATE (older than $DAYS_OLD days)"
+
+      - name: Run cleanup script
+        run: |
+          cd tests/e2e/operator/infra
+
+          # Determine if dry run
+          DRY_RUN_FLAG=""
+          if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+            DRY_RUN_FLAG="--dry-run"
+            echo "Running in DRY RUN mode - no resources will be deleted"
+          fi
+
+          # Run cleanup for both us-east-1 and us-east-2 (default multi-region test regions)
+          bash cleanup-aws-resources.sh $DRY_RUN_FLAG --before-date "${{ steps.date.outputs.cutoff_date }}" --all --noconsent
+        env:
+          AWS_REGIONS: us-east-1,us-east-2
+
+      - name: Slack notification
+        if: ${{ always() && github.ref_name == 'master' }}
+        run: |
+          DAYS_OLD="${{ github.event.inputs.days_old || '2' }}"
+          CUTOFF_DATE="${{ steps.date.outputs.cutoff_date }}"
+
+          if [[ "${{ job.status }}" == "success" ]]; then
+            if [[ "${{ github.event.inputs.dry_run }}" == "true" ]]; then
+              STATUS="🔍 *AWS Cleanup Dry Run Completed*"
+              COLOR="#36a64f"
+              MESSAGE="Dry run completed successfully. No resources were deleted."
+            else
+              STATUS="✅ *AWS Cleanup Successful*"
+              COLOR="#36a64f"
+              MESSAGE="Cleaned up resources older than $DAYS_OLD days (before $CUTOFF_DATE)"
+            fi
+          else
+            STATUS="❌ *AWS Cleanup Failed*"
+            COLOR="#ff0000"
+            MESSAGE="Cleanup job failed. Check logs for details."
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg text "$STATUS" \
+            --arg color "$COLOR" \
+            --arg message "$MESSAGE" \
+            --arg workflow "${{ github.workflow }}" \
+            --arg url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" \
+            --arg cutoff "$CUTOFF_DATE" \
+            --arg regions "us-east-1, us-east-2" \
+            '{
+              text: $text,
+              attachments: [
+                {
+                  color: $color,
+                  fields: [
+                    {"title": "Workflow", "value": $workflow, "short": true},
+                    {"title": "Status", "value": $message, "short": false},
+                    {"title": "Cutoff Date", "value": $cutoff, "short": true},
+                    {"title": "Regions", "value": $regions, "short": true},
+                    {"title": "Run URL", "value": $url, "short": false}
+                  ]
+                }
+              ]
+            }')
+
+          curl -X POST -H 'Content-type: application/json' \
+            --data "$PAYLOAD" \
+            "${{ secrets.SLACK_WEBHOOK_URL }}" || echo "Slack notification failed (non-critical)"
