@@ -7,7 +7,6 @@ import (
 	"strings"
 	"testing"
 
-	crdbv1beta1 "github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -20,6 +19,8 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
+
+	crdbv1beta1 "github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 )
 
 var (
@@ -526,6 +527,13 @@ func TestSelfSignerHelmValidation(t *testing.T) {
 				"tls.certs.selfSigner.caCertDuration": "",
 			},
 			"CA secret is not present in the release namespace",
+		},
+		{
+			"additionalSANs must be an array",
+			map[string]string{
+				"tls.certs.selfSigner.additionalSANs": "not-an-array",
+			},
+			"values don't meet the specifications of the schema",
 		},
 	}
 
@@ -2939,4 +2947,90 @@ func TestHelmClusterTLSConfiguration(t *testing.T) {
 			})
 		}
 	})
+}
+
+// TestHelmSelfSignerAdditionalSANs tests that additionalSANs are properly passed to the self-signer Job and CronJob
+func TestHelmSelfSignerAdditionalSANs(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name                 string
+		setValues            map[string]string
+		expectAdditionalSANs bool
+		expectedValue        string
+	}{
+		{
+			name: "additionalSANs with multiple values",
+			setValues: map[string]string{
+				"tls.certs.selfSigner.additionalSANs[0]": "my-loadbalancer.example.com",
+				"tls.certs.selfSigner.additionalSANs[1]": "10.20.30.40",
+				"tls.certs.selfSigner.additionalSANs[2]": "backup-lb.example.com",
+			},
+			expectAdditionalSANs: true,
+			expectedValue:        "my-loadbalancer.example.com,10.20.30.40,backup-lb.example.com",
+		},
+		{
+			name: "additionalSANs with single value",
+			setValues: map[string]string{
+				"tls.certs.selfSigner.additionalSANs[0]": "my-lb.example.com",
+			},
+			expectAdditionalSANs: true,
+			expectedValue:        "my-lb.example.com",
+		},
+		{
+			name:                 "no additionalSANs configured",
+			setValues:            map[string]string{},
+			expectAdditionalSANs: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      tc.setValues,
+			}
+
+			// Test Job template
+			jobOutput := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/job-certSelfSigner.yaml"})
+			var job batchv1.Job
+			helm.UnmarshalK8SYaml(t, jobOutput, &job)
+
+			additionalSANsEnv := findEnvVar(job.Spec.Template.Spec.Containers[0].Env, "ADDITIONAL_SANS")
+
+			if tc.expectAdditionalSANs {
+				require.NotNil(t, additionalSANsEnv, "ADDITIONAL_SANS env var should be present in Job")
+				require.Equal(t, tc.expectedValue, additionalSANsEnv.Value, "ADDITIONAL_SANS value should match")
+			} else {
+				require.Nil(t, additionalSANsEnv, "ADDITIONAL_SANS env var should not be present when not configured")
+			}
+
+			// Test CronJob template
+			cronJobOutput := helm.RenderTemplate(t, options, helmChartPath, releaseName, []string{"templates/cronjob-client-node-certSelfSigner.yaml"})
+			var cronJob v1beta1.CronJob
+			helm.UnmarshalK8SYaml(t, cronJobOutput, &cronJob)
+
+			additionalSANsEnvCron := findEnvVar(cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Env, "ADDITIONAL_SANS")
+
+			if tc.expectAdditionalSANs {
+				require.NotNil(t, additionalSANsEnvCron, "ADDITIONAL_SANS env var should be present in CronJob")
+				require.Equal(t, tc.expectedValue, additionalSANsEnvCron.Value, "ADDITIONAL_SANS value should match")
+			} else {
+				require.Nil(t, additionalSANsEnvCron, "ADDITIONAL_SANS env var should not be present when not configured")
+			}
+		})
+	}
+}
+
+// findEnvVar is a helper function to find an environment variable by name
+func findEnvVar(envVars []corev1.EnvVar, name string) *corev1.EnvVar {
+	for i := range envVars {
+		if envVars[i].Name == name {
+			return &envVars[i]
+		}
+	}
+	return nil
 }

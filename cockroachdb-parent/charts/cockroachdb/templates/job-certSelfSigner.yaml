@@ -78,6 +78,10 @@ spec:
               value: {{ .Release.Namespace | quote }}
             - name: CLUSTER_DOMAIN
               value: {{ .Values.cockroachdb.clusterDomain}}
+            {{- if .Values.cockroachdb.tls.selfSigner.additionalSANs }}
+            - name: ADDITIONAL_SANS
+              value: {{ .Values.cockroachdb.tls.selfSigner.additionalSANs | join "," | quote }}
+            {{- end }}
         {{- if and .Values.cockroachdb.tls.selfSigner.securityContext.enabled }}
           securityContext:
             allowPrivilegeEscalation: false

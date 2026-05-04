@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -49,6 +50,26 @@ func init() {
 	generatePKCS8Key = false
 }
 
+// SanitizeAdditionalSANs trims whitespace and filters out empty strings from a list of SANs.
+// This prevents empty/whitespace-only SANs from being passed to the cockroach CLI, which would panic.
+// Returns nil when the input is nil or when all entries are empty/whitespace.
+func SanitizeAdditionalSANs(sans []string) []string {
+	if len(sans) == 0 {
+		return nil
+	}
+	valid := make([]string, 0, len(sans))
+	for _, san := range sans {
+		trimmed := strings.TrimSpace(san)
+		if trimmed != "" {
+			valid = append(valid, trimmed)
+		}
+	}
+	if len(valid) == 0 {
+		return nil
+	}
+	return valid
+}
+
 // GenerateCert is the structure containing all the certificate related info
 type GenerateCert struct {
 	client                    client.Client
@@ -69,6 +90,7 @@ type GenerateCert struct {
 	ReadinessWait             time.Duration
 	PodUpdateTimeout          time.Duration
 	OperatorManaged           bool
+	AdditionalSANs            []string
 }
 
 type certConfig struct {
@@ -546,6 +568,12 @@ func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, na
 		}
 
 		hosts = append(hosts, operatorJoinServiceHosts...)
+	}
+
+	// Append additional user-provided SANs
+	if len(rc.AdditionalSANs) > 0 {
+		logrus.Infof("Adding additional SANs to node certificate: %v", rc.AdditionalSANs)
+		hosts = append(hosts, rc.AdditionalSANs...)
 	}
 
 	// create the Node Pair certificates

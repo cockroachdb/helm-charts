@@ -7,6 +7,8 @@ import (
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
+	batchv1 "k8s.io/api/batch/v1"
+	"k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
@@ -334,4 +336,87 @@ func TestOperatorStorageMigrationTemplateRemoved(t *testing.T) {
 	_, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/storage-migration.yaml"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Could not resolve template file templates/storage-migration.yaml")
+}
+
+// TestCockroachDBParentSelfSignerAdditionalSANs tests that additionalSANs are properly passed to the self-signer Job and CronJob in the parent chart
+func TestCockroachDBParentSelfSignerAdditionalSANs(t *testing.T) {
+	t.Parallel()
+
+	chartPath, err := filepath.Abs("../../cockroachdb-parent/charts/cockroachdb")
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name                 string
+		setValues            map[string]string
+		expectAdditionalSANs bool
+		expectedValue        string
+	}{
+		{
+			name: "additionalSANs with multiple values",
+			setValues: map[string]string{
+				"cockroachdb.tls.selfSigner.enabled":           "true",
+				"cockroachdb.tls.selfSigner.additionalSANs[0]": "my-loadbalancer.example.com",
+				"cockroachdb.tls.selfSigner.additionalSANs[1]": "10.20.30.40",
+				"cockroachdb.tls.selfSigner.additionalSANs[2]": "backup-lb.example.com",
+			},
+			expectAdditionalSANs: true,
+			expectedValue:        "my-loadbalancer.example.com,10.20.30.40,backup-lb.example.com",
+		},
+		{
+			name: "additionalSANs with single value",
+			setValues: map[string]string{
+				"cockroachdb.tls.selfSigner.enabled":           "true",
+				"cockroachdb.tls.selfSigner.additionalSANs[0]": "my-lb.example.com",
+			},
+			expectAdditionalSANs: true,
+			expectedValue:        "my-lb.example.com",
+		},
+		{
+			name: "no additionalSANs configured",
+			setValues: map[string]string{
+				"cockroachdb.tls.selfSigner.enabled": "true",
+			},
+			expectAdditionalSANs: false,
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      tc.setValues,
+			}
+
+			// Test Job template
+			jobOutput := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/job-certSelfSigner.yaml"})
+			var job batchv1.Job
+			helm.UnmarshalK8SYaml(t, jobOutput, &job)
+
+			additionalSANsEnv := findEnvVar(job.Spec.Template.Spec.Containers[0].Env, "ADDITIONAL_SANS")
+
+			if tc.expectAdditionalSANs {
+				require.NotNil(t, additionalSANsEnv, "ADDITIONAL_SANS env var should be present in Job")
+				require.Equal(t, tc.expectedValue, additionalSANsEnv.Value, "ADDITIONAL_SANS value should match")
+			} else {
+				require.Nil(t, additionalSANsEnv, "ADDITIONAL_SANS env var should not be present when not configured")
+			}
+
+			// Test CronJob template
+			cronJobOutput := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/cronjob-client-node-certSelfSigner.yaml"})
+			var cronJob v1beta1.CronJob
+			helm.UnmarshalK8SYaml(t, cronJobOutput, &cronJob)
+
+			additionalSANsEnvCron := findEnvVar(cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Env, "ADDITIONAL_SANS")
+
+			if tc.expectAdditionalSANs {
+				require.NotNil(t, additionalSANsEnvCron, "ADDITIONAL_SANS env var should be present in CronJob")
+				require.Equal(t, tc.expectedValue, additionalSANsEnvCron.Value, "ADDITIONAL_SANS value should match")
+			} else {
+				require.Nil(t, additionalSANsEnvCron, "ADDITIONAL_SANS env var should not be present when not configured")
+			}
+		})
+	}
 }
