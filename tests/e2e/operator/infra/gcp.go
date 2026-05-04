@@ -131,7 +131,10 @@ type GcpRegion struct {
 // SetUpInfra creates VPC, subnet, static IP, firewall rules, GKE clusters, and deploys CoreDNS
 func (r *GcpRegion) SetUpInfra(t *testing.T) {
 	if r.ReusingInfra {
-		t.Logf("[%s] Reusing existing infrastructure", ProviderGCP)
+		t.Logf("[%s] Reusing existing infrastructure — rediscovering cluster state", ProviderGCP)
+		if err := ReinitFromExistingClusters(t, r.Region); err != nil {
+			t.Fatalf("[%s] Failed to reinitialize from existing clusters: %v", ProviderGCP, err)
+		}
 		return
 	}
 

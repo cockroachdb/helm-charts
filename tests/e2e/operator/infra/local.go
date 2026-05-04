@@ -41,9 +41,22 @@ type LocalRegion struct {
 //   - CoreDNS instances forward requests for other cluster domains; endpoints can be
 //     ClusterIP/pod IPs (with Calico) or LB IPs (with MetalLB).
 func (r *LocalRegion) SetUpInfra(t *testing.T) {
-	// If using existing infra return clients.
+	// If using existing infra, skip cluster creation and CNI setup but still
+	// populate clients so ValidateCRDB and other helpers can use them.
 	if r.ReusingInfra {
 		t.Logf("[%s] Reusing existing infrastructure", r.ProviderType)
+		if r.Clients == nil {
+			r.Clients = make(map[string]client.Client)
+		}
+		for _, cluster := range r.Clusters {
+			cfg, err := config.GetConfigWithContext(cluster)
+			require.NoError(t, err)
+			k8sClient, err := client.New(cfg, client.Options{})
+			require.NoError(t, err)
+			_ = apiextv1.AddToScheme(k8sClient.Scheme())
+			calico.RegisterCalicoGVK(k8sClient.Scheme())
+			r.Clients[cluster] = k8sClient
+		}
 		return
 	}
 
