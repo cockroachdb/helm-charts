@@ -21,24 +21,50 @@ esac
 artifacts_dir="build/artifacts/"
 v2_artifacts_dir="build/artifacts/v2/"
 HELM_INSTALL_DIR=$PWD/bin
+HELM="$HELM_INSTALL_DIR/helm"
+YQ="${YQ:-${PWD}/bin/yq}"
 
 install_helm() {
   mkdir -p "$HELM_INSTALL_DIR"
   curl -fsSL -o "$HELM_INSTALL_DIR/get_helm.sh" https://raw.githubusercontent.com/helm/helm/main/scripts/get-helm-3
   chmod 700 "$HELM_INSTALL_DIR/get_helm.sh"
   export PATH="$HELM_INSTALL_DIR":$PATH
-  HELM_INSTALL_DIR="$HELM_INSTALL_DIR" "$HELM_INSTALL_DIR/get_helm.sh" --no-sudo --version v3.13.3
+  HELM_INSTALL_DIR="$HELM_INSTALL_DIR" "$HELM_INSTALL_DIR/get_helm.sh" --no-sudo --version v3.17.0
+}
+
+install_yq() {
+  if [ -x "$YQ" ]; then
+    return 0
+  fi
+
+  local yq_url
+  case "$(uname -s)" in
+    Linux)
+      yq_url="https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_linux_amd64"
+      ;;
+    Darwin)
+      yq_url="https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_darwin_amd64"
+      ;;
+    *)
+      echo "unsupported OS for yq install: $(uname -s)"
+      return 1
+      ;;
+  esac
+
+  mkdir -p "$(dirname "$YQ")"
+  curl -fsSL -o "$YQ" "$yq_url"
+  chmod +x "$YQ"
 }
 
 # chart_version_exists returns 1 (failure) when the version exists, which is
 # inverted from standard convention. This legacy behavior is preserved to avoid
 # breaking the existing legacy skip logic below.
 chart_version_exists() {
-  helm repo add cockroachdb "https://${charts_hostname}" --force-update
-  helm repo update
+  "$HELM" repo add cockroachdb "https://${charts_hostname}" --force-update
+  "$HELM" repo update
 
-  existing_version=$(bin/yq '.version' cockroachdb/Chart.yaml)
-  if helm search repo cockroachdb/cockroachdb --version "$existing_version" | grep $existing_version; then
+  existing_version=$("$YQ" '.version' cockroachdb/Chart.yaml)
+  if "$HELM" search repo cockroachdb/cockroachdb --version "$existing_version" | grep -q "$existing_version"; then
     echo "Chart version $existing_version already exists in the repository."
     return 1
   fi
@@ -51,8 +77,8 @@ build_chart() {
   curl -fsSL "https://storage.googleapis.com/$gcs_bucket/index.yaml" > "${artifacts_dir}/old-index.yaml"
 
   # Build the charts
-  $HELM_INSTALL_DIR/helm package cockroachdb --destination "${artifacts_dir}"
-  $HELM_INSTALL_DIR/helm repo index "${artifacts_dir}" --url "https://${charts_hostname}" --merge "${artifacts_dir}/old-index.yaml"
+  "$HELM" package cockroachdb --destination "${artifacts_dir}"
+  "$HELM" repo index "${artifacts_dir}" --url "https://${charts_hostname}" --merge "${artifacts_dir}/old-index.yaml"
   diff -u "${artifacts_dir}/old-index.yaml" "${artifacts_dir}/index.yaml" || true
 }
 
@@ -74,20 +100,21 @@ build_v2_charts() {
   # Always package v2 charts, including in prod. The release step treats
   # already-published OCI artifacts as success and GCS uploads overwrite the
   # same chart package, so rerunning a partial publish is safe.
-  $HELM_INSTALL_DIR/helm package cockroachdb-parent/charts/operator --destination "${v2_artifacts_dir}"
-  $HELM_INSTALL_DIR/helm package cockroachdb-parent/charts/cockroachdb --destination "${v2_artifacts_dir}"
+  "$HELM" package cockroachdb-parent/charts/operator --destination "${v2_artifacts_dir}"
+  "$HELM" package cockroachdb-parent/charts/cockroachdb --destination "${v2_artifacts_dir}"
 
-  $HELM_INSTALL_DIR/helm repo index "${v2_artifacts_dir}" --url "https://${charts_hostname}/v2" --merge "${v2_artifacts_dir}/old-index.yaml"
+  "$HELM" repo index "${v2_artifacts_dir}" --url "https://${charts_hostname}/v2" --merge "${v2_artifacts_dir}/old-index.yaml"
   diff -u "${v2_artifacts_dir}/old-index.yaml" "${v2_artifacts_dir}/index.yaml" || true
 }
 
 # When invoked directly (not sourced), run legacy chart build.
 # Use build_v2_charts for v2 chart packaging.
+install_helm
+install_yq
+
 if [[ "${1:-}" == "v2" ]]; then
-  install_helm
   build_v2_charts
 else
-  install_helm
   if [ "$is_prod" = true ] && ! chart_version_exists; then
     echo "Skipping build: chart version already present in production."
     exit 0
