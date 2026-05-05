@@ -3,6 +3,7 @@
 set -euo pipefail
 
 HELM="${HELM:-${PWD}/bin/helm}"
+YQ="${YQ:-${PWD}/bin/yq}"
 
 charts_hostname="${CHARTS_HOSTNAME:-charts.cockroachdb.com}"
 case $charts_hostname in
@@ -37,6 +38,20 @@ gcs_authenticate() {
   gcloud auth activate-service-account --key-file=.google-credentials.json
 }
 
+require_helm() {
+  if [ ! -x "$HELM" ]; then
+    echo "Missing helm binary at ${HELM}. Run build/make.sh before build/release.sh."
+    return 1
+  fi
+}
+
+require_yq() {
+  if [ ! -x "$YQ" ]; then
+    echo "Missing yq binary at ${YQ}. Run build/make.sh before build/release.sh."
+    return 1
+  fi
+}
+
 # release_legacy publishes the legacy statefulset chart (cockroachdb/) to the
 # root of the GCS bucket.
 release_legacy() {
@@ -68,6 +83,8 @@ release_v2() {
     return 0
   fi
 
+  require_helm
+  require_yq
   gcs_authenticate
 
   local release_failed=false
@@ -205,11 +222,11 @@ preserve_gcs_index_entry() {
   local metadata chart_name chart_version entry_file remote_digest
 
   metadata="$("$HELM" show chart "$chart_pkg")"
-  chart_name="$(echo "$metadata" | bin/yq '.name' -)"
-  chart_version="$(echo "$metadata" | bin/yq '.version' -)"
+  chart_name="$(echo "$metadata" | "$YQ" '.name' -)"
+  chart_version="$(echo "$metadata" | "$YQ" '.version' -)"
   entry_file="$(mktemp)"
 
-  if ! CHART_NAME="$chart_name" CHART_VERSION="$chart_version" bin/yq \
+  if ! CHART_NAME="$chart_name" CHART_VERSION="$chart_version" "$YQ" \
     '.entries[strenv(CHART_NAME)][] | select(.version == strenv(CHART_VERSION))' \
     build/artifacts/v2/old-index.yaml > "$entry_file"; then
     rm -f "$entry_file"
@@ -217,7 +234,7 @@ preserve_gcs_index_entry() {
   fi
 
   if [ -s "$entry_file" ]; then
-    if ! CHART_NAME="$chart_name" CHART_VERSION="$chart_version" ENTRY_FILE="$entry_file" bin/yq -i \
+    if ! CHART_NAME="$chart_name" CHART_VERSION="$chart_version" ENTRY_FILE="$entry_file" "$YQ" -i \
       '(.entries[strenv(CHART_NAME)][] | select(.version == strenv(CHART_VERSION))) = load(strenv(ENTRY_FILE))' \
       build/artifacts/v2/index.yaml; then
       rm -f "$entry_file"
@@ -242,10 +259,10 @@ update_gcs_index_digest() {
   local metadata chart_name chart_version
 
   metadata="$("$HELM" show chart "$chart_pkg")"
-  chart_name="$(echo "$metadata" | bin/yq '.name' -)"
-  chart_version="$(echo "$metadata" | bin/yq '.version' -)"
+  chart_name="$(echo "$metadata" | "$YQ" '.name' -)"
+  chart_version="$(echo "$metadata" | "$YQ" '.version' -)"
 
-  if ! CHART_NAME="$chart_name" CHART_VERSION="$chart_version" DIGEST="$digest" bin/yq -i \
+  if ! CHART_NAME="$chart_name" CHART_VERSION="$chart_version" DIGEST="$digest" "$YQ" -i \
     '(.entries[strenv(CHART_NAME)][] | select(.version == strenv(CHART_VERSION)) | .digest) = strenv(DIGEST)' \
     build/artifacts/v2/index.yaml; then
     return 1
@@ -313,8 +330,8 @@ oci_chart_exists() {
   local metadata chart_name chart_version
 
   metadata="$("$HELM" show chart "$chart_pkg")"
-  chart_name="$(echo "$metadata" | bin/yq '.name' -)"
-  chart_version="$(echo "$metadata" | bin/yq '.version' -)"
+  chart_name="$(echo "$metadata" | "$YQ" '.name' -)"
+  chart_version="$(echo "$metadata" | "$YQ" '.version' -)"
 
   "$HELM" show chart "oci://${registry}/${chart_name}" --version "$chart_version" >/dev/null 2>&1
 }
