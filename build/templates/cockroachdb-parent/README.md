@@ -66,8 +66,7 @@ export NAMESPACE=cockroach-ns
 
 ## Notes
 
-All the helm commands below reference the chart folder available locally after checking out this GitHub repository. Alternatively, you may also reference the charts in the Helm repository.
-The operator chart does not exist in the Helm repository yet and will be added soon.
+All the helm commands below reference the chart folder available locally after checking out this GitHub repository. See [VERSIONING.md](docs/VERSIONING.md) for published chart locations, chart versions, and upgrade order.
 
 ## Installation
 
@@ -219,4 +218,4 @@ Use the corresponding Service name that is suffixed by `-public` (in this case, 
 ## Additional Resources
 
 - [CockroachDB Documentation](https://www.cockroachlabs.com/docs/)
-- [Helm Spray Documentation](https://github.com/ThalesGroup/helm-spray) 
+- [Helm Spray Documentation](https://github.com/ThalesGroup/helm-spray)

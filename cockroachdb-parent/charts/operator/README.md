@@ -19,8 +19,7 @@ export NAMESPACE=cockroach-ns
 
 ## Notes
 
-All the helm commands below reference the chart folder available locally after checking out this GitHub repository. Alternatively, you may also reference the charts in the Helm repository.
-The operator chart does not exist in the Helm repository yet and will be added soon.
+All the helm commands below reference the chart folder available locally after checking out this GitHub repository. See [VERSIONING.md](../../docs/VERSIONING.md) for published chart locations, chart versions, and upgrade order.
 
 ## Installation
 - Update `cloudRegion` accordingly in [`operator/values.yaml`](/cockroachdb-parent/charts/operator/values.yaml). This value must be same as the current region provided under regions section at [`cockroachdb/values.yaml`](/cockroachdb-parent/charts/cockroachdb/values.yaml).

@@ -5,6 +5,8 @@
 
 This is a subchart for installing the CockroachDB cluster.
 
+See [VERSIONING.md](../../docs/VERSIONING.md) for published chart locations, chart versions, and upgrade order.
+
 ### Running in secure mode
 
 In order to set up a secure cockroachdb cluster set `cockroachdb.tls.enabled` to `true`

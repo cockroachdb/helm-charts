@@ -188,5 +188,5 @@ helm pull oci://registry-1.docker.io/cockroachdb-charts/cockroachdb-operator --v
 helm pull oci://registry-1.docker.io/cockroachdb-charts/cockroachdb --version 26.1.3
 ```
 
-The DockerHub repositories must exist before the first OCI push unless DockerHub auto-create is
+The DockerHub repositories must exist before charts appear there unless DockerHub auto-create is
 enabled for the org.
