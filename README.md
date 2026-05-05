@@ -23,7 +23,8 @@ The **new recommended way** of installing CockroachDB using the **CockroachDB Op
 This parent chart manages both the Operator and CockroachDB installation.
 
 ➡️ See the [cockroachdb-parent/charts/operator/README.md](./cockroachdb-parent/charts/operator/README.md) for details on installing the Operator.
-➡️ See the [cockroachdb-parent/charts/cockroachdb/README.md](./cockroachdb-parent/charts/cockroachdb//README.md) for details on installing cockroachdb.
+➡️ See the [cockroachdb-parent/charts/cockroachdb/README.md](./cockroachdb-parent/charts/cockroachdb/README.md) for details on installing cockroachdb.
+➡️ See [VERSIONING.md](./cockroachdb-parent/docs/VERSIONING.md) for operator-managed chart versions, upgrade order, and published chart locations.
 
 
 
@@ -41,7 +42,7 @@ This parent chart manages both the Operator and CockroachDB installation.
 There are two common migration paths:
 
 1. **From the public operator → CockroachDB Operator**
-   - Follow the migration guide provided [here](./docs/migration/operator/README.md).  
+   - Follow the migration guide provided [here](./docs/migration/operator/README.md).
 
 2. **From a StatefulSet deployment → CockroachDB Operator**
-   - Follow the migration guide provided [here](./docs/migration/helm/README.md).  
+   - Follow the migration guide provided [here](./docs/migration/helm/README.md).

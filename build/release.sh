@@ -75,6 +75,7 @@ release_v2() {
   # Publish destinations independently so a registry outage does not prevent
   # publishing to the remaining destinations. DockerHub is best-effort while
   # the repos are being provisioned; GAR and GCS still determine release status.
+  echo "Starting v2 publish for ${charts_hostname}."
   if [ "$is_prod" = true ]; then
     push_oci_dockerhub
     if ! push_oci_gar; then
@@ -91,17 +92,19 @@ release_v2() {
   fi
 
   if [ "$release_failed" = true ]; then
+    echo "v2 publish completed with errors."
     return 1
   fi
+  echo "v2 publish completed successfully."
 }
 
 publish_gcs_v2() {
   local gcs_changed=false
   local gcs_failed=false
 
-  # Upload v2 chart packages and index.yaml individually to GCS. Existing
-  # identical chart packages are skipped; same-name packages with different
-  # content fail so reruns are idempotent but version reuse is blocked.
+  # Upload v2 chart packages and index.yaml individually to GCS. Existing chart
+  # package objects are skipped by name because Helm packages are not byte-for-byte
+  # deterministic across runs.
   for tgz in build/artifacts/v2/*.tgz; do
     if ! publish_gcs_chart "$tgz"; then
       gcs_failed=true
@@ -114,6 +117,7 @@ publish_gcs_v2() {
   fi
 
   if [ "$gcs_changed" = true ] || ! gcs_index_exists; then
+    echo "Uploading v2 index.yaml to gs://${gcs_bucket}/v2/index.yaml..."
     if ! gsutil cp "build/artifacts/v2/index.yaml" "gs://${gcs_bucket}/v2/index.yaml"; then
       return 1
     fi
@@ -150,27 +154,25 @@ push_oci_gar() {
   done
 
   if [ "$failed" = true ]; then
+    echo "GAR OCI publish completed with errors."
     return 1
   fi
+  echo "GAR OCI publish completed successfully."
 }
 
 publish_gcs_chart() {
   local chart_pkg="$1"
   local object_uri="gs://${gcs_bucket}/v2/$(basename "$chart_pkg")"
-  local exists_status
 
-  exists_status=0
-  gcs_chart_exists "$chart_pkg" "$object_uri" || exists_status=$?
-
-  if [ "$exists_status" -eq 0 ]; then
-    echo "  Chart already exists at ${object_uri}; skipping."
+  if gcs_chart_exists "$object_uri"; then
+    echo "  Chart already exists at ${object_uri}; skipping. Bump the chart version to publish changed chart content."
+    if ! preserve_gcs_index_entry "$chart_pkg"; then
+      return 1
+    fi
     return 0
   fi
 
-  if [ "$exists_status" -eq 2 ]; then
-    return 1
-  fi
-
+  echo "  Uploading ${chart_pkg} to ${object_uri}..."
   if ! gsutil cp "$chart_pkg" "gs://${gcs_bucket}/v2/"; then
     return 1
   fi
@@ -182,20 +184,72 @@ gcs_index_exists() {
 }
 
 gcs_chart_exists() {
-  local chart_pkg="$1" object_uri="$2"
-  local remote_hash local_hash
+  local object_uri="$1"
 
-  if ! remote_hash="$(gsutil hash -h "$object_uri" 2>/dev/null | awk '/Hash [(]sha256[)]:/ {print $3}')"; then
+  gsutil -q stat "$object_uri"
+}
+
+gcs_chart_digest() {
+  local object_uri="$1"
+  local remote_hash
+
+  remote_hash="$(gsutil hash -h "$object_uri" 2>/dev/null | awk '/Hash [(]sha256[)]:/ {print $3}')"
+  if [ -z "$remote_hash" ]; then
+    return 1
+  fi
+  printf '%s' "$remote_hash" | openssl base64 -d -A | od -An -tx1 | tr -d ' \n'
+}
+
+preserve_gcs_index_entry() {
+  local chart_pkg="$1"
+  local metadata chart_name chart_version entry_file remote_digest
+
+  metadata="$("$HELM" show chart "$chart_pkg")"
+  chart_name="$(echo "$metadata" | bin/yq '.name' -)"
+  chart_version="$(echo "$metadata" | bin/yq '.version' -)"
+  entry_file="$(mktemp)"
+
+  if ! CHART_NAME="$chart_name" CHART_VERSION="$chart_version" bin/yq \
+    '.entries[strenv(CHART_NAME)][] | select(.version == strenv(CHART_VERSION))' \
+    build/artifacts/v2/old-index.yaml > "$entry_file"; then
+    rm -f "$entry_file"
     return 1
   fi
 
-  local_hash="$(openssl dgst -sha256 -binary "$chart_pkg" | openssl base64)"
-  if [ "$remote_hash" = "$local_hash" ]; then
+  if [ -s "$entry_file" ]; then
+    if ! CHART_NAME="$chart_name" CHART_VERSION="$chart_version" ENTRY_FILE="$entry_file" bin/yq -i \
+      '(.entries[strenv(CHART_NAME)][] | select(.version == strenv(CHART_VERSION))) = load(strenv(ENTRY_FILE))' \
+      build/artifacts/v2/index.yaml; then
+      rm -f "$entry_file"
+      return 1
+    fi
+    rm -f "$entry_file"
     return 0
   fi
 
-  echo "Chart ${object_uri} already exists with different content. Bump the chart version before publishing changed content."
-  return 2
+  rm -f "$entry_file"
+  echo "  Existing index entry not found for ${chart_name} ${chart_version}; patching digest from GCS object."
+  if ! remote_digest="$(gcs_chart_digest "gs://${gcs_bucket}/v2/$(basename "$chart_pkg")")"; then
+    echo "  Failed to read remote digest for ${chart_name} ${chart_version}."
+    return 1
+  fi
+  update_gcs_index_digest "$chart_pkg" "$remote_digest"
+  gcs_changed=true
+}
+
+update_gcs_index_digest() {
+  local chart_pkg="$1" digest="$2"
+  local metadata chart_name chart_version
+
+  metadata="$("$HELM" show chart "$chart_pkg")"
+  chart_name="$(echo "$metadata" | bin/yq '.name' -)"
+  chart_version="$(echo "$metadata" | bin/yq '.version' -)"
+
+  if ! CHART_NAME="$chart_name" CHART_VERSION="$chart_version" DIGEST="$digest" bin/yq -i \
+    '(.entries[strenv(CHART_NAME)][] | select(.version == strenv(CHART_VERSION)) | .digest) = strenv(DIGEST)' \
+    build/artifacts/v2/index.yaml; then
+    return 1
+  fi
 }
 
 # push_oci_dockerhub pushes chart packages as OCI artifacts to DockerHub.
@@ -226,6 +280,8 @@ push_oci_dockerhub() {
 
   if [ "$failed" = true ]; then
     echo "One or more DockerHub OCI pushes failed; continuing with GAR/GCS publishing."
+  else
+    echo "DockerHub OCI publish completed successfully."
   fi
 }
 
@@ -235,7 +291,7 @@ push_with_retry() {
   local chart_pkg="$1" registry="$2" max_attempts="${3:-3}"
 
   if oci_chart_exists "${chart_pkg}" "${registry}"; then
-    echo "  Chart already exists in oci://${registry}; skipping."
+    echo "  Chart already exists in oci://${registry}; skipping. Bump the chart version to publish changed chart content."
     return 0
   fi
 
