@@ -1,6 +1,6 @@
 # CockroachDB Chart — CHANGELOG
 
-## [26.1.3] — Unreleased
+## [26.1.3] — 2026-05-04
 ### Added
 - Support for additional Subject Alternative Names (SANs) in self-signer node certificates via
   `cockroachdb.selfSigner.additionalSANs`. This enables SSL verification when connecting through

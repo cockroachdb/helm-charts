@@ -281,6 +281,35 @@ func TestOperatorImageDigestUpdated(t *testing.T) {
 	require.Equal(t, expectedOperatorImage(t), res.Deployment.Spec.Template.Spec.Containers[0].Image)
 }
 
+func TestOperatorRelatedImages(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"image.registry":                         "registry.example.com/operator",
+			"image.tag":                              "v9.9.9",
+			"relatedImages.initContainer.registry":   "registry.example.com/sidecars",
+			"relatedImages.initContainer.repository": "custom-init",
+			"relatedImages.initContainer.tag":        "init-tag",
+			"relatedImages.inotifywait.registry":     "registry.example.com/sidecars",
+			"relatedImages.inotifywait.repository":   "custom-inotify",
+			"relatedImages.inotifywait.tag":          "inotify-tag",
+		},
+	}
+	res := renderOperatorResources(t, options)
+
+	env := res.Deployment.Spec.Template.Spec.Containers[0].Env
+	require.Equal(t,
+		"registry.example.com/sidecars/custom-init:init-tag",
+		findEnvVar(env, "RELATED_IMAGE_INIT_CONTAINER").Value,
+	)
+	require.Equal(t,
+		"registry.example.com/sidecars/custom-inotify:inotify-tag",
+		findEnvVar(env, "RELATED_IMAGE_INOTIFYWAIT").Value,
+	)
+}
+
 // TestOperatorPreUpgradeValidationRequiresV1beta1OnlyState checks the phase 3 upgrade guardrails.
 func TestOperatorPreUpgradeValidationRequiresV1beta1OnlyState(t *testing.T) {
 	t.Parallel()

@@ -19,6 +19,7 @@ case $charts_hostname in
 esac
 
 artifacts_dir="build/artifacts/"
+v2_artifacts_dir="build/artifacts/v2/"
 HELM_INSTALL_DIR=$PWD/bin
 
 install_helm() {
@@ -29,11 +30,14 @@ install_helm() {
   HELM_INSTALL_DIR="$HELM_INSTALL_DIR" "$HELM_INSTALL_DIR/get_helm.sh" --no-sudo --version v3.13.3
 }
 
+# chart_version_exists returns 1 (failure) when the version exists, which is
+# inverted from standard convention. This legacy behavior is preserved to avoid
+# breaking the existing legacy skip logic below.
 chart_version_exists() {
   helm repo add cockroachdb "https://${charts_hostname}" --force-update
   helm repo update
 
-  existing_version=$(grep 'version:' cockroachdb/Chart.yaml | awk '{print $2}')
+  existing_version=$(bin/yq '.version' cockroachdb/Chart.yaml)
   if helm search repo cockroachdb/cockroachdb --version "$existing_version" | grep $existing_version; then
     echo "Chart version $existing_version already exists in the repository."
     return 1
@@ -52,11 +56,41 @@ build_chart() {
   diff -u "${artifacts_dir}/old-index.yaml" "${artifacts_dir}/index.yaml" || true
 }
 
-install_helm
+# build_v2_charts packages the operator and cockroachdb charts from
+# cockroachdb-parent/charts/ into build/artifacts/v2/ and generates
+# a merged v2 index.yaml for the Helm repository.
+build_v2_charts() {
+  mkdir -p "$v2_artifacts_dir"
 
-if [ "$is_prod" = true ] && ! chart_version_exists; then
-  echo "Skipping build: chart version already present in production."
-  exit 0
+  # Fetch the current v2 index.yaml to merge into. If v2 has never been
+  # published, start with an empty index.
+  if curl -fsSL "https://storage.googleapis.com/$gcs_bucket/v2/index.yaml" > "${v2_artifacts_dir}/old-index.yaml" 2>/dev/null; then
+    echo "Fetched existing v2 index.yaml"
+  else
+    echo "No existing v2 index.yaml found, starting fresh"
+    echo -e "apiVersion: v1\nentries: {}" > "${v2_artifacts_dir}/old-index.yaml"
+  fi
+
+  # Always package v2 charts, including in prod. The release step treats
+  # already-published OCI artifacts as success and GCS uploads overwrite the
+  # same chart package, so rerunning a partial publish is safe.
+  $HELM_INSTALL_DIR/helm package cockroachdb-parent/charts/operator --destination "${v2_artifacts_dir}"
+  $HELM_INSTALL_DIR/helm package cockroachdb-parent/charts/cockroachdb --destination "${v2_artifacts_dir}"
+
+  $HELM_INSTALL_DIR/helm repo index "${v2_artifacts_dir}" --url "https://${charts_hostname}/v2" --merge "${v2_artifacts_dir}/old-index.yaml"
+  diff -u "${v2_artifacts_dir}/old-index.yaml" "${v2_artifacts_dir}/index.yaml" || true
+}
+
+# When invoked directly (not sourced), run legacy chart build.
+# Use build_v2_charts for v2 chart packaging.
+if [[ "${1:-}" == "v2" ]]; then
+  install_helm
+  build_v2_charts
+else
+  install_helm
+  if [ "$is_prod" = true ] && ! chart_version_exists; then
+    echo "Skipping build: chart version already present in production."
+    exit 0
+  fi
+  build_chart
 fi
-
-build_chart

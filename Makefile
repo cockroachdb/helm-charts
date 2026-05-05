@@ -61,23 +61,31 @@ build: build/chart build/self-signer ## build the helm chart and self-signer
 generate: ## generate files from templates in build/templates
 	@go run build/build.go generate
 
-build/chart: bin/helm ## build the helm chart to build/artifacts
+build/chart: bin/helm ## build the legacy helm chart to build/artifacts
 	@build/make.sh
+
+build/v2-charts: bin/helm ## build operator + cockroachdb charts to build/artifacts/v2
+	@build/make.sh v2
+
+SELF_SIGNER_TAG = $(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)
 
 build/self-signer: bin/yq ## build the self-signer image
 	@docker build --platform=linux/amd64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
 		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) \
-		-t ${REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
+		-t ${REGISTRY}/${REPOSITORY}:$(SELF_SIGNER_TAG) .
 
 ##@ Release
 
-release: ## publish the build artifacts to S3
+release: ## publish the legacy chart build artifacts to GCS
 	@build/release.sh
+
+release/v2: ## publish v2 charts to GCS and OCI registries
+	@build/release.sh v2
 
 build-and-push/self-signer: bin/yq ## push the self-signer image
 	@docker buildx build --platform=linux/amd64,linux/arm64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
 		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) --push \
-		-t ${REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
+		-t ${REGISTRY}/${REPOSITORY}:$(SELF_SIGNER_TAG) .
 
 ##@ Dev
 dev/clean: ## remove built artifacts

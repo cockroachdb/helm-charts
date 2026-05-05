@@ -1,6 +1,6 @@
 # CockroachDB Operator Chart — CHANGELOG
 
-## [1.0.0-rc.1] — Unreleased
+## [1.0.0-rc.1] — 2026-05-04
 ### Changed
 - **Per-chart versioning**: The operator chart now uses independent semantic versioning, starting
   at 1.0.0-rc.1. A single operator version supports multiple CockroachDB versions.

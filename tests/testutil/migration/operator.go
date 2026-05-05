@@ -2,21 +2,25 @@ package migration
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 const (
-	CockroachVersion       = "cockroachdb/cockroach:v25.1.2"
 	OperatorDeploymentName = "cockroach-operator-manager"
 	OperatorNamespace      = "cockroach-operator-system"
 )
+
+var CockroachVersion = cockroachVersionFromChart()
 
 type PublicOperator struct {
 	Ctx context.Context
@@ -24,6 +28,32 @@ type PublicOperator struct {
 	CustomResourceBuilder testutil.ClusterBuilder
 
 	HelmInstall
+}
+
+func cockroachVersionFromChart() string {
+	valuesPath := filepath.Join(testutil.GetGitRoot(), "cockroachdb-parent/charts/cockroachdb/values.yaml")
+	valuesBytes, err := os.ReadFile(valuesPath)
+	if err != nil {
+		panic(err)
+	}
+
+	var values struct {
+		CockroachDB struct {
+			CRDBCluster struct {
+				Image struct {
+					Name string `yaml:"name"`
+				} `yaml:"image"`
+			} `yaml:"crdbCluster"`
+		} `yaml:"cockroachdb"`
+	}
+	if err := yaml.Unmarshal(valuesBytes, &values); err != nil {
+		panic(err)
+	}
+
+	if values.CockroachDB.CRDBCluster.Image.Name == "" {
+		panic("cockroachdb.crdbCluster.image.name must be set")
+	}
+	return values.CockroachDB.CRDBCluster.Image.Name
 }
 
 func (o *PublicOperator) InstallOperator(t *testing.T) {
