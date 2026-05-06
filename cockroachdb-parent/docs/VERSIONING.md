@@ -62,10 +62,10 @@ Always upgrade the operator chart before the cockroachdb chart.
 
 ```bash
 # Step 1: Upgrade operator
-helm upgrade <operator-release> cockroachdb-v2/cockroachdb-operator --version <new-version>
+helm upgrade <operator-release> cockroachdb-v2/cockroachdb-operator-chart --version <new-version>
 
 # Step 2: Upgrade cockroachdb
-helm upgrade <cockroachdb-release> cockroachdb-v2/cockroachdb --version <new-version>
+helm upgrade <cockroachdb-release> cockroachdb-v2/cockroachdb-chart --version <new-version>
 ```
 
 The cockroachdb chart includes a pre-upgrade hook that validates the operator is in the expected
@@ -79,7 +79,7 @@ a clear error message.
 Only the cockroachdb chart changes. The operator chart stays the same.
 
 ```bash
-helm upgrade <cockroachdb-release> cockroachdb-v2/cockroachdb --version <new-chart-version>
+helm upgrade <cockroachdb-release> cockroachdb-v2/cockroachdb-chart --version <new-chart-version>
 ```
 
 No operator upgrade needed. No downtime.
@@ -89,7 +89,7 @@ No operator upgrade needed. No downtime.
 Only the operator chart changes. The cockroachdb chart stays the same.
 
 ```bash
-helm upgrade <operator-release> cockroachdb-v2/cockroachdb-operator --version <new-version>
+helm upgrade <operator-release> cockroachdb-v2/cockroachdb-operator-chart --version <new-version>
 ```
 
 The operator rolls out a new deployment. CockroachDB pods are not affected.
@@ -101,8 +101,8 @@ whether the new CockroachDB version requires operator changes.
 
 ```bash
 # Check the chart's compatibility notes for minimum operator version
-helm upgrade <operator-release> cockroachdb-v2/cockroachdb-operator --version <required-version>
-helm upgrade <cockroachdb-release> cockroachdb-v2/cockroachdb --version 26.2.0
+helm upgrade <operator-release> cockroachdb-v2/cockroachdb-operator-chart --version <required-version>
+helm upgrade <cockroachdb-release> cockroachdb-v2/cockroachdb-chart --version 26.2.0
 ```
 
 ### Breaking operator change (major version bump)
@@ -130,7 +130,7 @@ If any check fails, the upgrade is blocked with a message explaining what to do.
 To run a different CockroachDB version than the chart default, override the image name:
 
 ```bash
-helm upgrade <release> cockroachdb-v2/cockroachdb \
+helm upgrade <release> cockroachdb-v2/cockroachdb-chart \
   --set cockroachdb.crdbCluster.image.name=cockroachdb/cockroach:v26.1.5
 ```
 
@@ -143,10 +143,14 @@ The v2 release publishes two independent charts:
 
 | Chart | Package name | Purpose |
 |---|---|---|
-| `cockroachdb-operator` | `cockroachdb-operator-<version>.tgz` | Installs and upgrades the CockroachDB operator |
-| `cockroachdb` | `cockroachdb-<version>.tgz` | Installs and upgrades CockroachDB clusters managed by the operator |
+| `cockroachdb-operator-chart` | `cockroachdb-operator-chart-<version>.tgz` | Installs and upgrades the CockroachDB operator |
+| `cockroachdb-chart` | `cockroachdb-chart-<version>.tgz` | Installs and upgrades CockroachDB clusters managed by the operator |
 
 The parent chart is local-only and is not published.
+
+For existing preview or locally installed releases, keep the same Helm release name when upgrading
+to the published charts. The chart artifact name changes to `cockroachdb-chart` or
+`cockroachdb-operator-chart`, but rendered Kubernetes resource names remain stable.
 
 ### Helm repository
 
@@ -157,13 +161,13 @@ helm repo add cockroachdb-v2 https://charts.cockroachdb.com/v2 --force-update
 helm repo update cockroachdb-v2
 helm search repo cockroachdb-v2 --devel
 
-helm install crdb-operator cockroachdb-v2/cockroachdb-operator --version 1.0.0-rc.1
-helm install crdb cockroachdb-v2/cockroachdb --version 26.1.3
+helm install crdb-operator cockroachdb-v2/cockroachdb-operator-chart --version 1.0.0-rc.1
+helm install crdb cockroachdb-v2/cockroachdb-chart --version 26.1.3
 ```
 
 `cockroachdb-v2` is a local Helm repository alias. You can choose a different alias, but the chart
-references must use the same alias, for example `<alias>/cockroachdb-operator` and
-`<alias>/cockroachdb`.
+references must use the same alias, for example `<alias>/cockroachdb-operator-chart` and
+`<alias>/cockroachdb-chart`.
 
 `--force-update` only updates the local Helm repo entry if it already exists. It does not force an
 upgrade of any installed release.
@@ -177,15 +181,15 @@ Charts are also published as OCI artifacts.
 Google Artifact Registry:
 
 ```bash
-helm pull oci://us-docker.pkg.dev/releases-prod/self-hosted/charts/cockroachdb-operator --version 1.0.0-rc.1
-helm pull oci://us-docker.pkg.dev/releases-prod/self-hosted/charts/cockroachdb --version 26.1.3
+helm pull oci://us-docker.pkg.dev/releases-prod/self-hosted/charts/cockroachdb-operator-chart --version 1.0.0-rc.1
+helm pull oci://us-docker.pkg.dev/releases-prod/self-hosted/charts/cockroachdb-chart --version 26.1.3
 ```
 
 DockerHub:
 
 ```bash
-helm pull oci://registry-1.docker.io/cockroachdb-charts/cockroachdb-operator --version 1.0.0-rc.1
-helm pull oci://registry-1.docker.io/cockroachdb-charts/cockroachdb --version 26.1.3
+helm pull oci://registry-1.docker.io/cockroachdb/cockroachdb-operator-chart --version 1.0.0-rc.1
+helm pull oci://registry-1.docker.io/cockroachdb/cockroachdb-chart --version 26.1.3
 ```
 
 The DockerHub repositories must exist before charts appear there unless DockerHub auto-create is

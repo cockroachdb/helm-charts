@@ -1,8 +1,17 @@
 {{/*
+Name to use for Kubernetes resources. The published chart name may include
+"-chart" to disambiguate OCI artifacts from container images, but existing
+resource names should not gain that suffix on upgrade.
+*/}}
+{{- define "cockroachdb.chartName" -}}
+{{- .Chart.Name | trimSuffix "-chart" -}}
+{{- end -}}
+
+{{/*
 Expand the name of the chart.
 */}}
 {{- define "cockroachdb.name" -}}
-{{- default .Chart.Name .Values.k8s.nameOverride | trunc 56 | trimSuffix "-" -}}
+{{- default (include "cockroachdb.chartName" .) .Values.k8s.nameOverride | trunc 56 | trimSuffix "-" -}}
 {{- end -}}
 
 {{/*
@@ -14,7 +23,7 @@ If release name contains chart name it will be used as a full name.
 {{- if .Values.k8s.fullnameOverride -}}
     {{- .Values.k8s.fullnameOverride | trunc 56 | trimSuffix "-" -}}
 {{- else -}}
-    {{- $name := default .Chart.Name .Values.k8s.nameOverride -}}
+    {{- $name := default (include "cockroachdb.chartName" .) .Values.k8s.nameOverride -}}
     {{- if contains $name .Release.Name -}}
         {{- .Release.Name | trunc 56 | trimSuffix "-" -}}
     {{- else -}}
@@ -32,7 +41,7 @@ If release name contains chart name it will be used as a full name with release 
 {{- if .Values.k8s.fullnameOverride -}}
     {{- printf "%s-%s" .Values.k8s.fullnameOverride .Release.Namespace | trunc 56 | trimSuffix "-" -}}
 {{- else -}}
-    {{- $name := default .Chart.Name .Values.k8s.nameOverride -}}
+    {{- $name := default (include "cockroachdb.chartName" .) .Values.k8s.nameOverride -}}
     {{- if contains $name .Release.Name -}}
         {{- printf "%s-%s" .Release.Name .Release.Namespace | trunc 56 | trimSuffix "-" -}}
     {{- else -}}
@@ -45,7 +54,7 @@ If release name contains chart name it will be used as a full name with release 
 Create chart name and version as used by the chart label.
 */}}
 {{- define "cockroachdb.chart" -}}
-{{- printf "%s-%s" .Chart.Name .Chart.Version | replace "+" "_" | trunc 56 | trimSuffix "-" -}}
+{{- printf "%s-%s" (include "cockroachdb.chartName" .) .Chart.Version | replace "+" "_" | trunc 56 | trimSuffix "-" -}}
 {{- end -}}
 
 {{/*

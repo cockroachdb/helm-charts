@@ -6,7 +6,7 @@ kind: ClusterRole
 metadata:
   name: {{ .Release.Name }}-hooks
   labels:
-    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/name: {{ .Chart.Name | trimSuffix "-chart" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
   annotations:
     "helm.sh/hook": pre-upgrade
@@ -26,7 +26,7 @@ kind: ClusterRoleBinding
 metadata:
   name: {{ .Release.Name }}-hooks
   labels:
-    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/name: {{ .Chart.Name | trimSuffix "-chart" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
   annotations:
     "helm.sh/hook": pre-upgrade
