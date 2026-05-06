@@ -6,7 +6,7 @@ metadata:
   name: "{{ .Release.Name }}-operator-pre-upgrade-validation"
   namespace: {{ .Release.Namespace }}
   labels:
-    app.kubernetes.io/name: {{ .Chart.Name }}
+    app.kubernetes.io/name: {{ .Chart.Name | trimSuffix "-chart" }}
     app.kubernetes.io/instance: {{ .Release.Name }}
   annotations:
     "helm.sh/hook": pre-upgrade

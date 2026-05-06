@@ -272,7 +272,7 @@ update_gcs_index_digest() {
 # push_oci_dockerhub pushes chart packages as OCI artifacts to DockerHub.
 # This is best-effort so missing DockerHub repos do not block GAR/GCS publishing.
 push_oci_dockerhub() {
-  local dockerhub_registry="${OCI_DOCKERHUB_REGISTRY:-registry-1.docker.io/cockroachdb-charts}"
+  local dockerhub_registry="${OCI_DOCKERHUB_REGISTRY:-registry-1.docker.io/cockroachdb}"
   local failed=false
 
   if [ -z "${DOCKERHUB_USERNAME:-}" ] || [ -z "${DOCKERHUB_TOKEN:-}" ]; then

@@ -6,12 +6,13 @@ type: application
 version: 26.1.3
 appVersion: 26.1.3
 dependencies:
-  - name: cockroachdb-operator
+  - name: cockroachdb-operator-chart
     alias: operator
     version: 1.0.0-rc.1
     condition: operator.enabled
     repository: "file://charts/operator"
-  - name: cockroachdb
+  - name: cockroachdb-chart
+    alias: cockroachdb
     version: 26.1.3
     condition: cockroachdb.enabled
     repository: "file://charts/cockroachdb"
