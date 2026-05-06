@@ -2,7 +2,10 @@
 
 All notable changes to the CockroachDB Helm chart will be documented in this file.
 
-## [20.0.5] Unreleased
+## [20.0.5] 2026-05-12
+### Changed
+  - Updated the default CockroachDB image version from `v26.1.3` to `v26.1.4`.
+
 ### Added
   - Added `tls.enableSighupRotation` configuration option to enable zero-downtime certificate rotation using SIGHUP signal.
     - When enabled, node certificates are mounted directly from Kubernetes secrets with 0440 permissions.

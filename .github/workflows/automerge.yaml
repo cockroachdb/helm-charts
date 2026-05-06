@@ -50,12 +50,10 @@ jobs:
             exit 1
           fi
 
-          # Block auto-merge for CRDB major or minor version changes.
+          # Block auto-merge for CRDB version changes.
           # These require manual review to validate operator compatibility.
-          master_major_minor=$(echo "$master_appVersion" | cut -d. -f1-2)
-          pr_major_minor=$(echo "$appVersion" | cut -d. -f1-2)
-          if [[ "$master_major_minor" != "$pr_major_minor" ]]; then
-            echo "CRDB major/minor version change detected ($master_appVersion -> $appVersion). Manual review required."
+          if [[ "$master_appVersion" != "$appVersion" ]]; then
+            echo "CRDB version change detected ($master_appVersion -> $appVersion). Manual review required."
             exit 1
           fi
 
