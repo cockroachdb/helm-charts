@@ -199,6 +199,18 @@ func TestComputeAllArgs(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.Chdir("build") })
 
+	legacyChart, err := getVersions(chartPaths[chartKindLegacy])
+	if err != nil {
+		t.Fatal(err)
+	}
+	cockroachdbChart, err := getVersions(chartPaths[chartKindCockroachDB])
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextCRDBPatch := cockroachdbChart.AppVersion.IncPatch()
+	nextCRDBPatchVersion := &nextCRDBPatch
+	nextCRDBVersion := nextCRDBPatch.Original()
+
 	testCases := []struct {
 		name        string
 		chartTarget string
@@ -215,36 +227,40 @@ func TestComputeAllArgs(t *testing.T) {
 		{
 			name:        "cockroachdb bump does not change legacy",
 			chartTarget: "cockroachdb",
-			version:     "26.1.4",
+			version:     nextCRDBVersion,
 			check: func(t *testing.T, result map[chartKind]templateArgs) {
 				legacy := result[chartKindLegacy]
-				if legacy.Version != "20.0.4" {
-					t.Errorf("legacy version changed to %s, want 20.0.4", legacy.Version)
+				if legacy.Version != legacyChart.Version.String() {
+					t.Errorf("legacy version changed to %s, want %s", legacy.Version, legacyChart.Version)
 				}
-				if legacy.AppVersion != "26.1.3" {
-					t.Errorf("legacy appVersion changed to %s, want 26.1.3", legacy.AppVersion)
+				if legacy.AppVersion != legacyChart.AppVersion.String() {
+					t.Errorf("legacy appVersion changed to %s, want %s", legacy.AppVersion, legacyChart.AppVersion)
 				}
 				crdb := result[chartKindCockroachDB]
-				if crdb.AppVersion != "26.1.4" {
-					t.Errorf("cockroachdb appVersion = %s, want 26.1.4", crdb.AppVersion)
+				if crdb.AppVersion != nextCRDBVersion {
+					t.Errorf("cockroachdb appVersion = %s, want %s", crdb.AppVersion, nextCRDBVersion)
 				}
 			},
 		},
 		{
 			name:        "unscoped bump changes both cockroachdb and legacy",
 			chartTarget: "",
-			version:     "26.1.4",
+			version:     nextCRDBVersion,
 			check: func(t *testing.T, result map[chartKind]templateArgs) {
-				legacy := result[chartKindLegacy]
-				if legacy.Version == "20.0.4" {
-					t.Error("legacy version should have bumped but stayed at 20.0.4")
+				wantLegacyVersion, err := bumpLegacyChart(legacyChart, nextCRDBPatchVersion)
+				if err != nil {
+					t.Fatal(err)
 				}
-				if legacy.AppVersion != "26.1.4" {
-					t.Errorf("legacy appVersion = %s, want 26.1.4", legacy.AppVersion)
+				legacy := result[chartKindLegacy]
+				if legacy.Version != wantLegacyVersion {
+					t.Errorf("legacy version = %s, want %s", legacy.Version, wantLegacyVersion)
+				}
+				if legacy.AppVersion != nextCRDBVersion {
+					t.Errorf("legacy appVersion = %s, want %s", legacy.AppVersion, nextCRDBVersion)
 				}
 				crdb := result[chartKindCockroachDB]
-				if crdb.AppVersion != "26.1.4" {
-					t.Errorf("cockroachdb appVersion = %s, want 26.1.4", crdb.AppVersion)
+				if crdb.AppVersion != nextCRDBVersion {
+					t.Errorf("cockroachdb appVersion = %s, want %s", crdb.AppVersion, nextCRDBVersion)
 				}
 			},
 		},

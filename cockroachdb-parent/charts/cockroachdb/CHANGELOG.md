@@ -1,5 +1,9 @@
 # CockroachDB Chart — CHANGELOG
 
+## [26.1.4] — 2026-05-06
+### Changed
+- Updated the default CockroachDB image version from `v26.1.3` to `v26.1.4`.
+
 ## [26.1.3] — 2026-05-06
 ### Added
 - Support for additional Subject Alternative Names (SANs) in self-signer node certificates via
