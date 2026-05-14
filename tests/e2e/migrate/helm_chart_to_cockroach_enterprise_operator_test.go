@@ -10,6 +10,7 @@ import (
 
 	api "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/cockroachdb/helm-charts/tests/testutil/migration"
 	"github.com/gruntwork-io/terratest/modules/helm"
@@ -56,6 +57,21 @@ func init() {
 	})
 	if err != nil {
 		panic(err)
+	}
+}
+
+// providerCloudRegion returns the cloud region for the active provider.
+func providerCloudRegion() string {
+	p := strings.TrimSpace(strings.ToLower(os.Getenv("PROVIDER")))
+	switch p {
+	case "k3d", "": // default to k3d when PROVIDER is unset
+		return infra.RegionCodes[infra.ProviderK3D][0]
+	case "kind":
+		return infra.RegionCodes[infra.ProviderKind][0]
+	case "gcp":
+		return infra.RegionCodes[infra.ProviderGCP][0]
+	default:
+		return ""
 	}
 }
 
@@ -145,7 +161,7 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions, providerCloudRegion())
 	defer func() {
 		t.Log("Uninstall the cockroachdb enterprise operator")
 		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)
@@ -263,7 +279,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions, providerCloudRegion())
 	defer func() {
 		t.Log("Uninstall the cockroachdb enterprise operator")
 		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)
@@ -381,7 +397,7 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions, providerCloudRegion())
 	defer func() {
 		t.Log("Uninstall the cockroachdb enterprise operator")
 		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)
@@ -476,7 +492,7 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions)
+	operator.InstallCockroachDBEnterpriseOperator(t, kubectlOptions, providerCloudRegion())
 	defer func() {
 		t.Log("Uninstall the cockroachdb enterprise operator")
 		operator.UninstallCockroachDBEnterpriseOperator(t, kubectlOptions)
