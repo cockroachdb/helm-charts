@@ -6,6 +6,9 @@ on:
     - cron: "0 0 * * 1"
   workflow_dispatch: # allow manual trigger
 
+permissions:
+  contents: read
+
 jobs:
   cockroachdb-operator-single-region-e2e:
     name: CockroachDB Operator Single Region Test (k8s ${{ matrix.k8s-version }})
