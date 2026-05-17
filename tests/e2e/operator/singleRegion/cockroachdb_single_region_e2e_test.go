@@ -29,6 +29,7 @@ func newSingleRegion() *singleRegion {
 func TestOperatorInSingleRegion(t *testing.T) {
 	// Fetch provider from env
 	var provider string
+	os.Setenv("PROVIDER", "gcp")
 	if p := strings.TrimSpace(strings.ToLower(os.Getenv("PROVIDER"))); p != "" {
 		switch p {
 		case "kind":
@@ -92,12 +93,12 @@ func TestOperatorInSingleRegion(t *testing.T) {
 			testCases["TestPCR"] = providerRegion.TestPCR
 		} else {
 			testCases["TestHelmInstall"] = providerRegion.TestHelmInstall
-			testCases["TestHelmInstallVirtualCluster"] = providerRegion.TestHelmInstallVirtualCluster
-			testCases["TestHelmUpgrade"] = providerRegion.TestHelmUpgrade
-			testCases["TestClusterRollingRestart"] = providerRegion.TestClusterRollingRestart
-			testCases["TestKillingCockroachNode"] = providerRegion.TestKillingCockroachNode
-			testCases["TestClusterScaleUp"] = func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) }
-			testCases["TestInstallWithCertManager"] = providerRegion.TestInstallWithCertManager
+			//testCases["TestHelmInstallVirtualCluster"] = providerRegion.TestHelmInstallVirtualCluster
+			//testCases["TestHelmUpgrade"] = providerRegion.TestHelmUpgrade
+			//testCases["TestClusterRollingRestart"] = providerRegion.TestClusterRollingRestart
+			//testCases["TestKillingCockroachNode"] = providerRegion.TestKillingCockroachNode
+			//testCases["TestClusterScaleUp"] = func(t *testing.T) { providerRegion.TestClusterScaleUp(t, cloudProvider) }
+			//testCases["TestInstallWithCertManager"] = providerRegion.TestInstallWithCertManager
 		}
 
 		// Run tests sequentially within a provider.

@@ -30,6 +30,11 @@ const (
 	v1alpha1CrdbClusterResource  = "crdbclusters.v1alpha1.crdb.cockroachlabs.com"
 	v1beta1CrdbClusterResource   = "crdbclusters.v1beta1.crdb.cockroachlabs.com"
 
+	// Finalization starts after the controller has completed the PodMigration
+	// health checks. Those checks allow up to 10 minutes for a migrated CrdbNode
+	// to become healthy before the controller auto-pauses the migration.
+	phaseFinalizationTimeout = 15 * time.Minute
+
 	// Migration phases as reported in status.migration.phase.
 	phaseCertMigration = "CertMigration"
 	phasePodMigration  = "PodMigration"
@@ -100,7 +105,7 @@ func testHelmAutoForwardMigration(t *testing.T) {
 	// Verify CrdbNodes are being created one by one and cluster stays healthy.
 	waitForCrdbNodeCount(t, kubectlOptions, stsName, crdbCluster.DesiredNodes, 20*time.Minute)
 
-	waitForMigrationPhase(t, kubectlOptions, stsName, phaseFinalization, 5*time.Minute)
+	waitForMigrationPhase(t, kubectlOptions, stsName, phaseFinalization, phaseFinalizationTimeout)
 
 	// Finalization complete: delete the StatefulSet to trigger Phase=Complete.
 	t.Log("Deleting StatefulSet to trigger migration completion")
@@ -168,7 +173,7 @@ func testHelmAutoStopResume(t *testing.T) {
 	// Resume migration.
 	k8s.RunKubectl(t, kubectlOptions, "label", "sts", stsName, "crdb.io/migrate=start", "--overwrite")
 	waitForCrdbNodeCount(t, kubectlOptions, stsName, crdbCluster.DesiredNodes, 20*time.Minute)
-	waitForMigrationPhase(t, kubectlOptions, stsName, phaseFinalization, 5*time.Minute)
+	waitForMigrationPhase(t, kubectlOptions, stsName, phaseFinalization, phaseFinalizationTimeout)
 
 	// Per the migration docs, the source StatefulSet must be deleted to move
 	// from Finalization to Complete.
@@ -274,7 +279,7 @@ func testOperatorAutoForwardMigration(t *testing.T) {
 	waitForMigrationPhase(t, kubectlOptions, clusterName, phaseCertMigration, 5*time.Minute)
 	waitForMigrationPhase(t, kubectlOptions, clusterName, phasePodMigration, 10*time.Minute)
 	waitForCrdbNodeCount(t, kubectlOptions, clusterName, crdbCluster.DesiredNodes, 20*time.Minute)
-	waitForMigrationPhase(t, kubectlOptions, clusterName, phaseFinalization, 5*time.Minute)
+	waitForMigrationPhase(t, kubectlOptions, clusterName, phaseFinalization, phaseFinalizationTimeout)
 
 	// Per the migration docs, the source StatefulSet must be deleted to move
 	// from Finalization to Complete.
@@ -361,7 +366,7 @@ func testOperatorAutoStopResume(t *testing.T) {
 	// Resume.
 	k8s.RunKubectl(t, kubectlOptions, "label", v1alpha1CrdbClusterResource, clusterName, "crdb.io/migrate=start", "--overwrite")
 	waitForCrdbNodeCount(t, kubectlOptions, clusterName, crdbCluster.DesiredNodes, 20*time.Minute)
-	waitForMigrationPhase(t, kubectlOptions, clusterName, phaseFinalization, 5*time.Minute)
+	waitForMigrationPhase(t, kubectlOptions, clusterName, phaseFinalization, phaseFinalizationTimeout)
 
 	// Per the migration docs, the source StatefulSet must be deleted to move
 	// from Finalization to Complete.
@@ -542,7 +547,7 @@ func testHelmAutoCertManagerMigration(t *testing.T) {
 	})
 
 	waitForCrdbNodeCount(t, kubectlOptions, stsName, crdbCluster.DesiredNodes, 20*time.Minute)
-	waitForMigrationPhase(t, kubectlOptions, stsName, phaseFinalization, 5*time.Minute)
+	waitForMigrationPhase(t, kubectlOptions, stsName, phaseFinalization, phaseFinalizationTimeout)
 
 	// Per the migration docs, the source StatefulSet must be deleted to move
 	// from Finalization to Complete.
@@ -854,6 +859,7 @@ func waitForMigrationPhase(
 			"get", v1beta1CrdbClusterResource, clusterName,
 			"-o", "jsonpath={.status.migration.lastError}")
 		t.Logf("Migration lastError: %s", lastErr)
+		logMigrationResources(t, kubectlOptions, clusterName)
 		logMigrationEvents(t, kubectlOptions, clusterName)
 	}
 	require.NoError(t, err, "timed out waiting for migration phase %q", expectedPhase)
@@ -889,6 +895,24 @@ func logMigrationEvents(t *testing.T, kubectlOptions *k8s.KubectlOptions, cluste
 	}
 
 	t.Logf("Migration events for %s:\n%s", clusterName, events)
+}
+
+func logMigrationResources(t *testing.T, kubectlOptions *k8s.KubectlOptions, clusterName string) {
+	t.Helper()
+
+	for _, args := range [][]string{
+		{"get", v1beta1CrdbClusterResource, clusterName, "-o", "yaml"},
+		{"get", "crdbnodes.crdb.cockroachlabs.com", "-l", fmt.Sprintf("crdb.cockroachlabs.com/cluster=%s", clusterName), "-o", "wide"},
+		{"get", "pods", "-l", fmt.Sprintf("crdb.cockroachlabs.com/cluster=%s", clusterName), "-o", "wide"},
+		{"get", "poddisruptionbudgets", "-o", "yaml"},
+	} {
+		out, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, args...)
+		if err != nil {
+			t.Logf("Failed to fetch migration resource state with kubectl %v: %v", args, err)
+			continue
+		}
+		t.Logf("Migration resource state from kubectl %v:\n%s", args, out)
+	}
 }
 
 func deleteStatefulSetAndWaitGone(

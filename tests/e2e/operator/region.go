@@ -365,6 +365,8 @@ func (r *Region) ValidateCRDBContainerResources(t *testing.T, kubectlOptions *k8
 
 // CreateCACertificate creates CA cert and key at the same path.
 func (r *Region) CreateCACertificate(t *testing.T) error {
+	r.CleanUpCACertificate(t)
+
 	// Create CA secret in all regions.
 	cmd := shell.Command{
 		Command:    "cockroach",

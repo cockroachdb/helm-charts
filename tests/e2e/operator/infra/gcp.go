@@ -44,6 +44,12 @@ const (
 // Default project ID to use if not specified in the environment.
 const defaultProjectID = "helm-testing"
 
+// getNodeServiceAccount returns the GKE node service account from the environment.
+// If empty, gcloud falls back to the project's default Compute Engine service account.
+func getNodeServiceAccount() string {
+	return os.Getenv("GCP_NODE_SERVICE_ACCOUNT")
+}
+
 // getProjectID returns the GCP project ID from the environment variable or falls back to default.
 func getProjectID() string {
 	if projectID := os.Getenv("GCP_PROJECT_ID"); projectID != "" {
@@ -635,6 +641,10 @@ func createGKERegionalCluster(ctx context.Context, client *container.Service, se
 		"--machine-type", gcpDefaultMachineType,
 		"--disk-size", "30GB", // Limit disk size to 30GB
 		"--quiet", // Suppress interactive prompts
+	}
+
+	if sa := getNodeServiceAccount(); sa != "" {
+		args = append(args, "--service-account", sa)
 	}
 
 	cmd := exec.Command("gcloud", args...)
