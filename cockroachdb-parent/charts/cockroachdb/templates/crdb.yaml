@@ -85,6 +85,8 @@ spec:
       {{- with .Values.cockroachdb.crdbCluster.startFlags }}
       startFlags: {{- toYaml . | nindent 8 }}
       {{- end }}
+      serviceAccountName: {{ include "cockroachdb.serviceAccount.name" . }}
+      resourceRequirements: {}
       {{- with .Values.cockroachdb.crdbCluster.podTemplate }}
       podTemplate:
         metadata:

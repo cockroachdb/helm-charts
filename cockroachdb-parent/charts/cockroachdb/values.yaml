@@ -473,9 +473,9 @@ cockroachdb:
         # # imagePullSecrets captures the secrets for fetching images from private registries.
         # imagePullSecrets: []
         # # initContainers captures the list of init containers for CockroachDB pods.
-        # initContainers:
-        #   - name : cockroachdb-init
-        #     image: docker.io/cockroachdb/cockroachdb-init-container:v1.0.0-rc.1
+        initContainers:
+          - name : cockroachdb-init
+            image:  us-docker.pkg.dev/cockroach-cloud-images/development/init-container@sha256:4c48b147770b41f74bba995e87f5ff2a396b9d9ecd0447cf43c5f67778ba8b40
         # containers captures the list of containers for CockroachDB pods.
         containers:
           - name: cockroachdb

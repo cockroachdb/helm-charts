@@ -4,13 +4,16 @@
 # image captures the container image settings for Operator pods.
 image:
   # registry is the container registry where the image is stored.
-  registry: "docker.io/cockroachdb"
+  registry: "us-docker.pkg.dev/cockroach-cloud-images/development"
   # repository defines the image repository.
-  repository: "cockroachdb-operator-v2"
+  repository: "cockroach-operator"
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
-  # tag is the image tag.
+  # tag is the image tag. Ignored when digest is set.
   tag: "v1.0.0-rc.1"
+  # digest pins the image to a specific digest (e.g. sha256:abc123).
+  # When set, the image is referenced as registry/repository@digest instead of registry/repository:tag.
+  digest: "sha256:87223f2098cdb52e2075e9919a3da5352a6922d0b0c3fb7b844ce5b6dde6492a"
 # relatedImages configures images the operator injects into CockroachDB pods.
 # By default these images share the operator image registry and tag.
 relatedImages:
@@ -25,9 +28,9 @@ relatedImages:
     # registry overrides image.registry for the cert-reloader image when set.
     registry: ""
     # repository defines the cert-reloader image repository.
-    repository: "cockroachdb-cert-reloader"
+    repository: "inotifywait"
     # tag overrides image.tag for the cert-reloader image when set.
-    tag: ""
+    tag: "release-2025-04-07-0-242-ge7531af7a2"
 # certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.

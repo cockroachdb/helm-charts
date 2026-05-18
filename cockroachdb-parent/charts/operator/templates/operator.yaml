@@ -496,7 +496,7 @@ spec:
       priorityClassName: {{ if (.Values.watchNamespaces | trim) }}cockroachdb-operator-{{ .Release.Namespace }}{{ else }}cockroachdb-operator{{ end }}
       containers:
         - name: cockroach-operator
-          image: {{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}
+          image: {{ .Values.image.registry }}/{{ .Values.image.repository }}{{ if .Values.image.digest }}@{{ .Values.image.digest }}{{ else }}:{{ .Values.image.tag }}{{ end }}
           args:
             # Pin metrics port so it can be properly exposed by the "ports"
             # field below even in the event of a change to the default value.
