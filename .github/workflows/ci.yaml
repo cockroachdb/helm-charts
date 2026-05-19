@@ -13,6 +13,9 @@ jobs:
   detect-self-signer-change:
     name: is-self-signer-changed
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       certUtility: ${{ steps.filter.outputs.certUtility }}
     steps:
