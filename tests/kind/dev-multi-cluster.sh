@@ -146,14 +146,6 @@ EOF
       # Use a single shared Docker network for all clusters to enable cross-cluster L2 reachability
       cluster_network="${network_name}"
 
-      # Add containerdConfigPatches for proper runtime configuration
-      cat >> "/tmp/kind-config-${i}.yaml" << EOF
-containerdConfigPatches:
-- |-
-  [plugins."io.containerd.grpc.v1.cri".registry.mirrors."localhost:${REGISTRY}"]
-    endpoint = ["http://${network_name}-registry:5000"]
-EOF
-
       # Add nodes configuration with unique API server port (start from 7443 to avoid conflicts)
       api_server_port=$((7443 + i))
       cat >> "/tmp/kind-config-${i}.yaml" << EOF
