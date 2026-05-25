@@ -49,7 +49,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -101,7 +101,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: HelmTemplate
         run: make test/template
@@ -155,7 +155,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Run E2E Test
         run: make test/e2e/install
@@ -181,7 +181,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Run E2E Test
         run: make test/e2e/rotate
@@ -207,7 +207,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Run E2E Test
         run: |
@@ -236,7 +236,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Run E2E Test
         run: make test/e2e/multi-region
@@ -261,7 +261,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Run Controller Migration E2E Test
         run: make test/e2e/controller-migrate
@@ -286,7 +286,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Run Manual Migration E2E Tests
         run: make test/e2e/manual-migrate
@@ -311,7 +311,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: generate configs
         run: go run build/build.go generate
