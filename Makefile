@@ -137,6 +137,9 @@ test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer bin
 test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/k3d bin/kind
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Single region tests failed with exit code $$?" && exit 1)
 
+test/e2e/chart-compatibility: bin/cockroach bin/kubectl bin/helm build/self-signer bin/k3d bin/kind
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 60m -v -test.run TestChartCompatibilityUpgrade ./tests/e2e/operator/compatibility/... || (echo "Chart compatibility tests failed with exit code $$?" && exit 1)
+
 test/e2e/migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/self-signer test/cluster/up/3
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 120m -v ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
 	$(MAKE) test/cluster/down; \

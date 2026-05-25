@@ -221,7 +221,9 @@ func (r *Region) ValidateCRDB(t *testing.T, cluster string) {
 // VerifyHelmUpgrade waits till all the pods are restarted after the
 // helm upgrade is completed, it verifies with initialTimestamp which is the timestamp
 // of the pods before recreation and returns the pod name.
-func (r *Region) VerifyHelmUpgrade(t *testing.T, initialTimestamp time.Time, kubectlOptions *k8s.KubectlOptions) error {
+func (r *Region) VerifyHelmUpgrade(
+	t *testing.T, initialTimestamp time.Time, kubectlOptions *k8s.KubectlOptions,
+) error {
 	// Wait for the pods to be recreated with a new timestamp after the upgrade.
 	_, err := retry.DoWithRetryE(t, "waiting for pods to be recreated with new timestamp",
 		60, 10*time.Second,
@@ -485,7 +487,9 @@ func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 // required while installing CockroachDb charts.
 // Other clusters' regions are listed first so their join addresses are tried
 // before the current cluster's, allowing it to join the existing cluster immediately.
-func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[int]string) []map[string]interface{} {
+func (r *Region) createOperatorRegions(
+	index int, nodes int, customDomains map[int]string,
+) []map[string]interface{} {
 	buildRegion := func(i int) map[string]interface{} {
 		region := map[string]interface{}{
 			"code":          r.RegionCodes[i],
@@ -515,7 +519,9 @@ func (r *Region) createOperatorRegions(index int, nodes int, customDomains map[i
 }
 
 // VerifyInitCommandInOperatorLogs verifies that the operator logs contain the expected init command.
-func VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOptions, expected string) {
+func VerifyInitCommandInOperatorLogs(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, expected string,
+) {
 	// Get operator pods
 	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: OperatorLabelSelector,
@@ -531,21 +537,27 @@ func VerifyInitCommandInOperatorLogs(t *testing.T, kubectlOptions *k8s.KubectlOp
 	require.Contains(t, logs, expected, "operator logs did not contain expected init command")
 }
 
-func InstallCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, cloudRegion string) {
+func InstallCockroachDBOperator(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, cloudRegion string,
+) {
 	installCockroachDBOperator(t, kubectlOptions, map[string]string{
 		"cloudRegion":     cloudRegion,
 		"watchNamespaces": kubectlOptions.Namespace,
 	})
 }
 
-func InstallCockroachDBOperatorScoped(t *testing.T, kubectlOptions *k8s.KubectlOptions, watchNamespaces, cloudRegion string) {
+func InstallCockroachDBOperatorScoped(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, watchNamespaces, cloudRegion string,
+) {
 	installCockroachDBOperator(t, kubectlOptions, map[string]string{
 		"watchNamespaces": watchNamespaces,
 		"cloudRegion":     cloudRegion,
 	})
 }
 
-func InstallCockroachDBOperatorScopedForMigration(t *testing.T, kubectlOptions *k8s.KubectlOptions, watchNamespaces, cloudRegion string) {
+func InstallCockroachDBOperatorScopedForMigration(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, watchNamespaces, cloudRegion string,
+) {
 	installCockroachDBOperator(t, kubectlOptions, map[string]string{
 		"watchNamespaces":   watchNamespaces,
 		"migration.enabled": "true",
@@ -553,10 +565,21 @@ func InstallCockroachDBOperatorScopedForMigration(t *testing.T, kubectlOptions *
 	})
 }
 
-func installCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, overrides map[string]string) {
+func installCockroachDBOperator(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, overrides map[string]string,
+) {
 	_, operatorChartPath := HelmChartPaths()
 
-	setValues := map[string]string{
+	setValues := TestOperatorHelmValues()
+	for key, value := range overrides {
+		setValues[key] = value
+	}
+
+	InstallCockroachDBOperatorChart(t, kubectlOptions, operatorChartPath, "", setValues)
+}
+
+func TestOperatorHelmValues() map[string]string {
+	return map[string]string{
 		"numReplicas":                            "1",
 		"image.registry":                         testOperatorRegistry,
 		"image.repository":                       testOperatorRepo,
@@ -565,19 +588,48 @@ func installCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions
 		"relatedImages.inotifywait.registry":     testOperatorRegistry,
 		"relatedImages.inotifywait.repository":   testInotifywaitRepo,
 	}
-	for key, value := range overrides {
-		setValues[key] = value
-	}
+}
 
-	operatorOpts := &helm.Options{
+func InstallCockroachDBOperatorChart(
+	t *testing.T,
+	kubectlOptions *k8s.KubectlOptions,
+	chart, version string,
+	setValues map[string]string,
+) {
+	operatorOpts := operatorHelmOptions(kubectlOptions, version, setValues)
+	helm.Install(t, operatorOpts, chart, operatorReleaseName)
+	waitForCockroachDBOperator(t, operatorOpts, kubectlOptions)
+}
+
+func UpgradeCockroachDBOperatorChart(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, chart string, setValues map[string]string,
+) {
+	operatorOpts := operatorHelmOptions(kubectlOptions, "", setValues)
+	operatorOpts.ExtraArgs = map[string][]string{
+		"upgrade": {
+			"--reuse-values",
+			"--wait",
+			"--debug",
+		},
+	}
+	helm.Upgrade(t, operatorOpts, chart, operatorReleaseName)
+	waitForCockroachDBOperator(t, operatorOpts, kubectlOptions)
+}
+
+func operatorHelmOptions(
+	kubectlOptions *k8s.KubectlOptions, version string, setValues map[string]string,
+) *helm.Options {
+	return &helm.Options{
 		KubectlOptions: kubectlOptions,
 		SetValues:      setValues,
+		Version:        version,
 		ExtraArgs:      helmExtraArgs,
 	}
+}
 
-	// Install Operator on the cluster.
-	helm.Install(t, operatorOpts, operatorChartPath, operatorReleaseName)
-
+func waitForCockroachDBOperator(
+	t *testing.T, operatorOpts *helm.Options, kubectlOptions *k8s.KubectlOptions,
+) {
 	// Wait for all operator CRDs required by migration flows to be installed.
 	for _, crd := range []string{
 		"crdbclusters.crdb.cockroachlabs.com",
@@ -599,7 +651,9 @@ func installCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions
 
 // ExtendOperatorWatchNamespace patches the operator deployment in operatorNamespace to also
 // watch newNamespace.
-func (r *Region) ExtendOperatorWatchNamespace(t *testing.T, cluster, operatorNamespace, newNamespace string) {
+func (r *Region) ExtendOperatorWatchNamespace(
+	t *testing.T, cluster, operatorNamespace, newNamespace string,
+) {
 	kubeConfig, _ := r.GetCurrentContext(t)
 	operatorKubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, operatorNamespace)
 
@@ -829,7 +883,9 @@ func (r *Region) BaseRegionConfig(cluster string, index int) map[string]interfac
 // When an override value is nil or empty string, the key is omitted from the config entirely.
 // This matters because the operator uses *string with omitempty — a nil/absent keySecretName
 // is interpreted as "plain" (unencrypted), while an empty string is not the same as nil.
-func (r *Region) EncryptionAtRestConfig(secretName string, overrides map[string]interface{}) map[string]interface{} {
+func (r *Region) EncryptionAtRestConfig(
+	secretName string, overrides map[string]interface{},
+) map[string]interface{} {
 	if secretName == "" {
 		secretName = DefaultEncryptionSecret
 	}
@@ -849,7 +905,9 @@ func (r *Region) EncryptionAtRestConfig(secretName string, overrides map[string]
 }
 
 // BuildEncryptionRegions creates a slice containing a single region entry with encryption settings applied.
-func (r *Region) BuildEncryptionRegions(cluster string, index int, encryptionOverrides map[string]interface{}) []map[string]interface{} {
+func (r *Region) BuildEncryptionRegions(
+	cluster string, index int, encryptionOverrides map[string]interface{},
+) []map[string]interface{} {
 	region := r.BaseRegionConfig(cluster, index)
 	region["encryptionAtRest"] = r.EncryptionAtRestConfig("", encryptionOverrides)
 	return []map[string]interface{}{region}
@@ -880,7 +938,9 @@ type AdvancedInstallConfig struct {
 }
 
 // InstallChartsWithAdvancedConfig installs CockroachDB with advanced features configuration
-func (r *Region) InstallChartsWithAdvancedConfig(t *testing.T, cluster string, index int, config AdvancedInstallConfig) {
+func (r *Region) InstallChartsWithAdvancedConfig(
+	t *testing.T, cluster string, index int, config AdvancedInstallConfig,
+) {
 	// Get the current context name.
 	kubeConfig, rawConfig := r.GetCurrentContext(t)
 
@@ -1085,7 +1145,9 @@ func (r *Region) GenerateEncryptionKey(t *testing.T) string {
 
 // ValidateEncryptionAtRest verifies that encryption at rest is properly configured by checking flags and encryption status.
 // Pass nil config to rely on defaults or provide overrides via AdvancedValidationConfig.EncryptionAtRest.
-func (r *Region) ValidateEncryptionAtRest(t *testing.T, cluster string, cfg *AdvancedValidationConfig) {
+func (r *Region) ValidateEncryptionAtRest(
+	t *testing.T, cluster string, cfg *AdvancedValidationConfig,
+) {
 	kubeConfig, _ := r.GetCurrentContext(t)
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 
@@ -1159,7 +1221,9 @@ func generateLocalTenantURI(cluster string) string {
 // generateExternalConnectionURI creates external connection URI using cockroach convert-url
 // This is used for cross-cluster connections (e.g., replication from primary to standby)
 // Format: cockroach convert-url 'postgresql://USERNAME:PASSWORD@HOST' [flags]
-func generateExternalConnectionURI(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, connString string) string {
+func generateExternalConnectionURI(
+	t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, connString string,
+) string {
 	output, err := execInCockroachdbContainer(t, kubectlOpts, pod,
 		"/cockroach/cockroach", "convert-url",
 		"--url", connString, // Format: postgresql://user:pass@host:port
@@ -1171,13 +1235,17 @@ func generateExternalConnectionURI(t *testing.T, kubectlOpts *k8s.KubectlOptions
 
 // execInCockroachdbContainer runs any command inside the cockroachdb container of a pod.
 // This is the base helper used by execSQL and execSQLOnVC.
-func execInCockroachdbContainer(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, cmd ...string) (string, error) {
+func execInCockroachdbContainer(
+	t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, cmd ...string,
+) (string, error) {
 	args := append([]string{"exec", pod, "-c", "cockroachdb", "--"}, cmd...)
 	return k8s.RunKubectlAndGetOutputE(t, kubectlOpts, args...)
 }
 
 // execSQL runs a SQL statement in the cockroachdb container using certs-dir authentication.
-func execSQL(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, sql string) (string, error) {
+func execSQL(
+	t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, sql string,
+) (string, error) {
 	return execInCockroachdbContainer(t, kubectlOpts, pod,
 		"/cockroach/cockroach", "sql",
 		"--certs-dir=/cockroach/cockroach-certs",
@@ -1186,7 +1254,14 @@ func execSQL(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, sql stri
 }
 
 // execSQLOnVC runs a SQL statement in the cockroachdb container against a specific virtual cluster URL.
-func execSQLOnVC(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, vcURI string, database string, sql string) (string, error) {
+func execSQLOnVC(
+	t *testing.T,
+	kubectlOpts *k8s.KubectlOptions,
+	pod string,
+	vcURI string,
+	database string,
+	sql string,
+) (string, error) {
 	cmd := []string{
 		"/cockroach/cockroach", "sql",
 		"--certs-dir=/cockroach/cockroach-certs",

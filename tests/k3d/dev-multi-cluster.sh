@@ -161,7 +161,14 @@ configure_node_labels() {
     local region="$3"
 
     # Label server node with region.
-    server_node=$(kubectl --context "k3d-${cluster_name}" get nodes -l node-role.kubernetes.io/control-plane=true -o jsonpath='{.items[0].metadata.name}')
+    server_node=$(wait_for_node "k3d-${cluster_name}" "node-role.kubernetes.io/control-plane")
+    if [[ -z "${server_node}" ]]; then
+        server_node=$(wait_for_node "k3d-${cluster_name}" "node-role.kubernetes.io/master")
+    fi
+    if [[ -z "${server_node}" ]]; then
+        echo "Could not find server node for cluster ${cluster_name}"
+        return 1
+    fi
     kubectl --context "k3d-${cluster_name}" label node "$server_node" "topology.kubernetes.io/region=${region}"
 
     # Label server node with a default zone, e.g. using the first zone from the list.
@@ -173,7 +180,7 @@ configure_node_labels() {
     available_agent_zones=("${AVAILABILITY_ZONES[@]:1}")
 
     # Label agent nodes with region and zone.
-    agent_nodes=$(kubectl --context "k3d-${cluster_name}" get nodes -l '!node-role.kubernetes.io/control-plane' -o jsonpath='{.items[*].metadata.name}')
+    agent_nodes=$(kubectl --context "k3d-${cluster_name}" get nodes -l '!node-role.kubernetes.io/control-plane,!node-role.kubernetes.io/master' -o jsonpath='{.items[*].metadata.name}')
 
     agent_index=0
     for node in $agent_nodes; do
@@ -187,6 +194,23 @@ configure_node_labels() {
 
         agent_index=$((agent_index + 1))
     done
+}
+
+wait_for_node() {
+    local context="$1"
+    local selector="$2"
+    local node=""
+
+    for _ in {1..30}; do
+        node=$(kubectl --context "${context}" get nodes -l "${selector}" -o jsonpath='{.items[*].metadata.name}' 2>/dev/null | awk '{print $1}')
+        if [[ -n "${node}" ]]; then
+            echo "${node}"
+            return 0
+        fi
+        sleep 2
+    done
+
+    return 0
 }
 
 # Pull images that don't exist locally and import them into the k3d cluster.
