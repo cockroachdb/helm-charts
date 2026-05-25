@@ -143,6 +143,42 @@ selfSignedOperatorCerts: true
 Switching this flag on an existing installation requires the `cockroach-operator-certs` Secret
 to be deleted first. If it is not, the chart will fail with a clear error explaining the required steps.
 
+## Split-Chart Node Reader RBAC
+
+CockroachDB pod init containers read Kubernetes Node labels to derive locality, so the pod
+ServiceAccount needs cluster-scoped node read permissions. In standalone installs, the
+CockroachDB chart can create that RBAC itself.
+
+In split-chart installs where tenants cannot create ClusterRoles or ClusterRoleBindings, the
+platform team can pre-authorize the tenant CockroachDB ServiceAccounts through the operator chart:
+
+```yaml
+nodeReader:
+  enabled: true
+  subjects:
+    - namespace: tenant-a
+      serviceAccountName: crdb-cockroachdb
+```
+
+The listed ServiceAccount does not need to exist when the operator chart is installed. Kubernetes
+applies the binding once the CockroachDB chart creates the ServiceAccount. The namespace and
+ServiceAccount name must exactly match the CockroachDB chart values. If tenants override
+`cockroachdb.crdbCluster.rbac.serviceAccount.name`, use that exact value here. For split-chart
+installs, explicitly setting `serviceAccount.name` in the CockroachDB chart is recommended so the
+platform-owned binding and tenant-owned ServiceAccount cannot drift.
+
+If `nodeReader.name` is empty, the chart uses `cockroachdb-node-reader` in global mode. When
+`watchNamespaces` is set, the default becomes `cockroachdb-node-reader-<operator-namespace>`
+so multiple scoped operator releases do not try to own the same ClusterRole/ClusterRoleBinding.
+Most installations should leave `nodeReader.name` empty. Set it explicitly only when the platform
+requires a specific cluster-scoped resource name.
+
+After this RBAC is installed by the platform, tenants can set
+`cockroachdb.crdbCluster.rbac.nodeReader.create=false` in the CockroachDB chart.
+Do not set `nodeReader.name` to the CockroachDB chart's generated node-reader name while
+`cockroachdb.crdbCluster.rbac.nodeReader.create=true` because both Helm releases would try to own
+the same ClusterRole/ClusterRoleBinding.
+
 ## Upgrading from a previous chart version
 
 ### What changes after upgrading

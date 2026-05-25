@@ -202,6 +202,42 @@ $ helm upgrade $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --values ./m
 
 For controller migration flows, install the operator chart with `--set migration.enabled=true`.
 
+## Split-Chart Node Reader RBAC
+
+CockroachDB pod init containers read Kubernetes Node labels to derive locality, so the pod
+ServiceAccount needs cluster-scoped node read permissions. By default, this chart creates a
+per-release node-reader ClusterRole and ClusterRoleBinding.
+
+For split-chart installs where tenants cannot create cluster-scoped RBAC, the platform team can
+pre-create equivalent RBAC from the operator chart's `nodeReader` values. In that model, set:
+
+```yaml
+cockroachdb:
+  crdbCluster:
+    rbac:
+      nodeReader:
+        create: false
+      serviceAccount:
+        name: crdb-cockroachdb
+```
+
+Only set `nodeReader.create=false` after the platform has bound the exact ServiceAccount name
+and namespace used by this chart. If `cockroachdb.crdbCluster.rbac.serviceAccount.name` is
+overridden, the operator chart's `nodeReader.subjects` entry must use the same name.
+
+When moving an existing release from CockroachDB chart-owned node-reader RBAC to operator
+chart-owned RBAC:
+
+* Upgrade the operator chart first with matching `nodeReader.subjects`.
+* Verify the operator-owned ClusterRole/ClusterRoleBinding exists.
+* Upgrade this chart with `nodeReader.create=false`.
+* Do not set `nodeReader.create=false` before the operator chart creates the replacement binding;
+  Helm removes the CockroachDB chart-owned binding during the upgrade, and CockroachDB pods would
+  lose node read permissions.
+* If a failed or manual transition leaves stale resources behind, the platform team should delete
+  the old chart-owned node-reader ClusterRole/ClusterRoleBinding after confirming the
+  operator-owned binding exists.
+
 ## Scale Up/Down CockroachDB cluster
 
 Update the nodes accordingly under `regions` section and perform the helm upgrade:

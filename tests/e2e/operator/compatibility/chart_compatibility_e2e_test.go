@@ -107,6 +107,25 @@ func TestChartCompatibilityUpgrade(t *testing.T) {
 		DesiredNodes: r.NodeCount,
 	}, 600*time.Second)
 	r.ValidateCRDB(t, cluster)
+
+	t.Log("Exercising release-specific migration and split-chart node-reader settings")
+	nodeReaderName := fmt.Sprintf("compat-node-reader-%s", r.Namespace[cluster])
+	operator.UpgradeCockroachDBOperatorChart(
+		t,
+		kubectlOptions,
+		operatorChartPath,
+		compatibilityOperatorMigrationAndNodeReaderValues(t, operatorChartPath, r.Namespace[cluster], nodeReaderName),
+	)
+	requireOperatorMigrationFlag(t, kubectlOptions, true)
+
+	upgradeCockroachDBChart(t, kubectlOptions, helmChartPath, map[string]string{
+		"cockroachdb.crdbCluster.rbac.nodeReader.create": "false",
+	})
+	requireNodeReaderDelegatedToOperatorChart(t, kubectlOptions, nodeReaderName)
+	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, testutil.CockroachCluster{
+		DesiredNodes: r.NodeCount,
+	}, 600*time.Second)
+	r.ValidateCRDB(t, cluster)
 }
 
 func newCompatibilityRegion(provider string) *compatibilityRegion {
@@ -203,6 +222,18 @@ func localOperatorImageValues(t *testing.T, operatorChartPath string) map[string
 	}
 }
 
+func compatibilityOperatorMigrationAndNodeReaderValues(
+	t *testing.T, operatorChartPath, namespace, nodeReaderName string,
+) map[string]string {
+	values := compatibilityOperatorUpgradeValues(t, operatorChartPath)
+	values["migration.enabled"] = "true"
+	values["nodeReader.enabled"] = "true"
+	values["nodeReader.name"] = nodeReaderName
+	values["nodeReader.subjects[0].namespace"] = namespace
+	values["nodeReader.subjects[0].serviceAccountName"] = operator.ReleaseName
+	return values
+}
+
 func installCockroachDBChart(
 	t *testing.T, r *operator.Region, kubectlOptions *k8s.KubectlOptions, chart, version string,
 ) {
@@ -264,6 +295,29 @@ func requireOperatorMigrationFlag(t *testing.T, kubectlOptions *k8s.KubectlOptio
 	} else {
 		require.NotContains(t, args, "--enable-migration")
 	}
+}
+
+func requireNodeReaderDelegatedToOperatorChart(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, nodeReaderName string,
+) {
+	t.Helper()
+
+	k8s.RunKubectl(t, kubectlOptions, "get", "clusterrole", nodeReaderName)
+	k8s.RunKubectl(t, kubectlOptions, "get", "clusterrolebinding", nodeReaderName)
+
+	crdbChartNodeReaderName := fmt.Sprintf("%s-%s-node-reader", operator.ReleaseName, kubectlOptions.Namespace)
+	_, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "clusterrole", crdbChartNodeReaderName)
+	require.Error(t, err, "cockroachdb chart-owned node-reader ClusterRole should be removed")
+	_, err = k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "clusterrolebinding", crdbChartNodeReaderName)
+	require.Error(t, err, "cockroachdb chart-owned node-reader ClusterRoleBinding should be removed")
+
+	canReadNodes, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"auth", "can-i", "get", "nodes",
+		fmt.Sprintf("--as=system:serviceaccount:%s:%s", kubectlOptions.Namespace, operator.ReleaseName),
+	)
+	require.NoError(t, err)
+	lines := strings.Split(strings.TrimSpace(canReadNodes), "\n")
+	require.Equal(t, "yes", strings.TrimSpace(lines[len(lines)-1]))
 }
 
 func cockroachDBCompatibilityValues() map[string]string {

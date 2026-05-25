@@ -202,6 +202,17 @@ cockroachdb:
           # storageClassName: ""
     # rbac captures the RBAC settings for CockroachDB pods.
     rbac:
+      # nodeReader controls the cluster-scoped RBAC that lets CockroachDB pods read Kubernetes
+      # Nodes for locality detection.
+      #
+      # In split-chart, tenant-owned installs that cannot create cluster-scoped RBAC may set
+      # create=false, but only after the platform/operator chart has created an equivalent
+      # ClusterRoleBinding for the exact ServiceAccount name and namespace used by this chart.
+      # A namespaced RoleBinding is not sufficient because Nodes are cluster-scoped resources.
+      nodeReader:
+        # create determines whether this chart creates the node-reader ClusterRole and
+        # ClusterRoleBinding for the CockroachDB pod ServiceAccount.
+        create: true
       # serviceAccount captures settings for the CockroachDB ServiceAccount.
       serviceAccount:
         # create determines whether a new ServiceAccount is created.

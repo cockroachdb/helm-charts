@@ -1,0 +1,51 @@
+{{- $nodeReader := index .Values "nodeReader" | default dict }}
+{{- if and (hasKey $nodeReader "enabled") (index $nodeReader "enabled") }}
+{{- $subjects := index $nodeReader "subjects" | default list }}
+{{- if not $subjects }}
+{{- fail "nodeReader.subjects must contain at least one namespace/serviceAccountName entry when nodeReader.enabled=true" }}
+{{- end }}
+{{- $defaultName := "cockroachdb-node-reader" }}
+{{- if (.Values.watchNamespaces | trim) }}
+{{- $defaultName = printf "%s-%s" $defaultName .Release.Namespace }}
+{{- end }}
+{{- $name := index $nodeReader "name" | default $defaultName | trunc 63 | trimSuffix "-" }}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ .Values.appLabel | quote }}
+rules:
+  # CockroachDB pod init containers read Kubernetes Node labels to derive locality.
+  # This permission must be cluster-scoped because nodes are cluster-scoped resources.
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["security.openshift.io"]
+    resources: ["securitycontextconstraints"]
+    verbs: ["use"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ $name }}
+  labels:
+    app: {{ .Values.appLabel | quote }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ $name }}
+subjects:
+{{- range $i, $subject := $subjects }}
+  {{- if not $subject.namespace }}
+  {{- fail (printf "nodeReader.subjects[%d].namespace is required" $i) }}
+  {{- end }}
+  {{- if not $subject.serviceAccountName }}
+  {{- fail (printf "nodeReader.subjects[%d].serviceAccountName is required" $i) }}
+  {{- end }}
+  - kind: ServiceAccount
+    name: {{ $subject.serviceAccountName | quote }}
+    namespace: {{ $subject.namespace | quote }}
+{{- end }}
+{{- end }}

@@ -59,3 +59,30 @@ selfSignedOperatorCerts: false
 migration:
   # enabled determines if the migration controller should be enabled.
   enabled: false
+# nodeReader lets a platform-owned operator chart pre-authorize CockroachDB pod
+# ServiceAccounts to read Kubernetes Nodes for locality detection.
+#
+# The operator chart does not create the tenant ServiceAccount. It only binds the listed
+# ServiceAccount subjects to a shared ClusterRole. Kubernetes allows the binding to reference
+# a ServiceAccount before the CockroachDB chart creates it.
+nodeReader:
+  # enabled determines whether the operator chart creates node-reader ClusterRole/Binding
+  # resources for the ServiceAccounts listed in subjects.
+  enabled: false
+  # name is the shared ClusterRole and ClusterRoleBinding name. Leave empty to use
+  # cockroachdb-node-reader in global mode, or cockroachdb-node-reader-<operator-namespace>
+  # when watchNamespaces is set so scoped operator releases do not conflict.
+  name: ""
+  # subjects is the list of CockroachDB pod ServiceAccounts that should receive node read
+  # access. Each entry must match the namespace and ServiceAccount name used by the
+  # cockroachdb chart.
+  #
+  # If the cockroachdb chart uses its default ServiceAccount, the name is normally
+  # "<cockroachdb-release>-cockroachdb". If users override
+  # cockroachdb.crdbCluster.rbac.serviceAccount.name, put that exact value here.
+  #
+  # Example:
+  # subjects:
+  #   - namespace: tenant-a
+  #     serviceAccountName: crdb-cockroachdb
+  subjects: []

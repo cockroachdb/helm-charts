@@ -309,6 +309,124 @@ func TestOperatorRelatedImages(t *testing.T) {
 	)
 }
 
+func TestOperatorNodeReaderRBAC(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"nodeReader.enabled":                        "true",
+			"nodeReader.name":                           "platform-node-reader",
+			"nodeReader.subjects[0].namespace":          "tenant-a",
+			"nodeReader.subjects[0].serviceAccountName": "crdb-cockroachdb",
+			"nodeReader.subjects[1].namespace":          "tenant-b",
+			"nodeReader.subjects[1].serviceAccountName": "custom-crdb-sa",
+		},
+	}
+
+	output, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/node-reader-rbac.yaml"})
+	require.NoError(t, err)
+
+	decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(output), 4096)
+	var clusterRole rbacv1.ClusterRole
+	require.NoError(t, decoder.Decode(&clusterRole))
+	require.Equal(t, "ClusterRole", clusterRole.Kind)
+	require.Equal(t, "platform-node-reader", clusterRole.Name)
+	require.Contains(t, clusterRole.Rules, rbacv1.PolicyRule{
+		APIGroups: []string{""},
+		Resources: []string{"nodes"},
+		Verbs:     []string{"get", "list", "watch"},
+	})
+
+	var clusterRoleBinding rbacv1.ClusterRoleBinding
+	require.NoError(t, decoder.Decode(&clusterRoleBinding))
+	require.Equal(t, "ClusterRoleBinding", clusterRoleBinding.Kind)
+	require.Equal(t, "platform-node-reader", clusterRoleBinding.Name)
+	require.Equal(t, "platform-node-reader", clusterRoleBinding.RoleRef.Name)
+	require.ElementsMatch(t, []rbacv1.Subject{
+		{
+			Kind:      "ServiceAccount",
+			Name:      "crdb-cockroachdb",
+			Namespace: "tenant-a",
+		},
+		{
+			Kind:      "ServiceAccount",
+			Name:      "custom-crdb-sa",
+			Namespace: "tenant-b",
+		},
+	}, clusterRoleBinding.Subjects)
+}
+
+func TestOperatorNodeReaderRBACDefaultName(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name            string
+		releaseNS       string
+		watchNamespaces string
+		expectedName    string
+	}{
+		{
+			name:         "global",
+			releaseNS:    "ops-ns",
+			expectedName: "cockroachdb-node-reader",
+		},
+		{
+			name:            "scoped",
+			releaseNS:       "ops-ns",
+			watchNamespaces: "tenant-a",
+			expectedName:    "cockroachdb-node-reader-ops-ns",
+		},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", tc.releaseNS),
+				SetValues: map[string]string{
+					"nodeReader.enabled":                        "true",
+					"nodeReader.subjects[0].namespace":          "tenant-a",
+					"nodeReader.subjects[0].serviceAccountName": "crdb-cockroachdb",
+				},
+			}
+			if tc.watchNamespaces != "" {
+				options.SetValues["watchNamespaces"] = tc.watchNamespaces
+			}
+
+			output, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/node-reader-rbac.yaml"})
+			require.NoError(t, err)
+
+			decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(output), 4096)
+			var clusterRole rbacv1.ClusterRole
+			require.NoError(t, decoder.Decode(&clusterRole))
+			require.Equal(t, tc.expectedName, clusterRole.Name)
+
+			var clusterRoleBinding rbacv1.ClusterRoleBinding
+			require.NoError(t, decoder.Decode(&clusterRoleBinding))
+			require.Equal(t, tc.expectedName, clusterRoleBinding.Name)
+			require.Equal(t, tc.expectedName, clusterRoleBinding.RoleRef.Name)
+		})
+	}
+}
+
+func TestOperatorNodeReaderRBACRequiresSubjects(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"nodeReader.enabled": "true",
+		},
+	}
+
+	_, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/node-reader-rbac.yaml"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nodeReader.subjects must contain at least one")
+}
+
 // TestOperatorPreUpgradeValidationRemoved verifies the operator pre-upgrade validation
 // hook is no longer present. The operator image handles CRD version management at runtime.
 func TestOperatorPreUpgradeValidationRemoved(t *testing.T) {
