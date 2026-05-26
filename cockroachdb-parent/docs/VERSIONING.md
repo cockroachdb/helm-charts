@@ -68,10 +68,6 @@ helm upgrade <operator-release> cockroachdb-v2/cockroachdb-operator-chart --vers
 helm upgrade <cockroachdb-release> cockroachdb-v2/cockroachdb-chart --version <new-version>
 ```
 
-The cockroachdb chart includes a pre-upgrade hook that validates the operator is in the expected
-state before proceeding. If the operator is not upgraded first, the hook blocks the upgrade with
-a clear error message.
-
 ## Common Upgrade Scenarios
 
 ### CockroachDB patch release (e.g., 26.1.1 → 26.1.2)
@@ -111,19 +107,19 @@ Rare. Happens when CRD fields are removed or the API version changes (e.g., v1al
 
 1. Upgrade the operator chart to the new major version.
 2. Upgrade the cockroachdb chart, which will have updated templates.
-3. The cockroachdb chart's pre-upgrade hook enforces that the operator is upgraded first.
 
 Follow the migration guide included in the release notes for the specific major version.
 
-## Pre-Upgrade Validation
+## API-Version Transition Checks
 
-The cockroachdb chart includes a pre-upgrade hook that runs before every upgrade. The hook checks:
+For API-version transitions, verify the required CRD state before upgrading:
 
 - The CockroachDB CRD (`crdbclusters.crdb.cockroachlabs.com`) exists in the cluster
 - The CRD serves the expected API version (v1beta1)
 - CRD storage migration is complete
 
-If any check fails, the upgrade is blocked with a message explaining what to do.
+If these checks fail, upgrade the operator and complete storage migration before upgrading
+CockroachDB releases.
 
 ## Overriding the CockroachDB Image Version
 

@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	crdbv1beta1 "github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -19,8 +20,6 @@ import (
 	networkingv1 "k8s.io/api/networking/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
-
-	crdbv1beta1 "github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 )
 
 var (
@@ -37,8 +36,10 @@ func init() {
 	}
 }
 
-// TestCockroachdbPreUpgradeRequiresMigratedOperator checks that chart upgrades require v1beta1 served and stored.
-func TestCockroachdbPreUpgradeRequiresMigratedOperator(t *testing.T) {
+// TestCockroachdbPreUpgradeValidationRemoved verifies the cockroachdb chart no longer
+// creates a pre-upgrade validation hook. Users must run the documented CRD checks before
+// upgrading across API-version transitions.
+func TestCockroachdbPreUpgradeValidationRemoved(t *testing.T) {
 	t.Parallel()
 
 	chartPath, pathErr := filepath.Abs("../../cockroachdb-parent/charts/cockroachdb")
@@ -47,34 +48,8 @@ func TestCockroachdbPreUpgradeRequiresMigratedOperator(t *testing.T) {
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 	}
-	output, err := helm.RenderTemplateE(t, options, chartPath, releaseName, []string{"templates/pre-upgrade-validation.yaml"}, "--is-upgrade")
-	require.NoError(t, err)
-
-	require.Contains(t, output, `V1BETA1_SERVED=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com`)
-	require.Contains(t, output, `V1BETA1_STORAGE=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com`)
-	require.Contains(t, output, `UPGRADE BLOCKED - v1beta1 is not served or not the storage version`)
-	require.Contains(t, output, `UPGRADE BLOCKED - v1beta1 not in storedVersions`)
-}
-
-// TestCockroachdbPreUpgradeAllowsMigrationAdoption checks the migration-aware validation branch.
-func TestCockroachdbPreUpgradeAllowsMigrationAdoption(t *testing.T) {
-	t.Parallel()
-
-	chartPath, pathErr := filepath.Abs("../../cockroachdb-parent/charts/cockroachdb")
-	require.NoError(t, pathErr)
-
-	options := &helm.Options{
-		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-		SetValues: map[string]string{
-			"migration.enabled": "true",
-		},
-	}
-	output, err := helm.RenderTemplateE(t, options, chartPath, releaseName, []string{"templates/pre-upgrade-validation.yaml"}, "--is-upgrade")
-	require.NoError(t, err)
-
-	require.Contains(t, output, `UPGRADE BLOCKED - Migrated v1beta1 CrdbCluster`)
-	require.Contains(t, output, `not found`)
-	require.Contains(t, output, `Complete migration before adopting the CockroachDB chart.`)
+	_, err := helm.RenderTemplateE(t, options, chartPath, releaseName, []string{"templates/pre-upgrade-validation.yaml"}, "--is-upgrade")
+	require.Error(t, err, "pre-upgrade-validation.yaml should not exist in cockroachdb chart")
 }
 
 // TestTLSEnable tests the enabling the TLS, you have to enable only one method of TLS certs
@@ -2159,6 +2134,45 @@ func TestHelmOperatorStartFlags(t *testing.T) {
 	}
 }
 
+func TestHelmOperatorEncryptionAtRestCMEKRotationFields(t *testing.T) {
+	t.Parallel()
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"cockroachdb.crdbCluster.regions[0].code":                                          "us-east1",
+			"cockroachdb.crdbCluster.regions[0].nodes":                                         "3",
+			"cockroachdb.crdbCluster.regions[0].cloudProvider":                                 "gcp",
+			"cockroachdb.crdbCluster.regions[0].namespace":                                     namespaceName,
+			"cockroachdb.crdbCluster.regions[0].encryptionAtRest.platform":                     "GCP_CLOUD_KMS",
+			"cockroachdb.crdbCluster.regions[0].encryptionAtRest.keySecretName":                "new-store-key",
+			"cockroachdb.crdbCluster.regions[0].encryptionAtRest.cmekCredentialsSecretName":    "new-kms-creds",
+			"cockroachdb.crdbCluster.regions[0].encryptionAtRest.oldKeySecretName":             "old-store-key",
+			"cockroachdb.crdbCluster.regions[0].encryptionAtRest.oldPlatform":                  "AWS_KMS",
+			"cockroachdb.crdbCluster.regions[0].encryptionAtRest.oldCmekCredentialsSecretName": "old-kms-creds",
+		},
+	}
+
+	output, err := helm.RenderTemplateE(
+		t, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
+	)
+	require.NoError(t, err)
+
+	var crdbCluster crdbv1beta1.CrdbCluster
+	helm.UnmarshalK8SYaml(t, output, &crdbCluster)
+
+	require.Len(t, crdbCluster.Spec.Regions, 1)
+	encryption := crdbCluster.Spec.Regions[0].EncryptionAtRest
+	require.NotNil(t, encryption)
+	require.Equal(t, crdbv1beta1.EncryptionPlatformGcpCloudKms, encryption.Platform)
+	require.Equal(t, "new-store-key", *encryption.KeySecretName)
+	require.Equal(t, "new-kms-creds", *encryption.CMEKCredentialsSecretName)
+	require.Equal(t, "old-store-key", *encryption.OldKeySecretName)
+	require.Equal(t, crdbv1beta1.EncryptionPlatformAwsKms, encryption.OldPlatform)
+	require.Equal(t, "old-kms-creds", *encryption.OldCMEKCredentialsSecretName)
+}
+
 type podTemplateValidators struct {
 	subT *testing.T
 	spec *crdbv1beta1.PodTemplateSpec
@@ -2877,9 +2891,11 @@ func TestHelmClusterTLSConfiguration(t *testing.T) {
 		}
 	})
 
-	// RBAC tests: ClusterRole and ClusterRoleBinding are always created since the init container needs
-	// node access for locality detection regardless of TLS. Role and RoleBinding are only
-	// created when TLS is enabled, since they exist solely to grant cert-secret access.
+	// RBAC tests: ClusterRole and ClusterRoleBinding are created by default since the
+	// init container needs node access for locality detection regardless of TLS. Split-chart
+	// tenants can opt out when the platform/operator chart pre-creates the equivalent binding.
+	// Role and RoleBinding are only created when TLS is enabled, since they exist solely to
+	// grant cert-secret access.
 	t.Run("rbac", func(t *testing.T) {
 		t.Parallel()
 
@@ -2909,6 +2925,16 @@ func TestHelmClusterTLSConfiguration(t *testing.T) {
 				wantClusterRoles: 1,
 				wantRoles:        1,
 				wantCRBs:         1,
+				wantRBs:          1,
+			},
+			{
+				name: "secure split-chart tenant: node-reader RBAC delegated to operator chart",
+				values: map[string]string{
+					"cockroachdb.crdbCluster.rbac.nodeReader.create": "false",
+				},
+				wantClusterRoles: 0,
+				wantRoles:        1,
+				wantCRBs:         0,
 				wantRBs:          1,
 			},
 		}

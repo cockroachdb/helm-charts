@@ -47,4 +47,4 @@ There are two common migration paths:
 
 2. **From a StatefulSet deployment → CockroachDB Operator**
    - Automatic (recommended): [docs/migration/helm/controller_migration.md](docs/migration/helm/controller_migration.md)
-   - Manual: [docs/migration/helm/manual_migration.md](docs/migration/helm/manual_migration.md)  
+   - Manual: [docs/migration/helm/manual_migration.md](docs/migration/helm/manual_migration.md)

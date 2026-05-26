@@ -259,7 +259,7 @@ cockroachdb:
         # encryptionAtRest:
           #
           # platform is the cloud platform whose KMS is used to gate the new Customer-Managed Encryption Key (CMEK).
-          # Supported values are UNKNOWN_KEY_TYPE, AWS_KMS, and GCP_CLOUD_KMS.
+          # Supported values are UNKNOWN_KEY_TYPE, AWS_KMS, GCP_CLOUD_KMS, and AZURE_KEY_VAULT.
           # platform: ""
           #
           # keySecretName is the name of the Kubernetes Secret containing the (new) store key.
@@ -278,6 +278,17 @@ cockroachdb:
           # oldKeySecretName is the name of the Kubernetes Secret containing the old store key.
           # If not set, this will be interpreted as "plain", i.e., unencrypted.
           # oldKeySecretName: ""
+          #
+          # oldPlatform is the cloud platform whose KMS was used to encrypt the old store key.
+          # Set this only when the old key uses a different KMS provider than platform, or when disabling EAR.
+          # If not set, the operator defaults oldPlatform to platform for same-provider rotations.
+          # Supported values are UNKNOWN_KEY_TYPE, AWS_KMS, GCP_CLOUD_KMS, and AZURE_KEY_VAULT.
+          # oldPlatform: ""
+          #
+          # oldCmekCredentialsSecretName is the Kubernetes Secret containing credentials for the old KMS.
+          # Set this only when switching KMS providers or disabling EAR. If not set, the operator defaults
+          # this to cmekCredentialsSecretName. Do not set this for AZURE_KEY_VAULT because Azure uses workload identity.
+          # oldCmekCredentialsSecretName: ""
           #
     # walFailoverSpec captures the configuration for WAL Failover.
     walFailoverSpec: {}
@@ -488,7 +499,7 @@ cockroachdb:
         # # initContainers captures the list of init containers for CockroachDB pods.
         # initContainers:
         #   - name : cockroachdb-init
-        #     image: docker.io/cockroachdb/cockroachdb-init-container:v1.0.0-rc.1
+        #     image: docker.io/cockroachdb/cockroachdb-init-container:v{{ .OperatorImageVersion }}
         # containers captures the list of containers for CockroachDB pods.
         containers:
           - name: cockroachdb
@@ -503,7 +514,7 @@ cockroachdb:
             resources: {}
             # image: cockroachdb/cockroach:v{{ .AppVersion }}
             # - name: cert-reloader
-            #   image: docker.io/cockroachdb/cockroachdb-cert-reloader:v1.0.0-rc.1
+            #   image: docker.io/cockroachdb/cockroachdb-cert-reloader:v{{ .OperatorImageVersion }}
 
         # topologySpreadConstraints captures pod topology spread constraints.
         # It is recommended to spread CockroachDB pods across zones to ensure high availability.
@@ -564,24 +575,6 @@ cockroachdb:
     #   # Possible Values: disabled, primary, standby
     #   mode: "disabled"
 
-# hooks captures the configuration for Helm hook jobs (pre-upgrade validation, etc.).
-# All hook jobs use the image defined here by default. Override these
-# values to use images from an internal registry in air-gapped environments.
-hooks:
-  # kubectlImage is the container image used by hook jobs that run kubectl commands.
-  # If a future hook requires a different image (e.g., cockroach sql), add a new
-  # sibling key (e.g., hooks.cockroachImage) rather than overloading this one.
-  kubectlImage:
-    # registry defines the container registry for the hook image.
-    registry: docker.io
-    # repository defines the image repository for the hook container.
-    repository: dtzar/helm-kubectl
-    # tag defines the image tag for the hook container. Pinned for reproducibility
-    # in air-gapped environments.
-    tag: "3.19"
-    # pullPolicy defines the image pull policy for the hook container.
-    pullPolicy: IfNotPresent
-
 k8s:
   # nameOverride overrides the name of the chart. If not set, the chart name will be used.
   # For example, if the chart name is "cockroachdb" and nameOverride is set to "crdb",
@@ -595,8 +588,3 @@ k8s:
   # labels captures additional labels for all Kubernetes resources created by this chart.
   labels: {}
     # app.kubernetes.io/part-of: my-app
-
-# migration controls chart behavior during post-migration Helm adoption.
-migration:
-  # enabled relaxes pre-upgrade validation for controller migration adoption.
-  enabled: false

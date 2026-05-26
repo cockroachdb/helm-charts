@@ -4,13 +4,13 @@
 # image captures the container image settings for Operator pods.
 image:
   # registry is the container registry where the image is stored.
-  registry: "us-docker.pkg.dev/releases-prod/self-hosted"
+  registry: "docker.io/cockroachdb"
   # repository defines the image repository.
-  repository: "cockroachdb-operator"
+  repository: "cockroachdb-operator-v2"
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
   # tag is the image tag.
-  tag: "sh-migration-v0.0.1"
+  tag: "v1.0.0-rc.2"
 # relatedImages configures images the operator injects into CockroachDB pods.
 # By default these images share the operator image registry and tag.
 relatedImages:
@@ -18,16 +18,16 @@ relatedImages:
     # registry overrides image.registry for the init container image when set.
     registry: ""
     # repository defines the init container image repository.
-    repository: "init-container@sha256"
+    repository: "cockroachdb-init-container"
     # tag overrides image.tag for the init container image when set.
-    tag: "82871ea47eef7c59c1bb08cf7612420cefc35139eb46659cb3fa1459e2e6d148"
+    tag: ""
   inotifywait:
     # registry overrides image.registry for the cert-reloader image when set.
     registry: ""
     # repository defines the cert-reloader image repository.
-    repository: "inotifywait@sha256"
+    repository: "cockroachdb-cert-reloader"
     # tag overrides image.tag for the cert-reloader image when set.
-    tag: "94db3d416e3df8d1ee2605f05b0526b3bd7217ae69b4eeb147929fe0b77aeafc"
+    tag: ""
 # certificate defines the certificate settings for the Operator.
 certificate:
   # validForDays specifies the number of days the certificate is valid for.

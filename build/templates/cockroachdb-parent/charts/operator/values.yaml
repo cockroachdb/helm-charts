@@ -3,13 +3,13 @@
 # image captures the container image settings for Operator pods.
 image:
   # registry is the container registry where the image is stored.
-  registry: "us-docker.pkg.dev/releases-prod/self-hosted"
+  registry: "docker.io/cockroachdb"
   # repository defines the image repository.
-  repository: "cockroachdb-operator"
+  repository: "cockroachdb-operator-v2"
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
   # tag is the image tag.
-  tag: "sh-migration-v0.0.1"
+  tag: "v{{ .AppVersion }}"
 # relatedImages configures images the operator injects into CockroachDB pods.
 # By default these images share the operator image registry and tag.
 relatedImages:
