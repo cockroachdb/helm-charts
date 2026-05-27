@@ -1,4 +1,4 @@
-package cockroachdb_enterprise_operator
+package cockroachdb_operator
 
 import (
 	"fmt"
@@ -12,15 +12,15 @@ import (
 // rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "migration-helper",
-	Short: "CLI to help user migrate to CockroachDb Enterprise Operator",
-	Long: `migration-helper is used to help users on cockroachdb-operator or public helm chart to migrate their
-existing cockroachdb clusters to CockroachDB Enterprise Operator.`,
+	Short: "CLI to help user migrate to CockroachDB Operator",
+	Long: `migration-helper is used to help users on cockroach-operator or public helm chart to migrate their
+existing cockroachdb clusters to CockroachDB Operator.`,
 }
 
 var buildManifestCmd = &cobra.Command{
 	Use:   "build-manifest",
-	Short: "Generate migration manifests for the Cockroachdb Enterprise Operator",
-	Long:  "It generates the required manifest to migrate to the CockroachDB Enterprise Operator.",
+	Short: "Generate migration manifests for the CockroachDB Operator",
+	Long:  "It generates the required manifest to migrate to the CockroachDB Operator.",
 }
 
 var (

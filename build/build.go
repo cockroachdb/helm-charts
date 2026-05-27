@@ -59,10 +59,11 @@ type versions struct {
 }
 
 type templateArgs struct {
-	Version            string
-	AppVersion         string
-	OperatorVersion    string
-	CockroachDBVersion string
+	Version              string
+	AppVersion           string
+	OperatorVersion      string
+	OperatorImageVersion string
+	CockroachDBVersion   string
 }
 
 // UnmarshalYAML implements the Unmarshaller interface for the version fields
@@ -307,11 +308,18 @@ func computeAllArgs(chartTarget, version string) (map[chartKind]templateArgs, er
 		}
 	}
 
+	operatorImageVersion := result[chartKindOperator].AppVersion
+	for kind, args := range result {
+		args.OperatorImageVersion = operatorImageVersion
+		result[kind] = args
+	}
+
 	result[chartKindParent] = templateArgs{
-		Version:            result[chartKindCockroachDB].AppVersion,
-		AppVersion:         result[chartKindCockroachDB].AppVersion,
-		OperatorVersion:    result[chartKindOperator].Version,
-		CockroachDBVersion: result[chartKindCockroachDB].Version,
+		Version:              result[chartKindCockroachDB].AppVersion,
+		AppVersion:           result[chartKindCockroachDB].AppVersion,
+		OperatorVersion:      result[chartKindOperator].Version,
+		OperatorImageVersion: operatorImageVersion,
+		CockroachDBVersion:   result[chartKindCockroachDB].Version,
 	}
 
 	return result, nil

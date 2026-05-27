@@ -14,6 +14,7 @@ cockroachdb:
     image:
       name: cockroachdb/cockroach:v25.1.5
     loggingConfigMapName: cockroachdb-log-config
+    mode: MutableOnly
     podTemplate:
       metadata:
         annotations:
@@ -91,6 +92,10 @@ cockroachdb:
           maxSkew: 1
           topologyKey: topology.kubernetes.io/zone
           whenUnsatisfiable: ScheduleAnyway
+    rbac:
+      serviceAccount:
+        create: false
+        name: cockroachdb-sa
     regions:
     - cloudProvider: gcp
       code: us-central1

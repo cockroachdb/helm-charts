@@ -1,3 +1,12 @@
+{{- $cockroachdb := index .Values "cockroachdb" | default dict }}
+{{- $crdbCluster := index $cockroachdb "crdbCluster" | default dict }}
+{{- $rbac := index $crdbCluster "rbac" | default dict }}
+{{- $nodeReader := index $rbac "nodeReader" | default dict }}
+{{- $nodeReaderCreate := true }}
+{{- if hasKey $nodeReader "create" }}
+{{- $nodeReaderCreate = index $nodeReader "create" }}
+{{- end }}
+{{- if $nodeReaderCreate }}
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -17,6 +26,7 @@ rules:
   - apiGroups: ["security.openshift.io"]
     resources: ["securitycontextconstraints"]
     verbs: ["use"]
+{{- end }}
 
 {{- if .Values.cockroachdb.tls.enabled }}
 ---

@@ -6,6 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/gruntwork-io/terratest/modules/helm"
+	"github.com/gruntwork-io/terratest/modules/k8s"
+	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/api/batch/v1beta1"
@@ -13,10 +16,6 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
 	"k8s.io/apimachinery/pkg/util/yaml"
-
-	"github.com/gruntwork-io/terratest/modules/helm"
-	"github.com/gruntwork-io/terratest/modules/k8s"
-	"github.com/stretchr/testify/require"
 )
 
 var (
@@ -310,49 +309,145 @@ func TestOperatorRelatedImages(t *testing.T) {
 	)
 }
 
-// TestOperatorPreUpgradeValidationRequiresV1beta1OnlyState checks the phase 3 upgrade guardrails.
-func TestOperatorPreUpgradeValidationRequiresV1beta1OnlyState(t *testing.T) {
+func TestOperatorNodeReaderRBAC(t *testing.T) {
 	t.Parallel()
 
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"nodeReader.enabled":                        "true",
+			"nodeReader.name":                           "platform-node-reader",
+			"nodeReader.subjects[0].namespace":          "tenant-a",
+			"nodeReader.subjects[0].serviceAccountName": "crdb-cockroachdb",
+			"nodeReader.subjects[1].namespace":          "tenant-b",
+			"nodeReader.subjects[1].serviceAccountName": "custom-crdb-sa",
+		},
 	}
-	output, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/pre-upgrade-validation.yaml"}, "--is-upgrade")
-	require.NoError(t, err)
 
-	require.Contains(t, output, `V1BETA1_STORAGE=$(kubectl get crd crdbclusters.crdb.cockroachlabs.com`)
-	require.Contains(t, output, `UPGRADE BLOCKED - v1alpha1 is still served`)
-	require.Contains(t, output, `UPGRADE BLOCKED - storedVersions must be [\"v1beta1\"]`)
-	require.NotContains(t, output, `Cannot skip Phase 1`)
-	require.NotContains(t, output, `helm get manifest`)
-}
-
-// TestOperatorHookRBACIsPreUpgradeOnly keeps the hook permissions scoped to upgrade validation.
-func TestOperatorHookRBACIsPreUpgradeOnly(t *testing.T) {
-	t.Parallel()
-
-	options := &helm.Options{
-		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-	}
-	output, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/clusterrole-hooks.yaml"})
+	output, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/node-reader-rbac.yaml"})
 	require.NoError(t, err)
 
 	decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(output), 4096)
-	var role rbacv1.ClusterRole
-	var binding rbacv1.ClusterRoleBinding
-	require.NoError(t, decoder.Decode(&role))
-	require.NoError(t, decoder.Decode(&binding))
+	var clusterRole rbacv1.ClusterRole
+	require.NoError(t, decoder.Decode(&clusterRole))
+	require.Equal(t, "ClusterRole", clusterRole.Kind)
+	require.Equal(t, "platform-node-reader", clusterRole.Name)
+	require.Contains(t, clusterRole.Rules, rbacv1.PolicyRule{
+		APIGroups: []string{""},
+		Resources: []string{"nodes"},
+		Verbs:     []string{"get", "list", "watch"},
+	})
 
-	require.Equal(t, "pre-upgrade", role.Annotations["helm.sh/hook"])
-	require.Equal(t, "pre-upgrade", binding.Annotations["helm.sh/hook"])
+	var clusterRoleBinding rbacv1.ClusterRoleBinding
+	require.NoError(t, decoder.Decode(&clusterRoleBinding))
+	require.Equal(t, "ClusterRoleBinding", clusterRoleBinding.Kind)
+	require.Equal(t, "platform-node-reader", clusterRoleBinding.Name)
+	require.Equal(t, "platform-node-reader", clusterRoleBinding.RoleRef.Name)
+	require.ElementsMatch(t, []rbacv1.Subject{
+		{
+			Kind:      "ServiceAccount",
+			Name:      "crdb-cockroachdb",
+			Namespace: "tenant-a",
+		},
+		{
+			Kind:      "ServiceAccount",
+			Name:      "custom-crdb-sa",
+			Namespace: "tenant-b",
+		},
+	}, clusterRoleBinding.Subjects)
+}
 
-	for _, rule := range role.Rules {
-		require.NotContains(t, rule.Resources, "customresourcedefinitions/status")
-		require.NotContains(t, rule.Resources, "secrets")
-		if len(rule.APIGroups) == 1 && rule.APIGroups[0] == "crdb.cockroachlabs.com" {
-			require.ElementsMatch(t, []string{"get", "list"}, rule.Verbs)
-		}
+func TestOperatorNodeReaderRBACDefaultName(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name            string
+		releaseNS       string
+		watchNamespaces string
+		expectedName    string
+	}{
+		{
+			name:         "global",
+			releaseNS:    "ops-ns",
+			expectedName: "cockroachdb-node-reader",
+		},
+		{
+			name:            "scoped",
+			releaseNS:       "ops-ns",
+			watchNamespaces: "tenant-a",
+			expectedName:    "cockroachdb-node-reader-ops-ns",
+		},
 	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", tc.releaseNS),
+				SetValues: map[string]string{
+					"nodeReader.enabled":                        "true",
+					"nodeReader.subjects[0].namespace":          "tenant-a",
+					"nodeReader.subjects[0].serviceAccountName": "crdb-cockroachdb",
+				},
+			}
+			if tc.watchNamespaces != "" {
+				options.SetValues["watchNamespaces"] = tc.watchNamespaces
+			}
+
+			output, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/node-reader-rbac.yaml"})
+			require.NoError(t, err)
+
+			decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(output), 4096)
+			var clusterRole rbacv1.ClusterRole
+			require.NoError(t, decoder.Decode(&clusterRole))
+			require.Equal(t, tc.expectedName, clusterRole.Name)
+
+			var clusterRoleBinding rbacv1.ClusterRoleBinding
+			require.NoError(t, decoder.Decode(&clusterRoleBinding))
+			require.Equal(t, tc.expectedName, clusterRoleBinding.Name)
+			require.Equal(t, tc.expectedName, clusterRoleBinding.RoleRef.Name)
+		})
+	}
+}
+
+func TestOperatorNodeReaderRBACRequiresSubjects(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"nodeReader.enabled": "true",
+		},
+	}
+
+	_, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/node-reader-rbac.yaml"})
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "nodeReader.subjects must contain at least one")
+}
+
+// TestOperatorPreUpgradeValidationRemoved verifies the operator pre-upgrade validation
+// hook is no longer present. The operator image handles CRD version management at runtime.
+func TestOperatorPreUpgradeValidationRemoved(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+	}
+	_, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/pre-upgrade-validation.yaml"}, "--is-upgrade")
+	require.Error(t, err, "pre-upgrade-validation.yaml should not exist in operator chart")
+}
+
+// TestOperatorHookRBACRemoved verifies the hook RBAC template is no longer present.
+func TestOperatorHookRBACRemoved(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+	}
+	_, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/clusterrole-hooks.yaml"})
+	require.Error(t, err, "clusterrole-hooks.yaml should not exist in operator chart")
 }
 
 // TestOperatorStorageMigrationTemplateRemoved verifies the old storage migration hook is gone in phase 3.

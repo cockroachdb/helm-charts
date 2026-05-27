@@ -3,5 +3,5 @@ apiVersion: v2
 name: cockroachdb-operator-chart
 description: A Helm chart for managing the CockroachDB operator.
 type: application
-appVersion: 1.0.0-rc.1
-version: 1.0.0-rc.1
+appVersion: 1.0.0-rc.2
+version: 1.0.0-rc.2

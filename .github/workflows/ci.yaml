@@ -39,6 +39,36 @@ jobs:
             - 'pkg/utils/**'
             - 'cmd/self-signer/**'
 
+  detect-chart-version-change:
+    name: is-chart-version-changed
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      chartVersions: ${{ steps.filter.outputs.chartVersions }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Verify Changed files
+        uses: dorny/paths-filter@v2
+        id: filter
+        with:
+          filters: |
+            chartVersions:
+            - 'cockroachdb-parent/Chart.yaml'
+            - 'cockroachdb-parent/Chart.lock'
+            - 'cockroachdb-parent/charts/cockroachdb/Chart.yaml'
+            - 'cockroachdb-parent/charts/operator/Chart.yaml'
+            - 'build/templates/cockroachdb-parent/Chart.yaml'
+            - 'build/templates/cockroachdb-parent/charts/cockroachdb/Chart.yaml'
+            - 'build/templates/cockroachdb-parent/charts/operator/Chart.yaml'
+
   # pre job run golangci-lint
   go-lint:
     name: 'Golint'
@@ -49,7 +79,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -101,7 +131,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: HelmTemplate
         run: make test/template
@@ -155,7 +185,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Run E2E Test
         run: make test/e2e/install
@@ -181,7 +211,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Run E2E Test
         run: make test/e2e/rotate
@@ -207,13 +237,56 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Run E2E Test
         run: |
           set -e
           make test/e2e/single-region
         continue-on-error: false
+
+      - name: Clean up Docker resources
+        shell: bash
+        run: |
+          docker container prune -f
+          docker image prune -a -f
+          docker volume prune -f
+
+  chart-compatibility-e2e:
+    name: Chart Compatibility E2E
+    runs-on: ubuntu-latest-4-core
+    needs: detect-chart-version-change
+    if: (needs.detect-chart-version-change.outputs.chartVersions == 'true')
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26
+
+      - name: Read base chart versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --depth=1 "https://x-access-token:${{ github.token }}@github.com/${{ github.event.pull_request.base.repo.full_name }}.git" "${{ github.event.pull_request.base.sha }}"
+          base_operator_version="$(git show FETCH_HEAD:cockroachdb-parent/charts/operator/Chart.yaml | awk '/^version:/ {print $2; exit}')"
+          base_cockroachdb_version="$(git show FETCH_HEAD:cockroachdb-parent/charts/cockroachdb/Chart.yaml | awk '/^version:/ {print $2; exit}')"
+          if [[ -z "${base_operator_version}" || -z "${base_cockroachdb_version}" ]]; then
+            echo "failed to read base chart versions"
+            exit 1
+          fi
+          {
+            echo "COMPAT_OPERATOR_CHART_VERSION=${base_operator_version}"
+            echo "COMPAT_COCKROACHDB_CHART_VERSION=${base_cockroachdb_version}"
+          } >> "$GITHUB_ENV"
+
+      - name: Run Chart Compatibility E2E Test
+        run: make test/e2e/chart-compatibility
 
       - name: Clean up Docker resources
         shell: bash
@@ -236,7 +309,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: Run E2E Test
         run: make test/e2e/multi-region
@@ -248,8 +321,8 @@ jobs:
           docker image prune -a -f
           docker volume prune -f
 
-  migration-e2e:
-    name: cockroach-enterprise-operator-migration-e2e
+  controller-migration-e2e:
+    name: controller-migration-e2e
     runs-on: ubuntu-latest-4-core
     steps:
       - name: Checkout sources
@@ -261,10 +334,35 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
-      - name: Run E2E Test
-        run: make test/e2e/migrate
+      - name: Run Controller Migration E2E Test
+        run: make test/e2e/controller-migrate
+
+      - name: Clean up Docker resources
+        shell: bash
+        run: |
+          docker container prune -f
+          docker image prune -a -f
+          docker volume prune -f
+
+  manual-migration-e2e:
+    name: manual-migration-e2e
+    runs-on: ubuntu-latest-4-core
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.26
+
+      - name: Run Manual Migration E2E Tests
+        run: make test/e2e/manual-migrate
 
       - name: Clean up Docker resources
         shell: bash
@@ -286,7 +384,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.23
+          go-version: 1.26
 
       - name: generate configs
         run: go run build/build.go generate

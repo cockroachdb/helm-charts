@@ -1,8 +1,7 @@
-package cockroachdb_enterprise_operator
+package cockroachdb_operator
 
 import (
 	"fmt"
-	"log"
 
 	"github.com/cockroachdb/helm-charts/pkg/generator"
 	"github.com/cockroachdb/helm-charts/pkg/migrate"
@@ -26,8 +25,8 @@ var (
 
 var migrateCertsCmd = &cobra.Command{
 	Use:   "migrate-certs",
-	Short: "Migrate certs for the CockroachDB Enterprise Operator",
-	Long: `Migrate and manage certificates for the CockroachDB Enterprise Operator.
+	Short: "Migrate certs for the CockroachDB Operator",
+	Long: `Migrate and manage certificates for the CockroachDB Operator.
 
 This command performs the following operations:
 1. Moves the existing CA certificate from a Kubernetes Secret to a ConfigMap because the operator 
@@ -39,8 +38,8 @@ The command supports customization of certificate durations and expiry windows f
 - Node certificates (default: 1 year duration, 7 days expiry window)
 - Client certificates (default: 28 days duration, 2 days expiry window)
 
-The migration process ensures all certificates are properly configured for use with the CockroachDB Enterprise Operator.`,
-	RunE: migrateCertsForCockroachEnterpriseOperator,
+The migration process ensures all certificates are properly configured for use with the CockroachDB Operator.`,
+	RunE: migrateCertsForCockroachDbOperator,
 }
 
 func init() {
@@ -57,24 +56,28 @@ func init() {
 
 	migrateCertsCmd.PersistentFlags().StringVar(&clusterDomain, "cluster-domain", "cluster.local", "cluster domain")
 	_ = migrateCertsCmd.MarkFlagRequired("statefulset-name")
+}
 
-	var err error
+func migrateCertsForCockroachDbOperator(cmd *cobra.Command, args []string) error {
 	runtimeScheme := runtime.NewScheme()
-	_ = certv1.AddToScheme(runtimeScheme)
-
-	_ = clientgoscheme.AddToScheme(runtimeScheme)
-	config := controllerruntime.GetConfigOrDie()
-
+	if err := certv1.AddToScheme(runtimeScheme); err != nil {
+		return err
+	}
+	if err := clientgoscheme.AddToScheme(runtimeScheme); err != nil {
+		return err
+	}
+	config, err := controllerruntime.GetConfig()
+	if err != nil {
+		return err
+	}
 	cl, err = client.New(config, client.Options{
 		Scheme: runtimeScheme,
 		Mapper: nil,
 	})
 	if err != nil {
-		log.Panic("Failed to create client for certificate migration", err)
+		return err
 	}
-}
 
-func migrateCertsForCockroachEnterpriseOperator(cmd *cobra.Command, args []string) error {
 	genCerts := generator.NewGenerateCert(cl)
 	genCerts.CaSecret = caSecret
 	if err := genCerts.NodeCertConfig.SetConfig(nodeDuration, nodeExpiry); err != nil {

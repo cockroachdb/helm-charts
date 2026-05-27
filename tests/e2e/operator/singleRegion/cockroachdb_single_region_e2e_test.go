@@ -267,16 +267,6 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 	r.ValidateCRDB(t, cluster)
 
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-	// Get the initial timestamp of the pods before the upgrade.
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-		LabelSelector: operator.LabelSelector,
-	})
-
-	// Capture the creation timestamp of the last pod.
-	if len(pods) == 0 {
-		require.Fail(t, "No pods found for deployment")
-	}
-	initialTimestamp := pods[len(pods)-1].CreationTimestamp.Time
 
 	// Get helm chart paths.
 	helmChartPath, _ := operator.HelmChartPaths()
@@ -292,10 +282,6 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 	}
 	// Apply Helm upgrade with updated values.
 	helm.Upgrade(t, options, helmChartPath, operator.ReleaseName)
-
-	// Verify if the pods are restarted after helm upgrade.
-	err = r.VerifyHelmUpgrade(t, initialTimestamp, kubectlOptions)
-	require.NoError(t, err)
 
 	crdbCluster := testutil.CockroachCluster{
 		DesiredNodes: r.NodeCount,

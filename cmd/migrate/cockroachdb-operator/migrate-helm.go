@@ -1,7 +1,8 @@
-package cockroachdb_enterprise_operator
+package cockroachdb_operator
 
 import (
 	"fmt"
+
 	"github.com/cockroachdb/helm-charts/pkg/migrate"
 	"github.com/spf13/cobra"
 )
@@ -13,16 +14,16 @@ var (
 // buildManifestFromHelm only supports migrating the CockroachDB StatefulSet deployed via the official Helm chart.
 var buildManifestFromHelm = &cobra.Command{
 	Use:   "helm",
-	Short: "Generate migration manifests for Cockroach Enterprise Operator from Official CockroachDB Helm chart(https://artifacthub.io/packages/helm/cockroachdb/cockroachdb)",
+	Short: "Generate migration manifests for the CockroachDB Operator from the Official CockroachDB Helm chart (https://artifacthub.io/packages/helm/cockroachdb/cockroachdb)",
 	Long: `Generate the necessary Kubernetes manifests to migrate from a CockroachDB deployment created using 
-the official CockroachDB Helm chart to one managed by the Cockroach Enterprise Operator.
+the official CockroachDB Helm chart to one managed by the CockroachDB Operator.
 
 This command is designed to simplify the migration process by generating manifests that are compatible 
-with the Cockroach Enterprise Operator, including resources such as CRDBNode and values.yaml
+with the CockroachDB Operator, including resources such as CRDBNode and values.yaml
 
 It is intended for users who initially deployed CockroachDB via the Helm chart provided by Cockroach Labs 
 and now wish to take advantage of the additional capabilities and lifecycle management features offered 
-by the Cockroach Enterprise Operator.
+by the CockroachDB Operator.
 
 Before running this command, ensure that your Helm-based deployment closely follows the official Helm chart 
 structure.
@@ -54,7 +55,7 @@ func buildManifestFromCockroachDBHelmChart(cmd *cobra.Command, args []string) er
 	fmt.Printf("📁 Output directory: %s\n", outputDir)
 	fmt.Println("📌 Next steps:")
 	fmt.Printf("   1. Review the generated YAML files under the '%s' directory.\n", outputDir)
-	fmt.Println("   2. Follow the README.md under scripts/migration/helm directory")
+	fmt.Println("   2. Follow the manual_migration.md under docs/migration/helm directory")
 	fmt.Println("   3. Monitor the cluster to ensure a smooth transition.")
 	fmt.Printf("\n⚠️ WARNING:\n")
 	fmt.Println("   Always review the generated manifests thoroughly and test in staging environment")

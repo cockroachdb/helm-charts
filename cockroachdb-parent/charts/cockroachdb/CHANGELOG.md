@@ -1,5 +1,32 @@
 # CockroachDB Chart — CHANGELOG
 
+## [26.2.0] — 2026-05-25
+### Added
+- Added `cockroachdb.crdbCluster.rbac.nodeReader.create` to let split-chart tenant installs
+  skip the CockroachDB chart's node-reader ClusterRole/ClusterRoleBinding when the platform has
+  already created equivalent RBAC through the operator chart. See
+  [Split-Chart Node Reader RBAC](README.md#split-chart-node-reader-rbac) for setup details.
+  **Important:** Existing releases must upgrade the operator chart first with matching
+  `nodeReader.subjects` and verify the operator-owned ClusterRole/ClusterRoleBinding exists before
+  upgrading the CockroachDB chart with `nodeReader.create=false`; otherwise Helm removes the
+  CockroachDB chart-owned binding and CockroachDB pods lose node read permissions.
+
+### Changed
+- Updated the default CockroachDB image version from `v26.1.4` to `v26.2.0`.
+- Removed the CockroachDB chart pre-upgrade validation hook and its ClusterRole/ClusterRoleBinding.
+  The `hooks.kubectlImage.*` values (added in 26.1.3) are no longer used and can be removed from
+  custom values files.
+  **Notes:**
+  - Preview users upgrading existing CockroachDB Operator deployments should verify that the
+    `crdbclusters.crdb.cockroachlabs.com` CRD serves `v1beta1`, stores `v1beta1`, and has
+    `status.storedVersions` set to `["v1beta1"]` by following the verification commands in
+    [MIGRATION_v1alpha1_to_v1beta1.md](../../MIGRATION_v1alpha1_to_v1beta1.md).
+  - Users adopting the chart after automated migration from the Public Operator or Helm
+    StatefulSet flows should follow the controller migration guides in
+    [docs/migration](../../../docs/migration) and verify that the migrated cluster is readable
+    through the v1beta1 API before chart adoption:
+    `kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com <cluster-name> -n <namespace>`.
+
 ## [26.1.4] — 2026-05-06
 ### Changed
 - Updated the default CockroachDB image version from `v26.1.3` to `v26.1.4`.
