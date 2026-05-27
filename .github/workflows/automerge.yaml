@@ -19,7 +19,7 @@ permissions:
 jobs:
   automerge:
     runs-on: ubuntu-latest
-    if: ${{ github.actor == 'cockroach-teamcity' }}
+    if: ${{ github.actor == 'cockroach-teamcity' || github.actor == 'crl-release-eng-bot' }}
     steps:
       - uses: actions/checkout@v4
         with:
