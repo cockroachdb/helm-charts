@@ -423,12 +423,11 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Clou
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 	r.NodeCount += 1
 
-	// Check if scaling is supported by the cloud provider.
 	if cloudProvider.CanScale() {
 		t.Logf("Scaling node pool for provider: %s", r.Provider)
 		cloudProvider.ScaleNodePool(t, r.RegionCodes[0], r.NodeCount, 0)
 	} else {
-		t.Logf("Provider %s does not support scaling", r.Provider)
+		t.Logf("Provider %s does not support node pool scaling, running CRDB scale-up only", r.Provider)
 	}
 
 	options := &helm.Options{

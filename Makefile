@@ -1,7 +1,7 @@
 UNAME_S := $(shell uname -s)
 NC := $(shell tput sgr0) # No Color
 ifeq ($(UNAME_S),Linux)
-  COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.linux-amd64.tgz
+  COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v26.2.1.linux-amd64.tgz
   HELM_BIN ?= https://get.helm.sh/helm-v3.17.0-linux-amd64.tar.gz
   K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-linux-amd64
   KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
@@ -12,7 +12,7 @@ ifeq ($(UNAME_S),Linux)
   OPM_BIN ?= opm
 endif
 ifeq ($(UNAME_S),Darwin)
-  COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v23.2.0.darwin-10.9-amd64.tgz
+  COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v26.2.1.darwin-10.9-amd64.tgz
   HELM_BIN ?= https://get.helm.sh/helm-v3.17.0-darwin-amd64.tar.gz
   K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-darwin-arm64
   KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.29.0/kind-darwin-arm64
@@ -70,7 +70,7 @@ build/v2-charts: bin/helm ## build operator + cockroachdb charts to build/artifa
 SELF_SIGNER_TAG = $(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)
 
 build/self-signer: bin/yq ## build the self-signer image
-	@docker build --platform=linux/amd64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
+	@docker build -f build/docker-image/self-signer-cert-utility/Dockerfile \
 		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) \
 		-t ${REGISTRY}/${REPOSITORY}:$(SELF_SIGNER_TAG) .
 

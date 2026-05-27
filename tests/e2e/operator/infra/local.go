@@ -85,67 +85,61 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		// MetalLB and CoreDNS are only needed for multi-cluster setups.
-		// Single-cluster deployments use the cluster's default DNS and don't need
-		// cross-cluster networking.
+		// MetalLB is only needed for Kind multi-cluster (provides LB IPs for cross-cluster CoreDNS).
 		if r.ProviderType == ProviderKind && len(r.Clusters) > 1 {
 			err = r.installMetalLBWithDockerIPs(t, kubectlOptions, i)
 			require.NoError(t, err)
 		}
 
-		if len(r.Clusters) > 1 {
-			deployment := coredns.CoreDNSDeployment(coreDNSReplicas)
-			deploymentYaml := coredns.ToYAML(t, deployment)
-			err = k8s.KubectlApplyFromStringE(t, kubectlOptions, deploymentYaml)
-			require.NoError(t, err)
+		// CoreDNS is deployed on all clusters (including single-cluster) to resolve
+		// the custom cluster domain (e.g. cluster1.local) used in helm values.
+		deployment := coredns.CoreDNSDeployment(coreDNSReplicas)
+		deploymentYaml := coredns.ToYAML(t, deployment)
+		err = k8s.KubectlApplyFromStringE(t, kubectlOptions, deploymentYaml)
+		require.NoError(t, err)
 
-			_, err = retry.DoWithRetryE(t, "waiting for coredns deployment",
-				defaultRetries, defaultRetryInterval,
-				func() (string, error) {
-					return k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-						"wait", "--for=condition=Available", fmt.Sprintf("deployment/%s", coreDNSDeploymentName))
-				})
-			require.NoError(t, err)
+		_, err = retry.DoWithRetryE(t, "waiting for coredns deployment",
+			defaultRetries, defaultRetryInterval,
+			func() (string, error) {
+				return k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+					"wait", "--for=condition=Available", fmt.Sprintf("deployment/%s", coreDNSDeploymentName))
+			})
+		require.NoError(t, err)
 
-			service := coredns.CoreDNSService(nil, GetLoadBalancerAnnotations(r.ProviderType))
-			serviceYaml := coredns.ToYAML(t, service)
-			err = k8s.KubectlApplyFromStringE(t, kubectlOptions, serviceYaml)
-			require.NoError(t, err)
+		service := coredns.CoreDNSService(nil, GetLoadBalancerAnnotations(r.ProviderType))
+		serviceYaml := coredns.ToYAML(t, service)
+		err = k8s.KubectlApplyFromStringE(t, kubectlOptions, serviceYaml)
+		require.NoError(t, err)
 
-			ips, err := WaitForCoreDNSServiceIPs(t, kubectlOptions)
-			require.NoError(t, err)
+		ips, err := WaitForCoreDNSServiceIPs(t, kubectlOptions)
+		require.NoError(t, err)
 
-			r.CorednsClusterOptions[operator.CustomDomains[i]] = coredns.CoreDNSClusterOption{
-				IPs:       ips,
-				Namespace: r.Namespace[cluster],
-				Domain:    operator.CustomDomains[i],
-			}
-		} else {
-			t.Logf("[%s] Skipping CoreDNS/MetalLB setup for single-cluster deployment", r.ProviderType)
+		r.CorednsClusterOptions[operator.CustomDomains[i]] = coredns.CoreDNSClusterOption{
+			IPs:       ips,
+			Namespace: r.Namespace[cluster],
+			Domain:    operator.CustomDomains[i],
 		}
 		if !r.IsMultiRegion {
 			break
 		}
 	}
 
-	// Update CoreDNS config (only for multi-cluster).
-	if len(r.Clusters) > 1 {
-		for i, cluster := range r.Clusters {
-			kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, coreDNSNamespace)
-			cm := coredns.CoreDNSConfigMap(operator.CustomDomains[i], r.CorednsClusterOptions)
+	// Update CoreDNS config.
+	for i, cluster := range r.Clusters {
+		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, coreDNSNamespace)
+		cm := coredns.CoreDNSConfigMap(operator.CustomDomains[i], r.CorednsClusterOptions)
 
-			cmYaml := coredns.ToYAML(t, cm)
-			err := k8s.KubectlApplyFromStringE(t, kubectlOptions, cmYaml)
-			require.NoError(t, err)
+		cmYaml := coredns.ToYAML(t, cm)
+		err := k8s.KubectlApplyFromStringE(t, kubectlOptions, cmYaml)
+		require.NoError(t, err)
 
-			err = k8s.RunKubectlE(t, kubectlOptions, "rollout", "restart", "deployment", coreDNSDeploymentName)
-			require.NoError(t, err)
+		err = k8s.RunKubectlE(t, kubectlOptions, "rollout", "restart", "deployment", coreDNSDeploymentName)
+		require.NoError(t, err)
+		if !r.IsMultiRegion {
+			r.Clients = clients
+			r.ReusingInfra = true
+			return
 		}
-	}
-	if !r.IsMultiRegion {
-		r.Clients = clients
-		r.ReusingInfra = true
-		return
 	}
 	r.Clients = clients
 	r.ReusingInfra = true
