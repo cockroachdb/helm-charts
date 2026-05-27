@@ -164,7 +164,7 @@ cockroachdb:
     # image captures the container image settings for CockroachDB nodes.
     image:
       # name defines the CockroachDB container image.
-      name: cockroachdb/cockroach:v26.2.0
+      name: cockroachdb/cockroach:v26.2.1
       # pullPolicy defines the image pull policy for CockroachDB.
       pullPolicy: IfNotPresent
       # registry defines the container registry host (e.g., gcr.io, docker.io).
@@ -513,7 +513,7 @@ cockroachdb:
             #     fieldRef:
             #       fieldPath: metadata.name
             resources: {}
-            # image: cockroachdb/cockroach:v26.2.0
+            # image: cockroachdb/cockroach:v26.2.1
             # - name: cert-reloader
             #   image: docker.io/cockroachdb/cockroachdb-cert-reloader:v1.0.0-rc.2
 
