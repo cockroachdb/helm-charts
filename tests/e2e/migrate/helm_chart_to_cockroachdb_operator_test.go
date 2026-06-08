@@ -178,18 +178,8 @@ func initMigrationClient() error {
 }
 
 // providerCloudRegion returns the cloud region for the active provider.
-func providerCloudRegion() string {
-	p := strings.TrimSpace(strings.ToLower(os.Getenv("PROVIDER")))
-	switch p {
-	case "k3d", "": // default to k3d when PROVIDER is unset
-		return infra.RegionCodes[infra.ProviderK3D][0]
-	case "kind":
-		return infra.RegionCodes[infra.ProviderKind][0]
-	case "gcp":
-		return infra.RegionCodes[infra.ProviderGCP][0]
-	default:
-		return ""
-	}
+func providerCloudRegion(t *testing.T) string {
+	return infra.RegionCodes[infra.ResolveProvider(t)][0]
 }
 
 func TestHelmChartToOperatorMigration(t *testing.T) {
@@ -253,7 +243,7 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace, providerCloudRegion())
+	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace, providerCloudRegion(t))
 	defer func() {
 		t.Log("helm uninstall the crdbcluster CR from the helm chart")
 		h.Uninstall(t)
@@ -371,7 +361,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace, providerCloudRegion())
+	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace, providerCloudRegion(t))
 	defer func() {
 		t.Log("helm uninstall the crdbcluster CR from the helm chart")
 		h.Uninstall(t)
@@ -484,7 +474,7 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace, providerCloudRegion())
+	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace, providerCloudRegion(t))
 	defer func() {
 		t.Log("helm uninstall the crdbcluster CR from the helm chart")
 		h.Uninstall(t)
@@ -582,7 +572,7 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "crdb-critical")
 	}()
 
-	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace, providerCloudRegion())
+	operator.InstallCockroachDBOperatorScopedForMigration(t, kubectlOptions, h.Namespace, providerCloudRegion(t))
 	defer func() {
 		t.Log("helm uninstall the crdbcluster CR from the helm chart")
 		h.Uninstall(t)

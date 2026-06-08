@@ -30,20 +30,7 @@ func newMultiRegion() *multiRegion {
 
 // TestOperatorInMultiRegion tests CockroachDB operator functionality across multiple regions
 func TestOperatorInMultiRegion(t *testing.T) {
-	// Fetch provider from env
-	var provider string
-	if p := strings.TrimSpace(strings.ToLower(os.Getenv("PROVIDER"))); p != "" {
-		switch p {
-		case "kind":
-			provider = infra.ProviderKind
-		case "gcp":
-			provider = infra.ProviderGCP
-		default:
-			t.Fatalf("Unsupported provider override: %s", p)
-		}
-	} else {
-		provider = infra.ProviderK3D
-	}
+	provider := infra.ResolveProvider(t)
 
 	t.Run(provider, func(t *testing.T) {
 		t.Parallel()
@@ -139,11 +126,8 @@ func (r *multiRegion) TestHelmInstall(t *testing.T) {
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
-
-	defer r.CleanUpCACertificate(t)
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
 
 	// Apply operator, CockroachDB charts on each cluster.
 	for i, cluster := range r.Clusters {
@@ -181,11 +165,8 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
-
-	defer r.CleanUpCACertificate(t)
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
 
 	// Apply operator, CockroachDB charts on each cluster.
 	for i, cluster := range r.Clusters {
@@ -247,11 +228,8 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
-
-	defer r.CleanUpCACertificate(t)
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
 
 	// Apply operator, CockroachDB charts on each cluster.
 	for i, cluster := range r.Clusters {
@@ -292,18 +270,11 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 		pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
 			LabelSelector: operator.LabelSelector,
 		})
-		if len(pods) == 0 {
-			require.Fail(t, "No initial pods found for deployment")
-		}
-
-		// Capture the creation timestamp of the last pod.
-		if len(pods) < 3 {
-			require.Fail(t, "Expected at least 3 pods but found %d", len(pods))
-		}
+		require.True(t, len(pods) >= 3, "Expected at least 3 pods but found %d", len(pods))
 		initialTimestamp := pods[len(pods)-1].CreationTimestamp.Time
 
 		// Verify if the pods are restarted after helm upgrade.
-		err = r.VerifyHelmUpgrade(t, initialTimestamp, kubectlOptions)
+		err := r.VerifyHelmUpgrade(t, initialTimestamp, kubectlOptions)
 		require.NoError(t, err)
 
 		crdbCluster := testutil.CockroachCluster{
@@ -336,11 +307,8 @@ func (r *multiRegion) TestKillingCockroachNode(t *testing.T) {
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
-
-	defer r.CleanUpCACertificate(t)
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
 
 	// Apply operator, CockroachDB charts on each cluster.
 	for i, cluster := range r.Clusters {
@@ -400,11 +368,8 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Cloud
 	// Cleanup resources.
 	defer r.CleanupResources(t)
 
-	// Create CA certificate.
-	err := r.CreateCACertificate(t)
-	require.NoError(t, err)
-
-	defer r.CleanUpCACertificate(t)
+	cleanupCA := r.RequireCACertificate(t)
+	defer cleanupCA()
 
 	// Apply Operator, CockroachDB charts on each cluster.
 	for i, cluster := range r.Clusters {

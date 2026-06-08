@@ -12,6 +12,7 @@ import (
 	"github.com/cockroachdb/helm-charts/tests/e2e/calico"
 	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/encryption"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
@@ -84,70 +85,67 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 			require.NoError(t, err)
 		}
 
-		// For Kind, install MetalLB before creating LoadBalancer services
-		// Calico+BGP provides pod routing; MetalLB provides external LB IPs when needed
-		if r.ProviderType == ProviderKind {
-			// Install MetalLB with Docker network IPs
+		// MetalLB and CoreDNS are only needed for multi-cluster setups.
+		// Single-cluster deployments use the cluster's default DNS and don't need
+		// cross-cluster networking.
+		if r.ProviderType == ProviderKind && len(r.Clusters) > 1 {
 			err = r.installMetalLBWithDockerIPs(t, kubectlOptions, i)
 			require.NoError(t, err)
 		}
 
-		// Create or update CoreDNS deployment.
-		deployment := coredns.CoreDNSDeployment(coreDNSReplicas)
-		// Apply deployment.
-		deploymentYaml := coredns.ToYAML(t, deployment)
-		err = k8s.KubectlApplyFromStringE(t, kubectlOptions, deploymentYaml)
-		require.NoError(t, err)
+		if len(r.Clusters) > 1 {
+			deployment := coredns.CoreDNSDeployment(coreDNSReplicas)
+			deploymentYaml := coredns.ToYAML(t, deployment)
+			err = k8s.KubectlApplyFromStringE(t, kubectlOptions, deploymentYaml)
+			require.NoError(t, err)
 
-		// Wait for deployment to be ready.
-		_, err = retry.DoWithRetryE(t, "waiting for coredns deployment",
-			defaultRetries, defaultRetryInterval,
-			func() (string, error) {
-				return k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-					"wait", "--for=condition=Available", fmt.Sprintf("deployment/%s", coreDNSDeploymentName))
-			})
-		require.NoError(t, err)
+			_, err = retry.DoWithRetryE(t, "waiting for coredns deployment",
+				defaultRetries, defaultRetryInterval,
+				func() (string, error) {
+					return k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+						"wait", "--for=condition=Available", fmt.Sprintf("deployment/%s", coreDNSDeploymentName))
+				})
+			require.NoError(t, err)
 
-		// Create a CoreDNS service.
-		service := coredns.CoreDNSService(nil, GetLoadBalancerAnnotations(r.ProviderType))
-		serviceYaml := coredns.ToYAML(t, service)
-		// Apply service.
-		err = k8s.KubectlApplyFromStringE(t, kubectlOptions, serviceYaml)
-		require.NoError(t, err)
+			service := coredns.CoreDNSService(nil, GetLoadBalancerAnnotations(r.ProviderType))
+			serviceYaml := coredns.ToYAML(t, service)
+			err = k8s.KubectlApplyFromStringE(t, kubectlOptions, serviceYaml)
+			require.NoError(t, err)
 
-		// Now get the DNS IPs.
-		ips, err := WaitForCoreDNSServiceIPs(t, kubectlOptions)
-		require.NoError(t, err)
+			ips, err := WaitForCoreDNSServiceIPs(t, kubectlOptions)
+			require.NoError(t, err)
 
-		r.CorednsClusterOptions[operator.CustomDomains[i]] = coredns.CoreDNSClusterOption{
-			IPs:       ips,
-			Namespace: r.Namespace[cluster],
-			Domain:    operator.CustomDomains[i],
+			r.CorednsClusterOptions[operator.CustomDomains[i]] = coredns.CoreDNSClusterOption{
+				IPs:       ips,
+				Namespace: r.Namespace[cluster],
+				Domain:    operator.CustomDomains[i],
+			}
+		} else {
+			t.Logf("[%s] Skipping CoreDNS/MetalLB setup for single-cluster deployment", r.ProviderType)
 		}
 		if !r.IsMultiRegion {
 			break
 		}
 	}
 
-	// Update Coredns config.
-	for i, cluster := range r.Clusters {
-		// Create or update CoreDNS configmap.
-		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, coreDNSNamespace)
-		cm := coredns.CoreDNSConfigMap(operator.CustomDomains[i], r.CorednsClusterOptions)
+	// Update CoreDNS config (only for multi-cluster).
+	if len(r.Clusters) > 1 {
+		for i, cluster := range r.Clusters {
+			kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, coreDNSNamespace)
+			cm := coredns.CoreDNSConfigMap(operator.CustomDomains[i], r.CorednsClusterOptions)
 
-		// Apply the updated ConfigMap to Kubernetes.
-		cmYaml := coredns.ToYAML(t, cm)
-		err := k8s.KubectlApplyFromStringE(t, kubectlOptions, cmYaml)
-		require.NoError(t, err)
+			cmYaml := coredns.ToYAML(t, cm)
+			err := k8s.KubectlApplyFromStringE(t, kubectlOptions, cmYaml)
+			require.NoError(t, err)
 
-		// restart coredns pods.
-		err = k8s.RunKubectlE(t, kubectlOptions, "rollout", "restart", "deployment", coreDNSDeploymentName)
-		require.NoError(t, err)
-		if !r.IsMultiRegion {
-			r.Clients = clients
-			r.ReusingInfra = true
-			return
+			err = k8s.RunKubectlE(t, kubectlOptions, "rollout", "restart", "deployment", coreDNSDeploymentName)
+			require.NoError(t, err)
 		}
+	}
+	if !r.IsMultiRegion {
+		r.Clients = clients
+		r.ReusingInfra = true
+		return
 	}
 	r.Clients = clients
 	r.ReusingInfra = true
@@ -212,6 +210,37 @@ func (r *LocalRegion) TeardownInfra(t *testing.T) {
 	} else {
 		t.Logf("[%s] Successfully tore down %s clusters", r.ProviderType, r.ProviderType)
 	}
+}
+
+func (r *LocalRegion) GetEncryptionProvider() encryption.Provider {
+	return r
+}
+
+func (r *LocalRegion) SetupEncryptionInfrastructure(t *testing.T) (func(), error) {
+	t.Logf("[%s] No KMS infrastructure needed for file-based encryption (UNKNOWN_KEY_TYPE)", r.ProviderType)
+	return func() {
+		t.Logf("[%s] No KMS infrastructure to clean up", r.ProviderType)
+	}, nil
+}
+
+func (r *LocalRegion) GetEncryptionPlatformConfig() *encryption.PlatformConfig {
+	return &encryption.PlatformConfig{
+		Platform:                     "UNKNOWN_KEY_TYPE",
+		RequiresCredentialsSecret:    false,
+		DefaultCredentialsSecretName: "",
+	}
+}
+
+func (r *LocalRegion) EncryptKey(plaintextKey []byte, clusterRegion string) (string, error) {
+	return "", fmt.Errorf("EncryptKey not supported for %s (file-based encryption / UNKNOWN_KEY_TYPE)", r.ProviderType)
+}
+
+func (r *LocalRegion) CreateKeySecret(kubectlOptions *k8s.KubectlOptions, secretName string, encryptedKeyData string, clusterRegion string) error {
+	return fmt.Errorf("CreateKeySecret not supported for %s (file-based encryption / UNKNOWN_KEY_TYPE)", r.ProviderType)
+}
+
+func (r *LocalRegion) CreateCredentialsSecret(kubectlOptions *k8s.KubectlOptions) (string, error) {
+	return "", fmt.Errorf("CreateCredentialsSecret not supported for %s (file-based encryption / UNKNOWN_KEY_TYPE)", r.ProviderType)
 }
 
 // ScaleNodePool scales the node pool in a local cluster
