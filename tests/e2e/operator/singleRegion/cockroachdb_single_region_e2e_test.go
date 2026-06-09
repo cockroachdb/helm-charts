@@ -7,19 +7,19 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
-	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
-	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 )
 
 type singleRegion struct {
-	operator.OperatorUseCases
 	operator.Region
 }
 
@@ -36,9 +36,8 @@ func TestOperatorInSingleRegion(t *testing.T) {
 		// Create a provider-specific instance to avoid race conditions.
 		providerRegion := newSingleRegion()
 		providerRegion.Region = operator.Region{
-			IsMultiRegion: false,
-			NodeCount:     3,
-			ReusingInfra:  false,
+			NodeCount:    3,
+			ReusingInfra: false,
 		}
 		providerRegion.Clients = make(map[string]client.Client)
 		providerRegion.Namespace = make(map[string]string)
@@ -95,20 +94,7 @@ func TestOperatorInSingleRegion(t *testing.T) {
 				t.Logf("Skipping test %s due to previous test failure", name)
 				continue
 			}
-
-			t.Run(name, func(t *testing.T) {
-				// Add immediate cleanup trigger if this individual test fails
-				defer func() {
-					if t.Failed() {
-						testFailed = true
-						t.Logf("Test %s failed, triggering immediate infrastructure cleanup", name)
-						cloudProvider.TeardownInfra(t)
-						t.Logf("Infrastructure cleanup completed due to test failure")
-					}
-				}()
-
-				method(t)
-			})
+			testFailed = !t.Run(name, method)
 		}
 	})
 }

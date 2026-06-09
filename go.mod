@@ -6,6 +6,7 @@ toolchain go1.26.2
 
 require (
 	github.com/Masterminds/semver/v3 v3.2.1
+	github.com/aws/aws-sdk-go v1.44.122
 	github.com/cenkalti/backoff v2.2.1+incompatible
 	github.com/cockroachdb/cockroach-operator v0.0.0-20250618040001-5a36c88b7231
 	github.com/cockroachdb/errors v1.8.0
@@ -33,7 +34,6 @@ require (
 
 require (
 	cloud.google.com/go/compute/metadata v0.3.0 // indirect
-	github.com/aws/aws-sdk-go v1.44.122 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
 	github.com/boombuler/barcode v1.0.1 // indirect
 	github.com/cespare/xxhash/v2 v2.2.0 // indirect

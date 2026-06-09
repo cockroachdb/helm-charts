@@ -136,13 +136,12 @@ func newCompatibilityRegion(provider string) *compatibilityRegion {
 
 	return &compatibilityRegion{
 		Region: operator.Region{
-			IsMultiRegion: false,
-			NodeCount:     3,
-			ReusingInfra:  false,
-			Clients:       make(map[string]client.Client),
-			Namespace:     make(map[string]string),
-			Provider:      provider,
-			Clusters:      []string{clusterName},
+			NodeCount:    3,
+			ReusingInfra: false,
+			Clients:      make(map[string]client.Client),
+			Namespace:    make(map[string]string),
+			Provider:     provider,
+			Clusters:     []string{clusterName},
 		},
 	}
 }

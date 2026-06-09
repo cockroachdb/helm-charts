@@ -32,7 +32,7 @@ const (
 	Namespace             = "cockroach-ns"
 	LabelSelector         = "app=cockroachdb"
 	OperatorLabelSelector = "app=cockroach-operator"
-	testOperatorRegistry = "us-docker.pkg.dev/releases-prod/self-hosted"
+	testOperatorRegistry  = "us-docker.pkg.dev/releases-prod/self-hosted"
 	testOperatorRepo      = "cockroachdb-operator"
 	testInitContainerRepo = "init-container"
 	testInotifywaitRepo   = "inotifywait"
@@ -58,21 +58,9 @@ var (
 	}
 )
 
-// OperatorUseCases defines use cases for the CockroachDB cluster.
-type OperatorUseCases interface {
-	TestHelmInstall(t *testing.T)
-	TestHelmUpgrade(t *testing.T)
-	TestClusterScaleUp(t *testing.T)
-	TestClusterRollingRestart(t *testing.T)
-	TestKillingCockroachNode(t *testing.T)
-	TestInstallWithCertManager(t *testing.T)
-}
-
 type Region struct {
 	// IsCertManager is true if the cockroachdb cluster is using cert-manager.
 	IsCertManager bool
-	// IsMultiRegion is true if the region is multi-region.
-	IsMultiRegion bool
 	// NodeCount is the desired CockroachDB nodes in the region.
 	NodeCount int
 	// Namespace stores mapping between cluster name and namespace.
@@ -105,6 +93,8 @@ func (r *Region) SetEncryptionProvider(p encryption.Provider) {
 func (r *Region) CleanupEncryptionInfra() {
 	if r.encryptionCleanupFunc != nil {
 		r.encryptionCleanupFunc()
+		r.encryptionCleanupFunc = nil
+		r.encryptionInfraSetup = false
 	}
 }
 
@@ -300,10 +290,25 @@ func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 		rawConfig.CurrentContext = cluster
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 
-		pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-			LabelSelector: LabelSelector,
-		})
-		require.NotEmpty(t, pods)
+		// Use retry for ListPods to handle transient API server connectivity issues
+		// (e.g., TLS handshake timeouts) common with cloud providers.
+		var pods []corev1.Pod
+		_, err := retry.DoWithRetryE(t, fmt.Sprintf("listing pods in cluster %s", cluster),
+			6, 10*time.Second,
+			func() (string, error) {
+				var listErr error
+				pods, listErr = k8s.ListPodsE(t, kubectlOptions, metav1.ListOptions{
+					LabelSelector: LabelSelector,
+				})
+				if listErr != nil {
+					return "", listErr
+				}
+				if len(pods) == 0 {
+					return "", fmt.Errorf("no pods found with label %s", LabelSelector)
+				}
+				return "", nil
+			})
+		require.NoError(t, err, "failed to list pods in cluster %s", cluster)
 
 		// Execute SQL query to verify regions.
 		stdout, err := execSQL(t, kubectlOptions, pods[0].Name, "SHOW REGIONS FROM CLUSTER")
@@ -1147,7 +1152,9 @@ func (r *Region) ValidateWALFailover(t *testing.T, cluster string, cfg *Advanced
 	t.Log("WAL failover validation completed successfully")
 }
 
-func (r *Region) CreateEncryptionKeySecret(t *testing.T, kubectlOptions *k8s.KubectlOptions, secretName string, clusterRegion string) error {
+func (r *Region) CreateEncryptionKeySecret(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, secretName string, clusterRegion string,
+) error {
 	if r.encryptionProvider == nil {
 		return fmt.Errorf("no encryption provider configured")
 	}
@@ -1232,7 +1239,9 @@ func generateLocalTenantURI(cluster string) string {
 }
 
 // TODO(CC-35895): once all supported CRDB versions ship convert-url, drop the encode-uri fallback.
-func generateExternalConnectionURI(t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, connString string) string {
+func generateExternalConnectionURI(
+	t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, connString string,
+) string {
 	versionOutput, err := execInCockroachdbContainer(t, kubectlOpts, pod,
 		"/cockroach/cockroach", "version", "--build-tag")
 	require.NoError(t, err, "failed to get CRDB version from pod")

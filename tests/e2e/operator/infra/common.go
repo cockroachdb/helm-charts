@@ -21,6 +21,7 @@ const (
 	ProviderK3D  = "k3d"
 	ProviderKind = "kind"
 	ProviderGCP  = "gcp"
+	ProviderAWS  = "aws"
 )
 
 // Common constants.
@@ -53,6 +54,7 @@ var RegionCodes = map[string][]string{
 	ProviderK3D:  {"us-east1", "us-east2"},
 	ProviderKind: {"us-east1", "us-east2"},
 	ProviderGCP:  {"us-central1", "us-east1"},
+	ProviderAWS:  {"us-east-1", "us-east-2"},
 }
 
 // LoadBalancerAnnotations contains provider-specific service annotations.
@@ -61,6 +63,10 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 		"networking.gke.io/internal-load-balancer-allow-global-access": "true",
 		"networking.gke.io/load-balancer-type":                         "Internal",
 		"cloud.google.com/load-balancer-type":                          "Internal",
+	},
+	ProviderAWS: {
+		"service.beta.kubernetes.io/aws-load-balancer-type":     "nlb",
+		"service.beta.kubernetes.io/aws-load-balancer-internal": "true",
 	},
 	ProviderK3D:  {},
 	ProviderKind: {},
@@ -88,6 +94,8 @@ var NetworkConfigs = map[string]map[string]interface{}{
 			"StaticIP":    "172.28.80.11",
 		},
 	},
+	// AWS network configs are defined as constants in aws.go (awsVPCCIDR*, awsPodCIDR*)
+	// and managed directly during EKS cluster creation.
 }
 
 // IsResourceConflict checks if error is a 409 conflict (resource already exists)
@@ -130,7 +138,14 @@ func GetLoadBalancerAnnotations(providerType string) map[string]string {
 }
 
 // DeployCoreDNS deploys CoreDNS to a cluster.
-func DeployCoreDNS(t *testing.T, clusterName, kubeConfigPath string, staticIP *string, provider string, customDomain string, options map[string]coredns.CoreDNSClusterOption) error {
+func DeployCoreDNS(
+	t *testing.T,
+	clusterName, kubeConfigPath string,
+	staticIP *string,
+	provider string,
+	customDomain string,
+	options map[string]coredns.CoreDNSClusterOption,
+) error {
 	kubectlOpts := k8s.NewKubectlOptions(clusterName, kubeConfigPath, coreDNSNamespace)
 
 	// Deploy CoreDNS resources in order.
@@ -148,7 +163,12 @@ func DeployCoreDNS(t *testing.T, clusterName, kubeConfigPath string, staticIP *s
 }
 
 // deployCoreDNSResources deploys the core CoreDNS resources (ConfigMap, RBAC, Deployment)
-func deployCoreDNSResources(t *testing.T, kubectlOpts *k8s.KubectlOptions, customDomain string, options map[string]coredns.CoreDNSClusterOption) error {
+func deployCoreDNSResources(
+	t *testing.T,
+	kubectlOpts *k8s.KubectlOptions,
+	customDomain string,
+	options map[string]coredns.CoreDNSClusterOption,
+) error {
 	// 1. Deploy ConfigMap
 	cm := coredns.CoreDNSConfigMap(customDomain, options)
 	cmYAML := coredns.ToYAML(t, cm)
@@ -201,7 +221,9 @@ func deployCoreDNSRBAC(t *testing.T, kubectlOpts *k8s.KubectlOptions) error {
 }
 
 // deployCoreDNSService creates and applies the CoreDNS service
-func deployCoreDNSService(t *testing.T, kubectlOpts *k8s.KubectlOptions, staticIP *string, provider string) error {
+func deployCoreDNSService(
+	t *testing.T, kubectlOpts *k8s.KubectlOptions, staticIP *string, provider string,
+) error {
 	// Get provider-specific annotations.
 	annotations := GetLoadBalancerAnnotations(provider)
 
