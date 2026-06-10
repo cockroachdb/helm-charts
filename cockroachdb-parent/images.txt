@@ -16,7 +16,7 @@ docker.io/cockroachdb/cockroachdb-operator-v2:v1.0.0-rc.2
 # === CockroachDB chart images ===
 
 # CockroachDB database
-docker.io/cockroachdb/cockroach:v26.2.0
+docker.io/cockroachdb/cockroach:v26.2.1
 
 # Certificate self-signer
 docker.io/cockroachdb/cockroach-self-signer-cert:1.10

@@ -1,5 +1,9 @@
 # CockroachDB Chart — CHANGELOG
 
+## [26.2.1] — 2026-06-11
+### Changed
+- Updated the default CockroachDB image version from `v26.2.0` to `v26.2.1`.
+
 ## [26.2.0] — 2026-05-25
 ### Added
 - Added `cockroachdb.crdbCluster.rbac.nodeReader.create` to let split-chart tenant installs
