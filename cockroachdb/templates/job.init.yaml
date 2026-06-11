@@ -33,6 +33,9 @@ spec:
       {{- with .Values.init.labels }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- with .Values.labels }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     {{- with .Values.init.annotations }}
       annotations: {{- toYaml . | nindent 8 }}
     {{- end }}
