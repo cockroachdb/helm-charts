@@ -85,8 +85,8 @@ Init -> CertMigration -> PodMigration -> Finalization -> (user deletes STS) -> C
 | Init | Seconds | Validates prerequisites (including `skip-reconcile`), creates v1beta1 CrdbCluster via conversion webhook, records original replica count |
 | CertMigration | Seconds to minutes | Detects cert type, regenerates certs with join service SANs, creates CA ConfigMap, renames ConfigMap key (`logging.yaml` → `logs.yaml`), labels existing pods |
 | PodMigration | ~5-15 min per node | Creates CrdbNode, waits for health, scales down STS by one. Repeats for each node (highest index first) |
-| Finalization | Seconds | Sets cluster spec (regions, TLS, resources), deletes old PDB, creates new PDB, sets Mode=MutableOnly |
-| Complete | Seconds (after user deletes STS) | Records completion, updates migration label to `complete` |
+| Finalization | Seconds | Sets cluster spec (regions, TLS, resources), deletes old PDB, creates new PDB |
+| Complete | Seconds (after user deletes STS) | Records completion, sets `Mode=MutableOnly`, updates migration label to `complete` |
 
 ---
 
@@ -473,14 +473,6 @@ kubectl exec $CRDBCLUSTER-0 -n $NAMESPACE -c cockroachdb -- \
 ### Verify preserved configurations
 
 ```bash
-# WAL failover (if configured)
-kubectl get crdbcluster $CRDBCLUSTER -n $NAMESPACE \
-  -o jsonpath='{.spec.template.spec.walFailoverSpec}'
-
-# Logs PVC (if configured)
-kubectl get crdbcluster $CRDBCLUSTER -n $NAMESPACE \
-  -o jsonpath='{.spec.template.spec.logsStore}'
-
 # ConfigMap key format (should be logs.yaml, not logging.yaml)
 kubectl get configmap <log-config-name> -n $NAMESPACE -o yaml | grep -E "logging.yaml|logs.yaml"
 
@@ -1201,24 +1193,14 @@ is missing, ensure:
 kubectl get crd crdbclusters.crdb.cockroachlabs.com -o yaml | grep -A5 conversion
 ```
 
-### Locality Labels Missing
-
-If CrdbNode pods remain Pending, check for locality label warnings:
-
-```bash
-kubectl get events -n $NAMESPACE --field-selector reason=LocalityLabelsRequired
-```
-
-Apply the required labels to K8s nodes (see Step 2).
-
 ### Under-replicated Ranges
 
 The controller retries health checks every 10 seconds. If under-replicated ranges persist for
 more than 10 minutes, migration auto-pauses.
 
 ```bash
-# Use -c db during migration, -c cockroachdb after migration
-kubectl exec $CRDBCLUSTER-0 -n $NAMESPACE -c cockroachdb -- \
+# StatefulSet pods use -c db. Migrated CrdbNode pods use -c cockroachdb.
+kubectl exec $CRDBCLUSTER-0 -n $NAMESPACE -c db -- \
   /cockroach/cockroach sql --certs-dir=/cockroach/cockroach-certs \
   -e "SELECT sum((metrics->>'ranges.underreplicated')::INT8) FROM crdb_internal.kv_store_status;"
 ```

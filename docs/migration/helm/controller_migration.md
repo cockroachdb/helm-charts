@@ -86,8 +86,8 @@ Init -> CertMigration -> PodMigration -> Finalization -> (user deletes STS) -> C
 | Init | Seconds | Validates prerequisites, creates v1beta1 CrdbCluster, records original replica count |
 | CertMigration | Seconds to minutes | Detects cert type, regenerates certs with join service SANs, creates CA ConfigMap, labels existing pods |
 | PodMigration | ~5-15 min per node | Creates CrdbNode, waits for health, scales down STS by one. Repeats for each node (highest index first) |
-| Finalization | Seconds | Sets cluster spec (regions, TLS, resources), deletes old PDB, creates new PDB, sets Mode=MutableOnly |
-| Complete | Seconds (after user deletes STS) | Records completion, updates migration label to `complete` |
+| Finalization | Seconds | Sets cluster spec (regions, TLS, resources), deletes old PDB, creates new PDB |
+| Complete | Seconds (after user deletes STS) | Records completion, sets `Mode=MutableOnly`, updates migration label to `complete` |
 
 ---
 
@@ -807,17 +807,6 @@ kubectl get crdbnode $STS_NAME-<index> -n $NAMESPACE -o yaml
 kubectl label sts $STS_NAME crdb.io/migrate=start --overwrite -n $NAMESPACE
 ```
 
-### Locality Labels Missing
-
-If CrdbNode pods remain Pending, check for locality label warnings:
-
-```bash
-kubectl get events -n $NAMESPACE \
-  --field-selector reason=LocalityLabelsRequired
-```
-
-Apply the required labels to K8s nodes (see Step 2).
-
 ### Insecure Cluster Migration
 
 The controller detects insecure clusters (`--insecure` flag) and skips certificate migration.
@@ -831,8 +820,8 @@ controller retries every 10 seconds. If ranges remain under-replicated for 10 mi
 migration pauses.
 
 ```bash
-# Check from any running CockroachDB pod (use -c db during migration, -c cockroachdb after)
-kubectl exec $STS_NAME-0 -n $NAMESPACE -c cockroachdb -- \
+# StatefulSet pods use -c db. Migrated CrdbNode pods use -c cockroachdb.
+kubectl exec $STS_NAME-0 -n $NAMESPACE -c db -- \
   /cockroach/cockroach sql --certs-dir=/cockroach/cockroach-certs \
   -e "SELECT sum((metrics->>'ranges.underreplicated')::INT8) FROM crdb_internal.kv_store_status;"
 ```
