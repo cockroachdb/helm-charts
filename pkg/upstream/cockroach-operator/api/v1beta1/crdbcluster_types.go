@@ -51,6 +51,24 @@ type CrdbNodeTemplate struct {
 	Spec CrdbNodeSpec `json:"spec,omitempty"`
 }
 
+// PostInitSQL specifies SQL statements to execute once after the cluster has
+// been initialized. Statements run in the order: secretRef contents, then
+// configMapRef contents, then inline. Any failure flips the
+// PostInitSQLApplied condition to False with the error in Reason/Message.
+// Users are responsible for writing idempotent SQL (IF NOT EXISTS,
+// ON CONFLICT DO NOTHING) because all statements replay from the beginning
+// after a fix.
+type PostInitSQL struct {
+	// Inline is an ordered list of SQL statements to execute.
+	Inline []string `json:"inline,omitempty"`
+
+	// ConfigMapRef references a ConfigMap key whose value is a SQL script.
+	ConfigMapRef *corev1.ConfigMapKeySelector `json:"configMapRef,omitempty"`
+
+	// SecretRef references a Secret key whose value is a SQL script.
+	SecretRef *corev1.SecretKeySelector `json:"secretRef,omitempty"`
+}
+
 // CrdbClusterSpec defines the desired state of CrdbCluster.
 // NOTE: Run "make" to regenerate code after modifying this file.
 // TODO(chrisseto): Add backward compatibility for all betaclusterctrl fields
@@ -79,6 +97,10 @@ type CrdbClusterSpec struct {
 	// therefore optional.
 	// +kubebuilder:validation:Optional
 	ClusterSettings map[string]string `json:"clusterSettings,omitempty"`
+
+	// PostInitSQL specifies SQL statements to run once after cluster
+	// initialization. See PostInitSQL for execution semantics.
+	PostInitSQL *PostInitSQL `json:"postInitSQL,omitempty"`
 
 	// Regions specifies the regions in which this cluster is deployed, along
 	// with information about how each region is configured.

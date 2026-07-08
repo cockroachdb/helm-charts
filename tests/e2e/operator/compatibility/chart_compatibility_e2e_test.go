@@ -14,9 +14,11 @@ import (
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
+	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -101,12 +103,16 @@ func TestChartCompatibilityUpgrade(t *testing.T) {
 	requireOperatorMigrationFlag(t, kubectlOptions, false)
 
 	t.Log("Upgrading CockroachDB chart from the local checkout")
-	upgradeCockroachDBChart(t, kubectlOptions, helmChartPath)
+	postInitSQLDatabase := "compat_post_init"
+	upgradeCockroachDBChart(t, kubectlOptions, helmChartPath, map[string]string{
+		"cockroachdb.crdbCluster.postInitSQL.inline[0]": fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", postInitSQLDatabase),
+	})
 
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, testutil.CockroachCluster{
 		DesiredNodes: r.NodeCount,
 	}, 600*time.Second)
 	r.ValidateCRDB(t, cluster)
+	requirePostInitSQLDatabase(t, kubectlOptions, postInitSQLDatabase)
 
 	t.Log("Exercising release-specific migration and split-chart node-reader settings")
 	nodeReaderName := fmt.Sprintf("compat-node-reader-%s", r.Namespace[cluster])
@@ -317,6 +323,38 @@ func requireNodeReaderDelegatedToOperatorChart(
 	require.NoError(t, err)
 	lines := strings.Split(strings.TrimSpace(canReadNodes), "\n")
 	require.Equal(t, "yes", strings.TrimSpace(lines[len(lines)-1]))
+}
+
+func requirePostInitSQLDatabase(t *testing.T, kubectlOptions *k8s.KubectlOptions, databaseName string) {
+	t.Helper()
+
+	_, err := retry.DoWithRetryE(t, fmt.Sprintf("waiting for postInitSQL database %s", databaseName), 60, 10*time.Second, func() (string, error) {
+		pods, err := k8s.ListPodsE(t, kubectlOptions, metav1.ListOptions{
+			LabelSelector: operator.LabelSelector,
+		})
+		if err != nil {
+			return "", err
+		}
+		if len(pods) == 0 {
+			return "", fmt.Errorf("no pods found with label %s", operator.LabelSelector)
+		}
+
+		output, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+			"exec", pods[0].Name, "-c", operator.CockroachContainerName, "--",
+			"/cockroach/cockroach", "sql",
+			"--certs-dir=/cockroach/cockroach-certs",
+			"--host=localhost:26257",
+			"-e", fmt.Sprintf("SELECT database_name FROM [SHOW DATABASES] WHERE database_name = '%s'", databaseName),
+		)
+		if err != nil {
+			return output, err
+		}
+		if !strings.Contains(output, databaseName) {
+			return output, fmt.Errorf("database %s not found", databaseName)
+		}
+		return output, nil
+	})
+	require.NoError(t, err)
 }
 
 func cockroachDBCompatibilityValues() map[string]string {

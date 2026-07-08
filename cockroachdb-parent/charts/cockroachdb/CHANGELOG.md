@@ -1,5 +1,13 @@
 # CockroachDB Chart — CHANGELOG
 
+## [Unreleased]
+### Added
+- Added `cockroachdb.crdbCluster.postInitSQL` for post-initialization SQL; see
+  [Post-Init SQL](README.md#post-init-sql).
+
+### Changed
+- Updated the default CockroachDB image version from `v26.2.1` to `v26.2.2`.
+
 ## [26.2.1] — 2026-06-11
 ### Changed
 - Updated the default CockroachDB image version from `v26.2.0` to `v26.2.1`.
