@@ -69,6 +69,51 @@ jobs:
             - 'build/templates/cockroachdb-parent/charts/cockroachdb/Chart.yaml'
             - 'build/templates/cockroachdb-parent/charts/operator/Chart.yaml'
 
+  detect-heavy-e2e-change:
+    name: is-heavy-e2e-required
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      heavyE2E: ${{ steps.detect.outputs.heavyE2E }}
+    steps:
+      - name: Checkout sources
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          ref: ${{github.event.pull_request.head.ref}}
+          repository: ${{github.event.pull_request.head.repo.full_name}}
+
+      - name: Detect heavy E2E relevant changes
+        id: detect
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          base_sha="${{ github.event.pull_request.base.sha }}"
+          head_sha="${{ github.event.pull_request.head.sha }}"
+          git fetch --no-tags --depth=1 "https://x-access-token:${{ github.token }}@github.com/${{ github.event.pull_request.base.repo.full_name }}.git" "${base_sha}"
+
+          mapfile -t changed_files < <(git diff --name-only "${base_sha}" "${head_sha}")
+
+          heavy_e2e=false
+          for file in "${changed_files[@]}"; do
+            case "${file}" in
+              docs/*|skills/*|*.md|*.mdx)
+                ;;
+              *)
+                heavy_e2e=true
+                break
+                ;;
+            esac
+          done
+
+          echo "heavyE2E=${heavy_e2e}" >> "${GITHUB_OUTPUT}"
+          printf 'Heavy E2E required: %s\n' "${heavy_e2e}"
+          printf 'Changed files:\n'
+          printf '%s\n' "${changed_files[@]}"
+
   # pre job run golangci-lint
   go-lint:
     name: 'Golint'
@@ -175,6 +220,8 @@ jobs:
   helm-install-e2e:
     name: Helm-E2E-Test
     runs-on: ubuntu-latest-4-core
+    needs: detect-heavy-e2e-change
+    if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -201,6 +248,8 @@ jobs:
   helm-rotate-cert-e2e:
     name: Helm-rotate-cert-Test
     runs-on: ubuntu-latest-4-core
+    needs: detect-heavy-e2e-change
+    if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -227,6 +276,8 @@ jobs:
   helm-single-region-e2e:
     name: Helm-single-region-Test
     runs-on: ubuntu-latest-4-core
+    needs: detect-heavy-e2e-change
+    if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -299,6 +350,8 @@ jobs:
   helm-multi-region-e2e:
     name: Helm-multi-region-Test
     runs-on: ubuntu-latest-4-core
+    needs: detect-heavy-e2e-change
+    if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -324,6 +377,8 @@ jobs:
   controller-migration-e2e:
     name: controller-migration-e2e
     runs-on: ubuntu-latest-4-core
+    needs: detect-heavy-e2e-change
+    if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -349,6 +404,8 @@ jobs:
   manual-migration-e2e:
     name: manual-migration-e2e
     runs-on: ubuntu-latest-4-core
+    needs: detect-heavy-e2e-change
+    if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
