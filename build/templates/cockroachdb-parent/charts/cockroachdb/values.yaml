@@ -179,6 +179,19 @@ cockroachdb:
     # clusterSettings captures the map of cluster settings to apply to the CockroachDB cluster.
     # https://www.cockroachlabs.com/docs/stable/cluster-settings.html
     clusterSettings: ~
+    # postInitSQL runs SQL statements once after the cluster is initialized.
+    # See README.md#post-init-sql for requirements and examples.
+    postInitSQL: ~
+      # inline:
+      #   - "CREATE DATABASE IF NOT EXISTS myapp"
+      #   - "CREATE USER IF NOT EXISTS app_user"
+      #   - "GRANT ALL ON DATABASE myapp TO app_user"
+      # configMapRef:
+      #   name: bootstrap-sql
+      #   key: init.sql
+      # secretRef:
+      #   name: license-sql
+      #   key: license.sql
     # timestamp captures the annotation timestamp used for rolling restarts.
     timestamp: "2021-10-18T00:00:00Z"
     # dataStore captures the disk configuration for CockroachDB storage.

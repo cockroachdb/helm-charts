@@ -1,5 +1,6 @@
 {{ template "cockroachdb.tlsValidation" . }}
 {{ template "cockroachdb.log.validation" . }}
+{{ template "cockroachdb.postInitSQL.validation" . }}
 {{- if .Release.IsUpgrade -}}
 {{ template "cockroachdb.isUpgradeAllowed" . }}
 {{- end -}}
@@ -23,6 +24,9 @@ spec:
   {{- end }}
   {{- with .Values.cockroachdb.crdbCluster.clusterSettings }}
   clusterSettings: {{- toYaml . | nindent 4 }}
+  {{- end }}
+  {{- with .Values.cockroachdb.crdbCluster.postInitSQL }}
+  postInitSQL: {{- toYaml . | nindent 4 }}
   {{- end }}
   {{- with .Values.cockroachdb.crdbCluster.regions }}
   regions: {{- toYaml . | nindent 4 }}

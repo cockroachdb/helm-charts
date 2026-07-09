@@ -27,7 +27,7 @@
 #      namespace: test-cockroach
 #
 #  image:
-#    name: cockroachdb/cockroach:v26.2.1
+#    name: cockroachdb/cockroach:v26.2.2
 #    pullPolicy: IfNotPresent
 #
 #  nameOverride: ""
@@ -36,6 +36,10 @@
 #  # A map of CRDB cluster settings.
 #  # See https://www.cockroachlabs.com/docs/stable/cluster-settings.html
 #  clusterSettings: ~
+#
+#  # SQL statements to run once after cluster initialization.
+#  # See charts/cockroachdb/README.md#post-init-sql for requirements and examples.
+#  postInitSQL: ~
 #
 #  # loggingConf is the logging configuration used by cockroach.
 #  # More details: https://www.cockroachlabs.com/docs/stable/logging-overview.html
