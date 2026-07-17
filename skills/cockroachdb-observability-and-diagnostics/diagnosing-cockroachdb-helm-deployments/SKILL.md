@@ -53,36 +53,118 @@ Diagnoses CockroachDB Helm install, upgrade, and readiness failures for operator
 
 - Execute one step at a time and inspect the output before moving on. Do not run whole sections, unrelated command groups, or later diagnostic branches in parallel; earlier output determines which later checks are relevant.
 - Treat commands as templates. Substitute namespaces, release names, chart names, and pod names deliberately before running anything.
+- Never infer a `CrdbCluster` object name from a Helm release, service name, or CockroachDB image/version string. List `CrdbCluster` objects and use the exact `metadata.name`.
+- Before reading version-sensitive `CrdbCluster` fields, save the live CRD YAML and derive field paths from the served CRD schema for the object's `apiVersion`.
 - Do not run any mutating command unless the user explicitly approves it for the target cluster. This includes `kubectl patch`, `kubectl annotate`, `kubectl delete`, `kubectl scale`, `kubectl rollout restart`, `helm upgrade`, drain/decommission commands, and interactive `kubectl exec` or `kubectl debug` shells.
 - In production or whenever the impact is unclear, stop and escalate to TSE or the operator team before pprof/metrics collection, debug containers, timestamp-based rolling restarts, mode changes, operator restarts, scale changes, or decommission actions.
 
 ## Step 1: Collect Baseline State
 
 ```bash
+export OPERATOR_NAMESPACE="<operator-namespace>"
+export OPERATOR_RELEASE="<operator-release>"
+export CRDB_NAMESPACE="<cockroachdb-namespace>"
+export CRDB_HELM_RELEASE="<cockroachdb-release>"
+export CRDB_DIAG_DIR="${CRDB_DIAG_DIR:-$(mktemp -d)}"
+
 # Helm release state
-helm -n <operator-namespace> status <operator-release> || true
-helm -n <cockroachdb-namespace> status <cockroachdb-release> || true
-helm -n <operator-namespace> history <operator-release> || true
-helm -n <cockroachdb-namespace> history <cockroachdb-release> || true
+helm -n "$OPERATOR_NAMESPACE" status "$OPERATOR_RELEASE" || true
+helm -n "$CRDB_NAMESPACE" status "$CRDB_HELM_RELEASE" || true
+helm -n "$OPERATOR_NAMESPACE" history "$OPERATOR_RELEASE" || true
+helm -n "$CRDB_NAMESPACE" history "$CRDB_HELM_RELEASE" || true
 
 # Operator state
-kubectl -n <operator-namespace> get deploy,pod,svc -o wide | grep -E 'cockroach-operator|NAME'
-kubectl -n <operator-namespace> logs -l app=cockroach-operator --tail=200 || true
+kubectl -n "$OPERATOR_NAMESPACE" get deploy,pod,svc -o wide | grep -E 'cockroach-operator|NAME'
+kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --tail=200 || true
 
 # CRD and CockroachDB resources
 kubectl get crd crdbclusters.crdb.cockroachlabs.com crdbnodes.crdb.cockroachlabs.com
-kubectl -n <cockroachdb-namespace> get crdbcluster,crdbnode,pod,svc,endpoints,pvc,pdb -o wide
-kubectl -n <cockroachdb-namespace> describe crdbcluster <cockroachdb-release> || true
-kubectl -n <cockroachdb-namespace> get events --sort-by=.lastTimestamp | tail -50
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o yaml > "$CRDB_DIAG_DIR/crdbclusters-crd.yaml"
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o json > "$CRDB_DIAG_DIR/crdbclusters-crd.json"
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster,crdbnode,pod,svc,endpoints,pvc,pdb -o wide
+
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster -o json | jq -r '
+  .items[]
+  | [.metadata.name, .apiVersion, (.metadata.labels["app.kubernetes.io/instance"] // ""), (.metadata.generation | tostring)]
+  | @tsv
+'
+```
+
+If no `CrdbCluster` rows are returned, stop the object-specific diagnosis and report that no live `CrdbCluster` exists in the namespace. You may collect `CrdbNode` owner references and labels as teardown evidence, but do not treat those values as a replacement for a discovered `CrdbCluster`.
+
+If multiple `CrdbCluster` rows are returned, choose the target by `metadata.name`. Do not use the Helm release or a CockroachDB version as a substitute.
+
+```bash
+export CRDBCLUSTER="<metadata.name-from-crdbcluster-list>"
+test -n "$CRDBCLUSTER"
+
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster "$CRDBCLUSTER" -o yaml > "$CRDB_DIAG_DIR/crdbcluster.yaml"
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster "$CRDBCLUSTER" -o json > "$CRDB_DIAG_DIR/crdbcluster.json"
+kubectl -n "$CRDB_NAMESPACE" describe crdbcluster "$CRDBCLUSTER" || true
+kubectl -n "$CRDB_NAMESPACE" get events --sort-by=.lastTimestamp | tail -50
+
+export CRDBCLUSTER_API_VERSION="$(jq -r '.apiVersion | split("/")[-1]' "$CRDB_DIAG_DIR/crdbcluster.json")"
+export CRDBCLUSTER_SCHEMA_JSON="$CRDB_DIAG_DIR/crdbcluster-schema.json"
+jq -e --arg version "$CRDBCLUSTER_API_VERSION" '
+  .spec.versions[] | select(.name == $version) | .schema.openAPIV3Schema
+' "$CRDB_DIAG_DIR/crdbclusters-crd.json" > "$CRDBCLUSTER_SCHEMA_JSON"
+
+crdb_schema_has() {
+  jq -e --arg path "$1" '
+    def has_schema_path($schema; $parts):
+      if ($parts | length) == 0 then true
+      elif (($schema.properties? // {}) | has($parts[0])) then
+        has_schema_path($schema.properties[$parts[0]]; $parts[1:])
+      else false
+      end;
+    has_schema_path(.; $path | split("."))
+  ' "$CRDBCLUSTER_SCHEMA_JSON" >/dev/null
+}
+
+crdb_first_schema_path() {
+  for schema_path in "$@"; do
+    if crdb_schema_has "$schema_path"; then
+      printf '%s\n' "$schema_path"
+      return 0
+    fi
+  done
+  printf '\n'
+}
+
+export CRDB_MODE_PATH="$(crdb_first_schema_path spec.mode)"
+export CRDB_REGIONS_PATH="$(crdb_first_schema_path spec.regions)"
+export CRDB_DESIRED_IMAGE_PATH="$(crdb_first_schema_path spec.template.spec.image spec.image.name spec.image)"
+export CRDB_OBSERVED_GENERATION_PATH="$(crdb_first_schema_path status.observedGeneration)"
+export CRDB_RECONCILED_PATH="$(crdb_first_schema_path status.reconciled)"
+export CRDB_READY_NODES_PATH="$(crdb_first_schema_path status.readyNodes)"
+export CRDB_STATUS_IMAGE_PATH="$(crdb_first_schema_path status.image status.crdbcontainerimage)"
+export CRDB_STATUS_VERSION_PATH="$(crdb_first_schema_path status.version)"
+export CRDB_ACTIONS_PATH="$(crdb_first_schema_path status.actions status.operatorActions)"
+export CRDB_CONDITIONS_PATH="$(crdb_first_schema_path status.conditions)"
+export CRDB_CERTIFICATES_PATH="$(crdb_first_schema_path spec.template.spec.certificates spec.certificates)"
+
+printf '%s\n' \
+  "apiVersion=$CRDBCLUSTER_API_VERSION" \
+  "mode=$CRDB_MODE_PATH" \
+  "regions=$CRDB_REGIONS_PATH" \
+  "desiredImage=$CRDB_DESIRED_IMAGE_PATH" \
+  "observedGeneration=$CRDB_OBSERVED_GENERATION_PATH" \
+  "reconciled=$CRDB_RECONCILED_PATH" \
+  "readyNodes=$CRDB_READY_NODES_PATH" \
+  "statusImage=$CRDB_STATUS_IMAGE_PATH" \
+  "statusVersion=$CRDB_STATUS_VERSION_PATH" \
+  "actions=$CRDB_ACTIONS_PATH" \
+  "conditions=$CRDB_CONDITIONS_PATH" \
+  "certificates=$CRDB_CERTIFICATES_PATH"
 ```
 
 For a stuck pod or node:
 
 ```bash
-kubectl -n <cockroachdb-namespace> describe pod <crdb-pod>
-kubectl -n <cockroachdb-namespace> logs <crdb-pod> -c cockroachdb --tail=200
-kubectl -n <cockroachdb-namespace> logs <crdb-pod> -c cockroachdb --previous
-kubectl -n <cockroachdb-namespace> describe crdbnode <crdbnode-name>
+kubectl -n "$CRDB_NAMESPACE" describe pod <crdb-pod>
+kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cockroachdb --tail=200
+kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cockroachdb --previous
+kubectl -n "$CRDB_NAMESPACE" describe crdbnode <crdbnode-name>
 ```
 
 ## Step 2: Classify the Failure
@@ -105,10 +187,10 @@ kubectl -n <cockroachdb-namespace> describe crdbnode <crdbnode-name>
 ## CRD and Operator Readiness
 
 ```bash
-kubectl -n <operator-namespace> rollout status deploy/cockroach-operator --timeout=5m
+kubectl -n "$OPERATOR_NAMESPACE" rollout status deploy/cockroach-operator --timeout=5m
 kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[*].name}{"\n"}'
 kubectl get crd crdbnodes.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[*].name}{"\n"}'
-kubectl -n <operator-namespace> get deploy cockroach-operator -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+kubectl -n "$OPERATOR_NAMESPACE" get deploy cockroach-operator -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 ```
 
 Remediation:
@@ -121,10 +203,10 @@ Remediation:
 ## Operator Health
 
 ```bash
-kubectl -n <operator-namespace> get pods -l app=cockroach-operator -o wide
-kubectl -n <operator-namespace> describe pod <operator-pod>
-kubectl -n <operator-namespace> logs -l app=cockroach-operator --tail=100
-kubectl -n <operator-namespace> get deploy cockroach-operator -o jsonpath='{.spec.template.spec.containers[0].env}{"\n"}'
+kubectl -n "$OPERATOR_NAMESPACE" get pods -l app=cockroach-operator -o wide
+kubectl -n "$OPERATOR_NAMESPACE" describe pod <operator-pod>
+kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --tail=100
+kubectl -n "$OPERATOR_NAMESPACE" get deploy cockroach-operator -o jsonpath='{.spec.template.spec.containers[0].env}{"\n"}'
 ```
 
 Interpretation:
@@ -138,13 +220,13 @@ Interpretation:
 Check recent logs to see whether reconciliation is active:
 
 ```bash
-kubectl -n <operator-namespace> logs -l app=cockroach-operator --tail=100 | grep -i reconcil || true
+kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --tail=100 | grep -i reconcil || true
 ```
 
 Do not add ad hoc annotations to trigger reconciliation. If a user-approved reconcile-triggering change is required, use the chart-supported timestamp path through `helm upgrade --reuse-values`; this updates `helm.sh/restartedAt` and may roll CockroachDB pods, so treat it as a mutating operation:
 
 ```bash
-helm -n <cockroachdb-namespace> upgrade <cockroachdb-release> <cockroachdb-chart> \
+helm -n "$CRDB_NAMESPACE" upgrade "$CRDB_HELM_RELEASE" <cockroachdb-chart> \
   --reuse-values \
   --set-string cockroachdb.crdbCluster.timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```
@@ -183,8 +265,8 @@ Do not set `nodeReader.create=false` before replacement RBAC exists.
 ## Webhook Checks
 
 ```bash
-kubectl -n <operator-namespace> get svc cockroach-webhook-service
-kubectl -n <operator-namespace> get endpoints cockroach-webhook-service
+kubectl -n "$OPERATOR_NAMESPACE" get svc cockroach-webhook-service
+kubectl -n "$OPERATOR_NAMESPACE" get endpoints cockroach-webhook-service
 kubectl get validatingwebhookconfigurations | grep cockroach
 ```
 
@@ -200,17 +282,45 @@ For scoped operators, webhook configurations may be namespace-suffixed, such as 
 ## Reconciliation Not Progressing
 
 ```bash
-kubectl -n <cockroachdb-namespace> get crdbcluster <cockroachdb-release> -o json | jq '{
-  mode: .spec.mode,
-  image: .spec.image,
+jq \
+  --arg modePath "$CRDB_MODE_PATH" \
+  --arg desiredImagePath "$CRDB_DESIRED_IMAGE_PATH" \
+  --arg observedGenerationPath "$CRDB_OBSERVED_GENERATION_PATH" \
+  --arg reconciledPath "$CRDB_RECONCILED_PATH" \
+  --arg readyNodesPath "$CRDB_READY_NODES_PATH" \
+  --arg statusImagePath "$CRDB_STATUS_IMAGE_PATH" \
+  --arg statusVersionPath "$CRDB_STATUS_VERSION_PATH" \
+  --arg actionsPath "$CRDB_ACTIONS_PATH" \
+  --arg conditionsPath "$CRDB_CONDITIONS_PATH" \
+  '
+  def value($path): if $path == "" then null else getpath($path | split(".")) end;
+  {
+  apiVersion,
+  name: .metadata.name,
+  schemaPaths: {
+    mode: $modePath,
+    desiredImage: $desiredImagePath,
+    observedGeneration: $observedGenerationPath,
+    reconciled: $reconciledPath,
+    readyNodes: $readyNodesPath,
+    statusImage: $statusImagePath,
+    statusVersion: $statusVersionPath,
+    actions: $actionsPath,
+    conditions: $conditionsPath
+  },
+  mode: value($modePath),
+  desiredImage: value($desiredImagePath),
   generation: .metadata.generation,
-  observedGeneration: .status.observedGeneration,
-  statusImage: .status.image,
-  actions: .status.actions,
-  conditions: .status.conditions
-}'
+  observedGeneration: value($observedGenerationPath),
+  reconciled: value($reconciledPath),
+  readyNodes: value($readyNodesPath),
+  statusImage: value($statusImagePath),
+  statusVersion: value($statusVersionPath),
+  actions: value($actionsPath),
+  conditions: value($conditionsPath)
+}' "$CRDB_DIAG_DIR/crdbcluster.json"
 
-kubectl -n <cockroachdb-namespace> get crdbnodes \
+kubectl -n "$CRDB_NAMESPACE" get crdbnodes \
   -o custom-columns=NAME:.metadata.name,GENERATION:.metadata.generation,OBSERVED:.status.observedGeneration,PHASE:.status.phase,HASH:.metadata.annotations["crdb.cockroachlabs.com/hash-revision"],NODE_ID:.status.nodeID
 ```
 
@@ -225,12 +335,12 @@ Checklist:
 ## Pod Readiness and CRDB Issues
 
 ```bash
-kubectl -n <cockroachdb-namespace> get pods -l app.kubernetes.io/name=cockroachdb -o wide
-kubectl -n <cockroachdb-namespace> describe pod <crdb-pod>
-kubectl -n <cockroachdb-namespace> logs <crdb-pod> -c cockroachdb --tail=200
-kubectl -n <cockroachdb-namespace> logs <crdb-pod> -c cockroachdb --previous
-kubectl -n <cockroachdb-namespace> get pod <crdb-pod> -o jsonpath='{.spec.containers[0].readinessProbe}{"\n"}'
-kubectl -n <cockroachdb-namespace> get pods -l app.kubernetes.io/name=cockroachdb \
+kubectl -n "$CRDB_NAMESPACE" get pods -l app.kubernetes.io/name=cockroachdb -o wide
+kubectl -n "$CRDB_NAMESPACE" describe pod <crdb-pod>
+kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cockroachdb --tail=200
+kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cockroachdb --previous
+kubectl -n "$CRDB_NAMESPACE" get pod <crdb-pod> -o jsonpath='{.spec.containers[0].readinessProbe}{"\n"}'
+kubectl -n "$CRDB_NAMESPACE" get pods -l app.kubernetes.io/name=cockroachdb \
   -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[0].image,PHASE:.status.phase,READY:.status.containerStatuses[0].ready,NODE:.spec.nodeName
 ```
 
@@ -243,24 +353,41 @@ Common pod issues:
 ## Upgrade and Version Validation
 
 ```bash
-kubectl -n <cockroachdb-namespace> get crdbcluster <cockroachdb-release> -o json | jq '{
-  specImage: .spec.image,
-  statusImage: .status.image,
-  actions: .status.actions,
-  conditions: [.status.conditions[]? | select(.type | test("Upgrade|Version|Validate"))]
-}'
+jq \
+  --arg desiredImagePath "$CRDB_DESIRED_IMAGE_PATH" \
+  --arg statusImagePath "$CRDB_STATUS_IMAGE_PATH" \
+  --arg statusVersionPath "$CRDB_STATUS_VERSION_PATH" \
+  --arg actionsPath "$CRDB_ACTIONS_PATH" \
+  --arg conditionsPath "$CRDB_CONDITIONS_PATH" \
+  '
+  def value($path): if $path == "" then null else getpath($path | split(".")) end;
+  {
+  apiVersion,
+  name: .metadata.name,
+  desiredImagePath: $desiredImagePath,
+  desiredImage: value($desiredImagePath),
+  statusImagePath: $statusImagePath,
+  statusImage: value($statusImagePath),
+  statusVersionPath: $statusVersionPath,
+  statusVersion: value($statusVersionPath),
+  actionsPath: $actionsPath,
+  actions: value($actionsPath),
+  conditionsPath: $conditionsPath,
+  conditions: value($conditionsPath),
+  annotations: .metadata.annotations
+}' "$CRDB_DIAG_DIR/crdbcluster.json"
 
-kubectl -n <cockroachdb-namespace> get crdbcluster <cockroachdb-release> -o jsonpath='{.metadata.annotations}{"\n"}' | jq .
-kubectl -n <cockroachdb-namespace> get jobs
-kubectl -n <cockroachdb-namespace> describe job <version-checker-job>
-kubectl -n <cockroachdb-namespace> logs -l job-name=<version-checker-job>
-kubectl -n <cockroachdb-namespace> get pods -l app.kubernetes.io/name=cockroachdb \
+jq '.metadata.annotations' "$CRDB_DIAG_DIR/crdbcluster.json"
+kubectl -n "$CRDB_NAMESPACE" get jobs
+kubectl -n "$CRDB_NAMESPACE" describe job <version-checker-job>
+kubectl -n "$CRDB_NAMESPACE" logs -l job-name=<version-checker-job>
+kubectl -n "$CRDB_NAMESPACE" get pods -l app.kubernetes.io/name=cockroachdb \
   -o custom-columns=NAME:.metadata.name,IMAGE:.spec.containers[0].image,REVISION:.metadata.annotations["crdb\.cockroachlabs\.com/hash-revision"],PHASE:.status.phase
 ```
 
 Interpretation:
 
-- If `spec.image` differs from `status.image`, an upgrade is in progress or stuck.
+- If the schema-grounded desired image path differs from the schema-grounded status image path, an upgrade is in progress or stuck.
 - If a rejected-image annotation exists, inspect its value; the operator rejected the target version.
 - If the version checker job exists but the pod is gone, use job status and operator logs for validation messages.
 - Do not delete version checker jobs or pods until their status and logs are captured.
@@ -270,16 +397,22 @@ Interpretation:
 The operator creates separate service paths for pod DNS and join traffic. Do not change service settings without operator-team guidance.
 
 ```bash
-kubectl -n <cockroachdb-namespace> get service <cockroachdb-release> -o yaml
-kubectl -n <cockroachdb-namespace> get service <cockroachdb-release>-join -o yaml
-kubectl -n <cockroachdb-namespace> get endpoints <cockroachdb-release>
-kubectl -n <cockroachdb-namespace> get endpoints <cockroachdb-release>-join
+kubectl -n "$CRDB_NAMESPACE" get service,endpoints -o wide
+export CRDB_SERVICE="<sql-or-public-service-name-from-output>"
+export CRDB_JOIN_SERVICE="<join-service-name-from-output>"
+test -n "$CRDB_SERVICE"
+test -n "$CRDB_JOIN_SERVICE"
 
-kubectl -n <cockroachdb-namespace> exec <crdb-pod> -c cockroachdb -- \
-  nslookup <cockroachdb-release>.<cockroachdb-namespace>.svc.cluster.local 2>&1 || true
+kubectl -n "$CRDB_NAMESPACE" get service "$CRDB_SERVICE" -o yaml
+kubectl -n "$CRDB_NAMESPACE" get service "$CRDB_JOIN_SERVICE" -o yaml
+kubectl -n "$CRDB_NAMESPACE" get endpoints "$CRDB_SERVICE"
+kubectl -n "$CRDB_NAMESPACE" get endpoints "$CRDB_JOIN_SERVICE"
 
-kubectl -n <cockroachdb-namespace> exec <crdb-pod> -c cockroachdb -- \
-  nslookup <cockroachdb-release>-join.<cockroachdb-namespace>.svc.cluster.local 2>&1 || true
+kubectl -n "$CRDB_NAMESPACE" exec <crdb-pod> -c cockroachdb -- \
+  nslookup "$CRDB_SERVICE.$CRDB_NAMESPACE.svc.cluster.local" 2>&1 || true
+
+kubectl -n "$CRDB_NAMESPACE" exec <crdb-pod> -c cockroachdb -- \
+  nslookup "$CRDB_JOIN_SERVICE.$CRDB_NAMESPACE.svc.cluster.local" 2>&1 || true
 ```
 
 For multi-region checks, use [validating-cockroachdb-helm-multiregion](../../cockroachdb-onboarding-and-migrations/validating-cockroachdb-helm-multiregion/SKILL.md).
@@ -292,10 +425,13 @@ Quick checks:
 
 ```bash
 helm template <release> <chart> -n <namespace> -f values.yaml >/tmp/rendered.yaml
-kubectl -n <namespace> get secret,configmap | grep -E 'cockroach|crdb|cert|ca|tls'
-kubectl -n <namespace> get crdbcluster <release> -o yaml | grep -A20 certificates
-kubectl -n <namespace> get pod <crdb-pod> -o jsonpath='{.spec.containers[*].name}{"\n"}'
-kubectl -n <namespace> logs <crdb-pod> -c cert-reloader --tail=100
+kubectl -n "$CRDB_NAMESPACE" get secret,configmap | grep -E 'cockroach|crdb|cert|ca|tls'
+jq --arg certificatesPath "$CRDB_CERTIFICATES_PATH" '
+  def value($path): if $path == "" then null else getpath($path | split(".")) end;
+  {certificatesPath: $certificatesPath, certificates: value($certificatesPath)}
+' "$CRDB_DIAG_DIR/crdbcluster.json"
+kubectl -n "$CRDB_NAMESPACE" get pod <crdb-pod> -o jsonpath='{.spec.containers[*].name}{"\n"}'
+kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cert-reloader --tail=100
 ```
 
 Remediation:
@@ -327,12 +463,12 @@ Common causes:
 ## Scale Down and Decommission
 
 ```bash
-kubectl -n <cockroachdb-namespace> exec <ready-crdb-pod> -c cockroachdb -- \
+kubectl -n "$CRDB_NAMESPACE" exec <ready-crdb-pod> -c cockroachdb -- \
   /cockroach/cockroach node status --decommission
 
-kubectl -n <cockroachdb-namespace> get crdbnodes -o json | jq '[.items[] | select(.status.phase=="Decommissioning")] | {count: length, nodes: [.[].metadata.name]}'
+kubectl -n "$CRDB_NAMESPACE" get crdbnodes -o json | jq '[.items[] | select(.status.phase=="Decommissioning")] | {count: length, nodes: [.[].metadata.name]}'
 
-kubectl -n <operator-namespace> logs -l app=cockroach-operator --tail=300 | grep -Ei 'decommission|drain|scale|blocking_ranges' || true
+kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --tail=300 | grep -Ei 'decommission|drain|scale|blocking_ranges' || true
 ```
 
 Questions to answer:
@@ -349,22 +485,22 @@ Only use these after collecting evidence and confirming the risk with the custom
 Disable reconciliation for one cluster:
 
 ```bash
-kubectl -n <cockroachdb-namespace> patch crdbcluster <cockroachdb-release> --type=merge -p '{"spec":{"mode":"Disabled"}}'
+kubectl -n "$CRDB_NAMESPACE" patch crdbcluster "$CRDBCLUSTER" --type=merge -p '{"spec":{"mode":"Disabled"}}'
 
 # Resume reconciliation:
-kubectl -n <cockroachdb-namespace> patch crdbcluster <cockroachdb-release> --type=merge -p '{"spec":{"mode":"MutableOnly"}}'
+kubectl -n "$CRDB_NAMESPACE" patch crdbcluster "$CRDBCLUSTER" --type=merge -p '{"spec":{"mode":"MutableOnly"}}'
 ```
 
 Restart the operator after evidence is collected:
 
 ```bash
-kubectl -n <operator-namespace> rollout restart deploy/cockroach-operator
+kubectl -n "$OPERATOR_NAMESPACE" rollout restart deploy/cockroach-operator
 ```
 
 User-approved timestamp rolling restart:
 
 ```bash
-helm -n <cockroachdb-namespace> upgrade <cockroachdb-release> <cockroachdb-chart> \
+helm -n "$CRDB_NAMESPACE" upgrade "$CRDB_HELM_RELEASE" <cockroachdb-chart> \
   --reuse-values \
   --set-string cockroachdb.crdbCluster.timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 ```

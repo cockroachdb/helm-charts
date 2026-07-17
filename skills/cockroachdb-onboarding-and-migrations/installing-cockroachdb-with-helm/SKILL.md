@@ -44,6 +44,8 @@ Collect these before changing the cluster:
 ## Execution Discipline
 
 - Execute one step at a time and inspect the output before moving on. Preflight output determines whether installation can continue.
+- During verification, never infer a `CrdbCluster` object name from the Helm release or CockroachDB image/version. List `CrdbCluster` objects and use the exact `metadata.name`.
+- Before reading `CrdbCluster` status fields, save the live CRD YAML and derive field paths from the served CRD schema for the object's `apiVersion`.
 - Do not run `helm install`, `helm upgrade`, `kubectl apply`, or any mutating command unless the user explicitly approves it for the target Kubernetes context and namespace.
 - Stop before installing if cluster-scoped RBAC, node labels, storage class, TLS mode, registry access, or multi-region prerequisites are unclear.
 - In production or restricted environments, involve TSE, the platform team, or the operator team before changing RBAC, webhook, operator, certificate, storage, or network configuration.
@@ -162,18 +164,100 @@ Adjust `code`, `cloudProvider`, `namespace`, storage size, and storage class to 
 Check Kubernetes resources:
 
 ```bash
-kubectl -n cockroach-operator-system get deploy cockroach-operator
-kubectl -n cockroach-operator-system logs deploy/cockroach-operator --tail=100
-kubectl -n cockroachdb get crdbcluster,crdbnode,pods,svc
-kubectl -n cockroachdb get crdbcluster crdb -o jsonpath='{.status.readyNodes}{" ready, reconciled="}{.status.reconciled}{" version="}{.status.version}{"\n"}'
-kubectl -n cockroachdb get crdbnodes -o custom-columns=NAME:.metadata.name,NODE_ID:.status.nodeID,CONDITIONS:.status.conditions[*].type,TOPOLOGY:.status.topologyValues
+export OPERATOR_NAMESPACE=cockroach-operator-system
+export CRDB_NAMESPACE=cockroachdb
+export CRDB_VERIFY_DIR="${CRDB_VERIFY_DIR:-$(mktemp -d)}"
+
+kubectl -n "$OPERATOR_NAMESPACE" get deploy cockroach-operator
+kubectl -n "$OPERATOR_NAMESPACE" logs deploy/cockroach-operator --tail=100
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster,crdbnode,pods,svc
+
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o yaml > "$CRDB_VERIFY_DIR/crdbclusters-crd.yaml"
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o json > "$CRDB_VERIFY_DIR/crdbclusters-crd.json"
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster -o json | jq -r '
+  .items[]
+  | [.metadata.name, .apiVersion, (.metadata.labels["app.kubernetes.io/instance"] // ""), (.metadata.generation | tostring)]
+  | @tsv
+'
+```
+
+If no `CrdbCluster` rows are returned, stop the object-specific verification and report that no live `CrdbCluster` exists in the namespace. You may collect `CrdbNode` owner references and labels as teardown evidence, but do not treat those values as a replacement for a discovered `CrdbCluster`.
+
+If multiple `CrdbCluster` rows are returned, choose the target by `metadata.name`; do not use the Helm release or CockroachDB version as a substitute.
+
+```bash
+export CRDBCLUSTER="<metadata.name-from-crdbcluster-list>"
+test -n "$CRDBCLUSTER"
+
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster "$CRDBCLUSTER" -o yaml > "$CRDB_VERIFY_DIR/crdbcluster.yaml"
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster "$CRDBCLUSTER" -o json > "$CRDB_VERIFY_DIR/crdbcluster.json"
+
+export CRDBCLUSTER_API_VERSION="$(jq -r '.apiVersion | split("/")[-1]' "$CRDB_VERIFY_DIR/crdbcluster.json")"
+export CRDBCLUSTER_SCHEMA_JSON="$CRDB_VERIFY_DIR/crdbcluster-schema.json"
+jq -e --arg version "$CRDBCLUSTER_API_VERSION" '
+  .spec.versions[] | select(.name == $version) | .schema.openAPIV3Schema
+' "$CRDB_VERIFY_DIR/crdbclusters-crd.json" > "$CRDBCLUSTER_SCHEMA_JSON"
+
+crdb_schema_has() {
+  jq -e --arg path "$1" '
+    def has_schema_path($schema; $parts):
+      if ($parts | length) == 0 then true
+      elif (($schema.properties? // {}) | has($parts[0])) then
+        has_schema_path($schema.properties[$parts[0]]; $parts[1:])
+      else false
+      end;
+    has_schema_path(.; $path | split("."))
+  ' "$CRDBCLUSTER_SCHEMA_JSON" >/dev/null
+}
+
+crdb_first_schema_path() {
+  for schema_path in "$@"; do
+    if crdb_schema_has "$schema_path"; then
+      printf '%s\n' "$schema_path"
+      return 0
+    fi
+  done
+  printf '\n'
+}
+
+export CRDB_READY_NODES_PATH="$(crdb_first_schema_path status.readyNodes)"
+export CRDB_RECONCILED_PATH="$(crdb_first_schema_path status.reconciled)"
+export CRDB_STATUS_VERSION_PATH="$(crdb_first_schema_path status.version)"
+
+jq \
+  --arg readyNodesPath "$CRDB_READY_NODES_PATH" \
+  --arg reconciledPath "$CRDB_RECONCILED_PATH" \
+  --arg statusVersionPath "$CRDB_STATUS_VERSION_PATH" \
+  '
+  def value($path): if $path == "" then null else getpath($path | split(".")) end;
+  {
+    apiVersion,
+    name: .metadata.name,
+    schemaPaths: {
+      readyNodes: $readyNodesPath,
+      reconciled: $reconciledPath,
+      statusVersion: $statusVersionPath
+    },
+    readyNodes: value($readyNodesPath),
+    reconciled: value($reconciledPath),
+    statusVersion: value($statusVersionPath)
+  }
+' "$CRDB_VERIFY_DIR/crdbcluster.json"
+
+kubectl -n "$CRDB_NAMESPACE" get crdbnodes -o json | jq '.items[] | {
+  name: .metadata.name,
+  nodeID: .status.nodeID,
+  phase: .status.phase,
+  conditions: .status.conditions,
+  topology: .status.topologyValues
+}'
 ```
 
 Expected state:
 
 - `cockroach-operator` Deployment is available.
 - CRDs `crdbclusters.crdb.cockroachlabs.com` and `crdbnodes.crdb.cockroachlabs.com` exist.
-- `CrdbCluster.status.reconciled` is `true` and `readyNodes` equals the regional node count.
+- Schema-grounded `CrdbCluster` status shows `reconciled=true` and `readyNodes` equals the regional node count when those fields exist in the served CRD version.
 - Each `CrdbNode` has a `nodeID` and Ready/Running conditions.
 - CockroachDB pods are Running and Ready.
 
@@ -193,7 +277,7 @@ Return a concise install report:
 - Operator release, CockroachDB release, and chart versions
 - Values file path or inline values that were applied
 - CRD registration status
-- `CrdbCluster` ready/reconciled status and node count
+- Schema-grounded `CrdbCluster` ready/reconciled status and node count
 - SQL verification result or the exact blocker if SQL could not be verified
 
 ## Troubleshooting Handoff

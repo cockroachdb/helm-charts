@@ -31,6 +31,8 @@ Guides TLS configuration for operator-managed CockroachDB clusters installed wit
 ## Execution Discipline
 
 - Execute one step at a time and inspect the output before moving on. Certificate mode, Secret names, and issuer state determine which later checks are relevant.
+- For an installed cluster, never infer a `CrdbCluster` object name from the Helm release or CockroachDB image/version. List `CrdbCluster` objects and use the exact `metadata.name`.
+- Before reading certificate references from a `CrdbCluster`, save the live CRD YAML and derive the certificate field path from the served CRD schema for the object's `apiVersion`.
 - Do not change TLS mode, replace Secrets, patch cert-manager resources, run debug containers, or perform Helm upgrades unless the user explicitly approves the action for the target cluster.
 - Never print private key data. Use metadata checks for expiry, issuer, subject, SANs, and required key presence.
 - In production or when certificate ownership is unclear, involve TSE or the operator team before rotation, regeneration, debug containers, or restart actions.
@@ -184,9 +186,66 @@ State clearly that insecure mode has no TLS or authentication protections and is
 ## Post-Install Verification
 
 ```bash
-kubectl -n <namespace> get crdbcluster <release-name> -o yaml | grep -A12 certificates
-kubectl -n <namespace> get secret,configmap | grep -E 'cockroach|crdb'
-kubectl -n <namespace> get pods
+export CRDB_NAMESPACE="<namespace>"
+export CRDB_TLS_DIR="${CRDB_TLS_DIR:-$(mktemp -d)}"
+
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o yaml > "$CRDB_TLS_DIR/crdbclusters-crd.yaml"
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o json > "$CRDB_TLS_DIR/crdbclusters-crd.json"
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster -o json | jq -r '
+  .items[]
+  | [.metadata.name, .apiVersion, (.metadata.labels["app.kubernetes.io/instance"] // ""), (.metadata.generation | tostring)]
+  | @tsv
+'
+```
+
+If no `CrdbCluster` rows are returned, stop the object-specific TLS validation and report that no live `CrdbCluster` exists in the namespace. You may collect `CrdbNode` owner references and labels as teardown evidence, but do not treat those values as a replacement for a discovered `CrdbCluster`.
+
+If multiple `CrdbCluster` rows are returned, choose the target by `metadata.name`; do not use the Helm release or CockroachDB version as a substitute.
+
+```bash
+export CRDBCLUSTER="<metadata.name-from-crdbcluster-list>"
+test -n "$CRDBCLUSTER"
+
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster "$CRDBCLUSTER" -o yaml > "$CRDB_TLS_DIR/crdbcluster.yaml"
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster "$CRDBCLUSTER" -o json > "$CRDB_TLS_DIR/crdbcluster.json"
+
+export CRDBCLUSTER_API_VERSION="$(jq -r '.apiVersion | split("/")[-1]' "$CRDB_TLS_DIR/crdbcluster.json")"
+export CRDBCLUSTER_SCHEMA_JSON="$CRDB_TLS_DIR/crdbcluster-schema.json"
+jq -e --arg version "$CRDBCLUSTER_API_VERSION" '
+  .spec.versions[] | select(.name == $version) | .schema.openAPIV3Schema
+' "$CRDB_TLS_DIR/crdbclusters-crd.json" > "$CRDBCLUSTER_SCHEMA_JSON"
+
+crdb_schema_has() {
+  jq -e --arg path "$1" '
+    def has_schema_path($schema; $parts):
+      if ($parts | length) == 0 then true
+      elif (($schema.properties? // {}) | has($parts[0])) then
+        has_schema_path($schema.properties[$parts[0]]; $parts[1:])
+      else false
+      end;
+    has_schema_path(.; $path | split("."))
+  ' "$CRDBCLUSTER_SCHEMA_JSON" >/dev/null
+}
+
+crdb_first_schema_path() {
+  for schema_path in "$@"; do
+    if crdb_schema_has "$schema_path"; then
+      printf '%s\n' "$schema_path"
+      return 0
+    fi
+  done
+  printf '\n'
+}
+
+export CRDB_CERTIFICATES_PATH="$(crdb_first_schema_path spec.template.spec.certificates spec.certificates)"
+
+jq --arg certificatesPath "$CRDB_CERTIFICATES_PATH" '
+  def value($path): if $path == "" then null else getpath($path | split(".")) end;
+  {apiVersion, name: .metadata.name, certificatesPath: $certificatesPath, certificates: value($certificatesPath)}
+' "$CRDB_TLS_DIR/crdbcluster.json"
+
+kubectl -n "$CRDB_NAMESPACE" get secret,configmap | grep -E 'cockroach|crdb'
+kubectl -n "$CRDB_NAMESPACE" get pods
 ```
 
 For self-signer, confirm the self-signer job ran and the generated CA, node, and client resources exist. For cert-manager, confirm `Certificate` resources are Ready. For external certificates, confirm the `CrdbCluster` references the expected names.
@@ -196,10 +255,13 @@ For self-signer, confirm the self-signer job ran and the generated CA, node, and
 Use this section when pods report `x509` errors, certificate rotation is not reflected in pods, the `cert-reloader` sidecar fails, or TSC asks for certificate evidence. Collect metadata only; do not print private keys.
 
 ```bash
-kubectl -n <namespace> get crdbcluster <release-name> -o yaml | grep -A20 certificates
-kubectl -n <namespace> get secret,configmap | grep -E 'ca|node|client|tls|cert|cockroach|crdb'
-kubectl -n <namespace> get pod <pod-name> -o jsonpath='{.spec.containers[*].name}{"\n"}'
-kubectl -n <namespace> logs <pod-name> -c cert-reloader --tail=100
+jq --arg certificatesPath "$CRDB_CERTIFICATES_PATH" '
+  def value($path): if $path == "" then null else getpath($path | split(".")) end;
+  {apiVersion, name: .metadata.name, certificatesPath: $certificatesPath, certificates: value($certificatesPath)}
+' "$CRDB_TLS_DIR/crdbcluster.json"
+kubectl -n "$CRDB_NAMESPACE" get secret,configmap | grep -E 'ca|node|client|tls|cert|cockroach|crdb'
+kubectl -n "$CRDB_NAMESPACE" get pod <pod-name> -o jsonpath='{.spec.containers[*].name}{"\n"}'
+kubectl -n "$CRDB_NAMESPACE" logs <pod-name> -c cert-reloader --tail=100
 ```
 
 Inspect the node certificate:
