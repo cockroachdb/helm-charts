@@ -1,5 +1,18 @@
 # CockroachDB Operator Chart — CHANGELOG
 
+## [1.0.0-rc.3] — 2026-07-20
+### Added
+- Added support for `spec.postInitSQL` on `CrdbCluster` to run raw SQL once after cluster
+  initialization. The CockroachDB chart exposes it through
+  `cockroachdb.crdbCluster.postInitSQL`; see
+  [Post-Init SQL](../cockroachdb/README.md#post-init-sql).
+- Added an under-replicated ranges gate for rolling restarts and scale-downs; see
+  [Under-Replicated Ranges Check](README.md#under-replicated-ranges-check).
+
+### Changed
+- Updated the default operator image to `docker.io/cockroachdb/cockroachdb-operator-v2:v1.0.0-rc.3`.
+- Added the `update` RBAC verb for `batch/jobs` so the operator can update Jobs.
+
 ## [1.0.0-rc.2] — 2026-05-25
 ### Added
 - Support for automated migration from Helm-managed StatefulSet clusters and Public Operator

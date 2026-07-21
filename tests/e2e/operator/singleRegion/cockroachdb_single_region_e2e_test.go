@@ -245,6 +245,7 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 				"--reuse-values",
 				"--set", "cockroachdb.crdbCluster.podTemplate.spec.containers[0].name=cockroachdb",
 				"--set", fmt.Sprintf("cockroachdb.crdbCluster.podTemplate.spec.containers[0].resources.requests.cpu=%s", "100m"),
+				"--set-json", `cockroachdb.crdbCluster.features=["skip-under-replicated-ranges-check"]`,
 			},
 		},
 	}

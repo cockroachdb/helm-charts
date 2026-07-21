@@ -131,6 +131,43 @@ Alternatively, a YAML file that specifies custom values for the parameters can b
 $ helm install $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb -f my-values.yaml -n $NAMESPACE
 ```
 
+### Post-Init SQL
+
+`cockroachdb.crdbCluster.postInitSQL` sets `spec.postInitSQL` on the `CrdbCluster`
+resource. The operator runs these SQL sources once after cluster initialization.
+TLS must be enabled, and the `CrdbCluster` must reconcile in `MutableOnly` mode.
+
+```yaml
+cockroachdb:
+  crdbCluster:
+    postInitSQL:
+      secretRef:
+        name: license-sql
+        key: license.sql
+      configMapRef:
+        name: bootstrap-sql
+        key: init.sql
+      inline:
+        - "CREATE DATABASE IF NOT EXISTS myapp"
+        - "CREATE USER IF NOT EXISTS app_user"
+```
+
+`secretRef`, `configMapRef`, and `inline` are optional and run in that order.
+Failures are reported on the `PostInitSQLApplied` condition. Keep statements idempotent
+because a retry starts from the first statement.
+
+### Operator Feature Gates
+
+`cockroachdb.crdbCluster.features` sets `spec.features` on the `CrdbCluster`. Preserve existing
+entries when adding operator feature gates such as recovery overrides:
+
+```yaml
+cockroachdb:
+  crdbCluster:
+    features:
+      - skip-under-replicated-ranges-check
+```
+
 ### Multi Region Deployments
 
 For multi-region cluster deployments, ensure the required networking is setup which allows for service discovery across regions. Also, ensure that the same CA cert is used across all the regions.

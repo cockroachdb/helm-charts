@@ -1307,6 +1307,13 @@ func execSQL(
 		"-e", sql)
 }
 
+// ExecSQL runs a SQL statement in the cockroachdb container using certs-dir authentication.
+func ExecSQL(
+	t *testing.T, kubectlOpts *k8s.KubectlOptions, pod string, sql string,
+) (string, error) {
+	return execSQL(t, kubectlOpts, pod, sql)
+}
+
 // execSQLOnVC runs a SQL statement in the cockroachdb container against a specific virtual cluster URL.
 func execSQLOnVC(
 	t *testing.T,

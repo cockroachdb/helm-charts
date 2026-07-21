@@ -215,6 +215,20 @@ func TestExportValuesFromV1beta1(t *testing.T) {
 					Nodes:         3,
 				},
 			},
+			PostInitSQL: &v1beta1.PostInitSQL{
+				Inline: []string{
+					"CREATE DATABASE IF NOT EXISTS smoke",
+					"CREATE USER IF NOT EXISTS app_user",
+				},
+				ConfigMapRef: &corev1.ConfigMapKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "bootstrap-sql"},
+					Key:                  "init.sql",
+				},
+				SecretRef: &corev1.SecretKeySelector{
+					LocalObjectReference: corev1.LocalObjectReference{Name: "license-sql"},
+					Key:                  "license.sql",
+				},
+			},
 			Template: v1beta1.CrdbNodeTemplate{
 				ObjectMeta: metav1.ObjectMeta{
 					Annotations: map[string]string{"template-scope": "ignore-me"},
@@ -340,6 +354,20 @@ func TestExportValuesFromV1beta1(t *testing.T) {
 	crdbClusterValues, ok := cockroachdbValues["crdbCluster"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, "logging-config", crdbClusterValues["loggingConfigMapName"])
+	postInitSQL, ok := crdbClusterValues["postInitSQL"].(map[string]interface{})
+	require.True(t, ok, "postInitSQL should be present in generated values.yaml")
+	assert.Equal(t, []interface{}{
+		"CREATE DATABASE IF NOT EXISTS smoke",
+		"CREATE USER IF NOT EXISTS app_user",
+	}, postInitSQL["inline"])
+	configMapRef, ok := postInitSQL["configMapRef"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "bootstrap-sql", configMapRef["name"])
+	assert.Equal(t, "init.sql", configMapRef["key"])
+	secretRef, ok := postInitSQL["secretRef"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, "license-sql", secretRef["name"])
+	assert.Equal(t, "license.sql", secretRef["key"])
 	rbacValues, ok := crdbClusterValues["rbac"].(map[string]interface{})
 	require.True(t, ok)
 	serviceAccountValues, ok := rbacValues["serviceAccount"].(map[string]interface{})
