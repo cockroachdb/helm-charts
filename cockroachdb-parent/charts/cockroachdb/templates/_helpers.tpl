@@ -252,6 +252,19 @@ and none when TLS is off.
 {{- end -}}
 
 
+{{- define "cockroachdb.postInitSQL.validation" -}}
+{{- with .Values.cockroachdb.crdbCluster.postInitSQL }}
+{{- if not $.Values.cockroachdb.tls.enabled }}
+    {{ fail "postInitSQL requires cockroachdb.tls.enabled=true" }}
+{{- end }}
+{{- $mode := $.Values.cockroachdb.crdbCluster.mode | default "MutableOnly" }}
+{{- if ne $mode "MutableOnly" }}
+    {{ fail "postInitSQL requires cockroachdb.crdbCluster.mode to resolve to MutableOnly" }}
+{{- end }}
+{{- end }}
+{{- end -}}
+
+
 {{- define "cockroachdb.tls.certs.selfSigner.validation" -}}
 {{ include "cockroachdb.tls.certs.selfSigner.caProvidedValidation" . }}
 {{ include "cockroachdb.tls.certs.selfSigner.caCertValidation" . }}

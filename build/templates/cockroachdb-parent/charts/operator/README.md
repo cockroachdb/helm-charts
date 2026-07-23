@@ -178,6 +178,35 @@ Do not set `nodeReader.name` to the CockroachDB chart's generated node-reader na
 `cockroachdb.crdbCluster.rbac.nodeReader.create=true` because both Helm releases would try to own
 the same ClusterRole/ClusterRoleBinding.
 
+## Under-Replicated Ranges Check
+
+Before advancing a rolling upgrade or scale-down, the operator checks cluster-wide replication
+health so it does not take another node out of service while ranges are already under-replicated.
+
+The check runs right before the operator starts a new pod eviction during a rolling upgrade and
+before it starts a new node decommission during scale-down. It does not block a pod update or node
+decommission that is already in flight.
+
+If under-replicated ranges are present, or if the check cannot complete, the operator holds the next
+disruptive step and retries later. Other reconciliation work can continue while scale-down is held.
+
+The result is written to the `RangesUnderReplicated` condition on the `CrdbCluster`:
+
+- `False` / `AllReplicated`: no under-replicated ranges were found.
+- `True` / `UnderReplicated`: one or more ranges are under-replicated.
+- `True` / `CheckError`: the check failed, so the operator fails closed.
+- `False` / `CheckSkipped`: the check was bypassed by feature flag.
+
+Use the `skip-under-replicated-ranges-check` feature flag only as a recovery override when the
+gate blocks the change needed to recover the cluster. Preserve any existing `spec.features`
+entries when adding the override:
+
+```yaml
+spec:
+  features:
+    - skip-under-replicated-ranges-check
+```
+
 ## Upgrading from a previous chart version
 
 ### What changes after upgrading

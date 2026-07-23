@@ -454,6 +454,9 @@ func buildHelmValuesFromV1beta1(
 	if len(cluster.Spec.ClusterSettings) > 0 {
 		crdbCluster["clusterSettings"] = cluster.Spec.ClusterSettings
 	}
+	if cluster.Spec.PostInitSQL != nil {
+		crdbCluster["postInitSQL"] = cluster.Spec.PostInitSQL
+	}
 	if cluster.Spec.RollingRestartDelay != nil {
 		crdbCluster["rollingRestartDelay"] = cluster.Spec.RollingRestartDelay
 	}

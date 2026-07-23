@@ -13,6 +13,7 @@ import (
 	"github.com/gruntwork-io/terratest/modules/random"
 	monitoring "github.com/prometheus-operator/prometheus-operator/pkg/apis/monitoring/v1"
 	"github.com/stretchr/testify/require"
+	yamlv3 "gopkg.in/yaml.v3"
 	appsv1 "k8s.io/api/apps/v1"
 	batchv1 "k8s.io/api/batch/v1"
 	"k8s.io/api/batch/v1beta1"
@@ -2756,6 +2757,217 @@ func TestHelmOperatorClusterSettings(t *testing.T) {
 			} else {
 				require.Nil(subT, spec.ClusterSettings)
 			}
+		})
+	}
+}
+
+func TestHelmOperatorFeatures(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"cockroachdb.crdbCluster.features[0]": "skip-under-replicated-ranges-check",
+		},
+	}
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+	output, err := helm.RenderTemplateE(
+		t, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
+	)
+	require.NoError(t, err)
+
+	var crdbCluster map[string]interface{}
+	require.NoError(t, yamlv3.Unmarshal([]byte(output), &crdbCluster))
+
+	spec, ok := crdbCluster["spec"].(map[string]interface{})
+	require.True(t, ok, "expected spec to be a map")
+
+	require.Equal(t, []interface{}{"skip-under-replicated-ranges-check"}, spec["features"])
+}
+
+// TestHelmOperatorPostInitSQL exercises rendering of spec.postInitSQL on the
+// CrdbCluster CR. Mirrors TestHelmOperatorClusterSettings.
+func TestHelmOperatorPostInitSQL(t *testing.T) {
+	t.Parallel()
+
+	type expect struct {
+		hasPostInitSQL bool
+		inline         []string
+		configMapName  string
+		configMapKey   string
+		secretName     string
+		secretKey      string
+	}
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect
+	}{
+		{
+			"Unset",
+			map[string]string{},
+			expect{hasPostInitSQL: false},
+		},
+		{
+			"Inline only",
+			map[string]string{
+				"cockroachdb.crdbCluster.postInitSQL.inline[0]": "CREATE DATABASE IF NOT EXISTS smoke",
+				"cockroachdb.crdbCluster.postInitSQL.inline[1]": "CREATE USER IF NOT EXISTS app_user",
+			},
+			expect{
+				hasPostInitSQL: true,
+				inline: []string{
+					"CREATE DATABASE IF NOT EXISTS smoke",
+					"CREATE USER IF NOT EXISTS app_user",
+				},
+			},
+		},
+		{
+			"ConfigMapRef only",
+			map[string]string{
+				"cockroachdb.crdbCluster.postInitSQL.configMapRef.name": "bootstrap-sql",
+				"cockroachdb.crdbCluster.postInitSQL.configMapRef.key":  "init.sql",
+			},
+			expect{
+				hasPostInitSQL: true,
+				configMapName:  "bootstrap-sql",
+				configMapKey:   "init.sql",
+			},
+		},
+		{
+			"SecretRef only",
+			map[string]string{
+				"cockroachdb.crdbCluster.postInitSQL.secretRef.name": "license-sql",
+				"cockroachdb.crdbCluster.postInitSQL.secretRef.key":  "license.sql",
+			},
+			expect{
+				hasPostInitSQL: true,
+				secretName:     "license-sql",
+				secretKey:      "license.sql",
+			},
+		},
+		{
+			"All three sources",
+			map[string]string{
+				"cockroachdb.crdbCluster.postInitSQL.inline[0]":         "CREATE DATABASE IF NOT EXISTS smoke",
+				"cockroachdb.crdbCluster.postInitSQL.configMapRef.name": "bootstrap-sql",
+				"cockroachdb.crdbCluster.postInitSQL.configMapRef.key":  "init.sql",
+				"cockroachdb.crdbCluster.postInitSQL.secretRef.name":    "license-sql",
+				"cockroachdb.crdbCluster.postInitSQL.secretRef.key":     "license.sql",
+			},
+			expect{
+				hasPostInitSQL: true,
+				inline:         []string{"CREATE DATABASE IF NOT EXISTS smoke"},
+				configMapName:  "bootstrap-sql",
+				configMapKey:   "init.sql",
+				secretName:     "license-sql",
+				secretKey:      "license.sql",
+			},
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+			output, err := helm.RenderTemplateE(
+				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
+			)
+			require.NoError(subT, err)
+
+			var crdbCluster crdbv1beta1.CrdbCluster
+			helm.UnmarshalK8SYaml(t, output, &crdbCluster)
+
+			require.Equal(subT, "CrdbCluster", crdbCluster.Kind)
+			require.Equal(subT, "crdb.cockroachlabs.com/v1beta1", crdbCluster.APIVersion)
+
+			spec := crdbCluster.Spec
+
+			if !testCase.expect.hasPostInitSQL {
+				require.Nil(subT, spec.PostInitSQL)
+				return
+			}
+
+			require.NotNil(subT, spec.PostInitSQL, "Expected postInitSQL field to exist")
+			require.Equal(subT, testCase.expect.inline, spec.PostInitSQL.Inline)
+
+			if testCase.expect.configMapName != "" {
+				require.NotNil(subT, spec.PostInitSQL.ConfigMapRef)
+				require.Equal(subT, testCase.expect.configMapName, spec.PostInitSQL.ConfigMapRef.Name)
+				require.Equal(subT, testCase.expect.configMapKey, spec.PostInitSQL.ConfigMapRef.Key)
+			} else {
+				require.Nil(subT, spec.PostInitSQL.ConfigMapRef)
+			}
+
+			if testCase.expect.secretName != "" {
+				require.NotNil(subT, spec.PostInitSQL.SecretRef)
+				require.Equal(subT, testCase.expect.secretName, spec.PostInitSQL.SecretRef.Name)
+				require.Equal(subT, testCase.expect.secretKey, spec.PostInitSQL.SecretRef.Key)
+			} else {
+				require.Nil(subT, spec.PostInitSQL.SecretRef)
+			}
+		})
+	}
+}
+
+func TestHelmOperatorPostInitSQLValidation(t *testing.T) {
+	t.Parallel()
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+	testCases := []struct {
+		name       string
+		values     map[string]string
+		wantErrMsg string
+	}{
+		{
+			name: "CreateOnly mode",
+			values: map[string]string{
+				"cockroachdb.crdbCluster.mode":                  "CreateOnly",
+				"cockroachdb.crdbCluster.postInitSQL.inline[0]": "CREATE DATABASE IF NOT EXISTS smoke",
+			},
+			wantErrMsg: "postInitSQL requires cockroachdb.crdbCluster.mode to resolve to MutableOnly",
+		},
+		{
+			name: "Disabled mode",
+			values: map[string]string{
+				"cockroachdb.crdbCluster.mode":                  "Disabled",
+				"cockroachdb.crdbCluster.postInitSQL.inline[0]": "CREATE DATABASE IF NOT EXISTS smoke",
+			},
+			wantErrMsg: "postInitSQL requires cockroachdb.crdbCluster.mode to resolve to MutableOnly",
+		},
+		{
+			name: "TLS disabled",
+			values: map[string]string{
+				"cockroachdb.tls.enabled":                       "false",
+				"cockroachdb.tls.selfSigner.enabled":            "false",
+				"cockroachdb.tls.certManager.enabled":           "false",
+				"cockroachdb.tls.externalCertificates.enabled":  "false",
+				"cockroachdb.crdbCluster.postInitSQL.inline[0]": "CREATE DATABASE IF NOT EXISTS smoke",
+			},
+			wantErrMsg: "postInitSQL requires cockroachdb.tls.enabled=true",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{SetValues: testCase.values}
+			_, err := helm.RenderTemplateE(subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"})
+			require.Error(subT, err)
+			require.Contains(subT, err.Error(), testCase.wantErrMsg)
 		})
 	}
 }
