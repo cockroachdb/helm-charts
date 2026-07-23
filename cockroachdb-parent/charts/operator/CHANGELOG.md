@@ -1,6 +1,6 @@
 # CockroachDB Operator Chart — CHANGELOG
 
-## [1.0.0-rc.3] — 2026-07-20
+## [1.0.0-rc.3] — 2026-07-23
 ### Added
 - Added support for `spec.postInitSQL` on `CrdbCluster` to run raw SQL once after cluster
   initialization. The CockroachDB chart exposes it through
