@@ -1,0 +1,57 @@
+# Shared ServiceAccount and RBAC for the direct CrdbCluster examples.
+# Apply this file once before applying a cluster example.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: cockroachdb
+  namespace: cockroachdb
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: cockroachdb-direct-node-reader
+rules:
+  - apiGroups: [""]
+    resources: ["nodes"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["security.openshift.io"]
+    resources: ["securitycontextconstraints"]
+    verbs: ["use"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: cockroachdb-direct-node-reader
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cockroachdb-direct-node-reader
+subjects:
+  - kind: ServiceAccount
+    name: cockroachdb
+    namespace: cockroachdb
+---
+# Secure examples reference pre-provisioned certificate and CMEK Secrets.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: cockroachdb-direct-secret-reader
+  namespace: cockroachdb
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: cockroachdb-direct-secret-reader
+  namespace: cockroachdb
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: cockroachdb-direct-secret-reader
+subjects:
+  - kind: ServiceAccount
+    name: cockroachdb
+    namespace: cockroachdb

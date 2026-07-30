@@ -1,5 +1,43 @@
 # CockroachDB Operator Chart — CHANGELOG
 
+<!-- For new releases, separate Helm installations, Non-Helm installations,
+and shared Operator behavior when those categories apply. -->
+
+## [1.0.0-rc.4] — 2026-07-31
+
+### Helm installations
+
+#### Changed
+- Updated the default operator image to `docker.io/cockroachdb/cockroachdb-operator-v2:v1.0.0-rc.4`.
+- Documented Helm 4 server-side apply field ownership conflicts, client-side apply compatibility,
+  and the reviewed use of `--force-conflicts`.
+
+### Non-Helm installations
+
+#### Added
+- Published standalone `CrdbCluster` and `CrdbNode` CRD manifests for non-Helm and GitOps
+  installations.
+- Added a public `v1beta1` API reference, a rendered Kubernetes bundle, and directly applicable
+  `CrdbCluster` examples for non-Helm installations.
+
+### Operator behavior
+
+#### Added
+- Added structured pod-restart reason and specification-change logging to improve visibility into
+  unexpected restarts and rolling updates.
+
+#### Fixed
+- Fixed webhook TLS certificate mismatches after the operator certificate Secret is updated,
+  without requiring a manual operator restart.
+- Fixed under-replicated range health checks on UA clusters so rolling upgrades and scaling
+  operations are not incorrectly blocked.
+- Fixed rolling updates that could stall when the operator restarts while an update is in
+  progress.
+- Fixed an edge case where an operator restart or concurrent specification change during a
+  scale-down could prevent the operation from completing.
+- Fixed an edge case where a PVC resize could block pod recovery and prevent the resize from
+  completing.
+
 ## [1.0.0-rc.3] — 2026-07-23
 ### Added
 - Added support for `spec.postInitSQL` on `CrdbCluster` to run raw SQL once after cluster

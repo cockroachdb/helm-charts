@@ -267,14 +267,14 @@ func TestComputeAllArgs(t *testing.T) {
 		{
 			name:        "operator explicit version sets both version and appVersion",
 			chartTarget: "operator",
-			version:     "1.0.0-rc.3",
+			version:     "1.0.0-rc.4",
 			check: func(t *testing.T, result map[chartKind]templateArgs) {
 				op := result[chartKindOperator]
-				if op.Version != "1.0.0-rc.3" {
-					t.Errorf("operator version = %s, want 1.0.0-rc.3", op.Version)
+				if op.Version != "1.0.0-rc.4" {
+					t.Errorf("operator version = %s, want 1.0.0-rc.4", op.Version)
 				}
-				if op.AppVersion != "1.0.0-rc.3" {
-					t.Errorf("operator appVersion = %s, want 1.0.0-rc.3", op.AppVersion)
+				if op.AppVersion != "1.0.0-rc.4" {
+					t.Errorf("operator appVersion = %s, want 1.0.0-rc.4", op.AppVersion)
 				}
 			},
 		},

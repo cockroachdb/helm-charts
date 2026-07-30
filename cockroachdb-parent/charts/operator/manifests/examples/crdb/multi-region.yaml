@@ -1,0 +1,79 @@
+# Multi-region example spanning two Kubernetes clusters.
+#
+# Apply this same CrdbCluster manifest in both Kubernetes clusters. Before
+# applying it:
+# - Install the operator in each cluster.
+# - Set CLOUD_REGION=us-central1 in the central cluster and
+#   CLOUD_REGION=us-east1 in the east cluster.
+# - Ensure cross-cluster DNS and networking can resolve and reach each region's
+#   <cluster-name>.<namespace>.svc.<domain> address.
+# - Apply rbac.yaml in both clusters.
+# - Label Nodes with their matching topology.kubernetes.io/region.
+# - Provision cockroachdb-ca, cockroachdb.node, and cockroachdb.client.root in
+#   the cockroachdb namespace of both clusters before creating the CrdbCluster.
+#   All certificates must use the same CA, and node certificates must contain
+#   the DNS names used in both regions.
+#
+# Replace the example domains with the real Kubernetes cluster domains.
+apiVersion: crdb.cockroachlabs.com/v1beta1
+kind: CrdbCluster
+metadata:
+  name: cockroachdb
+  namespace: cockroachdb
+spec:
+  mode: MutableOnly
+  tlsEnabled: true
+  regions:
+    - code: us-central1
+      cloudProvider: gcp
+      domain: cluster.gke.gcp-us-central1
+      namespace: cockroachdb
+      nodes: 3
+    - code: us-east1
+      cloudProvider: gcp
+      domain: cluster.gke.gcp-us-east1
+      namespace: cockroachdb
+      nodes: 3
+  rollingRestartDelay: 30s
+  template:
+    spec:
+      image: cockroachdb/cockroach:v26.2.3
+      certificates:
+        externalCertificates:
+          caConfigMapName: cockroachdb-ca
+          nodeSecretName: cockroachdb.node
+          rootSqlClientSecretName: cockroachdb.client.root
+      dataStore:
+        volumeClaimTemplate:
+          metadata: {}
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 100Gi
+            volumeMode: Filesystem
+      grpcPort: 26258
+      sqlPort: 26257
+      httpPort: 8080
+      localityMappings:
+        - nodeLabel: topology.kubernetes.io/region
+          localityLabel: region
+        - nodeLabel: topology.kubernetes.io/zone
+          localityLabel: zone
+      podTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/name: cockroachdb
+            app.kubernetes.io/instance: cockroachdb
+            app.kubernetes.io/component: cockroachdb
+        spec:
+          serviceAccountName: cockroachdb
+          containers:
+            - name: cockroachdb
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: 8Gi
+                limits:
+                  memory: 8Gi

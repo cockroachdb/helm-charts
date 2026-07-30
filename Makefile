@@ -61,6 +61,15 @@ build: build/chart build/self-signer ## build the helm chart and self-signer
 generate: ## generate files from templates in build/templates
 	@go run build/build.go generate
 
+.PHONY: generate/operator-manifest
+generate/operator-manifest: bin/helm ## render the kubectl-installable operator bundle
+	@mkdir -p cockroachdb-parent/charts/operator/manifests
+	@bin/helm template cockroachdb-operator cockroachdb-parent/charts/operator \
+		--namespace cockroachdb \
+		--set cloudRegion=local \
+		--set selfSignedOperatorCerts=true \
+		> cockroachdb-parent/charts/operator/manifests/cockroachdb-operator.yaml
+
 build/chart: bin/helm ## build the legacy helm chart to build/artifacts
 	@build/make.sh
 
@@ -252,6 +261,7 @@ bump/cockroachdb/%: ## bump cockroachdb chart for new CRDB version
 bump/operator/%: ## bump operator chart version
 	@bazel build //build
 	$$(bazel info bazel-bin)/build/build_/build bump --chart operator $*
+	@$(MAKE) generate/operator-manifest
 	@helm dependency update ./cockroachdb-parent
 	@rm -rf ./cockroachdb-parent/charts/*.tgz
 

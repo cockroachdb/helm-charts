@@ -1,0 +1,68 @@
+# Secure single-region example using externally managed certificates.
+#
+# Provision these resources in the cockroachdb namespace before applying:
+# - ConfigMap cockroachdb-ca with key ca.crt.
+# - Secret cockroachdb.node with keys tls.crt, tls.key, and ca.crt.
+# - Secret cockroachdb.client.root with keys tls.crt, tls.key, and ca.crt.
+#
+# The node certificate must contain every DNS name used by CockroachDB nodes and
+# Services. Do not commit certificate private keys to source control.
+#
+# Also apply rbac.yaml, label Nodes for region local, and configure the operator
+# with CLOUD_REGION=local.
+apiVersion: crdb.cockroachlabs.com/v1beta1
+kind: CrdbCluster
+metadata:
+  name: cockroachdb
+  namespace: cockroachdb
+spec:
+  mode: MutableOnly
+  tlsEnabled: true
+  regions:
+    - code: local
+      cloudProvider: ""
+      namespace: cockroachdb
+      nodes: 3
+  rollingRestartDelay: 30s
+  template:
+    spec:
+      image: cockroachdb/cockroach:v26.2.3
+      certificates:
+        externalCertificates:
+          caConfigMapName: cockroachdb-ca
+          nodeSecretName: cockroachdb.node
+          rootSqlClientSecretName: cockroachdb.client.root
+      dataStore:
+        volumeClaimTemplate:
+          metadata: {}
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 100Gi
+            volumeMode: Filesystem
+      grpcPort: 26258
+      sqlPort: 26257
+      httpPort: 8080
+      localityMappings:
+        - nodeLabel: topology.kubernetes.io/region
+          localityLabel: region
+        - nodeLabel: topology.kubernetes.io/zone
+          localityLabel: zone
+      podTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/name: cockroachdb
+            app.kubernetes.io/instance: cockroachdb
+            app.kubernetes.io/component: cockroachdb
+        spec:
+          serviceAccountName: cockroachdb
+          containers:
+            - name: cockroachdb
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: 8Gi
+                limits:
+                  memory: 8Gi

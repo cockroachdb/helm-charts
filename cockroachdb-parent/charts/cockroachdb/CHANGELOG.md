@@ -1,5 +1,11 @@
 # CockroachDB Chart — CHANGELOG
 
+## [26.2.3] — 2026-07-31
+### Changed
+- Updated the default CockroachDB image version from `v26.2.2` to `v26.2.3`.
+- Documented Helm 4 server-side apply field ownership conflicts and the supported
+  client-side compatibility and ownership-transfer options.
+
 ## [26.2.2] — 2026-07-23
 ### Added
 - Added `cockroachdb.crdbCluster.postInitSQL` for post-initialization SQL; see
