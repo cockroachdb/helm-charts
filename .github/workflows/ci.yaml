@@ -219,7 +219,7 @@ jobs:
   # pre job to run helm e2e tests
   helm-install-e2e:
     name: Helm-E2E-Test
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
     needs: detect-heavy-e2e-change
     if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
@@ -247,7 +247,7 @@ jobs:
 
   helm-rotate-cert-e2e:
     name: Helm-rotate-cert-Test
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
     needs: detect-heavy-e2e-change
     if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
@@ -275,7 +275,7 @@ jobs:
 
   helm-single-region-e2e:
     name: Helm-single-region-Test
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
     needs: detect-heavy-e2e-change
     if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
@@ -305,7 +305,7 @@ jobs:
 
   chart-compatibility-e2e:
     name: Chart Compatibility E2E
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
     needs: detect-chart-version-change
     if: (needs.detect-chart-version-change.outputs.chartVersions == 'true')
     steps:
@@ -349,7 +349,7 @@ jobs:
 
   helm-multi-region-e2e:
     name: Helm-multi-region-Test
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
     needs: detect-heavy-e2e-change
     if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
@@ -376,7 +376,7 @@ jobs:
 
   controller-migration-e2e:
     name: controller-migration-e2e
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
     needs: detect-heavy-e2e-change
     if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:
@@ -403,7 +403,7 @@ jobs:
 
   manual-migration-e2e:
     name: manual-migration-e2e
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
     needs: detect-heavy-e2e-change
     if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
     steps:

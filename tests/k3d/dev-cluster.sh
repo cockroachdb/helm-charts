@@ -174,7 +174,7 @@ case $COMMAND in
                 exit 1
             fi
             sleep 2
-            ((retry_count++))
+            retry_count=$((retry_count + 1))
         done
         echo "Cluster is ready"
         ;;

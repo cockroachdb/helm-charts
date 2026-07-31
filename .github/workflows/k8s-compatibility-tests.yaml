@@ -12,7 +12,7 @@ permissions:
 jobs:
   cockroachdb-operator-single-region-e2e:
     name: CockroachDB Operator Single Region Test (k8s ${{ matrix.k8s-version }})
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
 
     strategy:
       fail-fast: false
@@ -59,7 +59,7 @@ jobs:
  
   cockroachdb-operator-multi-region-e2e:
     name: CockroachDB Operator Multi Region Test (k8s ${{ matrix.k8s-version }})
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
 
     strategy:
       fail-fast: false
