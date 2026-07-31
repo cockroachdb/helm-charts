@@ -118,8 +118,8 @@ test/cluster/bounce: bin/k3d test/cluster/down test/cluster/up ## restart a loca
 
 test/cluster/up: bin/k3d test/cluster/up/1
 
-test/cluster/up/%: bin/k3d
-	@bin/k3d cluster list | grep $(K3D_CLUSTER) || ./tests/k3d/dev-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $*
+test/cluster/up/%: bin/k3d bin/kubectl
+	@bin/k3d cluster list | grep $(K3D_CLUSTER) || PATH="$(PWD)/bin:${PATH}" ./tests/k3d/dev-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $*
 
 
 test/cluster/down: bin/k3d
@@ -155,8 +155,8 @@ test/e2e/manual-migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper
 	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
 
-test/single-cluster/up: bin/k3d
-	 ./tests/k3d/dev-multi-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters 1
+test/single-cluster/up: bin/k3d bin/kubectl
+	 PATH="$(PWD)/bin:${PATH}" ./tests/k3d/dev-multi-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters 1
 
 test/multi-cluster/down: bin/k3d
 	 ./tests/k3d/dev-multi-cluster.sh down

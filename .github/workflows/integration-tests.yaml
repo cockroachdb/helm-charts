@@ -8,7 +8,7 @@ on:
 
 jobs:
   integration-tests-multi-region:
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
     strategy:
       fail-fast: false
       matrix:
@@ -59,7 +59,7 @@ jobs:
           test-name: "Multi-region e2e"
           slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
   integration-tests-single-region:
-    runs-on: ubuntu-latest-4-core
+    runs-on: [self-hosted, ubuntu_2404]
     strategy:
       fail-fast: false
       matrix:
