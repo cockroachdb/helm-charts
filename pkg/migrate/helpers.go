@@ -13,6 +13,9 @@ import (
 
 	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
 	"github.com/cockroachdb/errors"
+	// TODO: When updating the v1beta1 API, keep supported fields in this internal
+	// migration package and cockroachdb-parent/charts/operator/api/v1beta1 in sync.
+	// The public copy intentionally omits deprecated compatibility fields.
 	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 	certv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
 	appsv1 "k8s.io/api/apps/v1"

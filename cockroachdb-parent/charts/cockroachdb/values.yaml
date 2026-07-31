@@ -164,7 +164,7 @@ cockroachdb:
     # image captures the container image settings for CockroachDB nodes.
     image:
       # name defines the CockroachDB container image.
-      name: cockroachdb/cockroach:v26.2.2
+      name: cockroachdb/cockroach:v26.2.3
       # pullPolicy defines the image pull policy for CockroachDB.
       pullPolicy: IfNotPresent
       # registry defines the container registry host (e.g., gcr.io, docker.io).
@@ -517,7 +517,7 @@ cockroachdb:
         # # initContainers captures the list of init containers for CockroachDB pods.
         # initContainers:
         #   - name : cockroachdb-init
-        #     image: docker.io/cockroachdb/cockroachdb-init-container:v1.0.0-rc.3
+        #     image: docker.io/cockroachdb/cockroachdb-init-container:v1.0.0-rc.4
         # containers captures the list of containers for CockroachDB pods.
         containers:
           - name: cockroachdb
@@ -530,9 +530,9 @@ cockroachdb:
             #     fieldRef:
             #       fieldPath: metadata.name
             resources: {}
-            # image: cockroachdb/cockroach:v26.2.2
+            # image: cockroachdb/cockroach:v26.2.3
             # - name: cert-reloader
-            #   image: docker.io/cockroachdb/cockroachdb-cert-reloader:v1.0.0-rc.3
+            #   image: docker.io/cockroachdb/cockroachdb-cert-reloader:v1.0.0-rc.4
 
         # topologySpreadConstraints captures pod topology spread constraints.
         # It is recommended to spread CockroachDB pods across zones to ensure high availability.

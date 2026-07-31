@@ -243,19 +243,19 @@ The controller performs these checks automatically between each node migration, 
 verify manually:
 
 ```bash
-# Check under-replicated ranges (should be 0)
 # During migration, STS pods use container name "db"; after migration, CrdbNode pods use "cockroachdb"
+# Verify ranges_underreplicated is 0 for every node and count the is_live=true rows.
 kubectl exec $STS_NAME-0 -n $NAMESPACE -c db -- \
-  /cockroach/cockroach sql --certs-dir=/cockroach/cockroach-certs \
-  -e "SELECT sum((metrics->>'ranges.underreplicated')::INT8) FROM crdb_internal.kv_store_status;"
-
-# Check all nodes are live (count should match total nodes)
-kubectl exec $STS_NAME-0 -n $NAMESPACE -c db -- \
-  /cockroach/cockroach sql --certs-dir=/cockroach/cockroach-certs \
-  -e "SELECT count(DISTINCT node_id) FROM crdb_internal.kv_store_status;"
-
-# For insecure clusters, replace --certs-dir with --insecure
+  /cockroach/cockroach node status --ranges --format table \
+  --certs-dir=/cockroach/cockroach-certs
 ```
+
+`cockroach node status --ranges` targets the system virtual cluster
+automatically. For the direct SQL diagnostic alternative and its
+`allow_unsafe_internals` and UA routing requirements, see
+[Inspect cluster health manually](../../../cockroachdb-parent/charts/operator/README.md#inspect-cluster-health-manually).
+For insecure clusters, replace `--certs-dir=/cockroach/cockroach-certs` with
+`--insecure`.
 
 ### Watch migration status
 
@@ -365,8 +365,8 @@ kubectl exec $STS_NAME-0 -n $NAMESPACE -c cockroachdb -- \
 
 # Verify under-replicated ranges are zero
 kubectl exec $STS_NAME-0 -n $NAMESPACE -c cockroachdb -- \
-  /cockroach/cockroach sql --certs-dir=/cockroach/cockroach-certs \
-  -e "SELECT sum((metrics->>'ranges.underreplicated')::INT8) FROM crdb_internal.kv_store_status;"
+  /cockroach/cockroach node status --ranges --format table \
+  --certs-dir=/cockroach/cockroach-certs
 ```
 
 ### Verify preserved configurations
@@ -822,9 +822,13 @@ migration pauses.
 ```bash
 # StatefulSet pods use -c db. Migrated CrdbNode pods use -c cockroachdb.
 kubectl exec $STS_NAME-0 -n $NAMESPACE -c db -- \
-  /cockroach/cockroach sql --certs-dir=/cockroach/cockroach-certs \
-  -e "SELECT sum((metrics->>'ranges.underreplicated')::INT8) FROM crdb_internal.kv_store_status;"
+  /cockroach/cockroach node status --ranges --format table \
+  --certs-dir=/cockroach/cockroach-certs
 ```
+
+For the direct SQL diagnostic alternative and its `allow_unsafe_internals` and
+UA routing requirements, see
+[Inspect cluster health manually](../../../cockroachdb-parent/charts/operator/README.md#inspect-cluster-health-manually).
 
 ### Status Conflict Errors
 

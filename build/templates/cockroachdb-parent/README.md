@@ -155,6 +155,23 @@ Modify the required configuration in [`cockroachdb-parent/values.yaml`](/cockroa
 $ helm spray --reuse-values $CRDBCLUSTER ./cockroachdb --values ./cockroachdb-parent/values.yaml -n $NAMESPACE --exclude=operator
 ```
 
+### Helm 4 server-side apply
+
+Helm 4 uses server-side apply (SSA) by default for releases first installed with
+Helm 4. Existing Helm 3 releases normally retain client-side apply. Because the
+operator also updates `CrdbCluster` and `CrdbNode` fields, an SSA upgrade can
+report field ownership conflicts.
+
+If you are not intentionally adopting SSA, pass `--server-side=false`. If you
+are intentionally adopting SSA, inspect the conflicts and `managedFields`
+before using `--server-side=true --force-conflicts` to transfer ownership to
+Helm. Do not use Helm 4's `--force-replace` for SSA ownership conflicts.
+
+See the CockroachDB subchart's [Helm 4 server-side apply
+guidance](charts/cockroachdb/README.md#helm-4-server-side-apply), the [Helm 4
+overview](https://helm.sh/docs/overview/#server-side-apply), and
+[HIP-0023](https://helm.sh/community/hips/hip-0023/).
+
 ## Scale Up/Down CockroachDB cluster
 
 Update the nodes accordingly under `regions` section and perform the helm upgrade:

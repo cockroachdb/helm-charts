@@ -11,11 +11,6 @@ trap remove_artifacts EXIT
 build/make.sh
 build/release.sh
 
-# Build and publish v2 charts only when explicitly enabled. This keeps the
-# first v2 publish under manual control while preserving the legacy release path.
-if [ "${PUBLISH_V2:-false}" = "true" ]; then
-  build/make.sh v2
-  build/release.sh v2
-else
-  echo "Skipping v2 chart publish because PUBLISH_V2 is not true."
-fi
+# Build and publish the v2 operator and CockroachDB charts.
+build/make.sh v2
+build/release.sh v2

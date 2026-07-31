@@ -1,0 +1,74 @@
+# Pod template customization example.
+#
+# This concise example disables TLS and is intended to demonstrate supported
+# podTemplate fields. Enable TLS for production.
+#
+# Prerequisites:
+# - Apply rbac.yaml.
+# - Label Nodes for region local and configure the operator with
+#   CLOUD_REGION=local.
+# - If private images are configured, create the referenced image pull Secret
+#   before applying the CrdbCluster and uncomment imagePullSecrets below.
+apiVersion: crdb.cockroachlabs.com/v1beta1
+kind: CrdbCluster
+metadata:
+  name: cockroachdb
+  namespace: cockroachdb
+spec:
+  mode: MutableOnly
+  tlsEnabled: false
+  regions:
+    - code: local
+      cloudProvider: ""
+      namespace: cockroachdb
+      nodes: 3
+  rollingRestartDelay: 30s
+  template:
+    spec:
+      image: cockroachdb/cockroach:v26.2.3
+      dataStore:
+        volumeClaimTemplate:
+          metadata: {}
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 100Gi
+            volumeMode: Filesystem
+      grpcPort: 26258
+      sqlPort: 26257
+      httpPort: 8080
+      localityMappings:
+        - nodeLabel: topology.kubernetes.io/region
+          localityLabel: region
+        - nodeLabel: topology.kubernetes.io/zone
+          localityLabel: zone
+      podTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/name: cockroachdb
+            app.kubernetes.io/instance: cockroachdb
+            app.kubernetes.io/component: cockroachdb
+            environment: production
+          annotations:
+            example.com/owner: database-platform
+        spec:
+          serviceAccountName: cockroachdb
+          # imagePullSecrets:
+          #   - name: registry-credentials
+          containers:
+            - name: cockroachdb
+              env:
+                - name: EXAMPLE_ENV
+                  value: replace-me
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: 8Gi
+                limits:
+                  memory: 8Gi
+          topologySpreadConstraints:
+            - maxSkew: 1
+              topologyKey: topology.kubernetes.io/zone
+              whenUnsatisfiable: DoNotSchedule

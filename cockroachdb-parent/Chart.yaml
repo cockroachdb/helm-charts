@@ -3,16 +3,16 @@ apiVersion: v2
 name: cockroachdb-parent
 description: A parent Helm chart for CockroachDB and its operator using helm-spray
 type: application
-version: 26.2.2
-appVersion: 26.2.2
+version: 26.2.3
+appVersion: 26.2.3
 dependencies:
   - name: cockroachdb-operator-chart
     alias: operator
-    version: 1.0.0-rc.3
+    version: 1.0.0-rc.4
     condition: operator.enabled
     repository: "file://charts/operator"
   - name: cockroachdb-chart
     alias: cockroachdb
-    version: 26.2.2
+    version: 26.2.3
     condition: cockroachdb.enabled
     repository: "file://charts/cockroachdb"

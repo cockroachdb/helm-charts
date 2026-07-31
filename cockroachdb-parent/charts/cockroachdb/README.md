@@ -206,6 +206,38 @@ Modify the required configuration in [`cockroachdb/values.yaml`](/cockroachdb-pa
 $ helm upgrade --reuse-values $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --values ./cockroachdb-parent/charts/cockroachdb/values.yaml -n $NAMESPACE
 ```
 
+### Helm 4 server-side apply
+
+Helm 4 uses server-side apply (SSA) by default for releases first installed with
+Helm 4. Releases upgraded from Helm 3 normally continue using client-side apply
+because Helm records the apply method. SSA can still be enabled explicitly or
+used after a release is recreated or imported.
+
+The CockroachDB Operator also updates fields on `CrdbCluster` and `CrdbNode`
+resources. When SSA is active, a Helm upgrade can report a field ownership
+conflict for a field managed by the operator.
+
+If you are not intentionally migrating the release to SSA, retain client-side
+apply:
+
+```shell
+$ helm upgrade --server-side=false --reuse-values $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --values ./cockroachdb-parent/charts/cockroachdb/values.yaml -n $NAMESPACE
+```
+
+If you are intentionally adopting SSA, inspect the reported conflicts and the
+resource's `managedFields` first. You can then transfer ownership to Helm:
+
+```shell
+$ helm upgrade --server-side=true --force-conflicts --reuse-values $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --values ./cockroachdb-parent/charts/cockroachdb/values.yaml -n $NAMESPACE
+```
+
+`--force-conflicts` transfers ownership of conflicting fields, so do not use it
+without reviewing the affected resources. Helm 4's `--force-replace` flag
+(formerly `--force`) replaces resources and is not the remedy for an SSA
+ownership conflict. See the [Helm 4 server-side apply
+overview](https://helm.sh/docs/overview/#server-side-apply) and
+[HIP-0023](https://helm.sh/community/hips/hip-0023/).
+
 ## Migration
 
 This chart can be adopted after a cluster has been migrated to the CockroachDB Operator.

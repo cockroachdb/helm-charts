@@ -32,13 +32,29 @@ All the helm commands below reference the chart folder available locally after c
 $ helm install $CRDBOPERATOR ./cockroachdb-parent/charts/operator -n $NAMESPACE
 ```
 
+## Install without Helm
+
+Non-Helm users can install the operator from the checked-in Kubernetes manifests.
+See [`manifests/README.md`](manifests/README.md) for the CRDs, rendered operator
+bundle, direct `CrdbCluster` examples, configuration guidance, and `kubectl`
+install order.
+
 ## Upgrade
 
 Modify the required configuration in [`operator/values.yaml`](/cockroachdb-parent/charts/operator/values.yaml) and perform an upgrade through Helm:
 
 ```shell
-$ helm install $CRDBOPERATOR ./cockroachdb-parent/charts/operator -n $NAMESPACE
+$ helm upgrade $CRDBOPERATOR ./cockroachdb-parent/charts/operator -n $NAMESPACE
 ```
+
+### Helm 4 server-side apply
+
+Helm 4 uses server-side apply by default for releases first installed with Helm
+4. Because the operator updates fields on `CrdbCluster` and `CrdbNode`
+resources, Helm-managed CockroachDB resources can report field ownership
+conflicts when server-side apply is active. See the CockroachDB chart's
+[Helm 4 server-side apply guidance](../cockroachdb/README.md#helm-4-server-side-apply)
+before using `--force-conflicts` or changing the release's apply mode.
 
 ## Uninstalling the Chart
 
@@ -135,10 +151,13 @@ Controls who provisions the `cockroach-operator-certs` Secret used by the operat
 # false (default): Helm provisions the Secret. Cert is stable and only changes on helm upgrade.
 selfSignedOperatorCerts: false
 
-# true: the operator self-generates certs into an emptyDir on startup.
-# Certs rotate on every pod restart.
+# true: the operator provisions and owns the shared Secret.
+# Each replica copies the same certificates into its Pod-local emptyDir.
 selfSignedOperatorCerts: true
 ```
+
+In operator-managed mode, certificates persist across Pod restarts and change
+only when the shared Secret is replaced.
 
 Switching this flag on an existing installation requires the `cockroach-operator-certs` Secret
 to be deleted first. If it is not, the chart will fail with a clear error explaining the required steps.
@@ -197,6 +216,43 @@ The result is written to the `RangesUnderReplicated` condition on the `CrdbClust
 - `True` / `UnderReplicated`: one or more ranges are under-replicated.
 - `True` / `CheckError`: the check failed, so the operator fails closed.
 - `False` / `CheckSkipped`: the check was bypassed by feature flag.
+
+### Inspect cluster health manually
+
+Use `cockroach node status --ranges` to inspect the same cluster-wide health
+signals used by the operator:
+
+```shell
+kubectl exec <cockroachdb-pod> -n <namespace> -c cockroachdb -- \
+  /cockroach/cockroach node status --ranges --format table --port 26257 \
+  --certs-dir=/cockroach/cockroach-certs
+```
+
+The `ranges_underreplicated` column should be zero for every node, and the
+`is_live` column identifies live nodes. This command handles access to the
+system virtual cluster automatically, including on virtualized (UA) clusters.
+For insecure clusters, replace `--certs-dir=/cockroach/cockroach-certs` with
+`--insecure`.
+See the [`cockroach node`
+documentation](https://www.cockroachlabs.com/docs/stable/cockroach-node).
+
+Prefer this command over querying `crdb_internal.kv_store_status` directly.
+That table is an unsafe, system-only internal table. If Cockroach Labs Support
+asks you to query it for diagnostics, CockroachDB 26.1 and later require
+`allow_unsafe_internals` to be enabled in the same session. On a virtualized
+(UA) cluster, explicitly target the system virtual cluster; otherwise the
+connection can land on the default virtual cluster and the query will fail.
+
+```shell
+kubectl exec <cockroachdb-pod> -n <namespace> -c cockroachdb -- \
+  /cockroach/cockroach sql --port 26257 --certs-dir=/cockroach/cockroach-certs \
+  --database=cluster:system/defaultdb \
+  --execute="SET allow_unsafe_internals = on; SELECT COALESCE(sum((metrics->>'ranges.underreplicated')::INT8), 0) FROM crdb_internal.kv_store_status;"
+```
+
+For CockroachDB versions older than 26.1, omit the `SET` statement because the
+session variable may not exist. See the
+[`crdb_internal` access guidance](https://www.cockroachlabs.com/docs/stable/crdb-internal).
 
 Use the `skip-under-replicated-ranges-check` feature flag only as a recovery override when the
 gate blocks the change needed to recover the cluster. Preserve any existing `spec.features`

@@ -1,0 +1,75 @@
+# GCP Cloud KMS-backed encryption-at-rest example.
+#
+# Provision all referenced resources in the cockroachdb namespace first:
+# - cockroachdb-ca, cockroachdb.node, and cockroachdb.client.root as described
+#   in secure.yaml.
+# - Secret cockroachdb-store-key with StoreKeyData, AuthPrincipal, URI, Region,
+#   and Type keys describing the encrypted store key.
+# - Secret cockroachdb-kms-credentials with the gcp_service_account_key key.
+#
+# Grant the KMS identity permission to decrypt the configured key. Never commit
+# store keys or cloud credentials to source control. For AWS or Azure, change
+# platform and use the provider-specific Secret keys documented in values.yaml.
+#
+# Apply rbac.yaml, label Nodes for us-east1, and configure the operator with
+# CLOUD_REGION=us-east1 before applying this manifest.
+apiVersion: crdb.cockroachlabs.com/v1beta1
+kind: CrdbCluster
+metadata:
+  name: cockroachdb
+  namespace: cockroachdb
+spec:
+  mode: MutableOnly
+  tlsEnabled: true
+  regions:
+    - code: us-east1
+      cloudProvider: gcp
+      namespace: cockroachdb
+      nodes: 3
+      encryptionAtRest:
+        keySecretName: cockroachdb-store-key
+        platform: GCP_CLOUD_KMS
+        cmekCredentialsSecretName: cockroachdb-kms-credentials
+  rollingRestartDelay: 30s
+  template:
+    spec:
+      image: cockroachdb/cockroach:v26.2.3
+      certificates:
+        externalCertificates:
+          caConfigMapName: cockroachdb-ca
+          nodeSecretName: cockroachdb.node
+          rootSqlClientSecretName: cockroachdb.client.root
+      dataStore:
+        volumeClaimTemplate:
+          metadata: {}
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 100Gi
+            volumeMode: Filesystem
+      grpcPort: 26258
+      sqlPort: 26257
+      httpPort: 8080
+      localityMappings:
+        - nodeLabel: topology.kubernetes.io/region
+          localityLabel: region
+        - nodeLabel: topology.kubernetes.io/zone
+          localityLabel: zone
+      podTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/name: cockroachdb
+            app.kubernetes.io/instance: cockroachdb
+            app.kubernetes.io/component: cockroachdb
+        spec:
+          serviceAccountName: cockroachdb
+          containers:
+            - name: cockroachdb
+              resources:
+                requests:
+                  cpu: "2"
+                  memory: 8Gi
+                limits:
+                  memory: 8Gi

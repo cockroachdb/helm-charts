@@ -1,0 +1,54 @@
+# Insecure single-region example for local testing only.
+#
+# Prerequisites:
+# - Apply rbac.yaml.
+# - Ensure a default StorageClass exists.
+# - Label the target Nodes:
+#     kubectl label nodes --all topology.kubernetes.io/region=local --overwrite
+# - Configure the operator with CLOUD_REGION=local.
+apiVersion: crdb.cockroachlabs.com/v1beta1
+kind: CrdbCluster
+metadata:
+  name: cockroachdb
+  namespace: cockroachdb
+spec:
+  mode: MutableOnly
+  tlsEnabled: false
+  regions:
+    - code: local
+      cloudProvider: ""
+      namespace: cockroachdb
+      nodes: 3
+  rollingRestartDelay: 30s
+  template:
+    spec:
+      image: cockroachdb/cockroach:v26.2.3
+      dataStore:
+        volumeClaimTemplate:
+          metadata: {}
+          spec:
+            accessModes:
+              - ReadWriteOnce
+            resources:
+              requests:
+                storage: 10Gi
+            volumeMode: Filesystem
+      grpcPort: 26258
+      sqlPort: 26257
+      httpPort: 8080
+      localityMappings:
+        - nodeLabel: topology.kubernetes.io/region
+          localityLabel: region
+        - nodeLabel: topology.kubernetes.io/zone
+          localityLabel: zone
+      podTemplate:
+        metadata:
+          labels:
+            app.kubernetes.io/name: cockroachdb
+            app.kubernetes.io/instance: cockroachdb
+            app.kubernetes.io/component: cockroachdb
+        spec:
+          serviceAccountName: cockroachdb
+          containers:
+            - name: cockroachdb
+              resources: {}
