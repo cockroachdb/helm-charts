@@ -13,6 +13,6 @@ dependencies:
     repository: "file://charts/operator"
   - name: cockroachdb-chart
     alias: cockroachdb
-    version: 26.2.4
+    version: 26.2.5
     condition: cockroachdb.enabled
     repository: "file://charts/cockroachdb"
