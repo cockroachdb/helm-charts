@@ -7,10 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/cockroachdb/helm-charts/tests/testutil"
+	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/gruntwork-io/terratest/modules/shell"
@@ -66,7 +68,7 @@ func prepareForMigration(t *testing.T, stsName, namespace, caSecret, crdbDeploym
 func migratePodsToCrdbNodes(t *testing.T, crdbCluster testutil.CockroachCluster, namespace string) {
 	t.Log("Migrating the pods to CrdbNodes")
 
-	kubectlOptions := k8s.NewKubectlOptions("", "", namespace)
+	kubectlOptions := migrationKubectlOptions(namespace)
 
 	// Add the crdb.io/skip-reconcile label to prevent the public operator from scaling up
 	// This is only needed if a CrdbCluster CR exists (i.e., migrating from public operator)
@@ -121,4 +123,92 @@ func createLoggingConfig(t *testing.T, cl client.Client, name, namespace string)
 	}
 
 	require.NoError(t, cl.Create(context.TODO(), &loggingConfigMap))
+}
+
+// verifyHelmSSAUpgrade performs a normal Helm upgrade and verifies that Helm
+// used server-side apply to manage the CrdbCluster. The command intentionally
+// does not use --force-conflicts: an ownership conflict must fail the test.
+func verifyHelmSSAUpgrade(
+	t *testing.T,
+	kubectlOptions *k8s.KubectlOptions,
+	helmPath, releaseName, clusterName, valuesFile string,
+) {
+	t.Helper()
+	t.Logf("Verifying Helm 4 SSA upgrade for CrdbCluster %s", clusterName)
+
+	options := &helm.Options{KubectlOptions: kubectlOptions}
+	if valuesFile != "" {
+		options.ValuesFiles = []string{valuesFile}
+	}
+	helm.Upgrade(t, options, helmPath, releaseName)
+	requireHelmSSAOwnership(t, kubectlOptions, clusterName)
+}
+
+// requireHelmSSAOwnership proves that the test is exercising Helm 4 SSA rather
+// than only checking that a client-side Helm upgrade happened to succeed.
+func requireHelmSSAOwnership(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, clusterName string,
+) {
+	t.Helper()
+
+	raw, err := k8s.RunKubectlAndGetOutputE(
+		t,
+		kubectlOptions,
+		"get", v1beta1CrdbClusterResource, clusterName,
+		"-o", "json",
+		"--show-managed-fields=true",
+	)
+	require.NoError(t, err)
+
+	var object struct {
+		Metadata struct {
+			ManagedFields []struct {
+				Manager   string `json:"manager"`
+				Operation string `json:"operation"`
+			} `json:"managedFields"`
+		} `json:"metadata"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &object))
+
+	for _, field := range object.Metadata.ManagedFields {
+		if strings.Contains(strings.ToLower(field.Manager), "helm") && field.Operation == "Apply" {
+			return
+		}
+	}
+
+	require.Failf(
+		t,
+		"Helm SSA ownership was not recorded",
+		"CrdbCluster %s has no Helm managedFields entry with operation Apply: %+v",
+		clusterName,
+		object.Metadata.ManagedFields,
+	)
+}
+
+// requireNoMigrationAnnotations verifies that conversion-only metadata was
+// cleaned before Helm adoption and was not injected into a native v1beta1
+// cluster during v1alpha1/v1beta1 coexistence.
+func requireNoMigrationAnnotations(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, clusterName string,
+) {
+	t.Helper()
+
+	raw, err := k8s.RunKubectlAndGetOutputE(
+		t,
+		kubectlOptions,
+		"get", v1beta1CrdbClusterResource, clusterName,
+		"-o", "json",
+	)
+	require.NoError(t, err)
+
+	var object struct {
+		Metadata struct {
+			Annotations map[string]string `json:"annotations"`
+		} `json:"metadata"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &object))
+	for key := range object.Metadata.Annotations {
+		require.NotContains(t, strings.ToLower(key), "migration",
+			"CrdbCluster %s retained conversion-only annotation %s", clusterName, key)
+	}
 }

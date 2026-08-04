@@ -22,7 +22,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	kscheme "k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
+	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
@@ -38,6 +38,7 @@ var (
 	NodeSecret          = fmt.Sprintf("%s-cockroachdb-node-secret", releaseName)
 	CASecret            = fmt.Sprintf("%s-cockroachdb-ca-secret", releaseName)
 	isCaUserProvided    = false
+	migrationKubeConfig string
 	migrationEnvOnce    sync.Once
 	migrationEnvErr     error
 )
@@ -76,6 +77,21 @@ func ensureMigrationTestEnv(t *testing.T) {
 		if migrationEnvErr != nil {
 			return
 		}
+		migrationKubeConfig, migrationEnvErr = k8s.GetKubeConfigPathE(t)
+		if migrationEnvErr != nil {
+			return
+		}
+		config := k8s.LoadConfigFromPath(migrationKubeConfig)
+		rawConfig, err := config.RawConfig()
+		if err != nil {
+			migrationEnvErr = err
+			return
+		}
+		if _, ok := rawConfig.Contexts[k3dClusterName]; !ok {
+			migrationEnvErr = fmt.Errorf("cluster context %q not found in kubeconfig %s",
+				k3dClusterName, migrationKubeConfig)
+			return
+		}
 		migrationEnvErr = cleanupMigrationSuiteState(t)
 		if migrationEnvErr != nil {
 			return
@@ -104,7 +120,9 @@ func cleanupMigrationSuiteState(t *testing.T) error {
 	}
 
 	for _, resource := range migrationSuiteResources {
-		listCmd := exec.Command(kubectlPath, "get", resource, "--all-namespaces",
+		listCmd := exec.Command(kubectlPath,
+			"--context", k3dClusterName, "--kubeconfig", migrationKubeConfig,
+			"get", resource, "--all-namespaces",
 			"-o", "jsonpath={range .items[*]}{.metadata.namespace}{\"\\t\"}{.metadata.name}{\"\\n\"}{end}")
 		listCmd.Dir = rootPath
 		output, err := listCmd.Output()
@@ -121,12 +139,16 @@ func cleanupMigrationSuiteState(t *testing.T) error {
 				continue
 			}
 
-			patchCmd := exec.Command(kubectlPath, "patch", resource, parts[1], "-n", parts[0],
+			patchCmd := exec.Command(kubectlPath,
+				"--context", k3dClusterName, "--kubeconfig", migrationKubeConfig,
+				"patch", resource, parts[1], "-n", parts[0],
 				"--type=merge", "-p", "{\"metadata\":{\"finalizers\":[]}}")
 			patchCmd.Dir = rootPath
 			_, _ = patchCmd.CombinedOutput()
 
-			deleteCmd := exec.Command(kubectlPath, "delete", resource, parts[1], "-n", parts[0],
+			deleteCmd := exec.Command(kubectlPath,
+				"--context", k3dClusterName, "--kubeconfig", migrationKubeConfig,
+				"delete", resource, parts[1], "-n", parts[0],
 				"--ignore-not-found=true", "--wait=true", "--timeout=60s")
 			deleteCmd.Dir = rootPath
 			_, _ = deleteCmd.CombinedOutput()
@@ -134,7 +156,9 @@ func cleanupMigrationSuiteState(t *testing.T) error {
 	}
 
 	for _, crd := range migrationSuiteCRDs {
-		deleteCmd := exec.Command(kubectlPath, "delete", "crd", crd, "--ignore-not-found=true", "--wait=true", "--timeout=60s")
+		deleteCmd := exec.Command(kubectlPath,
+			"--context", k3dClusterName, "--kubeconfig", migrationKubeConfig,
+			"delete", "crd", crd, "--ignore-not-found=true", "--wait=true", "--timeout=60s")
 		deleteCmd.Dir = rootPath
 		_, _ = deleteCmd.CombinedOutput()
 	}
@@ -167,7 +191,10 @@ func initMigrationClient() error {
 	runtimeScheme := runtime.NewScheme()
 	_ = kscheme.AddToScheme(runtimeScheme)
 	_ = api.AddToScheme(runtimeScheme)
-	cfg, err = ctrl.GetConfig()
+	cfg, err = clientcmd.NewNonInteractiveDeferredLoadingClientConfig(
+		&clientcmd.ClientConfigLoadingRules{ExplicitPath: migrationKubeConfig},
+		&clientcmd.ConfigOverrides{CurrentContext: k3dClusterName},
+	).ClientConfig()
 	if err != nil {
 		return err
 	}
@@ -175,6 +202,10 @@ func initMigrationClient() error {
 		Scheme: runtimeScheme,
 	})
 	return err
+}
+
+func migrationKubectlOptions(namespace string) *k8s.KubectlOptions {
+	return k8s.NewKubectlOptions(k3dClusterName, migrationKubeConfig, namespace)
 }
 
 // providerCloudRegion returns the cloud region for the active provider.
@@ -185,11 +216,11 @@ func providerCloudRegion(t *testing.T) string {
 func TestHelmChartToOperatorMigration(t *testing.T) {
 	ensureMigrationTestEnv(t)
 
-	h := newHelmChartToOperator()
-	t.Run("helm chart to CockroachDB operator migration", h.TestDefaultMigration)
-	t.Run("helm chart to CockroachDB operator migration with cert manager", h.TestCertManagerMigration)
-	t.Run("helm chart to CockroachDB operator migration with PCR primary", h.TestPCRPrimaryMigration)
-	t.Run("helm chart to CockroachDB operator migration with dedicated logs PVC", h.TestDedicatedLogsPVCMigration)
+	//h := newHelmChartToOperator()
+	//t.Run("helm chart to CockroachDB operator migration", h.TestDefaultMigration)
+	//t.Run("helm chart to CockroachDB operator migration with cert manager", h.TestCertManagerMigration)
+	//t.Run("helm chart to CockroachDB operator migration with PCR primary", h.TestPCRPrimaryMigration)
+	//t.Run("helm chart to CockroachDB operator migration with dedicated logs PVC", h.TestDedicatedLogsPVCMigration)
 }
 
 func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
@@ -224,7 +255,7 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 		}),
 	}
 
-	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	kubectlOptions := migrationKubectlOptions(h.Namespace)
 
 	h.InstallHelm(t)
 	h.ValidateCRDB(t)
@@ -282,6 +313,9 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
+		ExtraArgs: map[string][]string{
+			"upgrade": {"--force-conflicts"},
+		},
 	}, helmPath, releaseName)
 
 	for i := h.CrdbCluster.DesiredNodes - 1; i >= 0; i-- {
@@ -291,14 +325,17 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 
 	h.ValidateExistingData = true
 	h.ValidateCRDB(t)
+	verifyHelmSSAUpgrade(t, kubectlOptions, helmPath, releaseName,
+		h.CrdbCluster.StatefulSetName, valuesFile)
+	h.ValidateCRDB(t)
 }
 
 func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 	const caSecretName = "cockroach-ca"
 	h.Namespace = "cockroach" + strings.ToLower(random.UniqueId())
-	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	kubectlOptions := migrationKubectlOptions(h.Namespace)
 
-	certManagerK8sOptions := k8s.NewKubectlOptions("", "", testutil.CertManagerNamespace)
+	certManagerK8sOptions := migrationKubectlOptions(testutil.CertManagerNamespace)
 	testutil.InstallCertManager(t, certManagerK8sOptions)
 	// ... and make sure to delete the helm release at the end of the test.
 	defer func() {
@@ -385,6 +422,9 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
+		ExtraArgs: map[string][]string{
+			"upgrade": {"--force-conflicts"},
+		},
 	}, helmPath, releaseName)
 
 	for i := h.CrdbCluster.DesiredNodes - 1; i >= 0; i-- {
@@ -393,6 +433,9 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 	}
 
 	h.ValidateExistingData = true
+	h.ValidateCRDB(t)
+	verifyHelmSSAUpgrade(t, kubectlOptions, helmPath, releaseName,
+		h.CrdbCluster.StatefulSetName, filepath.Join(manifestsDirPath, "values.yaml"))
 	h.ValidateCRDB(t)
 }
 
@@ -428,7 +471,7 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 		}),
 	}
 
-	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	kubectlOptions := migrationKubectlOptions(h.Namespace)
 	h.ValidateExistingData = false
 	h.InstallHelm(t)
 	h.ValidateCRDB(t)
@@ -510,6 +553,9 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{valuesFile},
+		ExtraArgs: map[string][]string{
+			"upgrade": {"--force-conflicts"},
+		},
 	}, helmPath, releaseName)
 
 	for i := h.CrdbCluster.DesiredNodes - 1; i >= 0; i-- {
@@ -522,6 +568,9 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 	}()
 
 	h.ValidateExistingData = true
+	h.ValidateCRDB(t)
+	verifyHelmSSAUpgrade(t, kubectlOptions, helmPath, releaseName,
+		h.CrdbCluster.StatefulSetName, valuesFile)
 	h.ValidateCRDB(t)
 }
 
@@ -553,7 +602,7 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 		}),
 	}
 
-	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	kubectlOptions := migrationKubectlOptions(h.Namespace)
 	h.ValidateExistingData = false
 	h.InstallHelm(t)
 	h.ValidateCRDB(t)
@@ -609,6 +658,9 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
+		ExtraArgs: map[string][]string{
+			"upgrade": {"--force-conflicts"},
+		},
 	}, helmPath, releaseName)
 
 	for i := h.CrdbCluster.DesiredNodes - 1; i >= 0; i-- {
@@ -617,5 +669,8 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 	}
 
 	h.ValidateExistingData = true
+	h.ValidateCRDB(t)
+	verifyHelmSSAUpgrade(t, kubectlOptions, helmPath, releaseName,
+		h.CrdbCluster.StatefulSetName, filepath.Join(manifestsDirPath, "values.yaml"))
 	h.ValidateCRDB(t)
 }

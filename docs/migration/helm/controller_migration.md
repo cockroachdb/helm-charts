@@ -1,5 +1,8 @@
 # Automatic Migration from Helm StatefulSet to CockroachDB Operator
 
+> These guides are available to read in the
+> [CockroachDB documentation](https://www.cockroachlabs.com/docs/stable/migrate-cockroachdb-kubernetes-helm).
+
 This guide covers the automatic migration of a CockroachDB cluster managed via a Helm
 StatefulSet to the CockroachDB Operator.
 
@@ -13,15 +16,15 @@ Before starting migration, verify your cluster configuration is supported.
 
 | Feature | Supported | Notes |
 |---|---|---|
-| Self-signer certs (Helm built-in) | Yes | Regenerated with join service DNS SANs; originals preserved |
-| cert-manager certs | Yes | Certificate CR updated with join service DNS SANs; issuer references preserved |
-| User-provided certs (`tls.certs.provided`) | Yes | CrdbNode pods mount user's secrets directly; cert regeneration skipped (see prerequisites) |
-| Insecure clusters (TLS disabled) | Yes | Detected from `--insecure` flag; cert migration phase skipped entirely |
+| Self-signer certs (Helm built-in) | Yes | Regenerated with join service DNS SANs. Originals preserved |
+| cert-manager certs | Yes | Certificate CR updated with join service DNS SANs. Issuer references preserved |
+| User-provided certs (`tls.certs.provided`) | Yes | CrdbNode pods mount user's secrets directly. Cert regeneration skipped (see prerequisites) |
+| Insecure clusters (TLS disabled) | Yes | Detected from `--insecure` flag. Cert migration phase skipped entirely |
 | WAL failover (dedicated PVC) | Yes | Detected from `failover*` VolumeClaimTemplate and `--wal-failover` flag |
 | Dedicated logs PVC (`logsdir` / `logs-dir`) | Yes | VolumeClaimTemplate and mount path preserved as LogsStore |
 | PCR (virtualized/standby) | Yes | Detected from `{name}-init` Job args (`--virtualized`, `--virtualized-empty`) |
 | Custom service account | Yes | Preserved with `create: false` |
-| Custom start flags | Partial | Known operator-managed flags (`--join`, `--listen-addr`, `--certs-dir`, etc.) are excluded; all others preserved in `startFlags.upsert` |
+| Custom start flags | Partial | Known operator-managed flags (`--join`, `--listen-addr`, `--certs-dir`, etc.) are excluded. All others preserved in `startFlags.upsert` |
 | Multi-region | Yes | Requires `migration-regions` annotation with all regions before starting |
 | Ingress (UI/SQL) | Partial | Existing ingress continues working during migration (service names preserved). Config saved as annotation for reference. Ingress resources themselves are not created or modified. Manual Helm adoption required |
 | ServiceMonitor / PodMonitor | No | Not handled by migration. Must be recreated manually after migration to match new pod labels |
@@ -102,6 +105,10 @@ export STS_NAME="crdb-test-cockroachdb"
 # NAMESPACE is the namespace where the StatefulSet is installed.
 export NAMESPACE="default"
 
+# REGION is the region this CockroachDB Operator instance reconciles. It must
+# match the source locality or migration-regions entry for this Kubernetes cluster.
+export REGION="us-east-1"
+
 # RELEASE_NAME is the Helm release name.
 export RELEASE_NAME=$(kubectl get sts $STS_NAME -n $NAMESPACE \
   -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}')
@@ -172,7 +179,8 @@ which watches for the `crdb.io/migrate` label.
 
 ```bash
 helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
-  --set migration.enabled=true
+  --set migration.enabled=true \
+  --set cloudRegion=$REGION
 ```
 
 > `migration.enabled=true` on the **operator chart** enables the migration controller and
@@ -198,9 +206,13 @@ CrdbClusters cluster-wide, interfering with clusters managed by the public opera
 ```bash
 helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
   --set migration.enabled=true \
+  --set cloudRegion=$REGION \
   --set appLabel=cockroachdb-operator \
   --set watchNamespaces=$NAMESPACE
 ```
+
+`cloudRegion` must match the region code that migration writes to `spec.regions`. It selects the
+region this operator instance reconciles and reports in `status.region`.
 
 When migrating clusters across multiple namespaces, migrate one namespace at a time. Update
 `watchNamespaces` (or use a comma-separated list) to include additional namespaces only after
@@ -243,7 +255,7 @@ The controller performs these checks automatically between each node migration, 
 verify manually:
 
 ```bash
-# During migration, STS pods use container name "db"; after migration, CrdbNode pods use "cockroachdb"
+# During migration, STS pods use container name "db". After migration, CrdbNode pods use "cockroachdb"
 # Verify ranges_underreplicated is 0 for every node and count the is_live=true rows.
 kubectl exec $STS_NAME-0 -n $NAMESPACE -c db -- \
   /cockroach/cockroach node status --ranges --format table \
@@ -287,7 +299,7 @@ kubectl get crdbnode -n $NAMESPACE \
 | CertMigration | For self-signer: `kubectl get secret $STS_NAME-node-secret -n $NAMESPACE`. For cert-manager: check the secret name from the Certificate CR (`kubectl get certificate $STS_NAME-node -n $NAMESPACE -o jsonpath='{.spec.secretName}'`). For user-provided certs: your existing secret is used directly. TLS clusters only |
 | PodMigration | `kubectl get crdbnode -n $NAMESPACE -w` for one node per pod |
 | Finalization | `kubectl get crdbcluster $STS_NAME -o jsonpath='{.status.migration.message}'` for "Finalization complete" |
-| Complete | After StatefulSet deletion; `spec.mode: MutableOnly` and `crdb.io/migrate` label changes to `complete` |
+| Complete | After StatefulSet deletion. `spec.mode` becomes `MutableOnly` and the `crdb.io/migrate` label becomes `complete` |
 
 ### Auto-pause behavior
 
@@ -455,9 +467,9 @@ carry those forward into the new values.yaml as well.
 | Data PVC template | `spec.template.spec.dataStore` | `cockroachdb.crdbCluster.dataStore` |
 | `--wal-failover=path=...` | `spec.template.spec.walFailoverSpec` | `cockroachdb.crdbCluster.walFailoverSpec` |
 | Dedicated `logsdir` PVC | `spec.template.spec.logsStore` | `cockroachdb.crdbCluster.log.logsStore` |
-| Helm log Secret | Converted to ConfigMap; `spec.template.spec.loggingConfigMapName` | `cockroachdb.crdbCluster.loggingConfigMapName` |
+| Helm log Secret | Converted to ConfigMap. `spec.template.spec.loggingConfigMapName` | `cockroachdb.crdbCluster.loggingConfigMapName` |
 | Service account | `spec.template.spec.podTemplate.spec.serviceAccountName` | `cockroachdb.crdbCluster.rbac.serviceAccount.name` with `create=false` |
-| `--locality` tier keys | `spec.template.spec.localityLabels` | Exported into values; patch `localityMappings` for custom labels |
+| `--locality` tier keys | `spec.template.spec.localityLabels` | Exported into values. Patch `localityMappings` for custom labels |
 | Ingress intent | Preserved as annotation on CrdbCluster | `cockroachdb.crdbCluster.service.ingress` |
 | PCR config | `spec.template.spec.virtualCluster` | `cockroachdb.crdbCluster.virtualCluster` |
 
@@ -558,6 +570,11 @@ are correct and no action is needed.
 Before upgrading, verify the operator has fully reconciled the migrated cluster. Do not
 proceed until `generation` and `observedGeneration` match and all pods are running.
 
+The migration controller owns fields on existing resources such as the Role, public Service, and
+cert-manager Certificate when applicable.
+Use `--force-conflicts` on this first adoption upgrade so Helm atomically takes ownership of the
+chart-managed fields. Later Helm upgrades should run normally without this flag.
+
 ```bash
 kubectl get crdbcluster $STS_NAME -n $NAMESPACE \
   -o jsonpath='{.metadata.generation} {.status.observedGeneration}'
@@ -570,6 +587,7 @@ kubectl get pods -n $NAMESPACE -l crdb.cockroachlabs.com/cluster=$STS_NAME
 ```bash
 helm upgrade ${RELEASE_NAME} ./cockroachdb-parent/charts/cockroachdb \
   --namespace ${NAMESPACE} \
+  --force-conflicts \
   --values ./manifests/values.yaml
 ```
 
@@ -664,8 +682,8 @@ The controller automatically detects your certificate method. No manual configur
   phase is skipped. An `InsecureClusterMigration` warning event is emitted.
 
 > **Note**: Regardless of the original cert type, after migration all certificate secret names
-> are stored as `ExternalCertificates` on the CrdbNode spec. This is the internal representation
-> used by the operator to mount the correct secrets into pods.
+> are stored as `ExternalCertificates` on the CrdbNode spec so the correct secrets are mounted
+> into pods.
 
 ---
 
@@ -683,7 +701,7 @@ kubectl label sts $STS_NAME crdb.io/migrate=stop --overwrite -n $NAMESPACE
 ### Resume
 
 There is no separate "resume" label value. Use `start` again to resume from the paused phase.
-The controller detects the `PhaseStopped` state internally and resumes at the correct phase
+The controller resumes from `PhaseStopped` at the correct phase
 based on how many nodes have already been migrated.
 
 ```bash
@@ -756,8 +774,8 @@ nodes that remain healthy throughout the process.
 
 | Phase | Rollback safe? | Notes |
 |---|---|---|
-| Init | Yes | Only a CrdbCluster has been created; no pods affected |
-| CertMigration | Yes | Only cert secrets created; no pods affected |
+| Init | Yes | Only a CrdbCluster has been created. No pods affected |
+| CertMigration | Yes | Only cert secrets created. No pods affected |
 | PodMigration | Yes | Controller deletes CrdbNodes and scales STS back up |
 | Finalization | Conditional | Safe if STS still exists. If STS was already deleted, rollback sets `PhaseFailed` |
 | Complete | No | STS has been deleted. Manual recovery required |

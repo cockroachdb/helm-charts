@@ -77,7 +77,6 @@ cockroachdb:
         - name: myregistrykey
         nodeSelector:
           cloud.google.com/gke-nodepool: default-pool
-        priorityClassName: ""
         terminationGracePeriodSeconds: 300
         tolerations:
         - effect: NoSchedule

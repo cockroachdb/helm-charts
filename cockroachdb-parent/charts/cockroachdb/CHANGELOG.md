@@ -1,5 +1,10 @@
 # CockroachDB Chart — CHANGELOG
 
+## [26.2.4] — 2026-08-05
+### Changed
+- Updated the default CockroachDB image version from `v26.2.3` to `v26.2.5`.
+- Updated the [Helm 4 Server-Side Apply documentation](README.md#helm-4-server-side-apply).
+
 ## [26.2.3] — 2026-07-31
 ### Changed
 - Updated the default CockroachDB image version from `v26.2.2` to `v26.2.3`.

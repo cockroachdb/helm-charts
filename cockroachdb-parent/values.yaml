@@ -27,7 +27,7 @@
 #      namespace: test-cockroach
 #
 #  image:
-#    name: cockroachdb/cockroach:v26.2.3
+#    name: cockroachdb/cockroach:v26.2.5
 #    pullPolicy: IfNotPresent
 #
 #  nameOverride: ""

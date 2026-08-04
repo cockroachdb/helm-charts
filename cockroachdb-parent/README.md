@@ -159,14 +159,17 @@ $ helm spray --reuse-values $CRDBCLUSTER ./cockroachdb --values ./cockroachdb-pa
 ### Helm 4 server-side apply
 
 Helm 4 uses server-side apply (SSA) by default for releases first installed with
-Helm 4. Existing Helm 3 releases normally retain client-side apply. Because the
-operator also updates `CrdbCluster` and `CrdbNode` fields, an SSA upgrade can
-report field ownership conflicts.
+Helm 4. Existing Helm 3 releases normally retain client-side apply. Normal
+installs and upgrades, where `CrdbCluster` changes are made through chart values,
+do not require any additional flags.
 
-If you are not intentionally adopting SSA, pass `--server-side=false`. If you
-are intentionally adopting SSA, inspect the conflicts and `managedFields`
-before using `--server-side=true --force-conflicts` to transfer ownership to
-Helm. Do not use Helm 4's `--force-replace` for SSA ownership conflicts.
+An SSA ownership conflict can occur if a Helm-managed `CrdbCluster` is edited
+manually with `kubectl` or another tool. Make the desired change in the chart
+values instead. If a later upgrade reports a conflict, inspect the conflicting
+fields and `managedFields`, reconcile the manual change with the chart values,
+and retry the upgrade. Use `--force-conflicts` only after reviewing the affected
+fields and intentionally choosing to return their ownership to Helm. Do not use
+Helm 4's `--force-replace` for SSA ownership conflicts.
 
 See the CockroachDB subchart's [Helm 4 server-side apply
 guidance](charts/cockroachdb/README.md#helm-4-server-side-apply), the [Helm 4

@@ -564,6 +564,134 @@ func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
 	}
 }
 
+func TestBuildHelmValuesFromHelm_OmitsEmptyPodSpecFields(t *testing.T) {
+	replicas := int32(3)
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: &replicas,
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "db",
+							Image: "cockroachdb/cockroach:v26.2.5",
+						},
+					},
+				},
+			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "datadir"},
+				},
+			},
+		},
+	}
+
+	values := buildHelmValuesFromHelm(
+		sts,
+		"gcp",
+		"us-central1",
+		"default",
+		parsedMigrationInput{},
+	)
+	cockroachdbValues := values["cockroachdb"].(map[string]interface{})
+	crdbClusterValues := cockroachdbValues["crdbCluster"].(map[string]interface{})
+	podTemplateValues := crdbClusterValues["podTemplate"].(map[string]interface{})
+	podSpecValues := podTemplateValues["spec"].(map[string]interface{})
+
+	for _, field := range []string{
+		"imagePullSecrets",
+		"initContainers",
+		"volumes",
+		"affinity",
+		"nodeSelector",
+		"priorityClassName",
+		"tolerations",
+	} {
+		assert.NotContains(t, podSpecValues, field)
+	}
+	topologySpreadConstraints, ok := podSpecValues["topologySpreadConstraints"].([]corev1.TopologySpreadConstraint)
+	require.True(t, ok)
+	assert.Empty(t, topologySpreadConstraints)
+
+	valuesYAML, err := yaml.Marshal(values)
+	require.NoError(t, err)
+	for _, field := range []string{
+		"imagePullSecrets",
+		"initContainers",
+		"volumes",
+		"nodeSelector",
+		"tolerations",
+	} {
+		assert.NotContains(t, string(valuesYAML), field+": null")
+	}
+	assert.Contains(t, string(valuesYAML), "topologySpreadConstraints: []")
+}
+
+func TestBuildHelmValuesFromOperator_OmitsEmptyPodSpecFields(t *testing.T) {
+	replicas := int32(3)
+	grpcPort := int32(26258)
+	httpPort := int32(8080)
+	sqlPort := int32(26257)
+	cluster := publicv1alpha1.CrdbCluster{
+		ObjectMeta: metav1.ObjectMeta{Name: "cockroachdb"},
+		Spec: publicv1alpha1.CrdbClusterSpec{
+			Nodes:    replicas,
+			GRPCPort: &grpcPort,
+			HTTPPort: &httpPort,
+			SQLPort:  &sqlPort,
+			Image: &publicv1alpha1.PodImage{
+				Name: "cockroachdb/cockroach:v26.2.5",
+			},
+		},
+	}
+	sts := &appsv1.StatefulSet{
+		Spec: appsv1.StatefulSetSpec{
+			Template: corev1.PodTemplateSpec{
+				Spec: corev1.PodSpec{
+					Containers: []corev1.Container{
+						{
+							Name:  "db",
+							Image: cluster.Spec.Image.Name,
+						},
+					},
+				},
+			},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{
+				{
+					ObjectMeta: metav1.ObjectMeta{Name: "datadir"},
+				},
+			},
+		},
+	}
+
+	values := buildHelmValuesFromOperator(
+		cluster,
+		sts,
+		"gcp",
+		"us-central1",
+		"default",
+		&v1beta1.Flags{},
+	)
+	cockroachdbValues := values["cockroachdb"].(map[string]interface{})
+	crdbClusterValues := cockroachdbValues["crdbCluster"].(map[string]interface{})
+	podTemplateValues := crdbClusterValues["podTemplate"].(map[string]interface{})
+	podSpecValues := podTemplateValues["spec"].(map[string]interface{})
+
+	for _, field := range []string{
+		"imagePullSecrets",
+		"affinity",
+		"nodeSelector",
+		"priorityClassName",
+		"tolerations",
+	} {
+		assert.NotContains(t, podSpecValues, field)
+	}
+	topologySpreadConstraints, ok := podSpecValues["topologySpreadConstraints"].([]corev1.TopologySpreadConstraint)
+	require.True(t, ok)
+	assert.Empty(t, topologySpreadConstraints)
+}
+
 func TestExtractJoinStringAndFlags_WALFailover(t *testing.T) {
 	testCases := []struct {
 		name              string

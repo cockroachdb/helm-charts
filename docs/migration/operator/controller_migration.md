@@ -1,5 +1,8 @@
 # Automatic Migration from Public Operator to CockroachDB Operator
 
+> These guides are available to read in the
+> [CockroachDB documentation](https://www.cockroachlabs.com/docs/stable/migrate-cockroachdb-kubernetes-operator).
+
 This guide covers the automatic migration of a CockroachDB cluster managed by the Public
 Operator (v1alpha1 CrdbCluster) to the CockroachDB Operator (v1beta1 CrdbCluster
 with CrdbNodes).
@@ -13,16 +16,16 @@ Before starting migration, verify your cluster configuration is supported.
 
 | Feature | Supported | Notes |
 |---|---|---|
-| Self-signer certs (operator built-in) | Yes | Regenerated with join service DNS SANs; originals preserved |
-| cert-manager certs | Yes | Certificate CR updated with join service DNS SANs; issuer references preserved |
+| Self-signer certs (operator built-in) | Yes | Regenerated with join service DNS SANs. Originals preserved |
+| cert-manager certs | Yes | Certificate CR updated with join service DNS SANs. Issuer references preserved |
 | External certs (user-provided secrets) | Yes | Secret references preserved as ExternalCertificates |
-| Custom `NodeTLSSecret` / `ClientTLSSecret` | Yes | CrdbNode pods mount user's secrets directly; cert regeneration skipped (see prerequisites) |
-| Insecure clusters (TLS disabled) | Yes | Detected from `--insecure` flag; cert migration phase skipped entirely |
+| Custom `NodeTLSSecret` / `ClientTLSSecret` | Yes | CrdbNode pods mount user's secrets directly. Cert regeneration skipped (see prerequisites) |
+| Insecure clusters (TLS disabled) | Yes | Detected from `--insecure` flag. Cert migration phase skipped entirely |
 | WAL failover (dedicated PVC) | No | WAL failover detection only runs for Helm migrations. Not supported for operator path |
 | Dedicated logs PVC (`logsdir` / `logs-dir`) | No | LogsStore detection only runs for Helm migrations. Not supported for operator path |
 | PCR (virtualized/standby) | No | PCR detection only runs for Helm migrations (init job pattern). Not supported for operator path |
 | Custom service account | Yes | Preserved with `create: false` |
-| Custom start flags / `additionalArgs` | Partial | Known operator-managed flags excluded; `additionalArgs` converted to `startFlags.upsert` |
+| Custom start flags / `additionalArgs` | Partial | Known operator-managed flags excluded. `additionalArgs` converted to `startFlags.upsert` |
 | `cache` / `max-sql-memory` | Yes | Converted to start flags |
 | Multi-region | Yes | Requires `regionCode` and `cloudProvider` annotations before starting |
 | Ingress | Partial | v1alpha1 ingress config preserved as annotation on v1beta1. Ingress resources not modified. Manual adoption required |
@@ -41,7 +44,8 @@ Verify the following before starting migration:
 - [ ] You have the `regionCode` and `cloudProvider` values for your cluster (see Step 4).
 - [ ] You have reviewed the Compatibility table above and confirmed your configuration is supported.
 - [ ] The public operator is accessible and running (required for rollback capability).
-- [ ] **If you plan to create new v1beta1 clusters while the public operator is running**: Patch the public operator's webhooks to use `matchPolicy: Exact` (see Coexistence section in Step 5).
+- [ ] Patch the public operator's validating and mutating webhooks to use
+  `matchPolicy: Exact` before enabling migration (see Coexistence section in Step 5).
 - [ ] **If using custom `NodeTLSSecret` / `ClientTLSSecret`**: Your certificates include join
   service DNS SANs (`{cluster-name}-join`, `{cluster-name}-join.{namespace}`,
   `{cluster-name}-join.{namespace}.svc.cluster.local`). The migration controller cannot
@@ -68,10 +72,13 @@ Verify the following before starting migration:
 ### What Requires Manual Action
 
 - `crdb.io/skip-reconcile=true` must be applied to the v1alpha1 CrdbCluster before starting migration.
+- The public operator's validating and mutating webhooks must be patched to use
+  `matchPolicy: Exact` before the CockroachDB Operator is installed with migration enabled.
 - Cloud region and provider annotations must be applied to the CrdbCluster before starting migration.
 - Cloud region and provider node labels must be applied to K8s nodes for multi-region clusters.
 - The StatefulSet must be manually deleted after finalization to complete migration.
-- Old public operator resources must be cleaned up after migration.
+- After every public-operator cluster is migrated, the public operator must be uninstalled,
+  coexistence metadata removed, `storedVersions` patched, and migration mode disabled.
 - ServiceMonitor / PodMonitor resources must be recreated with updated pod labels.
 
 ### Migration Phases
@@ -190,6 +197,7 @@ for migration.
 ```bash
 helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
   --set migration.enabled=true \
+  --set cloudRegion=$REGION \
   --set appLabel=cockroachdb-operator
 ```
 
@@ -199,9 +207,13 @@ namespaces, which can be useful for reducing blast radius in large environments.
 ```bash
 helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
   --set migration.enabled=true \
+  --set cloudRegion=$REGION \
   --set appLabel=cockroachdb-operator \
   --set watchNamespaces=$NAMESPACE
 ```
+
+`cloudRegion` must match the region code in the migrated `spec.regions`. The source annotations
+control the converted spec. `cloudRegion` tells this operator which region entry it reconciles.
 
 > `migration.enabled=true` on the **operator chart** enables the migration controller and
 > registers the conversion webhook (translates between v1alpha1 and v1beta1).
@@ -254,7 +266,7 @@ continue to work normally.
 
 | Scenario | Reason |
 |---|---|
-| Creating v1beta1 clusters without patching public operator webhooks | The public operator's webhooks use `matchPolicy: Equivalent` (the Kubernetes default), so they intercept v1beta1 requests after converting them to v1alpha1. The converted object fails the public operator's validation. |
+| Migrating or creating v1beta1 clusters without patching public operator webhooks | The public operator's webhooks use `matchPolicy: Equivalent` (the Kubernetes default), so they can intercept v1beta1 requests after converting them to v1alpha1. This can block migration and other v1beta1 operations. |
 | Both operators reconciling the same cluster | Only one operator should own a cluster at a time. Use `crdb.io/skip-reconcile=true` to hand off. |
 | Running both operators with overlapping namespace scopes | Untested. Use `watchNamespaces` to separate them if needed. |
 
@@ -262,9 +274,9 @@ continue to work normally.
 
 Both operators' webhooks must use `matchPolicy: Exact` to prevent cross-version interception.
 The CockroachDB Operator's webhooks ship with this setting. The public operator's webhooks
-use the Kubernetes default (`Equivalent`), which causes them to intercept v1beta1 requests
-after Kubernetes converts them to v1alpha1. To create v1beta1 clusters while the public
-operator is present, update the public operator's webhooks to use `matchPolicy: Exact`.
+use the Kubernetes default (`Equivalent`), which can cause them to intercept v1beta1 requests
+after Kubernetes converts them to v1alpha1. Before enabling migration, update both the
+validating and mutating public operator webhooks to use `matchPolicy: Exact`.
 
 **Option 1: Edit the public operator manifest before installing.** Download the manifest,
 add `matchPolicy: Exact` to both webhook entries, then apply:
@@ -288,19 +300,22 @@ kubectl patch mutatingwebhookconfiguration cockroach-operator-mutating-webhook-c
 With both sides using `matchPolicy: Exact`, a v1alpha1 request triggers only the public
 operator's webhooks, and a v1beta1 request triggers only the CockroachDB Operator's webhooks.
 
-This patching is only needed if you plan to create new v1beta1 clusters while the public
-operator is still running. Migration of existing v1alpha1 clusters does not require it
-because the migration controller works with the v1alpha1 API directly.
+This patch is mandatory for the entire period in which the public operator and the
+migration-enabled CockroachDB Operator coexist. Because patching the live webhook
+configurations does not survive a public operator redeployment, verify and reapply it after
+any redeployment. Keep the patch in place until the public operator is uninstalled. Uninstalling
+the public operator removes its webhook configurations, so there is nothing to revert afterward.
 
-#### How conversion works
+#### Cluster behavior during coexistence
 
-**v1alpha1 clusters without `skip-reconcile`** are converted to v1beta1 with `Mode=Disabled`
-for storage. The CockroachDB Operator ignores clusters in this mode.
+Existing v1alpha1 clusters without `skip-reconcile` continue to be managed by the public
+operator. The CockroachDB Operator does not reconcile them.
 
-**v1beta1 cluster protection**: The CockroachDB Operator's mutating webhook injects
-`crdb.io/skip-reconcile=true` on every v1beta1 CrdbCluster. This label is stored on the
-object and carried through to the v1alpha1 view via ObjectMeta, so the public operator
-sees it and skips reconciliation.
+For new v1beta1 clusters, the CockroachDB Operator adds `crdb.io/skip-reconcile=true` so the
+public operator does not reconcile them.
+
+Fresh v1beta1 clusters remain compatible with Helm, Argo CD, and other Server-Side Apply
+configuration managers during coexistence.
 
 In summary, you can:
 - Keep existing v1alpha1 clusters running with the public operator
@@ -343,7 +358,7 @@ The controller performs these checks automatically between each node migration, 
 verify manually:
 
 ```bash
-# During migration, STS pods use container name "db"; after migration, CrdbNode pods use "cockroachdb"
+# During migration, STS pods use container name "db". After migration, CrdbNode pods use "cockroachdb"
 # Verify ranges_underreplicated is 0 for every node and count the is_live=true rows.
 kubectl exec $CRDBCLUSTER-0 -n $NAMESPACE -c db -- \
   /cockroach/cockroach node status --ranges --format table \
@@ -389,7 +404,7 @@ kubectl get crdbnode -n $NAMESPACE \
 | CertMigration | For self-signer: `kubectl get secret $CRDBCLUSTER-node-secret -n $NAMESPACE`. For cert-manager: check the secret name from the Certificate CR (`kubectl get certificate $CRDBCLUSTER-node -n $NAMESPACE -o jsonpath='{.spec.secretName}'`). For custom `NodeTLSSecret`: your existing secret is used directly. TLS clusters only |
 | PodMigration | `kubectl get crdbnode -n $NAMESPACE -w` for one node per pod |
 | Finalization | `kubectl get crdbcluster $CRDBCLUSTER -o jsonpath='{.status.migration.message}'` for "Finalization complete" |
-| Complete | After StatefulSet deletion; `spec.mode: MutableOnly` and `crdb.io/migrate` label changes to `complete` |
+| Complete | After StatefulSet deletion. `spec.mode` becomes `MutableOnly` and the `crdb.io/migrate` label becomes `complete` |
 
 ### Auto-pause behavior
 
@@ -531,60 +546,13 @@ spec:
 If you are using the standard `topology.kubernetes.io/*` labels, the kubebuilder defaults
 are correct and no action is needed.
 
-## Step 11: Cleanup Public Operator Resources
-
-After verifying the migrated cluster is healthy, clean up old public operator resources.
-
-### Migration-created RBAC (stale)
-
-```bash
-# Migration-created ClusterRole/ClusterRoleBinding use "{namespace}-{name}" naming
-kubectl delete clusterrole ${NAMESPACE}-${CRDBCLUSTER} --ignore-not-found
-kubectl delete clusterrolebinding ${NAMESPACE}-${CRDBCLUSTER} --ignore-not-found
-```
-
-### Public operator RBAC
-
-```bash
-# Public operator's ClusterRole and ClusterRoleBinding
-kubectl delete clusterrole cockroachdb-operator --ignore-not-found
-kubectl delete clusterrolebinding cockroachdb-operator --ignore-not-found
-```
-
-### Public operator deployment
-
-Only do this after all clusters managed by the public operator have been migrated.
-
-```bash
-# Delete the public operator Deployment
-kubectl delete deployment cockroach-operator-manager -n cockroach-operator-system --ignore-not-found
-```
-
-Do not delete `crdbclusters.crdb.cockroachlabs.com`,
-`crdbnodes.crdb.cockroachlabs.com`, or `crdbtenants.crdb.cockroachlabs.com`.
-Those CRDs are shared by the migrated CockroachDB Operator resources. Step 13 removes
-`v1alpha1` from `storedVersions` after every v1alpha1 cluster has been migrated.
-
-### Public operator webhook configurations
-
-```bash
-# The public operator registers its own validation/mutation webhooks
-kubectl delete validatingwebhookconfiguration cockroach-operator-validating-webhook-configuration --ignore-not-found
-kubectl delete mutatingwebhookconfiguration cockroach-operator-mutating-webhook-configuration --ignore-not-found
-```
-
-### Public operator ServiceAccount and RBAC in its namespace
-
-```bash
-kubectl delete serviceaccount cockroach-operator-sa -n cockroach-operator-system --ignore-not-found
-kubectl delete role cockroach-operator-role -n cockroach-operator-system --ignore-not-found
-kubectl delete rolebinding cockroach-operator-rolebinding -n cockroach-operator-system --ignore-not-found
-```
-
-## Step 12: Adopt into CockroachDB Helm Chart (Optional)
+## Step 11: Adopt into CockroachDB Helm Chart (Optional)
 
 Before adopting, verify the operator has fully reconciled the migrated cluster. Do not
 proceed until `generation` and `observedGeneration` match and all pods are running.
+When migration reaches `Mode=MutableOnly`, `Phase=Complete`, and
+`crdb.io/migrate=complete`, Helm 4 and other Server-Side Apply managers can adopt the v1beta1
+object directly.
 
 ```bash
 kubectl get crdbcluster $CRDBCLUSTER -n $NAMESPACE \
@@ -712,32 +680,18 @@ kubectl delete clusterrole ${NAMESPACE}-${CRDBCLUSTER} --ignore-not-found
 kubectl delete clusterrolebinding ${NAMESPACE}-${CRDBCLUSTER} --ignore-not-found
 ```
 
-### Transfer field ownership to Helm
-
-The public operator and migration controller write some fields on the Role and public Service
-using the `cockroach-operator` field manager. Helm uses the `Helm` field manager during
-server-side apply. Transfer ownership of those existing fields before Helm adoption to avoid
-conflict errors.
-
-This is metadata-only. It does not delete or recreate resources and does not affect running
-pods.
-
-```bash
-for RESOURCE in \
-  "role/${CRDBCLUSTER}" \
-  "service/${CRDBCLUSTER}-public"; do
-  kubectl apply --server-side --force-conflicts --field-manager=Helm \
-    -f <(kubectl get "${RESOURCE}" -n "${NAMESPACE}" -o yaml) 2>/dev/null
-done
-```
-
 ### Run Helm install
 
 There is no existing Helm release for the migrated cluster, so use `--install` to create one.
+The migration controller owns fields on existing resources such as the Role, public Service, and
+cert-manager Certificate when applicable.
+Use `--force-conflicts` on this first adoption command so Helm atomically takes ownership of the
+chart-managed fields. Later Helm upgrades should run normally without this flag.
 
 ```bash
 helm upgrade --install ${RELEASE_NAME} ./cockroachdb-parent/charts/cockroachdb \
   --namespace ${NAMESPACE} \
+  --force-conflicts \
   --values your-values.yaml
 ```
 
@@ -819,18 +773,9 @@ ns-staging: CockroachDB Operator (scoped, migration=false)  +  fresh v1beta1 clu
 ### The migration flag rule
 
 At least one CockroachDB Operator must have `migration.enabled=true` as long as any v1alpha1
-cluster exists anywhere in the Kubernetes cluster. The CRD conversion webhook is a
-cluster-wide resource. The public operator reads and writes v1alpha1 CrdbClusters, and since
-the storage version is v1beta1, every v1alpha1 interaction goes through the webhook. Only
-operators started with `migration.enabled=true` register the `/convert` endpoint.
-
-It does not matter which operator has the flag. The conversion endpoint is stateless and
-handles requests for any namespace. But at least one must be running and reachable.
-
-Operators that only manage fresh v1beta1 clusters do not need the migration flag. When an
-operator starts without migration enabled, it checks the CRD's `storedVersions` field. If
-v1alpha1 is present and an existing conversion webhook is already configured (by another
-operator), it preserves the webhook and starts normally.
+cluster exists anywhere in the Kubernetes cluster. One migration-enabled operator can support
+all namespaces, but it must remain running and reachable. Operators that manage only fresh
+v1beta1 clusters do not need the migration flag as long as another operator has it enabled.
 
 ### Creating new v1beta1 clusters during migration
 
@@ -838,6 +783,9 @@ You can create new v1beta1 clusters at any point during migration. Install a nam
 CockroachDB Operator in a separate namespace and create v1beta1 CrdbCluster resources directly.
 The mutating webhook automatically injects `crdb.io/skip-reconcile=true` so the public
 operator ignores these clusters.
+
+These clusters remain compatible with Helm and other Server-Side Apply clients during
+coexistence.
 
 The new operator does not need `migration.enabled=true` as long as another operator already
 has it enabled.
@@ -856,7 +804,8 @@ recreate StatefulSet resources that conflict with CrdbNodes.
 
 **Phase 1 - Migrate the first namespace:**
 
-1. Install a CockroachDB Operator in ns-1 with `migration.enabled=true`, `appLabel=cockroachdb-operator`, and `watchNamespaces=ns-1`.
+1. Install a CockroachDB Operator in ns-1 with `migration.enabled=true`,
+   `cloudRegion=<ns-1-region>`, `appLabel=cockroachdb-operator`, and `watchNamespaces=ns-1`.
 2. Apply `skip-reconcile` and cloud annotations on the cluster in ns-1.
 3. Label the cluster with `crdb.io/migrate=start`.
 4. Monitor migration, delete StatefulSet when in Finalization.
@@ -864,32 +813,92 @@ recreate StatefulSet resources that conflict with CrdbNodes.
 
 **Phase 2 - Deploy fresh v1beta1 clusters in other namespaces (optional):**
 
-1. Install a CockroachDB Operator in ns-3 with `migration.enabled=false`, `appLabel=cockroachdb-operator`, and `watchNamespaces=ns-3`.
+1. Install a CockroachDB Operator in ns-3 with `migration.enabled=false`,
+   `cloudRegion=<ns-3-region>`, `appLabel=cockroachdb-operator`, and `watchNamespaces=ns-3`.
    This works because the ns-1 operator already has the conversion webhook configured.
 2. Create v1beta1 clusters directly using the CockroachDB Helm chart.
 
 **Phase 3 - Migrate the remaining namespace:**
 
 1. Either expand ns-1's `watchNamespaces` to include ns-2, or install a new CockroachDB Operator
-   in ns-2 with `migration.enabled=true`, `appLabel=cockroachdb-operator`.
+   in ns-2 with `migration.enabled=true`, `cloudRegion=<ns-2-region>`,
+   `appLabel=cockroachdb-operator`.
 2. Apply `skip-reconcile` and cloud annotations on the cluster in ns-2.
 3. Migrate the cluster.
 
 **Phase 4 - Finalize (all v1alpha1 clusters are migrated):**
 
-1. Remove the public operator (no v1alpha1 clusters remain).
-2. Patch `storedVersions` to remove v1alpha1 (see Step 13).
-3. The migration flag can optionally be removed (see Step 14).
+1. Verify every migration has reached `Complete`.
+2. Remove the public operator (no v1alpha1 clusters remain).
+3. Remove `skip-reconcile` and the remaining migration/coexistence metadata from v1beta1 clusters.
+4. Patch `storedVersions` to remove v1alpha1 (see Step 13).
+5. Upgrade the CockroachDB Operator with migration disabled (see Step 14).
 
 ### What happens if things go wrong
 
 | Scenario | What happens | What to do |
 |---|---|---|
 | The only migration-enabled operator goes down | v1alpha1 reads/writes fail (webhook unreachable). v1beta1 clusters are unaffected. | Restart the operator or enable migration on another operator. |
-| Migration flag removed before `storedVersions` is patched | Operator preserves the existing webhook but does not register `/convert`. v1alpha1 interactions through the stale webhook return 404. v1beta1 clusters work fine. | Re-enable migration, or patch `storedVersions` if all clusters are migrated. |
+| Migration flag removed before `storedVersions` is patched | v1alpha1 requests fail because conversion is no longer available. v1beta1 clusters continue to work. | Re-enable migration, or patch `storedVersions` if all clusters are migrated. |
 | `storedVersions` patched while v1alpha1 clusters still exist | The API server may not serve those objects correctly. | Do not patch `storedVersions` until all v1alpha1 clusters are migrated. If this happens, restore by adding v1alpha1 back to `storedVersions`. |
 | Public operator removed while v1alpha1 clusters remain | Those clusters become unmanaged. | Reinstall the public operator or migrate them first. |
 | `skip-reconcile` removed on a migrated cluster while public operator runs | Public operator recreates StatefulSet, conflicting with CrdbNodes. | Re-apply `skip-reconcile` immediately. Delete the recreated StatefulSet. |
+
+## Step 12: Uninstall the Public Operator and Clean Up Coexistence
+
+Perform this step only after every cluster managed by the public operator has completed migration
+and is healthy. A migrated cluster can be adopted by Helm in Step 11 while other v1alpha1 clusters
+are still migrating. Do not uninstall the public operator or remove `skip-reconcile` until no
+v1alpha1 clusters remain.
+
+The public operator v2.18.3 bundle creates the Deployment, webhook Service, ServiceAccount,
+ClusterRole, ClusterRoleBinding, and admission webhook configurations listed below. Remove those
+resources after the last public-operator cluster is migrated:
+
+```bash
+kubectl delete deployment cockroach-operator-manager \
+  -n cockroach-operator-system --ignore-not-found
+kubectl delete service cockroach-operator-webhook-service \
+  -n cockroach-operator-system --ignore-not-found
+kubectl delete serviceaccount cockroach-operator-sa \
+  -n cockroach-operator-system --ignore-not-found
+
+kubectl delete clusterrole cockroach-operator-role --ignore-not-found
+kubectl delete clusterrolebinding cockroach-operator-rolebinding --ignore-not-found
+
+kubectl delete validatingwebhookconfiguration \
+  cockroach-operator-validating-webhook-configuration --ignore-not-found
+kubectl delete mutatingwebhookconfiguration \
+  cockroach-operator-mutating-webhook-configuration --ignore-not-found
+```
+
+Do not delete `crdbclusters.crdb.cockroachlabs.com`,
+`crdbnodes.crdb.cockroachlabs.com`, or `crdbtenants.crdb.cockroachlabs.com`.
+Those CRDs are shared by the migrated CockroachDB Operator resources. Step 13 removes
+`v1alpha1` from `storedVersions` after every v1alpha1 cluster has been migrated.
+
+### Remove coexistence and migration metadata
+
+Existing migrated clusters and any fresh v1beta1 clusters created during coexistence have the
+`crdb.io/skip-reconcile=true` label so the public operator ignores them. After the public operator
+and its webhooks are removed, this label is no longer required. The completed migration label and
+the region/provider annotations used for v1alpha1 conversion can also be removed:
+
+```bash
+kubectl label crdbclusters.v1beta1.crdb.cockroachlabs.com $CRDBCLUSTER \
+  crdb.io/skip-reconcile- \
+  crdb.io/migrate- \
+  -n $NAMESPACE
+
+kubectl annotate crdbclusters.v1beta1.crdb.cockroachlabs.com $CRDBCLUSTER \
+  crdb.cockroachlabs.com/cloudProvider- \
+  crdb.cockroachlabs.com/regionCode- \
+  -n $NAMESPACE
+```
+
+Repeat this cleanup for every migrated or coexistence-created v1beta1 cluster. The operator
+already removes its temporary annotations when migration reaches `Complete`. Do not remove
+migration metadata manually while a migration is active.
 
 ## Step 13: Patch storedVersions
 
@@ -916,14 +925,11 @@ kubectl get crd crdbclusters.crdb.cockroachlabs.com \
 # Expected: ["v1beta1"]
 ```
 
-## Step 14: Disable Migration Mode (Optional)
+## Step 14: Disable Migration Mode
 
-After `storedVersions` is patched, disabling migration mode is optional. When the operator
-restarts without the flag, it sees that `storedVersions` no longer contains v1alpha1 and
-sets v1alpha1 `served=false` on the CRD. The conversion webhook is removed.
-
-If you leave `migration.enabled=true` after patching `storedVersions`, the operator continues
-to register the conversion webhook and migration controller, but they have no effect.
+After `storedVersions` is patched, upgrade the CockroachDB Operator with migration disabled.
+When the operator restarts without the flag, it sees that `storedVersions` no longer contains
+v1alpha1, sets v1alpha1 `served=false` on the CRD, and removes the conversion webhook.
 
 ```bash
 helm upgrade crdb-operator ./cockroachdb-parent/charts/operator \
@@ -959,15 +965,12 @@ version) will fail with webhook connection errors. To recover:
 
 Always complete Steps 13-14 before uninstalling the operator.
 
-### Conversion annotations
+### Migration metadata
 
-The conversion webhook writes annotations on v1alpha1 objects to preserve v1beta1 state
-across round-trips. `ConvertFrom` always refreshes the hub spec annotation from the current
-v1beta1 spec, so the annotation is always up to date when `ConvertTo` reads it. This
-ensures v1beta1-only fields like `ServiceAccountName` and `StartFlags` survive any v1alpha1
-write-back. The migration controller strips these annotations on `Phase=Complete` as cleanup,
-but they are harmless and will be re-created if a v1alpha1 read occurs while the conversion
-webhook is still active. Disabling migration mode prevents any further round-trips.
+Do not edit or remove operator-managed migration annotations while migration is active. The
+operator removes temporary annotations when migration reaches `Complete`. Fresh v1beta1 clusters
+do not receive this temporary metadata and remain compatible with Server-Side Apply configuration
+managers such as Helm and Argo CD.
 
 ---
 
@@ -987,7 +990,7 @@ The controller automatically detects your certificate method. No manual configur
   mount from `{name}-node-secret`. The regenerated certificates have a 1-year TTL and are
   stored as `ExternalCertificates` in the v1beta1 spec. The operator does not auto-rotate
   `ExternalCertificates`, so after migration you should switch to
-  `cockroachdb.tls.selfSigner.enabled: true` via Helm adoption (Step 12) to enable
+  `cockroachdb.tls.selfSigner.enabled: true` via Helm adoption (Step 11) to enable
   automatic rotation. If you delay this step, the certs will expire silently after one year.
 - **External certs**: If neither cert-manager CRs nor self-signer secrets are found, the
   controller preserves existing secret references as ExternalCertificates in the v1beta1 spec.
@@ -1000,8 +1003,8 @@ The controller automatically detects your certificate method. No manual configur
   phase is skipped. An `InsecureClusterMigration` warning event is emitted.
 
 > **Note**: Regardless of the original cert type, after migration all certificate secret names
-> are stored as `ExternalCertificates` on the CrdbNode spec. This is the internal representation
-> used by the operator to mount the correct secrets into pods.
+> are stored as `ExternalCertificates` on the CrdbNode spec so the correct secrets are mounted
+> into pods.
 
 ---
 
@@ -1019,7 +1022,7 @@ kubectl label crdbcluster $CRDBCLUSTER crdb.io/migrate=stop --overwrite -n $NAME
 ### Resume
 
 There is no separate "resume" label value. Use `start` again to resume from the paused phase.
-The controller detects the `PhaseStopped` state internally and resumes at the correct phase
+The controller resumes from `PhaseStopped` at the correct phase
 based on how many nodes have already been migrated.
 
 ```bash
@@ -1117,8 +1120,8 @@ Only after all checks pass does it remove the `skip-reconcile` label and clear m
 
 | Phase | Rollback safe? | Notes |
 |---|---|---|
-| Init | Yes | Only a CrdbCluster has been created; no pods affected |
-| CertMigration | Yes | Only cert secrets created; no pods affected |
+| Init | Yes | Only a CrdbCluster has been created. No pods affected |
+| CertMigration | Yes | Only cert secrets created. No pods affected |
 | PodMigration | Yes | Controller deletes CrdbNodes and scales STS back up |
 | Finalization | Conditional | Safe if STS still exists. If STS was already deleted, rollback sets `PhaseFailed` |
 | Complete | No | STS has been deleted. Manual recovery required |
@@ -1148,6 +1151,12 @@ Manual recovery steps:
 ---
 
 ## Troubleshooting
+
+### "cannot convert protected v1alpha1 CrdbCluster ... without its migration StatefulSet"
+
+This message can appear transiently during or after finalization when the public operator attempts
+one last update. It does not indicate a migration failure. Verify that migration reaches
+`Complete` and that `crdb.io/skip-reconcile=true` remains set while the public operator is running.
 
 ### Migration Fails with "missing required label: crdb.io/skip-reconcile=true"
 
