@@ -157,8 +157,8 @@ helm repo add cockroachdb-v2 https://charts.cockroachdb.com/v2 --force-update
 helm repo update cockroachdb-v2
 helm search repo cockroachdb-v2 --devel
 
-helm install crdb-operator cockroachdb-v2/cockroachdb-operator-chart --version 1.0.0-rc.1
-helm install crdb cockroachdb-v2/cockroachdb-chart --version 26.1.3
+helm install crdb-operator cockroachdb-v2/cockroachdb-operator-chart --version 1.0.0
+helm install crdb cockroachdb-v2/cockroachdb-chart --version 26.2.4
 ```
 
 `cockroachdb-v2` is a local Helm repository alias. You can choose a different alias, but the chart
@@ -177,15 +177,15 @@ Charts are also published as OCI artifacts.
 Google Artifact Registry:
 
 ```bash
-helm pull oci://us-docker.pkg.dev/releases-prod/self-hosted/charts/cockroachdb-operator-chart --version 1.0.0-rc.1
-helm pull oci://us-docker.pkg.dev/releases-prod/self-hosted/charts/cockroachdb-chart --version 26.1.3
+helm pull oci://us-docker.pkg.dev/releases-prod/self-hosted/charts/cockroachdb-operator-chart --version 1.0.0
+helm pull oci://us-docker.pkg.dev/releases-prod/self-hosted/charts/cockroachdb-chart --version 26.2.4
 ```
 
 DockerHub:
 
 ```bash
-helm pull oci://registry-1.docker.io/cockroachdb/cockroachdb-operator-chart --version 1.0.0-rc.1
-helm pull oci://registry-1.docker.io/cockroachdb/cockroachdb-chart --version 26.1.3
+helm pull oci://registry-1.docker.io/cockroachdb/cockroachdb-operator-chart --version 1.0.0
+helm pull oci://registry-1.docker.io/cockroachdb/cockroachdb-chart --version 26.2.4
 ```
 
 The DockerHub repositories must exist before charts appear there unless DockerHub auto-create is
