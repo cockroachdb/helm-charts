@@ -65,13 +65,13 @@ var migrationPhaseOrder = map[string]int{
 func TestAutoMigration(t *testing.T) {
 	ensureMigrationTestEnv(t)
 
-	//t.Run("helm forward migration", testHelmAutoForwardMigration)
-	//t.Run("helm stop and resume", testHelmAutoStopResume)
-	//t.Run("helm rollback", testHelmAutoRollback)
-	//t.Run("operator forward migration", testOperatorAutoForwardMigration)
+	t.Run("helm forward migration", testHelmAutoForwardMigration)
+	t.Run("helm stop and resume", testHelmAutoStopResume)
+	t.Run("helm rollback", testHelmAutoRollback)
+	t.Run("operator forward migration", testOperatorAutoForwardMigration)
 	t.Run("operator stop and resume", testOperatorAutoStopResume)
-	//t.Run("operator rollback", testOperatorAutoRollback)
-	//t.Run("helm cert-manager migration", testHelmAutoCertManagerMigration)
+	t.Run("operator rollback", testOperatorAutoRollback)
+	t.Run("helm cert-manager migration", testHelmAutoCertManagerMigration)
 }
 
 // testHelmAutoForwardMigration installs a Helm StatefulSet cluster, runs the full

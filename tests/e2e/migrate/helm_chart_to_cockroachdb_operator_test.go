@@ -216,11 +216,11 @@ func providerCloudRegion(t *testing.T) string {
 func TestHelmChartToOperatorMigration(t *testing.T) {
 	ensureMigrationTestEnv(t)
 
-	//h := newHelmChartToOperator()
-	//t.Run("helm chart to CockroachDB operator migration", h.TestDefaultMigration)
-	//t.Run("helm chart to CockroachDB operator migration with cert manager", h.TestCertManagerMigration)
-	//t.Run("helm chart to CockroachDB operator migration with PCR primary", h.TestPCRPrimaryMigration)
-	//t.Run("helm chart to CockroachDB operator migration with dedicated logs PVC", h.TestDedicatedLogsPVCMigration)
+	h := newHelmChartToOperator()
+	t.Run("helm chart to CockroachDB operator migration", h.TestDefaultMigration)
+	t.Run("helm chart to CockroachDB operator migration with cert manager", h.TestCertManagerMigration)
+	t.Run("helm chart to CockroachDB operator migration with PCR primary", h.TestPCRPrimaryMigration)
+	t.Run("helm chart to CockroachDB operator migration with dedicated logs PVC", h.TestDedicatedLogsPVCMigration)
 }
 
 func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
