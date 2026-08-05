@@ -213,26 +213,25 @@ Helm 4. Releases upgraded from Helm 3 normally continue using client-side apply
 because Helm records the apply method. SSA can still be enabled explicitly or
 used after a release is recreated or imported.
 
-The CockroachDB Operator also updates fields on `CrdbCluster` and `CrdbNode`
-resources. When SSA is active, a Helm upgrade can report a field ownership
-conflict for a field managed by the operator.
+The default Helm 4 workflow does not require special handling: install the
+chart, make `CrdbCluster` changes through chart values, and use the normal
+`helm upgrade` command. Avoid manually editing the Helm-managed `CrdbCluster`
+with `kubectl edit`, `kubectl apply`, or another tool. A manual change can cause
+another field manager to claim the affected field, and a later Helm 4 upgrade
+can then report an SSA ownership conflict instead of overwriting it.
 
-If you are not intentionally migrating the release to SSA, retain client-side
-apply:
-
-```shell
-$ helm upgrade --server-side=false --reuse-values $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --values ./cockroachdb-parent/charts/cockroachdb/values.yaml -n $NAMESPACE
-```
-
-If you are intentionally adopting SSA, inspect the reported conflicts and the
-resource's `managedFields` first. You can then transfer ownership to Helm:
+If an upgrade reports a conflict, first inspect the reported fields and the
+resource's `managedFields`. Move any desired manual changes into the chart
+values, reconcile or revert the out-of-band change, and retry the normal
+upgrade. If you have reviewed the conflicting fields and intentionally want
+Helm to reclaim their ownership, run:
 
 ```shell
 $ helm upgrade --server-side=true --force-conflicts --reuse-values $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb --values ./cockroachdb-parent/charts/cockroachdb/values.yaml -n $NAMESPACE
 ```
 
 `--force-conflicts` transfers ownership of conflicting fields, so do not use it
-without reviewing the affected resources. Helm 4's `--force-replace` flag
+without reviewing the affected resource. Helm 4's `--force-replace` flag
 (formerly `--force`) replaces resources and is not the remedy for an SSA
 ownership conflict. See the [Helm 4 server-side apply
 overview](https://helm.sh/docs/overview/#server-side-apply) and

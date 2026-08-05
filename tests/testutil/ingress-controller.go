@@ -16,11 +16,11 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
-func InstallIngressAndMetalLB(t *testing.T) {
+func InstallIngressAndMetalLB(t *testing.T, clusterOptions *k8s.KubectlOptions) {
 	t.Log("Installing NGINX Ingress Controller")
 
 	// 1. Add repo and install chart
-	options := &helm.Options{}
+	options := &helm.Options{KubectlOptions: kubectlOptionsForNamespace(clusterOptions, "default")}
 
 	_, _ = helm.RunHelmCommandAndGetOutputE(t, options, "repo", "add", "ingress-nginx", "https://kubernetes.github.io/ingress-nginx")
 	_, _ = helm.RunHelmCommandAndGetOutputE(t, options, "repo", "update")
@@ -30,7 +30,7 @@ func InstallIngressAndMetalLB(t *testing.T) {
 	// 2. Install MetalLB
 	t.Log("Installing MetalLB")
 
-	kubectlOptionsMetallb := k8s.NewKubectlOptions("", "", "metallb-system")
+	kubectlOptionsMetallb := kubectlOptionsForNamespace(clusterOptions, "metallb-system")
 
 	k8s.KubectlApply(t, kubectlOptionsMetallb, "https://raw.githubusercontent.com/metallb/metallb/v0.15.2/config/manifests/metallb-native.yaml")
 
@@ -81,11 +81,11 @@ metadata:
 	k8s.KubectlApplyFromString(t, kubectlOptionsMetallb, ipPoolYAML)
 }
 
-func UninstallIngressAndMetalLB(t *testing.T) {
+func UninstallIngressAndMetalLB(t *testing.T, clusterOptions *k8s.KubectlOptions) {
 	t.Log("Uninstalling NGINX Ingress Controller")
 
 	// 1. Uninstall ingress-nginx Helm release
-	options := &helm.Options{}
+	options := &helm.Options{KubectlOptions: kubectlOptionsForNamespace(clusterOptions, "default")}
 	err := helm.DeleteE(t, options, "ingress-nginx", true)
 	if err != nil {
 		t.Logf("Warning: Failed to uninstall ingress-nginx: %v", err)
@@ -96,7 +96,7 @@ func UninstallIngressAndMetalLB(t *testing.T) {
 	// 2. Delete MetalLB resources
 	t.Log("Uninstalling MetalLB")
 
-	kubectlOptionsMetallb := k8s.NewKubectlOptions("", "", "metallb-system")
+	kubectlOptionsMetallb := kubectlOptionsForNamespace(clusterOptions, "metallb-system")
 
 	// Delete the IPAddressPool and L2Advertisement
 	t.Log("Deleting MetalLB IPAddressPool and L2Advertisement config")
@@ -124,8 +124,8 @@ metadata:
 	}
 }
 
-func TestIngressRoutingDirect(t *testing.T, hostName string) {
-	kubectlOptions := k8s.NewKubectlOptions("", "", "default")
+func TestIngressRoutingDirect(t *testing.T, clusterOptions *k8s.KubectlOptions, hostName string) {
+	kubectlOptions := kubectlOptionsForNamespace(clusterOptions, "default")
 
 	// Get the Service object
 	svc := k8s.GetService(t, kubectlOptions, "ingress-nginx-controller")
@@ -174,4 +174,12 @@ func TestIngressRoutingDirect(t *testing.T, hostName string) {
 	}
 
 	t.Fatalf("Failed to get 200 OK from ingress after %d attempts", retries)
+}
+
+func kubectlOptionsForNamespace(
+	clusterOptions *k8s.KubectlOptions, namespace string,
+) *k8s.KubectlOptions {
+	options := *clusterOptions
+	options.Namespace = namespace
+	return &options
 }

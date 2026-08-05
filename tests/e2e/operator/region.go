@@ -171,6 +171,10 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 			"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 		})
 	}
+	// E2E tests still wait for pod readiness and replication health before the
+	// next restart, so the inter-node pause can be kept short.
+	crdbOp["cockroachdb.crdbCluster.rollingRestartDelay"] = "10s"
+
 	// Helm install cockroach CR with operator region config.
 	crdbOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,

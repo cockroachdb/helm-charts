@@ -488,7 +488,7 @@ spec:
       priorityClassName: cockroachdb-operator
       containers:
         - name: cockroach-operator
-          image: docker.io/cockroachdb/cockroachdb-operator-v2:v1.0.0-rc.4
+          image: docker.io/cockroachdb/cockroachdb-operator-v2:v1.0.0
           args:
             # Pin metrics port so it can be properly exposed by the "ports"
             # field below even in the event of a change to the default value.
@@ -516,9 +516,9 @@ spec:
                 fieldRef:
                   fieldPath: spec.nodeName
             - name: RELATED_IMAGE_INIT_CONTAINER
-              value: "docker.io/cockroachdb/cockroachdb-init-container:v1.0.0-rc.4"
+              value: "docker.io/cockroachdb/cockroachdb-init-container:v1.0.0"
             - name: RELATED_IMAGE_INOTIFYWAIT
-              value: "docker.io/cockroachdb/cockroachdb-cert-reloader:v1.0.0-rc.4"
+              value: "docker.io/cockroachdb/cockroachdb-cert-reloader:v1.0.0"
             - name: CLOUD_REGION
               value: local
             # When watchNamespaces is set, restrict the operator to those namespaces only.

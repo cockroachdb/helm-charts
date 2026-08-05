@@ -3,6 +3,29 @@
 <!-- For new releases, separate Helm installations, Non-Helm installations,
 and shared Operator behavior when those categories apply. -->
 
+## [1.0.0] — 2026-08-05
+
+### Helm installations
+
+#### Changed
+- Promoted the operator chart and default operator image from `1.0.0-rc.4` to the
+  `1.0.0` general availability release.
+- Updated the [Helm 4 Server-Side Apply documentation](README.md#helm-4-server-side-apply).
+
+### Non-Helm installations
+
+#### Changed
+- Updated the rendered operator bundle to use the `v1.0.0` operator and related images.
+
+### Operator behavior
+
+#### Fixed
+- Fixed Server-Side Apply ownership conflicts for non-migration clusters when migration is
+  enabled. Fresh and completed v1beta1 clusters remain operable and can be upgraded while other
+  clusters are migrating or the public and CockroachDB operators coexist.
+- Skipped the under-replicated ranges health check for single-node clusters so rolling updates
+  and other operations can proceed when replication targets cannot be satisfied.
+
 ## [1.0.0-rc.4] — 2026-07-31
 
 ### Helm installations

@@ -293,6 +293,24 @@ func buildHelmValuesFromOperator(
 		}
 	}
 
+	podTemplateSpec := map[string]interface{}{
+		"containers": []map[string]interface{}{
+			{
+				"image":     cluster.Spec.Image.Name,
+				"env":       envVars,
+				"resources": sts.Spec.Template.Spec.Containers[0].Resources,
+				"name":      "cockroachdb",
+			},
+		},
+		"terminationGracePeriodSeconds": cluster.Spec.TerminationGracePeriodSecs,
+		"topologySpreadConstraints":     topologySpreadConstraintsForValues(sts.Spec.Template.Spec.TopologySpreadConstraints),
+	}
+	setIfNotEmpty(podTemplateSpec, "imagePullSecrets", sts.Spec.Template.Spec.ImagePullSecrets)
+	setIfNotEmpty(podTemplateSpec, "affinity", sts.Spec.Template.Spec.Affinity)
+	setIfNotEmpty(podTemplateSpec, "nodeSelector", sts.Spec.Template.Spec.NodeSelector)
+	setIfNotEmpty(podTemplateSpec, "priorityClassName", sts.Spec.Template.Spec.PriorityClassName)
+	setIfNotEmpty(podTemplateSpec, "tolerations", sts.Spec.Template.Spec.Tolerations)
+
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
 			"tls": tls,
@@ -343,23 +361,7 @@ func buildHelmValuesFromOperator(
 						"labels":      sts.Spec.Template.Labels,
 						"annotations": sts.Spec.Template.Annotations,
 					},
-					"spec": map[string]interface{}{
-						"imagePullSecrets": sts.Spec.Template.Spec.ImagePullSecrets,
-						"containers": []map[string]interface{}{
-							{
-								"image":     cluster.Spec.Image.Name,
-								"env":       envVars,
-								"resources": sts.Spec.Template.Spec.Containers[0].Resources,
-								"name":      "cockroachdb",
-							},
-						},
-						"affinity":                      sts.Spec.Template.Spec.Affinity,
-						"nodeSelector":                  sts.Spec.Template.Spec.NodeSelector,
-						"priorityClassName":             sts.Spec.Template.Spec.PriorityClassName,
-						"tolerations":                   sts.Spec.Template.Spec.Tolerations,
-						"terminationGracePeriodSeconds": cluster.Spec.TerminationGracePeriodSecs,
-						"topologySpreadConstraints":     sts.Spec.Template.Spec.TopologySpreadConstraints,
-					},
+					"spec": podTemplateSpec,
 				},
 			},
 		},
@@ -843,6 +845,25 @@ func buildHelmValuesFromHelm(
 		}
 	}
 
+	podTemplateSpec := map[string]interface{}{
+		"containers": []map[string]interface{}{
+			{
+				"image":     sts.Spec.Template.Spec.Containers[0].Image,
+				"env":       appendOperatorRequiredEnv(sts.Spec.Template.Spec.Containers[0].Env),
+				"resources": sts.Spec.Template.Spec.Containers[0].Resources,
+				"name":      "cockroachdb",
+			},
+		},
+		"topologySpreadConstraints": topologySpreadConstraintsForValues(sts.Spec.Template.Spec.TopologySpreadConstraints),
+	}
+	setIfNotEmpty(podTemplateSpec, "imagePullSecrets", input.imagePullSecrets)
+	setIfNotEmpty(podTemplateSpec, "priorityClassName", input.priorityClassName)
+	setIfNotEmpty(podTemplateSpec, "initContainers", input.initContainers)
+	setIfNotEmpty(podTemplateSpec, "volumes", input.customVolumes)
+	setIfNotEmpty(podTemplateSpec, "affinity", sts.Spec.Template.Spec.Affinity)
+	setIfNotEmpty(podTemplateSpec, "nodeSelector", sts.Spec.Template.Spec.NodeSelector)
+	setIfNotEmpty(podTemplateSpec, "tolerations", sts.Spec.Template.Spec.Tolerations)
+
 	crdbCluster := map[string]interface{}{
 		"mode": "MutableOnly",
 		"image": map[string]interface{}{
@@ -887,24 +908,7 @@ func buildHelmValuesFromHelm(
 				"labels":      sts.Spec.Template.Labels,
 				"annotations": sts.Spec.Template.Annotations,
 			},
-			"spec": map[string]interface{}{
-				"imagePullSecrets":          input.imagePullSecrets,
-				"priorityClassName":         input.priorityClassName,
-				"initContainers":            input.initContainers,
-				"volumes":                   input.customVolumes,
-				"affinity":                  sts.Spec.Template.Spec.Affinity,
-				"nodeSelector":              sts.Spec.Template.Spec.NodeSelector,
-				"tolerations":               sts.Spec.Template.Spec.Tolerations,
-				"topologySpreadConstraints": sts.Spec.Template.Spec.TopologySpreadConstraints,
-				"containers": []map[string]interface{}{
-					{
-						"image":     sts.Spec.Template.Spec.Containers[0].Image,
-						"env":       appendOperatorRequiredEnv(sts.Spec.Template.Spec.Containers[0].Env),
-						"resources": sts.Spec.Template.Spec.Containers[0].Resources,
-						"name":      "cockroachdb",
-					},
-				},
-			},
+			"spec": podTemplateSpec,
 		},
 	}
 
@@ -938,6 +942,39 @@ func buildHelmValuesFromHelm(
 			"crdbCluster": crdbCluster,
 		},
 	}
+}
+
+// setIfNotEmpty adds a generated Helm value only when it has meaningful
+// content. In particular, this prevents nil Kubernetes maps and slices from
+// rendering as explicit null values, which fail strict Server-Side Apply
+// validation for typed CRD fields.
+func setIfNotEmpty(values map[string]interface{}, key string, value interface{}) {
+	if value == nil {
+		return
+	}
+
+	rv := reflect.ValueOf(value)
+	switch rv.Kind() {
+	case reflect.Map, reflect.Slice, reflect.String:
+		if rv.Len() == 0 {
+			return
+		}
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Ptr:
+		if rv.IsNil() {
+			return
+		}
+	}
+
+	values[key] = value
+}
+
+func topologySpreadConstraintsForValues(
+	constraints []corev1.TopologySpreadConstraint,
+) []corev1.TopologySpreadConstraint {
+	if constraints == nil {
+		return []corev1.TopologySpreadConstraint{}
+	}
+	return constraints
 }
 
 // generateParsedMigrationInput parses the command arguments, extracts the --join string, and replaces env variables.

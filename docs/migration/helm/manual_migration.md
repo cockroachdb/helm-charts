@@ -1,20 +1,22 @@
-## Migrate from Statefulset to CockroachDB operator
+## Migrate from a Helm StatefulSet to the CockroachDB Operator
 
-This guide will walk you through migrating a crdb cluster managed via Statefulset to the CockroachDB operator. We assume you've configured a Statefulset cluster using the helm chart. The goals of this process are to migrate without affecting cluster availability, and to preserve existing disks so that we don't have to replica data into empty volumes. Note that this process scales down the statefulset by one node before adding each operator-managed pod, so cluster capacity will be reduced by one node at times.
+This guide migrates an existing CockroachDB cluster managed by the StatefulSet-based Helm
+chart to the CockroachDB Operator. The process preserves the existing PVCs and replaces one
+StatefulSet pod at a time with a `CrdbNode`. Cluster capacity is temporarily reduced by one
+node during each replacement.
 
-```
-helm upgrade --install --set operator.enabled=false crdb-test --debug ./cockroachdb
-```
+Before starting, confirm that all CockroachDB pods are Running and Ready and that no upgrade,
+scale operation, or rolling restart is in progress. Keep the original chart version and values
+available for rollback.
 
-
-Build the migration helper, and add the ./bin directory to your PATH:
+Build the migration helper and add the `bin` directory to your `PATH`:
 
 ```
 make bin/migration-helper
 export PATH=$PATH:$(pwd)/bin
 ```
 
-First, export environment variables about the current deployment:
+Export environment variables for the current deployment:
 
 ```
 # STS_NAME refers to the cockroachdb statefulset deployed via helm chart.
@@ -23,48 +25,79 @@ export STS_NAME="crdb-test-cockroachdb"
 # NAMESPACE refers to the namespace where statefulset is installed.
 export NAMESPACE="default"
 
-# RELEASE_NAME refers to the release name of the installed helm chart release.
-export RELEASE_NAME=$(kubectl get sts $STS_NAME -n $NAMESPACE -o yaml | yq '.metadata.annotations."meta.helm.sh/release-name"')
+# RELEASE_NAME refers to the release name of the installed Helm chart release.
+export RELEASE_NAME=$(kubectl get sts $STS_NAME -n $NAMESPACE \
+  -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}')
 
-# CLOUD_PROVIDER is the cloud vendor where k8s cluster is residing. 
-# Right now, we support all the major cloud providers (gcp,aws,azure)
+# ORIGINAL_CHART is the same chart source and version used by the current release.
+export ORIGINAL_CHART="./cockroachdb"
+
+# CLOUD_PROVIDER is the cloud vendor where the Kubernetes cluster runs.
+# Supported values include gcp, aws, and azure.
 export CLOUD_PROVIDER=gcp
 
 # REGION corresponds to the cloud provider's identifier of this region.
-# It must match the "topology.kubernetes.io/region" label on Kubernetes 
+# It must match the "topology.kubernetes.io/region" label on Kubernetes
 # Nodes in this cluster.
 export REGION=us-central1
 ```
 
-Next, we need to re-map and generate tls certs. The CockroachDB operator uses slightly different certs than the cockroachdb helm chart and mounts them in configmaps and secrets with different names. Run the `migration-helper` utility with `migrate-certs` option to generate and upload certs to your cluster.
+Back up the release values and StatefulSet before making changes:
+
+```bash
+mkdir -p backup
+helm get values $RELEASE_NAME -n $NAMESPACE -o yaml > backup/values.yaml
+kubectl get statefulset $STS_NAME -n $NAMESPACE -o yaml > backup/statefulset-$STS_NAME.yaml
+```
+
+Next, migrate the TLS certificates. The CockroachDB Operator uses different certificate Secret
+and ConfigMap names from the StatefulSet-based chart. The `migrate-certs` command generates and
+uploads the required resources:
 
 ```
 bin/migration-helper migrate-certs --statefulset-name $STS_NAME --namespace $NAMESPACE
 ```
 
-Next, generate manifests for each crdbnode and the crdbcluster based on the state of the statefulset. We generate a manifest for each crdbnode because we want the crdb pods and their associated pvcs to have the same names as the original statefulset-managed pods and pvcs. This means that the new operator-managed pods will use the original pvcs, and won't have to replicate data into empty nodes.
+Generate a manifest for each CrdbNode and the CrdbCluster from the current StatefulSet. The
+generated resources retain the pod and PVC names, allowing operator-managed pods to reuse the
+existing storage without replicating data into empty volumes:
 
 ```
 mkdir -p manifests
-bin/migration-helper build-manifest helm --statefulset-name $STS_NAME --namespace $NAMESPACE --cloud-provider $CLOUD_PROVIDER --cloud-region $REGION --output-dir ./manifests
+bin/migration-helper build-manifest helm \
+  --statefulset-name $STS_NAME \
+  --namespace $NAMESPACE \
+  --cloud-provider $CLOUD_PROVIDER \
+  --cloud-region $REGION \
+  --output-dir ./manifests
 ```
 
-To migrate seamlessly from the statefulset-based Helm chart to the CockroachDB operator, we'll scale down statefulset-managed pods and replace them with crdbnode objects, one by one. Then we'll create the crdbcluster that manages the crdbnodes. Because of this order of operations, we need to create some objects that the crdbcluster will eventually own:
+Create the PriorityClass required by the generated resources before replacing any pods:
 
 ```
-kubectl create priorityclass crdb-critical --value 500000000
+kubectl get priorityclass crdb-critical >/dev/null 2>&1 || \
+  kubectl create priorityclass crdb-critical --value 500000000
 ```
 
-Next, install the CockroachDB operator:
+If the PriorityClass already existed, reuse it and do not delete it during rollback.
+
+Next, install the CockroachDB Operator. `cloudRegion` must match the region generated in
+`manifests/values.yaml`, and `watchNamespaces` limits this operator to the migrated cluster's
+namespace:
 
 ```
-helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator
+helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
+  --namespace $NAMESPACE \
+  --set watchNamespaces=$NAMESPACE \
+  --set cloudRegion=$REGION \
+  --wait
 ```
 
-For each crdb pod, scale the statefulset down by one replica. For example, for a three-node cluster, first scale the Statefulset down to two replicas:
+For each CockroachDB pod, scale the StatefulSet down by one replica. For example, first scale a
+three-node StatefulSet down to two replicas:
 
 ```
-kubectl scale statefulset/$STS_NAME --replicas=2
+kubectl scale statefulset/$STS_NAME --replicas=2 -n $NAMESPACE
 ```
 
 Then create the crdbnode corresponding to the Statefulset pod you just scaled down:
@@ -76,81 +109,99 @@ kubectl apply -f manifests/crdbnode-2.yaml
 
 Wait for the new pod to become ready. If it doesn't, check the CockroachDB operator logs for errors.
 
-To ensure your CockroachDB node is fully ready before proceeding with the next replica migration, verify that there are no under-replicated ranges. You can check this using the `ranges_underreplicated` metric, which should be zero.
+Before replacing the next replica, verify that every `ranges_underreplicated` value is zero and
+that the expected nodes are live. Ordinal zero remains a StatefulSet pod until the final
+replacement, so it can be used for this check:
 
-First, set up port forwarding to access the CockroachDB node's HTTP interface:
+```bash
+kubectl exec $STS_NAME-0 -n $NAMESPACE -c db -- \
+  /cockroach/cockroach node status --ranges --format table \
+  --certs-dir=/cockroach/cockroach-certs
 ```
-kubectl port-forward pod/cockroachdb-2 8080:8080
-```
-Note: CockroachDB's UI is running on 8080 port by default.
 
-Now, you can verify the metric by running following command:
-```
-curl --insecure -s https://localhost:8080/_status/vars | grep "ranges_underreplicated{" | awk '
-{print $2}'
-```
-The above command will emit the number of under-replicated ranges on the particular CockroachDB
-node and it should be zero before proceeding to next crdb node.
+For insecure clusters, replace `--certs-dir=/cockroach/cockroach-certs` with `--insecure`.
+`cockroach node status --ranges` targets the system virtual cluster automatically. For the
+direct SQL alternative and its `allow_unsafe_internals` and UA routing requirements, see
+[Inspect cluster health manually](../../../cockroachdb-parent/charts/operator/README.md#inspect-cluster-health-manually).
 
 Repeat this process for each crdb node until the statefulset has zero replicas.
 
-The official Helm chart creates a public Service that exposes both SQL and gRPC connections over a single port.
-However, the CockroachDB operator uses a different port for gRPC communication.
-To ensure compatibility, you’ll need to update the public Service to reflect the correct gRPC port used by the operator.
+After the final replacement, run the health check from a CrdbNode pod before deleting the
+StatefulSet:
 
-Apply the updated service manifest with:
+```bash
+kubectl exec $STS_NAME-0 -n $NAMESPACE -c cockroachdb -- \
+  /cockroach/cockroach node status --ranges --format table \
+  --certs-dir=/cockroach/cockroach-certs
+```
+
+All nodes must be live and every `ranges_underreplicated` value must be zero. For insecure
+clusters, use `--insecure` instead of `--certs-dir`.
+
+The StatefulSet-based chart exposes SQL and gRPC connections differently from the CockroachDB
+Operator. Apply the generated public Service so it uses the operator's gRPC port:
+
 ```
 kubectl apply -f manifests/public-service.yaml
 ```
 
-The existing StatefulSet creates a PodDisruptionBudget (PDB) that conflicts with the one managed by the CockroachDB operator.
-To avoid this conflict, delete the existing PDB before applying the CrdbCluster manifest:
+Delete the StatefulSet chart's PDB before applying the CrdbCluster because it conflicts with the
+operator-managed PDB:
 
 ```
-kubectl delete poddisruptionbudget $STS_NAME-budget
+kubectl delete poddisruptionbudget $STS_NAME-budget -n $NAMESPACE --ignore-not-found
 ```
 
-Delete the StatefulSet that you previously scaled down to zero, as the Helm upgrade can proceed only if no StatefulSet is present.
+After confirming the final health check, delete the zero-replica StatefulSet. The chart blocks
+the migration upgrade while this object still exists:
 
 ```
-kubectl delete statefulset $STS_NAME
-```
-
-Delete the headless Service created by the StatefulSet. The CockroachDB operator creates Services with different selectors, so the old Service must be removed:
-
-```
-kubectl delete svc $STS_NAME
+kubectl delete statefulset $STS_NAME -n $NAMESPACE --wait=true
 ```
 
 Finally, apply the CrdbCluster manifest using helm upgrade to complete the migration:
 
 ```
-helm upgrade $RELEASE_NAME ./cockroachdb-parent/charts/cockroachdb -f manifests/values.yaml
+helm upgrade $RELEASE_NAME ./cockroachdb-parent/charts/cockroachdb \
+  --namespace $NAMESPACE \
+  -f manifests/values.yaml \
+  --force-conflicts
 ```
 
-**Note**: The final step creates the `CrdbCluster` resource object. The CockroachDB operator will immediately take over management of the existing database pods.
+`--force-conflicts` performs the one-time ownership handoff for resources that were updated
+during migration. Subsequent upgrades should not require it unless resources are modified
+outside Helm.
+
+The final step creates the `CrdbCluster` resource. The CockroachDB Operator immediately takes
+over management of the existing database pods.
 
 Verify the cluster mode is set correctly:
 
 ```bash
-kubectl get crdbcluster $RELEASE_NAME -o jsonpath='{.spec.mode}'
+kubectl get crdbcluster $STS_NAME -n $NAMESPACE -o jsonpath='{.spec.mode}'
 # Should output: MutableOnly
 ```
 
 ## Rollback Plan (in case of migration failure)
 
 ### ⚠️ Critical Warning: Point of No Return
-This rollback procedure is **only valid** while the original StatefulSet still exists. Once you have successfully completed the migration and deleted the original StatefulSet (as described in the final steps of the migration guide), you **cannot** use this rollback procedure.
 
-If the migration to the CockroachDB operator fails during the stage where you are applying the generated crdbnode manifests, follow the steps below to safely restore the original state using the previously backed-up resources and preserved volumes. This assumes the StatefulSet and PVCs are not deleted.
+This rollback procedure is valid only while the original StatefulSet still exists. After deleting
+it for the final Helm upgrade, stop and contact support instead of following this rollback
+procedure.
+
+If migration fails while applying CrdbNode manifests, use the preserved StatefulSet and PVCs to
+restore the original deployment.
 
 1. Restore Service Connectivity and Ownership
 
-Before scaling back the StatefulSet, you must ensure the Service correctly points to the pods managed by the original Helm release and is no longer owned by the CockroachDB operator CRD.
+Before scaling back the StatefulSet, ensure its Service selects the original Helm pods and has no
+CockroachDB Operator owner reference.
 
 ```bash
 # Remove ownerReferences from the Service to prevent accidental deletion
-kubectl patch svc $STS_NAME -n $NAMESPACE --type='json' -p='[{"op": "remove", "path": "/metadata/ownerReferences"}]'
+kubectl patch svc $STS_NAME -n $NAMESPACE --type=merge \
+  -p='{"metadata":{"ownerReferences":[]}}'
 
 # Update Service selectors to match original Helm pods
 kubectl patch svc $STS_NAME -n $NAMESPACE --type='json' -p="[{\"op\": \"replace\", \"path\": \"/spec/selector\", \"value\": {\"app.kubernetes.io/component\": \"cockroachdb\", \"app.kubernetes.io/instance\": \"$RELEASE_NAME\", \"app.kubernetes.io/name\": \"cockroachdb\"}}]"
@@ -158,91 +209,70 @@ kubectl patch svc $STS_NAME -n $NAMESPACE --type='json' -p="[{\"op\": \"replace\
 
 2. Delete the applied crdbnode resources and simultaneously scale the StatefulSet back up
 
-Delete the individual crdbnode manifests in the reverse order of their creation (starting with the last one created, e.g., crdbnode-1.yaml) and scale the StatefulSet back to its original replica count (e.g., 2).
+Delete CrdbNode manifests in reverse creation order. After deleting each CrdbNode, scale the
+StatefulSet up by one replica.
 
 **Example**: 
 
-1. Lets say you applied two crdbnode yaml file (`crdbnode-2.yaml` & `crdbnode-1.yaml`)
-2. Now you want to rollback due to any issue.
-3. Delete the crdbnodes in reverse order. 
-4. First delete the `crdbnode-1.yaml`, scale the replica count to 2 
-5. Do the verification by checking the under replicated range to zero.
-6. Then delete the `crdbnode-2.yaml` and scale replica count to 3 and so on.
+1. If `crdbnode-2.yaml` and `crdbnode-1.yaml` were applied, delete `crdbnode-1.yaml` first.
+2. Scale the StatefulSet to two replicas and wait for the restored pod to become Ready.
+3. Verify that under-replicated ranges return to zero.
+4. Delete `crdbnode-2.yaml`, scale the StatefulSet to three replicas, and repeat verification.
 
 ```
 kubectl delete -f manifests/crdbnode-1.yaml
-kubectl scale statefulset $STS_NAME --replicas=2
+kubectl scale statefulset $STS_NAME --replicas=2 -n $NAMESPACE
 ```
 
-**Verification Step** 
-To ensure your CockroachDB node is fully ready before proceeding with the next replica rollback, verify that there are no under-replicated ranges. You can check this using the `ranges_underreplicated` metric, which should be zero.
+**Verification step**
 
-First, set up port forwarding to access the CockroachDB node's HTTP interface:
-```
-kubectl port-forward pod/cockroachdb-2 8080:8080
-```
-Note: CockroachDB's UI is running on 8080 port by default.
+After the StatefulSet pod becomes Ready, verify that all ranges are replicated before restoring
+the next ordinal:
 
-Now, you can verify the metric by running following command:
+```bash
+kubectl exec $STS_NAME-0 -n $NAMESPACE -c db -- \
+  /cockroach/cockroach node status --ranges --format table \
+  --certs-dir=/cockroach/cockroach-certs
 ```
-curl --insecure -s https://localhost:8080/_status/vars | grep "ranges_underreplicated{" | awk '
-{print $2}'
-```
-The above command will emit the number of under-replicated ranges on the particular CockroachDB
-node and it should be zero before proceeding to next crdb node.
+
+For insecure clusters, replace `--certs-dir=/cockroach/cockroach-certs` with `--insecure`.
 
 Note: It might take some time for the `under-replicated` value to be zero.
 
 Repeat the kubectl delete -f ... command for each crdbnode manifest you applied during migration.
 
-3. Delete the PriorityClass and RBAC Resources Created for the CockroachDB Operator
+3. Restore the original Helm-managed resources
+
+After every CrdbNode has been removed and the StatefulSet is back at its original replica count,
+run an upgrade with the original chart version and values. This restores the original Services,
+PDB, and other Helm-managed resources.
 
 ```bash
-kubectl delete priorityclass crdb-critical
+# ORIGINAL_CHART must be the same chart source and version used before migration.
+helm upgrade $RELEASE_NAME $ORIGINAL_CHART \
+  --namespace $NAMESPACE \
+  -f backup/values.yaml
 ```
 
-4. Uninstall the CockroachDB Operator
+4. Delete the PriorityClass created for the CockroachDB Operator
+
+Skip this command if `crdb-critical` existed before migration.
 
 ```bash
-helm uninstall crdb-operator
+kubectl delete priorityclass crdb-critical --ignore-not-found
 ```
 
-5. Clean Up CockroachDB Operator Resources and CRDs
-
-**Crucial Step to Prevent Data Loss:**
-Before deleting the CRD, you must **remove the owner references** from the StatefulSet. This prevents Kubernetes from garbage-collecting (deleting) your database pods when the Custom Resource definition is removed.
+5. Uninstall the CockroachDB Operator
 
 ```bash
-# Remove ownerReferences from StatefulSet to prevent cascading deletion
-kubectl patch statefulset $STS_NAME -n $NAMESPACE --type='json' -p='[{"op": "remove", "path": "/metadata/ownerReferences"}]'
+helm uninstall crdb-operator --namespace $NAMESPACE
 ```
 
-Now it is safe to remove the CRD and other operator resources:
+Do not manually delete the CockroachDB Operator CRDs or cluster-wide webhook resources. CRDs are
+not removed by `helm uninstall` and may be shared by other CockroachDB clusters or operators.
+
+6. Confirm that all CockroachDB pods are Running and Ready
 
 ```bash
-# Delete CRDs
-kubectl delete crd crdbnodes.crdb.cockroachlabs.com
-kubectl delete crd crdbtenants.crdb.cockroachlabs.com
-kubectl delete crd crdbclusters.crdb.cockroachlabs.com
-
-# Delete webhook service and configurations
-kubectl delete service account cockroach-operator-default -n $NAMESPACE --ignore-not-found
-kubectl delete service cockroach-webhook-service -n $NAMESPACE --ignore-not-found
-kubectl delete validatingwebhookconfiguration cockroach-webhook-config --ignore-not-found
-kubectl delete mutatingwebhookconfiguration cockroach-mutating-webhook-config --ignore-not-found
-
-# Delete auxiliary Services created by CockroachDB operator
-kubectl delete svc ${STS_NAME}-join -n $NAMESPACE --ignore-not-found
-
-# Delete PDB created by CockroachDB operator
-kubectl delete pdb ${STS_NAME}-pdb -n $NAMESPACE --ignore-not-found
-
-# Clear kubectl cache to ensure fresh CRD definitions
-rm -rf ~/.kube/cache
-```
-
-6. Confirm that all CockroachDB pods are running and Ready:
-
-```bash
-kubectl get pods -l app.kubernetes.io/name=cockroachdb
+kubectl get pods -n $NAMESPACE -l app.kubernetes.io/name=cockroachdb
 ```

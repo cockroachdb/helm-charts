@@ -49,9 +49,11 @@ $ helm upgrade $CRDBOPERATOR ./cockroachdb-parent/charts/operator -n $NAMESPACE
 ### Helm 4 server-side apply
 
 Helm 4 uses server-side apply by default for releases first installed with Helm
-4. Because the operator updates fields on `CrdbCluster` and `CrdbNode`
-resources, Helm-managed CockroachDB resources can report field ownership
-conflicts when server-side apply is active. See the CockroachDB chart's
+4. Normal installs and upgrades do not require any additional flags when
+`CrdbCluster` changes are made through chart values. Manually changing a
+Helm-managed `CrdbCluster` with `kubectl` or another tool can give that tool
+field ownership and cause a later Helm 4 upgrade to report an SSA conflict. See
+the CockroachDB chart's
 [Helm 4 server-side apply guidance](../cockroachdb/README.md#helm-4-server-side-apply)
 before using `--force-conflicts` or changing the release's apply mode.
 

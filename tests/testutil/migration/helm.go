@@ -16,15 +16,10 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/types"
-	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
-var (
-	ReleaseName  = "crdb-test"
-	cfg          = ctrl.GetConfigOrDie()
-	k8sClient, _ = client.New(cfg, client.Options{})
-)
+var ReleaseName = "crdb-test"
 
 const (
 	role          = "crdb-test-cockroachdb-node-reader"
@@ -50,8 +45,12 @@ type HelmInstall struct {
 	cockroachHelmChart
 }
 
+func (h *HelmInstall) kubectlOptions(namespace string) *k8s.KubectlOptions {
+	return k8s.NewKubectlOptions(h.CrdbCluster.Context, "", namespace)
+}
+
 func (h *HelmInstall) InstallHelm(t *testing.T) {
-	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	kubectlOptions := h.kubectlOptions(h.Namespace)
 
 	h.HelmOptions.KubectlOptions = kubectlOptions
 
@@ -77,7 +76,7 @@ func (h *HelmInstall) InstallHelm(t *testing.T) {
 }
 
 func (h *HelmInstall) ValidateCRDB(t *testing.T) {
-	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	kubectlOptions := h.kubectlOptions(h.Namespace)
 	tlsEnabled := h.HelmOptions.SetValues[tlsKey]
 	selfSignerEnabled := h.HelmOptions.SetValues[selfSignerKey]
 	if (tlsEnabled == "" || tlsEnabled == "true") && (selfSignerEnabled == "" || selfSignerEnabled == "true") {
@@ -89,7 +88,7 @@ func (h *HelmInstall) ValidateCRDB(t *testing.T) {
 }
 
 func (h *HelmInstall) Uninstall(t *testing.T) {
-	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	kubectlOptions := h.kubectlOptions(h.Namespace)
 	danglingSecret := []string{}
 	tlsEnabled := h.HelmOptions.SetValues[tlsKey]
 	selfSignerEnabled := h.HelmOptions.SetValues[selfSignerKey]
@@ -108,6 +107,7 @@ func (h *HelmInstall) Uninstall(t *testing.T) {
 		kubectlOptions,
 		h.HelmOptions,
 		danglingSecret,
+		h.CrdbCluster.K8sClient,
 	)
 	if h.CrdbCluster.IsCaUserProvided {
 		// custom user CA certificate secret should not be deleted by pre-delete job.
@@ -118,7 +118,7 @@ func (h *HelmInstall) Uninstall(t *testing.T) {
 
 // ValidateCertManagerResources checks if the cert-manager resources are retained after helm upgrade.
 func (h *HelmInstall) ValidateCertManagerResources(t *testing.T) {
-	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)
+	kubectlOptions := h.kubectlOptions(h.Namespace)
 	k8s.RunKubectl(t, kubectlOptions, "get", "certificates.cert-manager.io", fmt.Sprintf("%s-node", h.CrdbCluster.StatefulSetName))
 	k8s.RunKubectl(t, kubectlOptions, "get", "certificates.cert-manager.io", fmt.Sprintf("%s-root-client", h.CrdbCluster.StatefulSetName))
 }
@@ -129,6 +129,7 @@ func cleanupResources(
 	kubectlOptions *k8s.KubectlOptions,
 	options *helm.Options,
 	danglingSecrets []string,
+	k8sClient client.Client,
 ) {
 	err := helm.DeleteE(t, options, releaseName, true)
 	// Ignore the error if the operation timed out or the release was already removed.

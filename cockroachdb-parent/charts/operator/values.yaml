@@ -10,7 +10,7 @@ image:
   # pullPolicy specifies the image pull policy.
   pullPolicy: IfNotPresent
   # tag is the image tag.
-  tag: "v1.0.0-rc.4"
+  tag: "v1.0.0"
 # relatedImages configures images the operator injects into CockroachDB pods.
 # By default these images share the operator image registry and tag.
 relatedImages:
