@@ -10,6 +10,7 @@ ifeq ($(UNAME_S),Linux)
   JQ_BIN ?= https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64
   OPM_TAR ?= https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/latest-4.8/opm-linux-4.8.57.tar.gz
   OPM_BIN ?= opm
+  SUBCTL_BIN ?= https://github.com/submariner-io/releases/releases/download/$(SUBCTL_VERSION)/subctl-$(SUBCTL_VERSION)-linux-amd64.tar.xz
 endif
 ifeq ($(UNAME_S),Darwin)
   COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v26.2.1.darwin-10.9-amd64.tgz
@@ -21,6 +22,7 @@ ifeq ($(UNAME_S),Darwin)
   JQ_BIN ?= https://github.com/stedolan/jq/releases/download/jq-1.6/jq-osx-amd64
   OPM_TAR ?= https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/latest-4.8/opm-mac-4.8.57.tar.gz
   OPM_BIN ?= darwin-amd64-opm
+  SUBCTL_BIN ?= https://github.com/submariner-io/releases/releases/download/$(SUBCTL_VERSION)/subctl-$(SUBCTL_VERSION)-darwin-arm64.tar.xz
 endif
 
 K3D_CLUSTER ?= chart-testing
@@ -30,6 +32,7 @@ DOCKER_NETWORK_NAME ?= "k3d-${K3D_CLUSTER}"
 LOCAL_REGISTRY ?= "localhost:5000"
 MULTI_REGION_NODE_SIZE ?= 3
 REGIONS ?= 3
+SUBCTL_VERSION ?= v0.24.0
 
 export BUNDLE_IMAGE ?= cockroach-operator-bundle
 export HELM_OPERATOR_IMAGE ?= cockroach-helm-operator
@@ -140,7 +143,11 @@ test/e2e/%: bin/cockroach bin/kubectl bin/helm build/self-signer test/cluster/up
 	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
 
-test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer bin/k3d bin/kind
+ifeq ($(PROVIDER),openshift)
+MULTI_REGION_PROVIDER_DEPS := bin/subctl
+endif
+
+test/e2e/multi-region: bin/cockroach bin/kubectl bin/helm  build/self-signer bin/k3d bin/kind $(MULTI_REGION_PROVIDER_DEPS)
 	@PATH="$(PWD)/bin:${PATH}" go test -timeout 90m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Multi region tests failed with exit code $$?" && exit 1)
 
 test/e2e/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/k3d bin/kind
@@ -173,7 +180,7 @@ test/multi-cluster/down: bin/k3d
 test/nightly-e2e/advanced/single-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/kind
 	@PATH="$(PWD)/bin:${PATH}" PROVIDER=$${PROVIDER:-kind} TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Advanced single-region tests failed with exit code $$?" && exit 1)
 
-test/nightly-e2e/advanced/multi-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/kind
+test/nightly-e2e/advanced/multi-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/kind $(MULTI_REGION_PROVIDER_DEPS)
 	@PATH="$(PWD)/bin:${PATH}" PROVIDER=$${PROVIDER:-kind} TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Advanced multi-region tests failed with exit code $$?" && exit 1)
 
 
@@ -215,6 +222,11 @@ bin/kubectl: ## install kubectl
 	@mkdir -p bin
 	@curl -Lo bin/kubectl $(KUBECTL_BIN)
 	@chmod +x bin/kubectl
+
+bin/subctl: ## install subctl
+	@mkdir -p bin
+	@curl -L $(SUBCTL_BIN) | tar -xJf - -C bin/ --strip-components 1 subctl-$(SUBCTL_VERSION)/subctl
+	@chmod +x bin/subctl
 
 bin/kind: ## install kind
 	@mkdir -p bin

@@ -6,14 +6,21 @@ on:
   # Allow manual trigger on any branch
   workflow_dispatch:
 
+env:
+  OPENSHIFT_VERSION: "4.17.16"
+  SUBCTL_VERSION: "v0.24.0"
+
 jobs:
   advanced-features-single-region:
     runs-on: [self-hosted, ubuntu_2404]
     strategy:
       fail-fast: false
       matrix:
-        provider: [k3d, kind, gcp]
-    timeout-minutes: 120
+        provider: [k3d, kind, gcp, openshift]
+    timeout-minutes: 300
+    concurrency:
+      group: ${{ matrix.provider == 'openshift' && 'advanced-features-openshift' || format('advanced-features-{0}-{1}-{2}', github.run_id, github.job, matrix.provider) }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
@@ -30,7 +37,9 @@ jobs:
         id: auth
         with:
           token_format: access_token
-          project_id: 'cockroach-helm-testing'
+          create_credentials_file: true
+          export_environment_variables: true
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Set up gcloud CLI
@@ -38,22 +47,123 @@ jobs:
       - name: Install gke-gcloud-auth-plugin
         run: |
           gcloud components install gke-gcloud-auth-plugin
+      - name: Install OpenShift tools
+        if: ${{ matrix.provider == 'openshift' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p bin
+
+          curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OPENSHIFT_VERSION}/openshift-install-linux.tar.gz" \
+            -o "${RUNNER_TEMP}/openshift-install-linux.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/openshift-install-linux.tar.gz" -C bin openshift-install
+
+          curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OPENSHIFT_VERSION}/openshift-client-linux.tar.gz" \
+            -o "${RUNNER_TEMP}/openshift-client-linux.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/openshift-client-linux.tar.gz" -C bin oc kubectl
+
+          chmod +x bin/openshift-install bin/oc bin/kubectl
+
+          echo "${PWD}/bin" >> "${GITHUB_PATH}"
+          bin/openshift-install version
+          bin/oc version --client
+          bin/kubectl version --client
+      - name: Generate OpenShift SSH key
+        if: ${{ matrix.provider == 'openshift' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ssh-keygen -t ed25519 -N "" -f "${RUNNER_TEMP}/openshift-ci-ssh-key" -C "helm-charts-ci@cockroachlabs.com"
+          {
+            echo "OPENSHIFT_SSH_PUB_KEY<<EOF"
+            cat "${RUNNER_TEMP}/openshift-ci-ssh-key.pub"
+            echo "EOF"
+          } >> "${GITHUB_ENV}"
       - name: Run tests (advanced features - single region)
+        if: ${{ matrix.provider != 'openshift' }}
         env:
           PROVIDER: ${{ matrix.provider }}
           TEST_ADVANCED_FEATURES: true
-          USE_GKE_GCLOUD_AUTH_PLUGIN: True
+          USE_GKE_GCLOUD_AUTH_PLUGIN: true
         run: |
           set -euo pipefail
           make test/nightly-e2e/advanced/single-region | tee test_output.log
+      - name: Run tests (advanced features - single region - OpenShift)
+        if: ${{ matrix.provider == 'openshift' }}
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          TEST_ADVANCED_FEATURES: true
+          USE_GKE_GCLOUD_AUTH_PLUGIN: true
+          TMPDIR: ${{ runner.temp }}
+          OPENSHIFT_DEBUG_DIR: ${{ runner.temp }}/openshift-debug
+          OPENSHIFT_DEBUG_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/${{ github.run_id }}/${{ github.run_attempt }}/single-region
+          OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
+          OPENSHIFT_PULL_SECRET: ${{ secrets.OPENSHIFT_PULL_SECRET }}
+          OPENSHIFT_ENABLE_SUBMARINER: "false"
+          OPENSHIFT_SKIP_TEARDOWN: "false"
+        run: |
+          set -euo pipefail
+
+          ./build/openshift-ci-debug.sh ensure-gcs
+          ./build/openshift-ci-debug.sh snapshot before-single-region
+          ./build/openshift-ci-debug.sh watch 120 &
+          debug_pid="$!"
+          finish_debug() {
+            status="$?"
+            kill "${debug_pid}" 2>/dev/null || true
+            wait "${debug_pid}" 2>/dev/null || true
+            ./build/openshift-ci-debug.sh snapshot after-single-region || true
+            ./build/openshift-ci-debug.sh sync || true
+            exit "${status}"
+          }
+          trap finish_debug EXIT
+
+          unset OPENSHIFT_REUSE_CONTEXTS OPENSHIFT_REUSE_KUBECONFIG OPENSHIFT_REUSE_KUBECONFIGS
+          stdbuf -oL -eL make test/nightly-e2e/advanced/single-region 2>&1 | tee test_output.log
       - name: Archive test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: advanced-single-region-results-${{ matrix.provider }}
+          if-no-files-found: ignore
+          include-hidden-files: true
           path: |
             test_output.log
             test_output.json
+            ${{ runner.temp }}/openshift-debug/*.log
+            ${{ runner.temp }}/helm-charts-ocp-*/.openshift_install.log
+            ${{ runner.temp }}/helm-charts-ocp-*/metadata.json
+      - name: Clean up OpenShift installer state
+        if: ${{ always() && matrix.provider == 'openshift' }}
+        shell: bash
+        env:
+          TMPDIR: ${{ runner.temp }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          OPENSHIFT_DEBUG_DIR: ${{ runner.temp }}/openshift-debug
+          OPENSHIFT_DEBUG_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/${{ github.run_id }}/${{ github.run_attempt }}/single-region
+          OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
+          OPENSHIFT_SKIP_TEARDOWN: "false"
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          if [[ "${OPENSHIFT_SKIP_TEARDOWN}" == "true" ]]; then
+            echo "OPENSHIFT_SKIP_TEARDOWN=true; preserving OpenShift installer state"
+            ./build/openshift-ci-debug.sh snapshot skip-teardown-single-region || true
+            ./build/openshift-ci-debug.sh sync || true
+            exit 0
+          fi
+
+          ./build/openshift-ci-debug.sh cleanup-multicluster || true
+
+          for install_dir in "${TMPDIR}"/helm-charts-ocp-*; do
+            [[ -d "${install_dir}" ]] || continue
+            echo "Destroying leftover OpenShift cluster from ${install_dir}"
+            openshift-install destroy cluster --dir "${install_dir}" --log-level info || true
+            rm -rf "${install_dir}"
+          done
       - name: Slack notification
         if: ${{ always() && github.ref_name == 'master' }}
         uses: ./.github/actions/slack-test-notification
@@ -67,8 +177,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [k3d, kind, gcp]
-    timeout-minutes: 120
+        provider: [k3d, kind, gcp, openshift]
+    timeout-minutes: 420
+    concurrency:
+      group: ${{ matrix.provider == 'openshift' && 'advanced-features-openshift' || format('advanced-features-{0}-{1}-{2}', github.run_id, github.job, matrix.provider) }}
+      cancel-in-progress: false
     permissions:
       contents: read
       id-token: write
@@ -85,7 +198,9 @@ jobs:
         id: auth
         with:
           token_format: access_token
-          project_id: 'cockroach-helm-testing'
+          create_credentials_file: true
+          export_environment_variables: true
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Set up gcloud CLI
@@ -93,22 +208,131 @@ jobs:
       - name: Install gke-gcloud-auth-plugin
         run: |
           gcloud components install gke-gcloud-auth-plugin
+      - name: Install OpenShift tools
+        if: ${{ matrix.provider == 'openshift' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          mkdir -p bin
+
+          curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OPENSHIFT_VERSION}/openshift-install-linux.tar.gz" \
+            -o "${RUNNER_TEMP}/openshift-install-linux.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/openshift-install-linux.tar.gz" -C bin openshift-install
+
+          curl -fsSL "https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/${OPENSHIFT_VERSION}/openshift-client-linux.tar.gz" \
+            -o "${RUNNER_TEMP}/openshift-client-linux.tar.gz"
+          tar -xzf "${RUNNER_TEMP}/openshift-client-linux.tar.gz" -C bin oc kubectl
+
+          chmod +x bin/openshift-install bin/oc bin/kubectl
+
+          make bin/subctl
+          bin/subctl version
+
+          echo "${PWD}/bin" >> "${GITHUB_PATH}"
+          bin/openshift-install version
+          bin/oc version --client
+          bin/kubectl version --client
+      - name: Generate OpenShift SSH key
+        if: ${{ matrix.provider == 'openshift' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          ssh-keygen -t ed25519 -N "" -f "${RUNNER_TEMP}/openshift-ci-ssh-key" -C "helm-charts-ci@cockroachlabs.com"
+          {
+            echo "OPENSHIFT_SSH_PUB_KEY<<EOF"
+            cat "${RUNNER_TEMP}/openshift-ci-ssh-key.pub"
+            echo "EOF"
+          } >> "${GITHUB_ENV}"
       - name: Run tests (advanced features - multi region)
+        if: ${{ matrix.provider != 'openshift' }}
         env:
           PROVIDER: ${{ matrix.provider }}
           TEST_ADVANCED_FEATURES: true
-          USE_GKE_GCLOUD_AUTH_PLUGIN: True
+          USE_GKE_GCLOUD_AUTH_PLUGIN: true
         run: |
           set -euo pipefail
           make test/nightly-e2e/advanced/multi-region | tee test_output.log
+      - name: Run tests (advanced features - multi region - OpenShift)
+        if: ${{ matrix.provider == 'openshift' }}
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          TEST_ADVANCED_FEATURES: true
+          USE_GKE_GCLOUD_AUTH_PLUGIN: true
+          TMPDIR: ${{ runner.temp }}
+          OPENSHIFT_DEBUG_DIR: ${{ runner.temp }}/openshift-debug
+          OPENSHIFT_DEBUG_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/${{ github.run_id }}/${{ github.run_attempt }}/multi-region
+          OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
+          OPENSHIFT_PULL_SECRET: ${{ secrets.OPENSHIFT_PULL_SECRET }}
+          OPENSHIFT_ENABLE_SUBMARINER: "true"
+          OPENSHIFT_SKIP_TEARDOWN: "false"
+        run: |
+          set -euo pipefail
+
+          ./build/openshift-ci-debug.sh ensure-gcs
+          ./build/openshift-ci-debug.sh snapshot before-multi-region
+          ./build/openshift-ci-debug.sh watch 60 &
+          debug_pid="$!"
+          while true; do
+            ./build/openshift-ci-debug.sh sync || true
+            sleep 15
+          done &
+          sync_pid="$!"
+          finish_debug() {
+            status="$?"
+            kill "${debug_pid}" "${sync_pid}" 2>/dev/null || true
+            wait "${debug_pid}" "${sync_pid}" 2>/dev/null || true
+            ./build/openshift-ci-debug.sh snapshot after-multi-region || true
+            ./build/openshift-ci-debug.sh sync || true
+            exit "${status}"
+          }
+          trap finish_debug EXIT
+
+          unset OPENSHIFT_REUSE_CONTEXTS OPENSHIFT_REUSE_KUBECONFIG OPENSHIFT_REUSE_KUBECONFIGS
+          stdbuf -oL -eL make test/nightly-e2e/advanced/multi-region > >(tee test_output.log) 2>&1
       - name: Archive test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
         with:
           name: advanced-multi-region-results-${{ matrix.provider }}
+          if-no-files-found: ignore
+          include-hidden-files: true
           path: |
             test_output.log
             test_output.json
+            ${{ runner.temp }}/openshift-debug/*.log
+            ${{ runner.temp }}/helm-charts-ocp-*/.openshift_install.log
+            ${{ runner.temp }}/helm-charts-ocp-*/metadata.json
+      - name: Clean up OpenShift installer state
+        if: ${{ always() && matrix.provider == 'openshift' }}
+        shell: bash
+        env:
+          TMPDIR: ${{ runner.temp }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          OPENSHIFT_DEBUG_DIR: ${{ runner.temp }}/openshift-debug
+          OPENSHIFT_DEBUG_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/${{ github.run_id }}/${{ github.run_attempt }}/multi-region
+          OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
+          OPENSHIFT_SKIP_TEARDOWN: "false"
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+
+          if [[ "${OPENSHIFT_SKIP_TEARDOWN}" == "true" ]]; then
+            echo "OPENSHIFT_SKIP_TEARDOWN=true; preserving OpenShift installer state"
+            ./build/openshift-ci-debug.sh snapshot skip-teardown-multi-region || true
+            ./build/openshift-ci-debug.sh sync || true
+            exit 0
+          fi
+
+          ./build/openshift-ci-debug.sh cleanup-multicluster || true
+
+          for install_dir in "${TMPDIR}"/helm-charts-ocp-*; do
+            [[ -d "${install_dir}" ]] || continue
+            echo "Destroying leftover OpenShift cluster from ${install_dir}"
+            openshift-install destroy cluster --dir "${install_dir}" --log-level info || true
+            rm -rf "${install_dir}"
+          done
       - name: Slack notification
         if: ${{ always() && github.ref_name == 'master' }}
         uses: ./.github/actions/slack-test-notification

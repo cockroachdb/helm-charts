@@ -18,10 +18,11 @@ import (
 
 // Provider types.
 const (
-	ProviderK3D  = "k3d"
-	ProviderKind = "kind"
-	ProviderGCP  = "gcp"
-	ProviderAWS  = "aws"
+	ProviderK3D       = "k3d"
+	ProviderKind      = "kind"
+	ProviderGCP       = "gcp"
+	ProviderAWS       = "aws"
+	ProviderOpenShift = "openshift"
 )
 
 // Common constants.
@@ -51,10 +52,11 @@ const (
 
 // RegionCodes maps provider types to their region codes
 var RegionCodes = map[string][]string{
-	ProviderK3D:  {"us-east1", "us-east2"},
-	ProviderKind: {"us-east1", "us-east2"},
-	ProviderGCP:  {"us-central1", "us-east1"},
-	ProviderAWS:  {"us-east-1", "us-east-2"},
+	ProviderK3D:       {"us-east1", "us-east2"},
+	ProviderKind:      {"us-east1", "us-east2"},
+	ProviderGCP:       {"us-central1", "us-east1"},
+	ProviderAWS:       {"us-east-1", "us-east-2"},
+	ProviderOpenShift: {"us-central1", "us-east1"},
 }
 
 // LoadBalancerAnnotations contains provider-specific service annotations.
@@ -68,8 +70,9 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 		"service.beta.kubernetes.io/aws-load-balancer-type":     "nlb",
 		"service.beta.kubernetes.io/aws-load-balancer-internal": "true",
 	},
-	ProviderK3D:  {},
-	ProviderKind: {},
+	ProviderK3D:       {},
+	ProviderKind:      {},
+	ProviderOpenShift: {},
 }
 
 // NetworkConfigs defines standard network configurations for each provider and region.
@@ -352,6 +355,9 @@ func UpdateCoreDNSConfiguration(t *testing.T, r *operator.Region, kubeConfigPath
 		if err := k8s.RunKubectlE(t, kubectlOpts, "rollout", "restart", "deployment", coreDNSDeploymentName); err != nil {
 			require.NoError(t, err, "failed to restart CoreDNS deployment for cluster %s", clusterName)
 		}
+		if err := k8s.RunKubectlE(t, kubectlOpts, "rollout", "status", "deployment", coreDNSDeploymentName, "--timeout=3m"); err != nil {
+			require.NoError(t, err, "CoreDNS deployment did not finish rolling out for cluster %s", clusterName)
+		}
 
 		t.Logf("[%s] Updated CoreDNS configuration for cluster %s with namespace %s", r.Provider, clusterName, r.Namespace[clusterName])
 	}
@@ -383,4 +389,59 @@ func UpdateCoreDNSWithNamespaces(t *testing.T, r *operator.Region) {
 	UpdateCoreDNSConfiguration(t, r, kubeConfigPath)
 
 	t.Logf("[%s] Updated CoreDNS configuration with test namespaces", r.Provider)
+}
+
+// WaitForReadyNodes waits until at least nodeCount nodes matching nodeSelector
+// are Ready in the selected cluster.
+func WaitForReadyNodes(
+	t *testing.T,
+	provider string,
+	clusterName string,
+	kubeConfigPath string,
+	nodeSelector string,
+	nodeCount int,
+) {
+	t.Helper()
+	kubectlOptions := k8s.NewKubectlOptions(clusterName, kubeConfigPath, "")
+	args := []string{"get", "nodes", "--no-headers"}
+	if nodeSelector != "" {
+		args = append(args, "-l", nodeSelector)
+	}
+
+	for attempt := 1; attempt <= defaultRetries; attempt++ {
+		output, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, args...)
+		if err != nil {
+			t.Logf("[%s] attempt %d/%d: failed to list nodes in cluster %q: %v",
+				provider, attempt, defaultRetries, clusterName, err)
+			time.Sleep(defaultRetryInterval)
+			continue
+		}
+
+		readyNodes := countReadyNodes(output)
+		t.Logf("[%s] ready nodes for cluster %q: %d/%d",
+			provider, clusterName, readyNodes, nodeCount)
+		if readyNodes >= nodeCount {
+			return
+		}
+
+		time.Sleep(defaultRetryInterval)
+	}
+
+	t.Fatalf("[%s] timed out waiting for %d ready nodes in cluster %q",
+		provider, nodeCount, clusterName)
+}
+
+func countReadyNodes(kubectlGetNodesOutput string) int {
+	readyNodes := 0
+	for _, line := range strings.Split(strings.TrimSpace(kubectlGetNodesOutput), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 2 {
+			continue
+		}
+		status := fields[1]
+		if strings.Contains(status, "Ready") && !strings.Contains(status, "NotReady") {
+			readyNodes++
+		}
+	}
+	return readyNodes
 }

@@ -68,8 +68,7 @@ func InstallTrustManager(t *testing.T, kubectlOptions *k8s.KubectlOptions, trust
 
 	// Wait for Bundle CRD to be installed (CRDs are cluster-scoped, so use default namespace)
 	t.Log("Waiting for Bundle CRD to be available...")
-	defaultKubectlOptions := k8s.NewKubectlOptions(
-		kubectlOptions.ContextName, kubectlOptions.ConfigPath, "default")
+	defaultKubectlOptions := k8s.NewKubectlOptions(kubectlOptions.ContextName, kubectlOptions.ConfigPath, "default")
 	maxRetries := 60
 	crdFound := false
 	for i := 0; i < maxRetries; i++ {
@@ -233,6 +232,12 @@ spec:
 
 // DeleteBundle deletes the bundle.
 func DeleteBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+	if _, err := os.Stat(bundleYaml); os.IsNotExist(err) {
+		return
+	} else {
+		require.NoError(t, err)
+	}
+
 	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", bundleYaml)
 	_ = os.Remove(bundleYaml)
 }
