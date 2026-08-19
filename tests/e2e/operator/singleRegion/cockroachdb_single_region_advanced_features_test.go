@@ -78,8 +78,7 @@ func (r *singleRegion) TestWALFailoverDisable(t *testing.T) {
 	helmChartPath, _ := operator.HelmChartPaths()
 
 	// Upgrade with WAL failover disabled
-	disableConfig := operator.PatchHelmValues(map[string]string{
-		"cockroachdb.clusterDomain":                      operator.CustomDomains[0],
+	disableConfig := r.CockroachDBHelmValues(0, map[string]string{
 		"cockroachdb.tls.selfSigner.caProvided":          "true",
 		"cockroachdb.tls.selfSigner.caSecret":            "cockroachdb-ca-secret",
 		"cockroachdb.crdbCluster.walFailoverSpec.status": "disable",

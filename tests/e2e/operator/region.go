@@ -84,10 +84,15 @@ type Region struct {
 	encryptionProvider    encryption.Provider
 	encryptionInfraSetup  bool
 	encryptionCleanupFunc func()
+	providerRuntime       ProviderRuntime
 }
 
 func (r *Region) SetEncryptionProvider(p encryption.Provider) {
 	r.encryptionProvider = p
+}
+
+func (r *Region) SetProviderRuntime(runtime ProviderRuntime) {
+	r.providerRuntime = runtime
 }
 
 func (r *Region) CleanupEncryptionInfra() {
@@ -132,7 +137,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
 
 	// Create a namespace.
-	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
+	r.prepareNamespace(t, kubectlOptions, r.Namespace[cluster])
 
 	if r.IsCertManager {
 		testutil.InstallCertManager(t, certManagerK8sOptions)
@@ -155,8 +160,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	}
 
 	if r.IsCertManager {
-		crdbOp = PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain":               CustomDomains[index],
+		crdbOp = r.CockroachDBHelmValues(index, map[string]string{
 			"cockroachdb.tls.enabled":                 "true",
 			"cockroachdb.tls.selfSigner.enabled":      "false",
 			"cockroachdb.tls.certManager.enabled":     "true",
@@ -164,8 +168,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 			"cockroachdb.tls.certManager.caConfigMap": testutil.CAConfigMapName,
 		})
 	} else {
-		crdbOp = PatchHelmValues(map[string]string{
-			"cockroachdb.clusterDomain":             CustomDomains[index],
+		crdbOp = r.CockroachDBHelmValues(index, map[string]string{
 			"cockroachdb.tls.enabled":               "true",
 			"cockroachdb.tls.selfSigner.caProvided": "true",
 			"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
@@ -175,14 +178,16 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 	// next restart, so the inter-node pause can be kept short.
 	crdbOp["cockroachdb.crdbCluster.rollingRestartDelay"] = "10s"
 
+	jsonValues := map[string]string{
+		"cockroachdb.crdbCluster.regions": MustMarshalJSON(r.OperatorRegions(index, r.NodeCount)),
+	}
+
 	// Helm install cockroach CR with operator region config.
 	crdbOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		SetValues:      crdbOp,
-		SetJsonValues: map[string]string{
-			"cockroachdb.crdbCluster.regions": MustMarshalJSON(r.OperatorRegions(index, r.NodeCount)),
-		},
-		ExtraArgs: helmExtraArgs,
+		SetJsonValues:  jsonValues,
+		ExtraArgs:      helmExtraArgs,
 	}
 
 	helm.Install(t, crdbOptions, helmChartPath, ReleaseName)
@@ -321,7 +326,7 @@ func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 		// Verify regions output
 		for _, clusterRegion := range r.RegionCodes {
 			// For multi-region validation, check for cloud provider prefixed region names
-			expectedRegion := fmt.Sprintf("%s-%s", r.Provider, clusterRegion)
+			expectedRegion := fmt.Sprintf("%s-%s", r.chartCloudProvider(), clusterRegion)
 			require.Contains(t, stdout, expectedRegion, "Expected region %s to be present in cluster output", expectedRegion)
 		}
 
@@ -361,7 +366,7 @@ func (r *Region) ValidateMultiRegionSetup(t *testing.T) {
 
 		// Verify node count per region matches desired nodes.
 		for _, region := range r.RegionCodes {
-			region = fmt.Sprintf("%s-%s", r.Provider, region)
+			region = fmt.Sprintf("%s-%s", r.chartCloudProvider(), region)
 			require.Equal(t, r.NodeCount, nodesPerRegion[region],
 				"Region %s has %d nodes, expected %d",
 				region, nodesPerRegion[region], r.NodeCount)
@@ -475,12 +480,14 @@ func (r *Region) CleanupResources(t *testing.T) {
 	for cluster, namespace := range r.Namespace {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, namespace)
 		certManagerK8sOptions := k8s.NewKubectlOptions(cluster, kubeConfig, testutil.CertManagerNamespace)
+		clusterOptions := k8s.NewKubectlOptions(cluster, kubeConfig, "")
 
+		deleteFlags := r.helmDeleteArgs(
+			"--wait",
+			"--debug",
+		)
 		extraArgs := map[string][]string{
-			"delete": {
-				"--wait",
-				"--debug",
-			},
+			"delete": deleteFlags,
 		}
 		helmOptions := &helm.Options{
 			KubectlOptions: kubectlOptions,
@@ -492,6 +499,7 @@ func (r *Region) CleanupResources(t *testing.T) {
 		if err := helm.DeleteE(t, helmOptions, operatorReleaseName, true); err != nil {
 			t.Logf("Warning: helm delete %s failed (may not exist): %v", operatorReleaseName, err)
 		}
+		r.cleanupNamespace(t, clusterOptions, namespace)
 
 		if r.IsCertManager {
 			testutil.DeleteBundle(t, kubectlOptions)
@@ -535,13 +543,13 @@ func (r *Region) createOperatorRegions(
 	buildRegion := func(i int) map[string]interface{} {
 		region := map[string]interface{}{
 			"code":          r.RegionCodes[i],
-			"cloudProvider": r.Provider,
+			"cloudProvider": r.chartCloudProvider(),
 			"nodes":         nodes,
 			"namespace":     r.Namespace[r.Clusters[i]],
 		}
 		if len(r.Clusters) > i && r.Clusters[i] != "" {
-			if domain, ok := customDomains[i]; ok {
-				region["domain"] = domain
+			if _, ok := customDomains[i]; ok {
+				region["domain"] = r.clusterDomain(i)
 			}
 		}
 		return region
@@ -922,12 +930,12 @@ func (r *Region) BaseRegionConfig(cluster string, index int) map[string]interfac
 	}
 	region := map[string]interface{}{
 		"code":          code,
-		"cloudProvider": r.Provider,
+		"cloudProvider": r.chartCloudProvider(),
 		"nodes":         r.NodeCount,
 		"namespace":     r.Namespace[cluster],
 	}
-	if domain, ok := CustomDomains[index]; ok {
-		region["domain"] = domain
+	if _, ok := CustomDomains[index]; ok {
+		region["domain"] = r.clusterDomain(index)
 	}
 	return region
 }
@@ -1006,7 +1014,7 @@ func (r *Region) InstallChartsWithAdvancedConfig(
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 
 	// Create a namespace.
-	k8s.CreateNamespace(t, kubectlOptions, r.Namespace[cluster])
+	r.prepareNamespace(t, kubectlOptions, r.Namespace[cluster])
 
 	// create CA Secret.
 	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", customCASecret, "--from-file=ca.crt",
@@ -1044,8 +1052,7 @@ func (r *Region) InstallChartsWithAdvancedConfig(
 	}
 
 	// Build helm values
-	helmValues := PatchHelmValues(map[string]string{
-		"cockroachdb.clusterDomain":             CustomDomains[index],
+	helmValues := r.CockroachDBHelmValues(index, map[string]string{
 		"cockroachdb.tls.selfSigner.caProvided": "true",
 		"cockroachdb.tls.selfSigner.caSecret":   customCASecret,
 	})
@@ -1499,7 +1506,7 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 	t.Log("Generating connection URI for primary cluster using cockroach convert-url")
 	primaryClusterDomain := validationConfig.PCR.PrimaryClusterDomain
 	if primaryClusterDomain == "" {
-		primaryClusterDomain = CustomDomains[0]
+		primaryClusterDomain = r.clusterDomain(0)
 	}
 	primaryHost := fmt.Sprintf("cockroachdb-public.%s.svc.%s:26257", primaryNamespace, primaryClusterDomain)
 	primaryConnString := fmt.Sprintf("postgresql://%s:%s@%s?options=-ccluster%%3Dsystem", pcrSourceUser, pcrSourcePassword, primaryHost)

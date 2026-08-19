@@ -81,7 +81,7 @@ func GenerateAndEncodeEncryptionKey(t *testing.T) (rawKey []byte, base64Key stri
 
 // SetupEncryptionSecretsWithName dispatches to the appropriate setup path based on platform type.
 // CMEK providers (GCP_CLOUD_KMS, AWS_KMS) go through KMS encryption; file-based (UNKNOWN_KEY_TYPE)
-// writes raw key bytes directly.
+// stores the base64-encoded key directly.
 func SetupEncryptionSecretsWithName(t *testing.T, provider Provider, kubectlOptions *k8s.KubectlOptions, clusterRegion string, secretName string) error {
 	platformConfig := provider.GetEncryptionPlatformConfig()
 
@@ -129,17 +129,11 @@ func setupCMEKEncryptionSecretsWithName(
 func setupFileBasedEncryptionSecretsWithName(t *testing.T, kubectlOptions *k8s.KubectlOptions, providerName string, secretName string) error {
 	t.Logf("%s provider: Setting up file-based encryption secrets (secret: %s)", providerName, secretName)
 
-	rawKey, _ := GenerateAndEncodeEncryptionKey(t)
-	t.Logf("Generated encryption key (%d bytes)", len(rawKey))
-
-	tempDir := t.TempDir()
-	keyPath := filepath.Join(tempDir, "StoreKeyData")
-	if err := os.WriteFile(keyPath, rawKey, 0600); err != nil {
-		return fmt.Errorf("failed to write key to temp file: %w", err)
-	}
+	rawKey, base64Key := GenerateAndEncodeEncryptionKey(t)
+	t.Logf("Generated encryption key (%d bytes, %d base64 characters)", len(rawKey), len(base64Key))
 
 	err := k8s.RunKubectlE(t, kubectlOptions, "create", "secret", "generic", secretName,
-		fmt.Sprintf("--from-file=StoreKeyData=%s", keyPath))
+		fmt.Sprintf("--from-literal=StoreKeyData=%s", base64Key))
 	if err != nil {
 		return fmt.Errorf("failed to create encryption key secret: %w", err)
 	}
