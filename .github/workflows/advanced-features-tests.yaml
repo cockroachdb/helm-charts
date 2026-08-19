@@ -165,7 +165,9 @@ jobs:
             rm -rf "${install_dir}"
           done
       - name: Slack notification
-        if: ${{ always() && github.ref_name == 'master' }}
+        # Temporarily disabled because notification failures can mask test results.
+        # Re-enable or replace once CC-36671 is resolved.
+        if: ${{ false }}
         uses: ./.github/actions/slack-test-notification
         with:
           test-name: "Advanced features single-region"
@@ -334,7 +336,9 @@ jobs:
             rm -rf "${install_dir}"
           done
       - name: Slack notification
-        if: ${{ always() && github.ref_name == 'master' }}
+        # Temporarily disabled because notification failures can mask test results.
+        # Re-enable or replace once CC-36671 is resolved.
+        if: ${{ false }}
         uses: ./.github/actions/slack-test-notification
         with:
           test-name: "Advanced features multi-region"
