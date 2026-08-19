@@ -33,6 +33,7 @@ LOCAL_REGISTRY ?= "localhost:5000"
 MULTI_REGION_NODE_SIZE ?= 3
 REGIONS ?= 3
 SUBCTL_VERSION ?= v0.24.0
+E2E_ADVANCED_MULTI_REGION_TEST_TIMEOUT ?= 3h
 
 export BUNDLE_IMAGE ?= cockroach-operator-bundle
 export HELM_OPERATOR_IMAGE ?= cockroach-helm-operator
@@ -181,7 +182,7 @@ test/nightly-e2e/advanced/single-region: bin/cockroach bin/kubectl bin/helm buil
 	@PATH="$(PWD)/bin:${PATH}" PROVIDER=$${PROVIDER:-kind} TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInSingleRegion ./tests/e2e/operator/singleRegion/... || (echo "Advanced single-region tests failed with exit code $$?" && exit 1)
 
 test/nightly-e2e/advanced/multi-region: bin/cockroach bin/kubectl bin/helm build/self-signer bin/kind $(MULTI_REGION_PROVIDER_DEPS)
-	@PATH="$(PWD)/bin:${PATH}" PROVIDER=$${PROVIDER:-kind} TEST_ADVANCED_FEATURES=true go test -timeout 90m -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Advanced multi-region tests failed with exit code $$?" && exit 1)
+	@PATH="$(PWD)/bin:${PATH}" PROVIDER=$${PROVIDER:-kind} TEST_ADVANCED_FEATURES=true go test -timeout $(E2E_ADVANCED_MULTI_REGION_TEST_TIMEOUT) -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Advanced multi-region tests failed with exit code $$?" && exit 1)
 
 
 test/lint: bin/helm ## lint the helm chart
