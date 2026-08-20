@@ -53,7 +53,9 @@ jobs:
             test_output.log
             test_output.json
       - name: Slack notification (multi-region)
-        if: ${{ always() && github.ref_name == 'master' }}
+        # Temporarily disabled because notification failures can mask test results.
+        # Re-enable or replace once CC-36671 is resolved.
+        if: ${{ false }}
         uses: ./.github/actions/slack-test-notification
         with:
           test-name: "Multi-region e2e"
@@ -105,7 +107,9 @@ jobs:
             test_output.log
             test_output.json
       - name: Slack notification (single-region)
-        if: ${{ always() && github.ref_name == 'master' }}
+        # Temporarily disabled because notification failures can mask test results.
+        # Re-enable or replace once CC-36671 is resolved.
+        if: ${{ false }}
         uses: ./.github/actions/slack-test-notification
         with:
           test-name: "Single-region e2e"
