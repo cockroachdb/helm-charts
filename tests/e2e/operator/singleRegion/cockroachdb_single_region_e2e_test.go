@@ -250,7 +250,7 @@ func (r *singleRegion) TestHelmUpgrade(t *testing.T) {
 		},
 	}
 	// Apply Helm upgrade with updated values.
-	helm.Upgrade(t, options, helmChartPath, operator.ReleaseName)
+	operator.HelmUpgradeWithRetry(t, options, helmChartPath, operator.ReleaseName)
 
 	crdbCluster := testutil.CockroachCluster{
 		DesiredNodes: r.NodeCount,
@@ -301,10 +301,10 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 			"upgrade": {"--reuse-values", "--set", fmt.Sprintf("cockroachdb.crdbCluster.timestamp=%s", upgradeTime.Format(time.RFC3339))},
 		},
 	}
-	helm.Upgrade(t, options, helmChartPath, operator.ReleaseName)
+	operator.HelmUpgradeWithRetry(t, options, helmChartPath, operator.ReleaseName)
 
 	// Get the initial timestamp of the pods before the upgrade.
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 	require.True(t, len(pods) >= 3, "Expected at least 3 pods but found %d", len(pods))
@@ -318,7 +318,7 @@ func (r *singleRegion) TestClusterRollingRestart(t *testing.T) {
 		DesiredNodes: r.NodeCount,
 	}
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
-	pods = k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods = testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 	// Verify that each pod's creation timestamp is after the upgradeTime.
@@ -357,7 +357,7 @@ func (r *singleRegion) TestKillingCockroachNode(t *testing.T) {
 
 	// List the pods.
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 
@@ -426,7 +426,7 @@ func (r *singleRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Clou
 			"upgrade": {"--reuse-values", "--wait"},
 		},
 	}
-	helm.Upgrade(t, options, helmChartPath, operator.ReleaseName)
+	operator.HelmUpgradeWithRetry(t, options, helmChartPath, operator.ReleaseName)
 
 	crdbCluster := testutil.CockroachCluster{
 		DesiredNodes: r.NodeCount,

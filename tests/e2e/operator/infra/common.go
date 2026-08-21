@@ -23,6 +23,7 @@ const (
 	ProviderGCP       = "gcp"
 	ProviderAWS       = "aws"
 	ProviderOpenShift = "openshift"
+	ProviderAzure     = "azure"
 )
 
 // Common constants.
@@ -57,6 +58,7 @@ var RegionCodes = map[string][]string{
 	ProviderGCP:       {"us-central1", "us-east1"},
 	ProviderAWS:       {"us-east-1", "us-east-2"},
 	ProviderOpenShift: {"us-central1", "us-east1"},
+	ProviderAzure:     {"eastus", "westus2"},
 }
 
 // LoadBalancerAnnotations contains provider-specific service annotations.
@@ -70,6 +72,9 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 		"service.beta.kubernetes.io/aws-load-balancer-type":     "nlb",
 		"service.beta.kubernetes.io/aws-load-balancer-internal": "true",
 	},
+	ProviderAzure: {
+		"service.beta.kubernetes.io/azure-load-balancer-internal": "true",
+	},
 	ProviderK3D:       {},
 	ProviderKind:      {},
 	ProviderOpenShift: {},
@@ -77,6 +82,20 @@ var LoadBalancerAnnotations = map[string]map[string]string{
 
 // NetworkConfigs defines standard network configurations for each provider and region.
 var NetworkConfigs = map[string]map[string]interface{}{
+	ProviderAzure: {
+		"eastus": map[string]string{
+			"VNetCIDR":     "10.10.0.0/16",
+			"SubnetCIDR":   "10.10.0.0/24",
+			"ServiceCIDR":  "172.28.17.0/24",
+			"DNSServiceIP": "172.28.17.10",
+		},
+		"westus2": map[string]string{
+			"VNetCIDR":     "10.20.0.0/16",
+			"SubnetCIDR":   "10.20.0.0/24",
+			"ServiceCIDR":  "172.28.49.0/24",
+			"DNSServiceIP": "172.28.49.10",
+		},
+	},
 	ProviderGCP: {
 		"us-central1": map[string]string{
 			"ClusterCIDR": "172.28.0.0/20",
@@ -344,19 +363,31 @@ func UpdateCoreDNSConfiguration(t *testing.T, r *operator.Region, kubeConfigPath
 	for i, clusterName := range r.Clusters {
 		kubectlOpts := k8s.NewKubectlOptions(clusterName, kubeConfigPath, coreDNSNamespace)
 
-		// Create and apply the updated CoreDNS ConfigMap with complete cluster information
-		cm := coredns.CoreDNSConfigMap(operator.CustomDomains[i], r.CorednsClusterOptions)
-		cmYAML := coredns.ToYAML(t, cm)
-		if err := k8s.KubectlApplyFromStringE(t, kubectlOpts, cmYAML); err != nil {
-			require.NoError(t, err, "failed to update CoreDNS ConfigMap for cluster %s", clusterName)
+		if r.Provider == ProviderAzure {
+			if err := applyAzureCoreDNSCustom(t, kubectlOpts, operator.CustomDomains[i], r.CorednsClusterOptions); err != nil {
+				require.NoError(t, err, "failed to update AKS coredns-custom ConfigMap for cluster %s", clusterName)
+			}
+		} else {
+			// Create and apply the updated CoreDNS ConfigMap with complete cluster information
+			cm := coredns.CoreDNSConfigMap(operator.CustomDomains[i], r.CorednsClusterOptions)
+			cmYAML := coredns.ToYAML(t, cm)
+			if err := k8s.KubectlApplyFromStringE(t, kubectlOpts, cmYAML); err != nil {
+				require.NoError(t, err, "failed to update CoreDNS ConfigMap for cluster %s", clusterName)
+			}
 		}
 
-		// Restart CoreDNS to pick up the updated configuration
-		if err := k8s.RunKubectlE(t, kubectlOpts, "rollout", "restart", "deployment", coreDNSDeploymentName); err != nil {
-			require.NoError(t, err, "failed to restart CoreDNS deployment for cluster %s", clusterName)
-		}
-		if err := k8s.RunKubectlE(t, kubectlOpts, "rollout", "status", "deployment", coreDNSDeploymentName, "--timeout=3m"); err != nil {
-			require.NoError(t, err, "CoreDNS deployment did not finish rolling out for cluster %s", clusterName)
+		// Restart CoreDNS to pick up the updated configuration.
+		if r.Provider == ProviderAzure {
+			if err := restartAzureCoreDNS(t, kubectlOpts, clusterName); err != nil {
+				require.NoError(t, err, "failed to restart or wait for CoreDNS deployment for cluster %s", clusterName)
+			}
+		} else {
+			if err := k8s.RunKubectlE(t, kubectlOpts, "rollout", "restart", "deployment", coreDNSDeploymentName); err != nil {
+				require.NoError(t, err, "failed to restart CoreDNS deployment for cluster %s", clusterName)
+			}
+			if err := k8s.RunKubectlE(t, kubectlOpts, "rollout", "status", "deployment", coreDNSDeploymentName, "--timeout=3m"); err != nil {
+				require.NoError(t, err, "CoreDNS deployment did not finish rolling out for cluster %s", clusterName)
+			}
 		}
 
 		t.Logf("[%s] Updated CoreDNS configuration for cluster %s with namespace %s", r.Provider, clusterName, r.Namespace[clusterName])

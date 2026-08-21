@@ -1,9 +1,15 @@
 package operator
 
 import (
+	"os"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/gruntwork-io/terratest/modules/k8s"
+	"github.com/gruntwork-io/terratest/modules/retry"
+	"github.com/stretchr/testify/require"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 )
 
 const defaultClusterDomain = "cluster.local"
@@ -62,8 +68,31 @@ func (r *Region) clusterDomain(index int) string {
 }
 
 func (r *Region) prepareNamespace(t *testing.T, kubectlOptions *k8s.KubectlOptions, namespace string) {
-	k8s.CreateNamespace(t, kubectlOptions, namespace)
+	if !r.shouldRetryKubernetesAction(kubectlOptions) {
+		k8s.CreateNamespace(t, kubectlOptions, namespace)
+		r.runtime().ConfigureNamespace(t, kubectlOptions, namespace)
+		return
+	}
+
+	_, err := retry.DoWithRetryE(t, "create namespace "+namespace, 12, 5*time.Second, func() (string, error) {
+		err := k8s.CreateNamespaceE(t, kubectlOptions, namespace)
+		if apierrors.IsAlreadyExists(err) {
+			return "", nil
+		}
+		return "", err
+	})
+	require.NoError(t, err)
 	r.runtime().ConfigureNamespace(t, kubectlOptions, namespace)
+}
+
+func (r *Region) shouldRetryKubernetesAction(opts *k8s.KubectlOptions) bool {
+	if strings.EqualFold(strings.TrimSpace(r.Provider), "azure") {
+		return true
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("PROVIDER")), "azure") {
+		return true
+	}
+	return opts != nil && strings.HasPrefix(opts.ContextName, "azure-")
 }
 
 func (r *Region) CockroachDBHelmValues(index int, values map[string]string) map[string]string {

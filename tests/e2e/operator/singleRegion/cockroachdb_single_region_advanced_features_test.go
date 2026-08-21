@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/helm"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
@@ -68,7 +69,7 @@ func (r *singleRegion) TestWALFailoverDisable(t *testing.T) {
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 
 	// Get initial pod timestamps before upgrade
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found")
@@ -97,7 +98,7 @@ func (r *singleRegion) TestWALFailoverDisable(t *testing.T) {
 		},
 	}
 
-	helm.Upgrade(t, upgradeOptions, helmChartPath, operator.ReleaseName)
+	operator.HelmUpgradeWithRetry(t, upgradeOptions, helmChartPath, operator.ReleaseName)
 
 	// Wait for upgrade to complete using VerifyHelmUpgrade helper
 	err := r.VerifyHelmUpgrade(t, initialTimestamp, kubectlOptions)
@@ -105,7 +106,7 @@ func (r *singleRegion) TestWALFailoverDisable(t *testing.T) {
 
 	// Step 3: Verify WAL failover is disabled
 	t.Log("Verifying WAL failover is disabled after upgrade")
-	pods = k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods = testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found")
@@ -185,7 +186,7 @@ func (r *singleRegion) TestEncryptionAtRestDisable(t *testing.T) {
 	helmChartPath, _ := operator.HelmChartPaths()
 
 	// Get initial pod timestamps before upgrade
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found")
@@ -212,7 +213,7 @@ func (r *singleRegion) TestEncryptionAtRestDisable(t *testing.T) {
 		},
 	}
 
-	helm.Upgrade(t, upgradeOptions, helmChartPath, operator.ReleaseName)
+	operator.HelmUpgradeWithRetry(t, upgradeOptions, helmChartPath, operator.ReleaseName)
 
 	err := r.VerifyHelmUpgrade(t, initialTimestamp, kubectlOptions)
 	require.NoError(t, err)
@@ -235,7 +236,7 @@ func (r *singleRegion) TestEncryptionAtRestDisable(t *testing.T) {
 
 	// Step 4: Verify pod command reflects plaintext transition.
 	t.Log("Verifying transition to plaintext after upgrade")
-	pods = k8s.ListPods(t, kubectlOptions, metav1.ListOptions{LabelSelector: operator.LabelSelector})
+	pods = testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{LabelSelector: operator.LabelSelector})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found")
 	podName := pods[0].Name
 
@@ -289,7 +290,7 @@ func (r *singleRegion) TestEncryptionAtRestModifySecret(t *testing.T) {
 	t.Logf("Created new encryption key secret: %s", operator.DefaultRotatedEncryptionSecret)
 
 	// Get initial pod timestamps before upgrade
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found")
@@ -317,7 +318,7 @@ func (r *singleRegion) TestEncryptionAtRestModifySecret(t *testing.T) {
 		},
 	}
 
-	helm.Upgrade(t, upgradeOptions, helmChartPath, operator.ReleaseName)
+	operator.HelmUpgradeWithRetry(t, upgradeOptions, helmChartPath, operator.ReleaseName)
 
 	// Wait for pods to restart and key rotation to complete using VerifyHelmUpgrade helper
 	err = r.VerifyHelmUpgrade(t, initialTimestamp, kubectlOptions)
@@ -377,7 +378,7 @@ func (r *singleRegion) TestWALFailoverWithEncryption(t *testing.T) {
 	// Unique to WAL+encryption: verify the WAL path is also covered by the encryption flag
 	kubeConfig, _ := r.GetCurrentContext(t)
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found")

@@ -41,7 +41,7 @@ func InstallCertManager(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
 	t.Log(output)
 
 	// Wait for the cert-manager to be ready.
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{LabelSelector: "app=cert-manager"})
+	pods := ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{LabelSelector: "app=cert-manager"})
 	require.NoError(t, err)
 	for _, pod := range pods {
 		k8s.IsPodAvailable(&pod)
@@ -60,7 +60,7 @@ func InstallTrustManager(t *testing.T, kubectlOptions *k8s.KubectlOptions, trust
 	t.Log(output)
 
 	// Wait for the trust-manager to be ready.
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{LabelSelector: "app=trust-manager"})
+	pods := ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{LabelSelector: "app=trust-manager"})
 	require.NoError(t, err)
 	for _, pod := range pods {
 		k8s.IsPodAvailable(&pod)

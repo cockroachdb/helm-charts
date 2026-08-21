@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/random"
 	"github.com/stretchr/testify/require"
@@ -61,7 +62,7 @@ func (r *multiRegion) TestWALFailoverMultiRegion(t *testing.T) {
 	kubeConfig, _ := r.GetCurrentContext(t)
 	kubectlOptions1 := k8s.NewKubectlOptions(cluster1, kubeConfig, r.Namespace[cluster1])
 
-	pods := k8s.ListPods(t, kubectlOptions1, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions1, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found in region 1")
@@ -111,7 +112,7 @@ func (r *multiRegion) TestEncryptionAtRestMultiRegion(t *testing.T) {
 	kubeConfig, _ := r.GetCurrentContext(t)
 	kubectlOptions1 := k8s.NewKubectlOptions(cluster1, kubeConfig, r.Namespace[cluster1])
 
-	pods := k8s.ListPods(t, kubectlOptions1, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions1, metav1.ListOptions{
 		LabelSelector: operator.LabelSelector,
 	})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found in region 1")

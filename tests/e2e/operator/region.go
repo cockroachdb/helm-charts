@@ -56,6 +56,22 @@ var (
 			"--debug",
 		},
 	}
+
+	transientHelmErrorMarkers = []string{
+		"Bad Gateway",
+		"Client.Timeout",
+		"EOF",
+		"retry helm install after cleaning up existing release",
+		"IncompleteCertChain",
+		"SSL_INCOMPLETE_CHAIN",
+		"TLS handshake timeout",
+		"connection reset",
+		"context deadline exceeded",
+		"could not get apiVersions",
+		"i/o timeout",
+		"server was unable to return a response",
+		"unexpected EOF",
+	}
 )
 
 type Region struct {
@@ -190,7 +206,7 @@ func (r *Region) InstallCharts(t *testing.T, cluster string, index int) {
 		ExtraArgs:      helmExtraArgs,
 	}
 
-	helm.Install(t, crdbOptions, helmChartPath, ReleaseName)
+	HelmInstallWithRetry(t, crdbOptions, helmChartPath, ReleaseName)
 
 	serviceName := "cockroachdb-public"
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 5*time.Second)
@@ -230,7 +246,7 @@ func (r *Region) ValidateCRDB(t *testing.T, cluster string) {
 	}
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 900*time.Second)
 
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: LabelSelector,
 	})
 	require.True(t, len(pods) > 0)
@@ -255,9 +271,20 @@ func (r *Region) VerifyHelmUpgrade(
 		60, 10*time.Second,
 		func() (string, error) {
 			// List the pods for the deployment.
-			pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-				LabelSelector: LabelSelector,
-			})
+			var pods []corev1.Pod
+			if r.shouldRetryKubernetesAction(kubectlOptions) {
+				var err error
+				pods, err = k8s.ListPodsE(t, kubectlOptions, metav1.ListOptions{
+					LabelSelector: LabelSelector,
+				})
+				if err != nil {
+					return "", err
+				}
+			} else {
+				pods = k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+					LabelSelector: LabelSelector,
+				})
+			}
 
 			// Check if any pods exist.
 			if len(pods) == 0 {
@@ -381,9 +408,20 @@ func (r *Region) ValidateCRDBContainerResources(t *testing.T, kubectlOptions *k8
 	_, err := retry.DoWithRetryE(t, "waiting for container resources to be updated",
 		30, 5*time.Second,
 		func() (string, error) {
-			pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
-				LabelSelector: LabelSelector,
-			})
+			var pods []corev1.Pod
+			if r.shouldRetryKubernetesAction(kubectlOptions) {
+				var err error
+				pods, err = k8s.ListPodsE(t, kubectlOptions, metav1.ListOptions{
+					LabelSelector: LabelSelector,
+				})
+				if err != nil {
+					return "", err
+				}
+			} else {
+				pods = k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+					LabelSelector: LabelSelector,
+				})
+			}
 
 			for _, pod := range pods {
 				containers := pod.Spec.Containers
@@ -447,16 +485,33 @@ func (r *Region) GetCurrentContext(t *testing.T) (string, api.Config) {
 
 // EnsureKubeConfigPath ensures that the kubeconfig file exists and returns its path.
 func (r *Region) EnsureKubeConfigPath() (string, error) {
+	if kubeConfigPath := strings.TrimSpace(os.Getenv("KUBECONFIG")); kubeConfigPath != "" {
+		if strings.ContainsRune(kubeConfigPath, os.PathListSeparator) {
+			return kubeConfigPath, nil
+		}
+		if err := ensureKubeConfigFile(kubeConfigPath); err != nil {
+			return "", err
+		}
+		return kubeConfigPath, nil
+	}
+
 	kubeConfigPath, err := k8s.KubeConfigPathFromHomeDirE()
-	kubeConfigDir := filepath.Dir(kubeConfigPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to get kubeconfig path: %w", err)
 	}
+	if err := ensureKubeConfigFile(kubeConfigPath); err != nil {
+		return "", err
+	}
+	return kubeConfigPath, nil
+}
+
+func ensureKubeConfigFile(kubeConfigPath string) error {
+	kubeConfigDir := filepath.Dir(kubeConfigPath)
 
 	// Check if a directory exists, create if not.
 	if _, err := os.Stat(kubeConfigDir); os.IsNotExist(err) {
 		if err := os.MkdirAll(kubeConfigDir, 0755); err != nil {
-			return "", fmt.Errorf("failed to create .kube directory: %w", err)
+			return fmt.Errorf("failed to create .kube directory: %w", err)
 		}
 	}
 
@@ -465,11 +520,10 @@ func (r *Region) EnsureKubeConfigPath() (string, error) {
 		// Create an empty kubeconfig file.
 		emptyConfig := []byte("apiVersion: v1\nkind: Config\nclusters: []\ncontexts: []\nusers: []\n")
 		if err := os.WriteFile(kubeConfigPath, emptyConfig, 0644); err != nil {
-			return "", fmt.Errorf("failed to create empty kubeconfig file: %w", err)
+			return fmt.Errorf("failed to create empty kubeconfig file: %w", err)
 		}
 	}
-
-	return kubeConfigPath, nil
+	return nil
 }
 
 // CleanupResources will clean the resources installed by Operator, CockroachDB charts and deletes the namespace.
@@ -493,10 +547,10 @@ func (r *Region) CleanupResources(t *testing.T) {
 			KubectlOptions: kubectlOptions,
 			ExtraArgs:      extraArgs,
 		}
-		if err := helm.DeleteE(t, helmOptions, ReleaseName, true); err != nil {
+		if err := HelmDeleteWithRetryE(t, helmOptions, ReleaseName, true); err != nil {
 			t.Logf("Warning: helm delete %s failed (may not exist): %v", ReleaseName, err)
 		}
-		if err := helm.DeleteE(t, helmOptions, operatorReleaseName, true); err != nil {
+		if err := HelmDeleteWithRetryE(t, helmOptions, operatorReleaseName, true); err != nil {
 			t.Logf("Warning: helm delete %s failed (may not exist): %v", operatorReleaseName, err)
 		}
 		r.cleanupNamespace(t, clusterOptions, namespace)
@@ -531,6 +585,118 @@ func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 	operatorChartPath = filepath.Join(rootPath, "cockroachdb-parent/charts/operator")
 
 	return helmChartPath, operatorChartPath
+}
+
+func HelmInstallWithRetry(t *testing.T, options *helm.Options, chart, releaseName string) {
+	t.Helper()
+	if !shouldRetryHelmAction(options) {
+		helm.Install(t, options, chart, releaseName)
+		return
+	}
+
+	err := runHelmActionWithRetry(t, fmt.Sprintf("helm install %s", releaseName), func() error {
+		err := helm.InstallE(t, options, chart, releaseName)
+		if isHelmInstallAlreadyExists(err) {
+			t.Logf("helm install %s found an existing release; deleting it before retrying install", releaseName)
+			if deleteErr := HelmDeleteWithRetryE(t, options, releaseName, true); deleteErr != nil {
+				return fmt.Errorf("delete existing helm release %s before retrying install: %w", releaseName, deleteErr)
+			}
+			return fmt.Errorf("retry helm install after cleaning up existing release: %w", err)
+		}
+		return err
+	})
+	require.NoError(t, err)
+}
+
+func HelmUpgradeWithRetry(t *testing.T, options *helm.Options, chart, releaseName string) {
+	t.Helper()
+	if !shouldRetryHelmAction(options) {
+		helm.Upgrade(t, options, chart, releaseName)
+		return
+	}
+
+	err := runHelmActionWithRetry(t, fmt.Sprintf("helm upgrade %s", releaseName), func() error {
+		return helm.UpgradeE(t, options, chart, releaseName)
+	})
+	require.NoError(t, err)
+}
+
+func HelmDeleteWithRetryE(t *testing.T, options *helm.Options, releaseName string, purge bool) error {
+	t.Helper()
+	if !shouldRetryHelmAction(options) {
+		return helm.DeleteE(t, options, releaseName, purge)
+	}
+
+	return runHelmActionWithRetry(t, fmt.Sprintf("helm delete %s", releaseName), func() error {
+		err := helm.DeleteE(t, options, releaseName, purge)
+		if isHelmReleaseNotFound(err) {
+			return nil
+		}
+		return err
+	})
+}
+
+func shouldRetryHelmAction(options *helm.Options) bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("PROVIDER")), "azure") {
+		return true
+	}
+	if options == nil || options.KubectlOptions == nil {
+		return false
+	}
+	return strings.HasPrefix(options.KubectlOptions.ContextName, "azure-")
+}
+
+func runHelmActionWithRetry(t *testing.T, description string, action func() error) error {
+	t.Helper()
+
+	const attempts = 5
+	var err error
+	for attempt := 1; attempt <= attempts; attempt++ {
+		err = action()
+		if err == nil {
+			return nil
+		}
+		if !isTransientHelmError(err) {
+			return err
+		}
+		if attempt == attempts {
+			break
+		}
+		t.Logf("%s failed with a transient Kubernetes API error on attempt %d/%d: %v", description, attempt, attempts, err)
+		time.Sleep(20 * time.Second)
+	}
+	return err
+}
+
+func isHelmInstallAlreadyExists(err error) bool {
+	if err == nil {
+		return false
+	}
+	errText := err.Error()
+	return strings.Contains(errText, "cannot re-use a name that is still in use") ||
+		strings.Contains(errText, "release: already exists")
+}
+
+func isHelmReleaseNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	errText := err.Error()
+	return strings.Contains(errText, "Release not loaded") ||
+		strings.Contains(errText, "release: not found")
+}
+
+func isTransientHelmError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errText := err.Error()
+	for _, marker := range transientHelmErrorMarkers {
+		if strings.Contains(errText, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // createOperatorRegions returns the appropriate regions config
@@ -573,7 +739,7 @@ func VerifyInitCommandInOperatorLogs(
 	t *testing.T, kubectlOptions *k8s.KubectlOptions, expected string,
 ) {
 	// Get operator pods
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: OperatorLabelSelector,
 	})
 	require.NotEmpty(t, pods, "no operator pods found")
@@ -647,7 +813,7 @@ func InstallCockroachDBOperatorChart(
 	setValues map[string]string,
 ) {
 	operatorOpts := operatorHelmOptions(kubectlOptions, version, setValues)
-	helm.Install(t, operatorOpts, chart, operatorReleaseName)
+	HelmInstallWithRetry(t, operatorOpts, chart, operatorReleaseName)
 	waitForCockroachDBOperator(t, operatorOpts, kubectlOptions)
 }
 
@@ -662,7 +828,7 @@ func UpgradeCockroachDBOperatorChart(
 			"--debug",
 		},
 	}
-	helm.Upgrade(t, operatorOpts, chart, operatorReleaseName)
+	HelmUpgradeWithRetry(t, operatorOpts, chart, operatorReleaseName)
 	waitForCockroachDBOperator(t, operatorOpts, kubectlOptions)
 }
 
@@ -698,7 +864,7 @@ func waitForCockroachDBOperator(
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroach-webhook-service", 30, 5*time.Second)
 	testutil.RequireServiceEndpointsAvailable(t, kubectlOptions, "cockroach-webhook-service", 2*time.Minute)
 
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: OperatorLabelSelector,
 	})
 	for i := range pods {
@@ -722,7 +888,7 @@ func (r *Region) ExtendOperatorWatchNamespace(
 		"--timeout=120s")
 
 	// Wait for the operator pod to be ready after rollout.
-	pods := k8s.ListPods(t, operatorKubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, operatorKubectlOptions, metav1.ListOptions{
 		LabelSelector: OperatorLabelSelector,
 	})
 	for i := range pods {
@@ -734,7 +900,7 @@ func UninstallCockroachDBOperator(t *testing.T, kubectlOptions *k8s.KubectlOptio
 	operatorOpts := &helm.Options{
 		KubectlOptions: kubectlOptions,
 	}
-	helm.Delete(t, operatorOpts, operatorReleaseName, true)
+	require.NoError(t, HelmDeleteWithRetryE(t, operatorOpts, operatorReleaseName, true))
 	// Delete the operator's PriorityClass (cluster-scoped resource)
 	k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "cockroach-operator", "--ignore-not-found=true")
 	k8s.DeleteNamespace(t, kubectlOptions, kubectlOptions.Namespace)
@@ -1100,7 +1266,7 @@ func (r *Region) InstallChartsWithAdvancedConfig(
 		ExtraArgs:      helmExtraArgs,
 	}
 
-	helm.Install(t, crdbOptions, helmChartPath, ReleaseName)
+	HelmInstallWithRetry(t, crdbOptions, helmChartPath, ReleaseName)
 
 	serviceName := "cockroachdb-public"
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, serviceName, 30, 5*time.Second)
@@ -1119,7 +1285,7 @@ func (r *Region) ValidateWALFailover(t *testing.T, cluster string, cfg *Advanced
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 
 	// Get CockroachDB pods
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: LabelSelector,
 	})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found")
@@ -1181,7 +1347,7 @@ func (r *Region) ValidateEncryptionAtRest(
 	kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 
 	// Get CockroachDB pods
-	pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
 		LabelSelector: LabelSelector,
 	})
 	require.True(t, len(pods) > 0, "No CockroachDB pods found")
@@ -1364,12 +1530,12 @@ func (r *Region) ValidatePCR(t *testing.T, cfg *AdvancedValidationConfig) {
 	primaryKubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, primaryNamespace)
 	standbyKubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, standbyNamespace)
 
-	primaryPods := k8s.ListPods(t, primaryKubectlOptions, metav1.ListOptions{
+	primaryPods := testutil.ListPodsWithRetry(t, primaryKubectlOptions, metav1.ListOptions{
 		LabelSelector: LabelSelector,
 	})
 	require.True(t, len(primaryPods) > 0, "No primary pods found")
 
-	standbyPods := k8s.ListPods(t, standbyKubectlOptions, metav1.ListOptions{
+	standbyPods := testutil.ListPodsWithRetry(t, standbyKubectlOptions, metav1.ListOptions{
 		LabelSelector: LabelSelector,
 	})
 	require.True(t, len(standbyPods) > 0, "No standby pods found")
