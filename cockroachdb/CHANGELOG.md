@@ -2,6 +2,10 @@
 
 All notable changes to the CockroachDB Helm chart will be documented in this file.
 
+## [22.0.1] 2026-08-26
+### Changed
+  - Updated the default CockroachDB image version from `v26.3.0` to `v26.3.1`.
+
 ## [22.0.0] 2026-08-19
 ### Changed
   - Updated the default CockroachDB image version from `v26.2.5` to `v26.3.0`.
