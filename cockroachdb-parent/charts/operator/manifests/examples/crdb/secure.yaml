@@ -26,7 +26,7 @@ spec:
   rollingRestartDelay: 30s
   template:
     spec:
-      image: cockroachdb/cockroach:v26.2.5
+      image: cockroachdb/cockroach:v26.3.0
       certificates:
         externalCertificates:
           caConfigMapName: cockroachdb-ca

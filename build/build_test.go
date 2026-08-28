@@ -2,8 +2,10 @@ package main
 
 import (
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 )
@@ -322,5 +324,151 @@ func TestChartKindFromPath(t *testing.T) {
 				t.Errorf("chartKindFromPath(%q) = %s, want %s", tc.path, got, tc.want)
 			}
 		})
+	}
+}
+
+func TestUpdateCRDBReleaseMetadata(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, root, "cockroachdb/CHANGELOG.md", "# CockroachDB Helm Chart CHANGELOG\n\n"+
+		"All notable changes to the CockroachDB Helm chart will be documented in this file.\n\n"+
+		"## [21.0.4] 2026-08-05\n### Changed\n"+
+		"  - Updated the default CockroachDB image version from `v26.2.3` to `v26.2.5`.\n")
+	writeTestFile(t, root, "cockroachdb-parent/charts/cockroachdb/CHANGELOG.md", "# CockroachDB Chart — CHANGELOG\n\n"+
+		"## [26.2.4] — 2026-08-05\n### Changed\n"+
+		"- Updated the default CockroachDB image version from `v26.2.3` to `v26.2.5`.\n")
+	writeTestFile(t, root, "cockroachdb-parent/images.txt", `# CockroachDB database
+docker.io/cockroachdb/cockroach:v26.2.5
+`)
+	writeTestFile(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/secure.yaml", `spec:
+  image: cockroachdb/cockroach:v26.2.5
+`)
+	writeTestFile(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/insecure.yaml", `spec:
+  image: cockroachdb/cockroach:v26.2.3
+`)
+	writeTestFile(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/rbac.yaml", `kind: Role
+`)
+	writeTestFile(t, root, "pkg/migrate/testdata/fixture.yaml", `image: cockroachdb/cockroach:v25.1.5
+`)
+
+	err := updateCRDBReleaseMetadata(root, crdbReleaseMetadata{
+		PreviousVersion:         "26.2.5",
+		Version:                 "26.3.0",
+		Date:                    "2026-08-19",
+		LegacyChartVersion:      "22.0.0",
+		CockroachDBChartVersion: "26.3.0",
+		UpdateLegacy:            true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertTestFileEquals(t, root, "cockroachdb/CHANGELOG.md", "# CockroachDB Helm Chart CHANGELOG\n\n"+
+		"All notable changes to the CockroachDB Helm chart will be documented in this file.\n\n"+
+		"## [22.0.0] 2026-08-19\n### Changed\n"+
+		"  - Updated the default CockroachDB image version from `v26.2.5` to `v26.3.0`.\n\n"+
+		"## [21.0.4] 2026-08-05\n### Changed\n"+
+		"  - Updated the default CockroachDB image version from `v26.2.3` to `v26.2.5`.\n")
+	assertTestFileEquals(t, root, "cockroachdb-parent/charts/cockroachdb/CHANGELOG.md", "# CockroachDB Chart — CHANGELOG\n\n"+
+		"## [26.3.0] — 2026-08-19\n### Changed\n"+
+		"- Updated the default CockroachDB image version from `v26.2.5` to `v26.3.0`.\n\n"+
+		"## [26.2.4] — 2026-08-05\n### Changed\n"+
+		"- Updated the default CockroachDB image version from `v26.2.3` to `v26.2.5`.\n")
+	assertTestFileEquals(t, root, "cockroachdb-parent/images.txt", `# CockroachDB database
+docker.io/cockroachdb/cockroach:v26.3.0
+`)
+	assertTestFileEquals(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/secure.yaml", `spec:
+  image: cockroachdb/cockroach:v26.3.0
+`)
+	assertTestFileEquals(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/insecure.yaml", `spec:
+  image: cockroachdb/cockroach:v26.3.0
+`)
+	assertTestFileEquals(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/rbac.yaml", `kind: Role
+`)
+	assertTestFileEquals(t, root, "pkg/migrate/testdata/fixture.yaml", `image: cockroachdb/cockroach:v25.1.5
+`)
+}
+
+func TestUpdateCRDBReleaseMetadataScopedBumpLeavesLegacyChangelog(t *testing.T) {
+	root := t.TempDir()
+	legacyChangelog := `# CockroachDB Helm Chart CHANGELOG
+
+## [21.0.4] 2026-08-05
+`
+	writeTestFile(t, root, "cockroachdb/CHANGELOG.md", legacyChangelog)
+	writeTestFile(t, root, "cockroachdb-parent/charts/cockroachdb/CHANGELOG.md", `# CockroachDB Chart — CHANGELOG
+
+## [26.2.4] — 2026-08-05
+`)
+	writeTestFile(t, root, "cockroachdb-parent/images.txt", "docker.io/cockroachdb/cockroach:v26.2.5\n")
+	writeTestFile(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/secure.yaml", "image: cockroachdb/cockroach:v26.2.5\n")
+
+	err := updateCRDBReleaseMetadata(root, crdbReleaseMetadata{
+		PreviousVersion:         "26.2.5",
+		Version:                 "26.2.6",
+		Date:                    "2026-08-26",
+		CockroachDBChartVersion: "26.2.5",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	assertTestFileEquals(t, root, "cockroachdb/CHANGELOG.md", legacyChangelog)
+	wantV2Entry := "## [26.2.5] — 2026-08-26\n### Changed\n- Updated the default CockroachDB image version from `v26.2.5` to `v26.2.6`."
+	if got := readTestFile(t, root, "cockroachdb-parent/charts/cockroachdb/CHANGELOG.md"); !strings.Contains(got, wantV2Entry) {
+		t.Fatalf("v2 changelog does not contain release entry:\n%s", got)
+	}
+}
+
+func TestResolveReleaseDate(t *testing.T) {
+	now := time.Date(2026, time.August, 28, 23, 45, 0, 0, time.FixedZone("IST", 5*60*60+30*60))
+
+	testCases := []struct {
+		name    string
+		value   string
+		want    string
+		wantErr bool
+	}{
+		{name: "explicit date", value: "2026-08-19", want: "2026-08-19"},
+		{name: "UTC default", want: "2026-08-28"},
+		{name: "invalid date", value: "19-08-2026", wantErr: true},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := resolveReleaseDate(tc.value, now)
+			if (err != nil) != tc.wantErr {
+				t.Fatalf("resolveReleaseDate(%q) error = %v, wantErr %v", tc.value, err, tc.wantErr)
+			}
+			if got != tc.want {
+				t.Errorf("resolveReleaseDate(%q) = %q, want %q", tc.value, got, tc.want)
+			}
+		})
+	}
+}
+
+func writeTestFile(t *testing.T, root, path, contents string) {
+	t.Helper()
+	fullPath := filepath.Join(root, path)
+	if err := os.MkdirAll(filepath.Dir(fullPath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(fullPath, []byte(contents), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func readTestFile(t *testing.T, root, path string) string {
+	t.Helper()
+	contents, err := os.ReadFile(filepath.Join(root, path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(contents)
+}
+
+func assertTestFileEquals(t *testing.T, root, path, want string) {
+	t.Helper()
+	if got := readTestFile(t, root, path); got != want {
+		t.Errorf("%s contents mismatch\ngot:\n%s\nwant:\n%s", path, got, want)
 	}
 }

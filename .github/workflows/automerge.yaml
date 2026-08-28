@@ -19,26 +19,35 @@ permissions:
 jobs:
   automerge:
     runs-on: ubuntu-latest
+    # Operator upgrades are opened manually, so their human-authored PRs skip automerge.
     if: ${{ github.actor == 'cockroach-teamcity' || github.actor == 'crl-release-eng-bot' }}
     steps:
       - uses: actions/checkout@v4
         with:
           # Fetch all branches so it is possible to checkout the default branch files.
           fetch-depth: 0
-      # The next steps tries to reproduce the steps taken to generate the
+      # The next step reproduces the steps taken to generate the
       # files. We restore the changed files to their original state on the
       # default branch, run the commands to regenerate the change, and verify
       # the result matches the PR contents (git diff does not show any changes).
       - name: Check for downgrades and regenerate the patch
         run: |
           set -euxo pipefail
-          version="$(cat cockroachdb/Chart.yaml | yq -r '.version')"
-          appVersion="$(cat cockroachdb/Chart.yaml | yq -r '.appVersion')"
-          pr_operator_version="$(cat cockroachdb-parent/charts/operator/Chart.yaml | yq -r '.version')"
+          version="$(cat cockroachdb-parent/charts/cockroachdb/Chart.yaml | yq -r '.version')"
+          appVersion="$(cat cockroachdb-parent/charts/cockroachdb/Chart.yaml | yq -r '.appVersion')"
+          master_version="$(git show origin/master:cockroachdb-parent/charts/cockroachdb/Chart.yaml | yq -r '.version')"
+          master_appVersion="$(git show origin/master:cockroachdb-parent/charts/cockroachdb/Chart.yaml | yq -r '.appVersion')"
+          release_date=""
+          if [[ "$master_appVersion" != "$appVersion" ]]; then
+            heading="## [$version] — "
+            release_date="$(awk -v heading="$heading" 'index($0, heading) == 1 { print substr($0, length(heading) + 1); exit }' cockroachdb-parent/charts/cockroachdb/CHANGELOG.md)"
+            if [[ -z "$release_date" ]]; then
+              echo "Missing release date for CockroachDB chart $version in cockroachdb-parent/charts/cockroachdb/CHANGELOG.md"
+              exit 1
+            fi
+          fi
           git checkout origin/master -- cockroachdb cockroachdb-parent
           git restore --staged cockroachdb cockroachdb-parent
-          master_version="$(cat cockroachdb/Chart.yaml | yq -r '.version')"
-          master_appVersion="$(cat cockroachdb/Chart.yaml | yq -r '.appVersion')"
           latest_version="$(echo -e "$version\n$master_version" | sort --version-sort -r | head -n1)"
           latest_appVersion="$(echo -e "$appVersion\n$master_appVersion" | sort --version-sort -r | head -n1)"
           if [[ $latest_version != $version ]]; then
@@ -50,26 +59,15 @@ jobs:
             exit 1
           fi
 
-          # Block auto-merge for CRDB version changes.
-          # These require manual review to validate operator compatibility.
-          if [[ "$master_appVersion" != "$appVersion" ]]; then
-            echo "CRDB version change detected ($master_appVersion -> $appVersion). Manual review required."
-            exit 1
+          if [[ -n "$release_date" ]]; then
+            CRDB_RELEASE_DATE="$release_date" make bump/$appVersion
+          else
+            make bump/$appVersion
           fi
-
-          # Block auto-merge if the operator chart version changed.
-          # Operator chart updates always require manual review.
-          master_operator_version="$(cat cockroachdb-parent/charts/operator/Chart.yaml | yq -r '.version')"
-          if [[ "$master_operator_version" != "$pr_operator_version" ]]; then
-            echo "Operator chart version changed ($master_operator_version -> $pr_operator_version). Manual review required."
-            exit 1
-          fi
-
-          make bump/$appVersion
           # `helm dependency update` is not idempotent and bumps the
           # `generated` field with the current date/TZ. Let's checkout the
           # original version to ignore the changes.
-          git checkout cockroachdb-parent/Chart.lock 
+          git checkout cockroachdb-parent/Chart.lock
       - name: Confirm expected patch
         run: git diff --exit-code
       - name: Approve PR
