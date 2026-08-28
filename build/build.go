@@ -21,8 +21,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"text/template"
+	"time"
 
 	"github.com/Masterminds/semver/v3"
 	"gopkg.in/yaml.v3"
@@ -65,6 +67,17 @@ type templateArgs struct {
 	OperatorImageVersion string
 	CockroachDBVersion   string
 }
+
+type crdbReleaseMetadata struct {
+	PreviousVersion         string
+	Version                 string
+	Date                    string
+	LegacyChartVersion      string
+	CockroachDBChartVersion string
+	UpdateLegacy            bool
+}
+
+var crdbImageReference = regexp.MustCompile(`cockroachdb/cockroach:v[0-9A-Za-z][0-9A-Za-z.+-]*`)
 
 // UnmarshalYAML implements the Unmarshaller interface for the version fields
 func (v *parsedVersion) UnmarshalYAML(value *yaml.Node) error {
@@ -171,13 +184,17 @@ func generate(chartTarget, version string) error {
 	if !dirInfo.IsDir() {
 		return fmt.Errorf("%s is not a directory", templatesDir)
 	}
+	previousCockroachDBChart, err := getVersions(chartPaths[chartKindCockroachDB])
+	if err != nil {
+		return fmt.Errorf("cannot read current cockroachdb chart: %w", err)
+	}
 
 	allArgs, err := computeAllArgs(chartTarget, version)
 	if err != nil {
 		return fmt.Errorf("cannot compute chart versions: %w", err)
 	}
 
-	return filepath.Walk(templatesDir, func(filePath string, fileInfo os.FileInfo, e error) error {
+	if err := filepath.Walk(templatesDir, func(filePath string, fileInfo os.FileInfo, e error) error {
 		if e != nil {
 			return e
 		}
@@ -211,7 +228,140 @@ func generate(chartTarget, version string) error {
 		}
 
 		return nil
+	}); err != nil {
+		return err
+	}
+
+	newCRDBVersion := allArgs[chartKindCockroachDB].AppVersion
+	if version == "" || version == "helm" || chartTarget == "operator" ||
+		newCRDBVersion == previousCockroachDBChart.AppVersion.Original() {
+		return nil
+	}
+
+	releaseDate, err := resolveReleaseDate(os.Getenv("CRDB_RELEASE_DATE"), time.Now())
+	if err != nil {
+		return err
+	}
+	return updateCRDBReleaseMetadata(outputDir, crdbReleaseMetadata{
+		PreviousVersion:         previousCockroachDBChart.AppVersion.Original(),
+		Version:                 newCRDBVersion,
+		Date:                    releaseDate,
+		LegacyChartVersion:      allArgs[chartKindLegacy].Version,
+		CockroachDBChartVersion: allArgs[chartKindCockroachDB].Version,
+		UpdateLegacy:            chartTarget == "",
 	})
+}
+
+func resolveReleaseDate(value string, now time.Time) (string, error) {
+	if value == "" {
+		return now.UTC().Format(time.DateOnly), nil
+	}
+	if _, err := time.Parse(time.DateOnly, value); err != nil {
+		return "", fmt.Errorf("invalid CRDB_RELEASE_DATE %q, expected YYYY-MM-DD: %w", value, err)
+	}
+	return value, nil
+}
+
+func updateCRDBReleaseMetadata(root string, release crdbReleaseMetadata) error {
+	v2Entry := fmt.Sprintf(
+		"## [%s] — %s\n### Changed\n- Updated the default CockroachDB image version from `%s` to `%s`.\n",
+		release.CockroachDBChartVersion, release.Date,
+		"v"+release.PreviousVersion, "v"+release.Version,
+	)
+	if err := prependChangelogEntry(
+		filepath.Join(root, "cockroachdb-parent/charts/cockroachdb/CHANGELOG.md"),
+		fmt.Sprintf("## [%s] — %s", release.CockroachDBChartVersion, release.Date),
+		v2Entry,
+	); err != nil {
+		return err
+	}
+
+	if release.UpdateLegacy {
+		legacyEntry := fmt.Sprintf(
+			"## [%s] %s\n### Changed\n  - Updated the default CockroachDB image version from `%s` to `%s`.\n",
+			release.LegacyChartVersion, release.Date,
+			"v"+release.PreviousVersion, "v"+release.Version,
+		)
+		if err := prependChangelogEntry(
+			filepath.Join(root, "cockroachdb/CHANGELOG.md"),
+			fmt.Sprintf("## [%s] %s", release.LegacyChartVersion, release.Date),
+			legacyEntry,
+		); err != nil {
+			return err
+		}
+	}
+
+	return updateCRDBImageReferences(root, release.Version)
+}
+
+func prependChangelogEntry(path, heading, entry string) error {
+	contents, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("cannot read changelog %s: %w", path, err)
+	}
+	if strings.Contains(string(contents), heading+"\n") {
+		return nil
+	}
+
+	marker := []byte("\n## [")
+	entryIndex := bytes.Index(contents, marker)
+	var updated []byte
+	if entryIndex == -1 {
+		updated = append(bytes.TrimRight(contents, "\n"), '\n', '\n')
+		updated = append(updated, entry...)
+	} else {
+		entryIndex++
+		updated = append(updated, contents[:entryIndex]...)
+		updated = append(updated, entry...)
+		updated = append(updated, '\n')
+		updated = append(updated, contents[entryIndex:]...)
+	}
+
+	fileInfo, err := os.Stat(path)
+	if err != nil {
+		return fmt.Errorf("cannot stat changelog %s: %w", path, err)
+	}
+	if err := os.WriteFile(path, updated, fileInfo.Mode()); err != nil {
+		return fmt.Errorf("cannot write changelog %s: %w", path, err)
+	}
+	return nil
+}
+
+func updateCRDBImageReferences(root, version string) error {
+	paths := []string{filepath.Join(root, "cockroachdb-parent/images.txt")}
+	examplePaths, err := filepath.Glob(filepath.Join(
+		root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/*.yaml",
+	))
+	if err != nil {
+		return fmt.Errorf("cannot list CockroachDB example manifests: %w", err)
+	}
+	paths = append(paths, examplePaths...)
+
+	replacement := []byte("cockroachdb/cockroach:v" + version)
+	updatedReferences := 0
+	for _, path := range paths {
+		contents, err := os.ReadFile(path)
+		if err != nil {
+			return fmt.Errorf("cannot read CockroachDB image reference file %s: %w", path, err)
+		}
+		matches := crdbImageReference.FindAllIndex(contents, -1)
+		if len(matches) == 0 {
+			continue
+		}
+		updatedReferences += len(matches)
+		updated := crdbImageReference.ReplaceAll(contents, replacement)
+		fileInfo, err := os.Stat(path)
+		if err != nil {
+			return fmt.Errorf("cannot stat CockroachDB image reference file %s: %w", path, err)
+		}
+		if err := os.WriteFile(path, updated, fileInfo.Mode()); err != nil {
+			return fmt.Errorf("cannot write CockroachDB image reference file %s: %w", path, err)
+		}
+	}
+	if updatedReferences == 0 {
+		return fmt.Errorf("no release-owned CockroachDB image references found")
+	}
+	return nil
 }
 
 func computeAllArgs(chartTarget, version string) (map[chartKind]templateArgs, error) {
