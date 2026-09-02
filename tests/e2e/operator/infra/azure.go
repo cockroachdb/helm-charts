@@ -7,8 +7,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -23,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/util/intstr"
 	"k8s.io/client-go/tools/clientcmd"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -55,8 +52,6 @@ const (
 	envAzureResourcePrefix     = "AZURE_RESOURCE_PREFIX"
 	envAzureReuseContexts      = "AZURE_REUSE_CONTEXTS"
 	envAzureNodeVMSize         = "AZURE_NODE_VM_SIZE"
-	envAzureSkipTeardown       = "AZURE_SKIP_TEARDOWN"
-	envAzureTicket             = "AZURE_TICKET"
 )
 
 type azureClusterConfig struct {
@@ -68,23 +63,6 @@ type azureClusterConfig struct {
 	SubnetCIDR   string
 	ServiceCIDR  string
 	DNSServiceIP string
-}
-
-var azureClusterConfigTemplates = []azureClusterConfig{
-	{
-		Region:       "eastus",
-		VNetCIDR:     "10.10.0.0/16",
-		SubnetCIDR:   "10.10.0.0/24",
-		ServiceCIDR:  "172.28.17.0/24",
-		DNSServiceIP: "172.28.17.10",
-	},
-	{
-		Region:       "westus2",
-		VNetCIDR:     "10.20.0.0/16",
-		SubnetCIDR:   "10.20.0.0/24",
-		ServiceCIDR:  "172.28.49.0/24",
-		DNSServiceIP: "172.28.49.10",
-	},
 }
 
 var azureCLIEnvOverrides = captureAzureCLIEnv()
@@ -127,7 +105,9 @@ func azureCommandContext(ctx context.Context, args ...string) *exec.Cmd {
 	return cmd
 }
 
-func azureCommandWithTimeout(timeout time.Duration, args ...string) (*exec.Cmd, context.CancelFunc) {
+func azureCommandWithTimeout(
+	timeout time.Duration, args ...string,
+) (*exec.Cmd, context.CancelFunc) {
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	return azureCommandContext(ctx, args...), cancel
 }
@@ -201,9 +181,9 @@ func (r *AzureRegion) SetUpInfra(t *testing.T) {
 	if len(r.Clusters) == 0 {
 		t.Fatalf("[%s] no clusters configured", ProviderAzure)
 	}
-	if len(r.Clusters) > len(azureClusterConfigTemplates) {
+	if len(r.Clusters) > len(NetworkConfigs[ProviderAzure]) {
 		t.Fatalf("[%s] need %d Azure cluster configs, only have %d",
-			ProviderAzure, len(r.Clusters), len(azureClusterConfigTemplates))
+			ProviderAzure, len(r.Clusters), len(NetworkConfigs[ProviderAzure]))
 	}
 	if _, err := exec.LookPath("az"); err != nil {
 		t.Fatalf("[%s] az CLI not found in PATH: %v", ProviderAzure, err)
@@ -234,7 +214,9 @@ func (r *AzureRegion) SetUpInfra(t *testing.T) {
 	uid := strings.ToLower(random.UniqueId())
 	prefix := azureResourcePrefix()
 	r.resourceGroupName = fmt.Sprintf("%s-rg-%s", prefix, uid)
-	r.clusterConfigs = r.buildClusterConfigs(prefix, uid)
+	clusterConfigs, err := r.buildClusterConfigs(prefix, uid)
+	require.NoError(t, err, "[%s] failed to build Azure cluster configs", ProviderAzure)
+	r.clusterConfigs = clusterConfigs
 	require.NoError(t, r.validateGeneratedNames(), "[%s] invalid generated Azure resource names", ProviderAzure)
 	require.NoError(t, r.recordResourceGroupForCI(), "[%s] failed to record Azure resource group for CI cleanup",
 		ProviderAzure)
@@ -267,11 +249,6 @@ func (r *AzureRegion) SetUpInfra(t *testing.T) {
 }
 
 func (r *AzureRegion) TeardownInfra(t *testing.T) {
-	if parseBoolEnv(envAzureSkipTeardown) {
-		t.Logf("[%s] %s=true; skipping resource group teardown", ProviderAzure, envAzureSkipTeardown)
-		return
-	}
-
 	resourceGroup := r.resourceGroupName
 	if resourceGroup == "" {
 		resourceGroup = strings.TrimSpace(os.Getenv(envAzureResourceGroup))
@@ -355,7 +332,10 @@ func (r *AzureRegion) EncryptKey(plaintextKey []byte, clusterRegion string) (str
 }
 
 func (r *AzureRegion) CreateKeySecret(
-	kubectlOptions *k8s.KubectlOptions, secretName string, encryptedKeyData string, clusterRegion string,
+	kubectlOptions *k8s.KubectlOptions,
+	secretName string,
+	encryptedKeyData string,
+	clusterRegion string,
 ) error {
 	return fmt.Errorf("CreateKeySecret not supported for %s (file-based encryption / UNKNOWN_KEY_TYPE)", ProviderAzure)
 }
@@ -421,18 +401,31 @@ func (r *AzureRegion) reuseInfra(t *testing.T) {
 		"[%s] failed to configure DNS on reused AKS infrastructure", ProviderAzure)
 }
 
-func (r *AzureRegion) buildClusterConfigs(prefix, uid string) []azureClusterConfig {
+func (r *AzureRegion) buildClusterConfigs(prefix, uid string) ([]azureClusterConfig, error) {
 	configs := make([]azureClusterConfig, len(r.Clusters))
 	for i, clusterName := range r.Clusters {
-		configs[i] = azureClusterConfigTemplates[i]
-		if len(r.RegionCodes) > i && r.RegionCodes[i] != "" {
-			configs[i].Region = r.RegionCodes[i]
+		region := r.RegionCodes[i]
+		netCfgRaw, ok := NetworkConfigs[ProviderAzure][region]
+		if !ok {
+			return nil, fmt.Errorf("no NetworkConfigs entry for Azure region %q", region)
 		}
-		configs[i].ClusterName = clusterName
-		configs[i].VNetName = fmt.Sprintf("%s-vnet-%d-%s", prefix, i, uid)
-		configs[i].SubnetName = fmt.Sprintf("%s-subnet", clusterName)
+		netCfg, ok := netCfgRaw.(map[string]string)
+		if !ok {
+			return nil, fmt.Errorf("NetworkConfigs entry for Azure region %q has unexpected type %T",
+				region, netCfgRaw)
+		}
+		configs[i] = azureClusterConfig{
+			Region:       region,
+			ClusterName:  clusterName,
+			VNetName:     fmt.Sprintf("%s-vnet-%d-%s", prefix, i, uid),
+			SubnetName:   fmt.Sprintf("%s-subnet", clusterName),
+			VNetCIDR:     netCfg["VNetCIDR"],
+			SubnetCIDR:   netCfg["SubnetCIDR"],
+			ServiceCIDR:  netCfg["ServiceCIDR"],
+			DNSServiceIP: netCfg["DNSServiceIP"],
+		}
 	}
-	return configs
+	return configs, nil
 }
 
 func (r *AzureRegion) createResourceGroup(location, testRun string) error {
@@ -444,9 +437,6 @@ func (r *AzureRegion) createResourceGroup(location, testRun string) error {
 		"--tags",
 		"ManagedBy=helm-charts-e2e",
 		"TestRun=" + testRun,
-	}
-	if ticket := strings.TrimSpace(os.Getenv(envAzureTicket)); ticket != "" {
-		args = append(args, "Ticket="+ticket)
 	}
 	for _, tag := range []struct {
 		key string
@@ -528,12 +518,31 @@ func (r *AzureRegion) createVNetAndSubnet(cfg *azureClusterConfig) error {
 }
 
 func (r *AzureRegion) createAKSClusters(t *testing.T) error {
+	// Create AKS clusters in parallel — each `az aks create` takes ~10-15 minutes.
+	// Kubeconfig writes are serialized below to avoid concurrent writers to the
+	// shared KUBECONFIG file.
+	var wg sync.WaitGroup
+	errs := make(chan error, len(r.Clusters))
 	for i, clusterName := range r.Clusters {
-		cfg := r.clusterConfigs[i]
-		t.Logf("[%s] Creating AKS cluster %s in %s", ProviderAzure, clusterName, cfg.Region)
-		if err := createAKSCluster(t, r.resourceGroupName, cfg, r.NodeCount); err != nil {
+		wg.Add(1)
+		go func(i int, clusterName string) {
+			defer wg.Done()
+			cfg := r.clusterConfigs[i]
+			t.Logf("[%s] Creating AKS cluster %s in %s", ProviderAzure, clusterName, cfg.Region)
+			if err := createAKSCluster(t, r.resourceGroupName, cfg, r.NodeCount); err != nil {
+				errs <- err
+			}
+		}(i, clusterName)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		if err != nil {
 			return err
 		}
+	}
+
+	for i, clusterName := range r.Clusters {
 		if err := UpdateKubeconfigAzure(t, r.resourceGroupName, clusterName, clusterName); err != nil {
 			return err
 		}
@@ -551,7 +560,9 @@ func (r *AzureRegion) createAKSClusters(t *testing.T) error {
 	return nil
 }
 
-func createAKSCluster(t *testing.T, resourceGroup string, cfg azureClusterConfig, nodeCount int) error {
+func createAKSCluster(
+	t *testing.T, resourceGroup string, cfg azureClusterConfig, nodeCount int,
+) error {
 	subnetID, err := azureSubnetID(resourceGroup, cfg.VNetName, cfg.SubnetName)
 	if err != nil {
 		return fmt.Errorf("get subnet ID for %s: %w", cfg.SubnetName, err)
@@ -798,7 +809,9 @@ func restartAzureCoreDNS(t *testing.T, kubectlOpts *k8s.KubectlOptions, clusterN
 }
 
 func applyAzureCoreDNSCustom(
-	t *testing.T, kubectlOpts *k8s.KubectlOptions, thisDomain string,
+	t *testing.T,
+	kubectlOpts *k8s.KubectlOptions,
+	thisDomain string,
 	allClusters map[string]coredns.CoreDNSClusterOption,
 ) error {
 	cm := &corev1.ConfigMap{
@@ -810,7 +823,7 @@ func applyAzureCoreDNSCustom(
 			Name:      "coredns-custom",
 			Namespace: coreDNSNamespace,
 		},
-		Data: buildAzureCoreDNSCustomData(thisDomain, allClusters),
+		Data: coredns.CoreDNSCustomConfigMapData(thisDomain, allClusters),
 	}
 	if err := kubectlApplyAzureManifest(t, kubectlOpts, coredns.ToYAML(t, cm)); err != nil {
 		return fmt.Errorf("kubectl apply coredns-custom: %w", err)
@@ -818,90 +831,11 @@ func applyAzureCoreDNSCustom(
 	return nil
 }
 
-func buildAzureCoreDNSCustomData(
-	thisDomain string, allClusters map[string]coredns.CoreDNSClusterOption,
-) map[string]string {
-	data := map[string]string{}
-
-	quotedDomain := regexp.QuoteMeta(thisDomain)
-	data["rewrite.override"] = fmt.Sprintf(`rewrite continue {
-    name regex ^(.+)\.%s\.?$ {1}.cluster.local
-    answer name ^(.+)\.cluster\.local\.?$ {1}.%s
-    answer value ^(.+)\.cluster\.local\.?$ {1}.%s
-}`, quotedDomain, thisDomain, thisDomain)
-
-	domains := make([]string, 0, len(allClusters))
-	for domain := range allClusters {
-		domains = append(domains, domain)
-	}
-	sort.Strings(domains)
-
-	for _, clusterDomain := range domains {
-		if clusterDomain == thisDomain {
-			continue
-		}
-		cluster := allClusters[clusterDomain]
-		if len(cluster.IPs) == 0 {
-			continue
-		}
-
-		ips := append([]string{}, cluster.IPs...)
-		sort.Strings(ips)
-		ipList := strings.Join(ips, " ")
-		serverBlock := func(host string) string {
-			return fmt.Sprintf(`%s:53 {
-    errors
-    ready
-    cache 30
-    forward . %s {
-        force_tcp
-    }
-}
-`, host, ipList)
-		}
-
-		data[fmt.Sprintf("%s.server", clusterDomain)] = serverBlock(clusterDomain)
-		if cluster.Namespace != "" {
-			data[fmt.Sprintf("%s.svc.%s.server", cluster.Namespace, clusterDomain)] =
-				serverBlock(fmt.Sprintf("%s.svc.%s", cluster.Namespace, clusterDomain))
-			data[fmt.Sprintf("%s.pod.%s.server", cluster.Namespace, clusterDomain)] =
-				serverBlock(fmt.Sprintf("%s.pod.%s", cluster.Namespace, clusterDomain))
-		}
-	}
-
-	return data
-}
-
 func applyAzureCoreDNSService(t *testing.T, kubectlOpts *k8s.KubectlOptions) error {
-	annotations := GetLoadBalancerAnnotations(ProviderAzure)
-	annotationCopy := make(map[string]string, len(annotations))
-	for key, value := range annotations {
-		annotationCopy[key] = value
-	}
-
-	svc := &corev1.Service{
-		TypeMeta: metav1.TypeMeta{
-			Kind:       "Service",
-			APIVersion: "v1",
-		},
-		ObjectMeta: metav1.ObjectMeta{
-			Name:        coreDNSServiceName,
-			Namespace:   coreDNSNamespace,
-			Annotations: annotationCopy,
-		},
-		Spec: corev1.ServiceSpec{
-			Type: corev1.ServiceTypeLoadBalancer,
-			Ports: []corev1.ServicePort{
-				{
-					Name:       "dns-tcp",
-					Port:       53,
-					Protocol:   corev1.ProtocolTCP,
-					TargetPort: intstr.FromInt(53),
-				},
-			},
-			Selector: detectAzureCoreDNSPodLabel(t, kubectlOpts),
-		},
-	}
+	svc := coredns.CoreDNSService(nil, GetLoadBalancerAnnotations(ProviderAzure))
+	// AKS's managed CoreDNS may use `k8s-app: coredns` (newer AKS) instead of
+	// the shared helper's default `k8s-app: kube-dns`, so probe at runtime.
+	svc.Spec.Selector = detectAzureCoreDNSPodLabel(t, kubectlOpts)
 
 	if err := kubectlApplyAzureManifest(t, kubectlOpts, coredns.ToYAML(t, svc)); err != nil {
 		return fmt.Errorf("kubectl apply %s: %w", coreDNSServiceName, err)
@@ -909,7 +843,9 @@ func applyAzureCoreDNSService(t *testing.T, kubectlOpts *k8s.KubectlOptions) err
 	return nil
 }
 
-func kubectlApplyAzureManifest(t *testing.T, kubectlOpts *k8s.KubectlOptions, manifest string) error {
+func kubectlApplyAzureManifest(
+	t *testing.T, kubectlOpts *k8s.KubectlOptions, manifest string,
+) error {
 	t.Helper()
 
 	manifestFile := filepath.Join(t.TempDir(), "manifest.yaml")
@@ -922,7 +858,9 @@ func kubectlApplyAzureManifest(t *testing.T, kubectlOpts *k8s.KubectlOptions, ma
 	})
 }
 
-func runAzureKubernetesActionWithRetry(t *testing.T, description string, action func() error) error {
+func runAzureKubernetesActionWithRetry(
+	t *testing.T, description string, action func() error,
+) error {
 	t.Helper()
 
 	var err error

@@ -65,7 +65,6 @@ jobs:
         env:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_PREFIX: hc-e2e
-          AZURE_TICKET: CC-35912
           AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
         run: |
           set -euo pipefail
@@ -89,7 +88,6 @@ jobs:
           PROVIDER: ${{ matrix.provider }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_PREFIX: hc-e2e
-          AZURE_TICKET: CC-35912
           AZURE_RESOURCE_GROUPS_FILE: ${{ runner.temp }}/azure-resource-groups.txt
           AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
           E2E_MULTI_REGION_TEST_TIMEOUT: 150m
@@ -115,7 +113,6 @@ jobs:
         shell: bash
         env:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          AZURE_TICKET: CC-35912
           AZURE_RESOURCE_PREFIX: hc-e2e
           AZURE_RESOURCE_GROUPS_FILE: ${{ runner.temp }}/azure-resource-groups.txt
           AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
@@ -203,7 +200,6 @@ jobs:
         env:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_PREFIX: hc-e2e
-          AZURE_TICKET: CC-35912
           AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
         run: |
           set -euo pipefail
@@ -227,7 +223,6 @@ jobs:
           PROVIDER: ${{ matrix.provider }}
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
           AZURE_RESOURCE_PREFIX: hc-e2e
-          AZURE_TICKET: CC-35912
           AZURE_RESOURCE_GROUPS_FILE: ${{ runner.temp }}/azure-resource-groups.txt
           AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
           E2E_SINGLE_REGION_TEST_TIMEOUT: 120m
@@ -253,7 +248,6 @@ jobs:
         shell: bash
         env:
           AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          AZURE_TICKET: CC-35912
           AZURE_RESOURCE_PREFIX: hc-e2e
           AZURE_RESOURCE_GROUPS_FILE: ${{ runner.temp }}/azure-resource-groups.txt
           AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug

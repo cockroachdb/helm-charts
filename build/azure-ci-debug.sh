@@ -12,12 +12,10 @@ mkdir -p "${debug_dir}"
 
 resource_groups_file="${AZURE_RESOURCE_GROUPS_FILE:-${RUNNER_TEMP:-/tmp}/azure-resource-groups.txt}"
 resource_prefix="${AZURE_RESOURCE_PREFIX:-helm-charts-e2e}"
-ticket="${AZURE_TICKET:-}"
 current_run_id="${GITHUB_RUN_ID:-}"
 current_workflow="${GITHUB_WORKFLOW:-}"
 current_job="${GITHUB_JOB:-}"
 current_ref_name="${GITHUB_REF_NAME:-}"
-cleanup_wait_seconds="${AZURE_CLEANUP_WAIT_SECONDS:-3600}"
 
 timestamp() {
   date -u +"%Y-%m-%dT%H:%M:%SZ"
@@ -58,12 +56,7 @@ resource_groups() {
 }
 
 old_resource_groups() {
-  if [[ -z "${ticket}" ]]; then
-    echo "AZURE_TICKET is required for old artifact cleanup" >&2
-    return 1
-  fi
-
-  local query="[?starts_with(name, '${resource_prefix}-rg-') && tags.ManagedBy=='helm-charts-e2e' && tags.Ticket=='${ticket}'"
+  local query="[?starts_with(name, '${resource_prefix}-rg-') && tags.ManagedBy=='helm-charts-e2e'"
   if [[ -n "${current_run_id}" ]]; then
     query+=" && tags.GitHubRunID!='${current_run_id}'"
   fi
@@ -82,58 +75,6 @@ old_resource_groups() {
     --subscription "${subscription_id}" \
     --query "${query}" \
     --output tsv
-}
-
-resource_group_exists() {
-  local rg="$1"
-  local exists
-  local stderr_file
-  stderr_file="$(mktemp)"
-  if ! exists="$(az group exists --name "${rg}" --subscription "${subscription_id}" --output tsv 2>"${stderr_file}")"; then
-    local err_output
-    err_output="$(cat "${stderr_file}")"
-    rm -f "${stderr_file}"
-    echo "Failed to check Azure resource group ${rg}: ${err_output}" >&2
-    return 2
-  fi
-  rm -f "${stderr_file}"
-
-  case "${exists}" in
-    true)
-      return 0
-      ;;
-    false)
-      return 1
-      ;;
-    *)
-      echo "Unexpected Azure resource group existence response for ${rg}: ${exists}" >&2
-      return 2
-      ;;
-  esac
-}
-
-wait_resource_group_deleted() {
-  local rg="$1"
-  local deadline=$((SECONDS + cleanup_wait_seconds))
-
-  while true; do
-    if resource_group_exists "${rg}"; then
-      if (( SECONDS >= deadline )); then
-        echo "Timed out waiting for Azure resource group ${rg} to be deleted" >&2
-        return 1
-      fi
-      echo "Waiting for Azure resource group ${rg} deletion to finish"
-      sleep 30
-      continue
-    fi
-
-    local exists_status="$?"
-    if [[ "${exists_status}" == "1" ]]; then
-      echo "Azure resource group ${rg} deletion finished"
-      return 0
-    fi
-    return "${exists_status}"
-  done
 }
 
 snapshot_resource_group() {
@@ -233,7 +174,6 @@ snapshot() {
     echo "Timestamp: $(timestamp)"
     echo "Subscription: ${subscription_id}"
     echo "Resource prefix: ${resource_prefix}"
-    echo "Ticket: ${ticket:-unset}"
     echo "Current GitHub run ID: ${current_run_id:-unset}"
     echo "Current GitHub workflow: ${current_workflow:-unset}"
     echo "Current GitHub job: ${current_job:-unset}"
@@ -255,7 +195,7 @@ snapshot() {
     echo "Known helm-charts Azure resource groups:"
     run_az group list \
       --subscription "${subscription_id}" \
-      --query "[?starts_with(name, '${resource_prefix}-rg-') || tags.ManagedBy=='helm-charts-e2e'].{name:name,location:location,provisioningState:properties.provisioningState,ticket:tags.Ticket,testRun:tags.TestRun}" \
+      --query "[?starts_with(name, '${resource_prefix}-rg-') || tags.ManagedBy=='helm-charts-e2e'].{name:name,location:location,provisioningState:properties.provisioningState,testRun:tags.TestRun}" \
       --output table
     echo
 
@@ -276,11 +216,6 @@ watch() {
 }
 
 cleanup_resource_groups() {
-  if [[ "${AZURE_SKIP_TEARDOWN:-false}" == "true" ]]; then
-    echo "AZURE_SKIP_TEARDOWN=true; preserving recorded Azure resource groups"
-    return 0
-  fi
-
   mapfile -t groups < <(resource_groups)
   if (( ${#groups[@]} == 0 )); then
     echo "No recorded Azure resource groups found; skipping cleanup"
@@ -297,15 +232,6 @@ cleanup_resource_groups() {
 }
 
 cleanup_old_resource_groups() {
-  if [[ "${AZURE_CLEANUP_OLD_RESOURCE_GROUPS:-true}" != "true" ]]; then
-    echo "AZURE_CLEANUP_OLD_RESOURCE_GROUPS is not true; skipping old artifact cleanup"
-    return 0
-  fi
-  if [[ -z "${ticket}" ]]; then
-    echo "AZURE_TICKET is required for old artifact cleanup" >&2
-    return 1
-  fi
-
   local old_groups_output
   if ! old_groups_output="$(old_resource_groups)"; then
     return 1
@@ -317,11 +243,11 @@ cleanup_old_resource_groups() {
   fi
 
   if (( ${#groups[@]} == 0 )); then
-    echo "No old Azure resource groups found for prefix ${resource_prefix} and ticket ${ticket}"
+    echo "No old Azure resource groups found for prefix ${resource_prefix}"
     return 0
   fi
 
-  echo "Found old Azure resource groups for prefix ${resource_prefix} and ticket ${ticket}:"
+  echo "Found old Azure resource groups for prefix ${resource_prefix}:"
   printf '  %s\n' "${groups[@]}"
   echo "Submitting async cleanup for old Azure resource groups, then failing this run before provisioning new infrastructure."
 
