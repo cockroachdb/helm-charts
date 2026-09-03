@@ -4,6 +4,6 @@ dependencies:
   version: 1.0.0
 - name: cockroachdb-chart
   repository: file://charts/cockroachdb
-  version: 26.3.1
-digest: sha256:0e8ed4b274886f38d338dbf74713be4bdb89680df4db241f482de6d266dfaf33
-generated: "2026-08-28T17:29:33.24954+05:30"
+  version: 26.3.2
+digest: sha256:107a3e098461dac663b975e194713ea4e153eb065f2849a76264862c0a85fd85
+generated: "2026-09-03T20:52:21.5519+05:30"

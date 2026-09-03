@@ -1,5 +1,23 @@
 # CockroachDB Chart — CHANGELOG
 
+## [26.3.2] — 2026-09-03
+### Fixed
+- `cockroachdb.crdbCluster.godebug` now reaches the cockroachdb container. It was parsed but
+  never rendered, so the `disablethp: "1"` default had no effect. Set `godebug: null` to opt out.
+
+### Removed
+- Removed `cockroachdb.crdbCluster.localityLabels` and `cockroachdb.crdbCluster.sideCars`.
+  Use `cockroachdb.crdbCluster.localityMappings` and `cockroachdb.crdbCluster.podTemplate.spec`
+  instead.
+- The chart now fails with an upgrade message if any value the CrdbCluster template no longer
+  applies is still set, so an upgrade cannot silently drop a sidecar or a scheduling constraint.
+
+### Upgrade Notes
+- Upgrading may roll CockroachDB pods to apply the default `GODEBUG` setting.
+- `podTemplate` containers and init containers are appended after the operator's default ones,
+  where `sideCars` used to go first. Init containers run in order, so an init container that has
+  to run before the operator's `cockroachdb-init` needs rework before you move it.
+
 ## [26.3.1] — 2026-08-26
 ### Changed
 - Updated the default CockroachDB image version from `v26.3.0` to `v26.3.1`.

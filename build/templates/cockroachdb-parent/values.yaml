@@ -119,14 +119,18 @@
 #        verbs: ["get"]
 #    serviceAccountName: ~
 #
-#  # PodLabels are the labels that should be applied to the underlying CRDB pod
-#  podLabels:
-#    app.kubernetes.io/component: cockroachdb
+#  # Labels that should be applied to the underlying CRDB pod.
+#  podTemplate:
+#    metadata:
+#      labels:
+#        app.kubernetes.io/component: cockroachdb
 #
 #  extras:
 #    # Add a container with dnsutils (nslookup, dig, ping, etc.) installed.
 #    dnsutils: false
 #
-#  localityLabels:
-#    - topology.kubernetes.io/region
-#    - topology.kubernetes.io/zone
+#  localityMappings:
+#    - nodeLabel: topology.kubernetes.io/region
+#      localityLabel: region
+#    - nodeLabel: topology.kubernetes.io/zone
+#      localityLabel: zone

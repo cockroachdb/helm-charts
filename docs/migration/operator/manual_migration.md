@@ -72,6 +72,14 @@ The migration helper reads the public operator's `v1alpha1` CrdbCluster and Stat
 generating these manifests. Do not delete the target `CrdbCluster` or the CRDs; the converted
 `v1beta1` view is served from the same Kubernetes object during migration.
 
+If the StatefulSet passes `--locality`, the generated manifests carry the same flag in
+`spec.startFlags.upsert`, so each node keeps the locality it has today. The CockroachDB
+Operator uses a supplied locality flag as is and does not compute one from Kubernetes node
+labels. To switch to node labels after the migration, set
+`cockroachdb.crdbCluster.localityMappings` and remove `--locality` from
+`cockroachdb.crdbCluster.startFlags.upsert`. Changing locality restarts the pods, so plan it
+as a separate change once the cluster is healthy.
+
 ## Prepare for CockroachDB Operator installation
 
 The manual migration can be run while the public operator continues managing other clusters.

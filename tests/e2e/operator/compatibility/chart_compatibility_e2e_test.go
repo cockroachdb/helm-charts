@@ -30,6 +30,11 @@ const (
 
 	defaultCompatHelmRepoName = "cockroachdb-v2-compat"
 	defaultCompatHelmRepoURL  = "https://charts.cockroachdb.com/v2"
+
+	compatSidecarContainers = `[{"name":"compat-sidecar","image":"registry.k8s.io/pause:3.9","resources":{}}]`
+	compatLocalityLabels    = `["topology.kubernetes.io/region","topology.kubernetes.io/zone"]`
+	compatLocalityMappings  = `[{"nodeLabel":"topology.kubernetes.io/region","localityLabel":"region"},` +
+		`{"nodeLabel":"topology.kubernetes.io/zone","localityLabel":"zone"}]`
 )
 
 type compatibilityRegion struct {
@@ -96,17 +101,45 @@ func TestChartCompatibilityUpgrade(t *testing.T) {
 	)
 	r.ValidateCRDB(t, cluster)
 
+	t.Log("Setting values on the published chart that the local chart removed")
+	require.NoError(t, upgradeCockroachDBChartE(t, kubectlOptions,
+		fmt.Sprintf("%s/cockroachdb-chart", repoName), cockroachDBVersion, nil,
+		map[string]string{
+			"cockroachdb.crdbCluster.sideCars.containers": compatSidecarContainers,
+			"cockroachdb.crdbCluster.localityLabels":      compatLocalityLabels,
+		},
+	))
+	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, testutil.CockroachCluster{
+		DesiredNodes: r.NodeCount,
+	}, 600*time.Second)
+	r.ValidateCRDB(t, cluster)
+
 	helmChartPath, operatorChartPath := operator.HelmChartPaths()
 
 	t.Log("Upgrading operator chart from the local checkout")
 	operator.UpgradeCockroachDBOperatorChart(t, kubectlOptions, operatorChartPath, compatibilityOperatorUpgradeValues(t, operatorChartPath))
 	requireOperatorMigrationFlag(t, kubectlOptions, false)
 
+	t.Log("Upgrading the CockroachDB chart with removed values still set should fail")
+	err = upgradeCockroachDBChartE(t, kubectlOptions, helmChartPath, "", nil, nil)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "were removed from the CockroachDB Helm chart")
+	require.Contains(t, err.Error(), "cockroachdb.crdbCluster.localityLabels")
+	require.Contains(t, err.Error(), "cockroachdb.crdbCluster.sideCars")
+
 	t.Log("Upgrading CockroachDB chart from the local checkout")
 	postInitSQLDatabase := "compat_post_init"
-	upgradeCockroachDBChart(t, kubectlOptions, helmChartPath, map[string]string{
-		"cockroachdb.crdbCluster.postInitSQL.inline[0]": fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", postInitSQLDatabase),
-	})
+	require.NoError(t, upgradeCockroachDBChartE(t, kubectlOptions, helmChartPath, "",
+		map[string]string{
+			"cockroachdb.crdbCluster.postInitSQL.inline[0]": fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", postInitSQLDatabase),
+		},
+		map[string]string{
+			"cockroachdb.crdbCluster.sideCars":                    "null",
+			"cockroachdb.crdbCluster.localityLabels":              "null",
+			"cockroachdb.crdbCluster.podTemplate.spec.containers": compatSidecarContainers,
+			"cockroachdb.crdbCluster.localityMappings":            compatLocalityMappings,
+		},
+	))
 
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, testutil.CockroachCluster{
 		DesiredNodes: r.NodeCount,
@@ -264,16 +297,31 @@ func installCockroachDBChart(
 func upgradeCockroachDBChart(
 	t *testing.T, kubectlOptions *k8s.KubectlOptions, chart string, overrides ...map[string]string,
 ) {
-	values := cockroachDBCompatibilityValues()
+	values := map[string]string{}
 	for _, override := range overrides {
 		for key, value := range override {
 			values[key] = value
 		}
 	}
+	require.NoError(t, upgradeCockroachDBChartE(t, kubectlOptions, chart, "", values, nil))
+}
+
+// upgradeCockroachDBChartE returns the helm error instead of failing the test, so callers can
+// assert on upgrades that are meant to be rejected.
+func upgradeCockroachDBChartE(
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, chart, version string,
+	overrides, jsonOverrides map[string]string,
+) error {
+	values := cockroachDBCompatibilityValues()
+	for key, value := range overrides {
+		values[key] = value
+	}
 
 	options := &helm.Options{
 		KubectlOptions: kubectlOptions,
+		Version:        version,
 		SetValues:      values,
+		SetJsonValues:  jsonOverrides,
 		ExtraArgs: map[string][]string{
 			"upgrade": {
 				"--reuse-values",
@@ -283,8 +331,11 @@ func upgradeCockroachDBChart(
 		},
 	}
 
-	helm.Upgrade(t, options, chart, operator.ReleaseName)
+	if err := helm.UpgradeE(t, options, chart, operator.ReleaseName); err != nil {
+		return err
+	}
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroachdb-public", 30, 5*time.Second)
+	return nil
 }
 
 func requireOperatorMigrationFlag(t *testing.T, kubectlOptions *k8s.KubectlOptions, expected bool) {

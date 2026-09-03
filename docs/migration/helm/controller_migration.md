@@ -469,7 +469,7 @@ carry those forward into the new values.yaml as well.
 | Dedicated `logsdir` PVC | `spec.template.spec.logsStore` | `cockroachdb.crdbCluster.log.logsStore` |
 | Helm log Secret | Converted to ConfigMap. `spec.template.spec.loggingConfigMapName` | `cockroachdb.crdbCluster.loggingConfigMapName` |
 | Service account | `spec.template.spec.podTemplate.spec.serviceAccountName` | `cockroachdb.crdbCluster.rbac.serviceAccount.name` with `create=false` |
-| `--locality` tier keys | `spec.template.spec.localityLabels` | Exported into values. Patch `localityMappings` for custom labels |
+| `--locality` tier keys | `spec.template.spec.localityLabels` | Not exported. Set `cockroachdb.crdbCluster.localityMappings` for custom labels |
 | Ingress intent | Preserved as annotation on CrdbCluster | `cockroachdb.crdbCluster.service.ingress` |
 | PCR config | `spec.template.spec.virtualCluster` | `cockroachdb.crdbCluster.virtualCluster` |
 
@@ -540,11 +540,14 @@ kubectl delete pdb ${STS_NAME}-budget -n ${NAMESPACE} --ignore-not-found
 
 ## Step 12: Configure LocalityMappings
 
-The migration controller preserves the `--locality` flag tier keys (e.g. `region`, `zone`)
-as `localityLabels` on the CrdbNodeSpec. `localityLabels` is deprecated in favor of
-`localityMappings`, which maps K8s node labels to CockroachDB locality tiers. The default
-mapping covers standard K8s topology labels (`topology.kubernetes.io/region` → `region`,
-`topology.kubernetes.io/zone` → `zone`).
+The migration controller records the `--locality` flag tier keys (e.g. `region`, `zone`)
+as `localityLabels` on each migrated CrdbNode. `localityLabels` is deprecated and does not
+determine node locality. Locality comes from `localityMappings`, which maps K8s node labels
+to CockroachDB locality tiers and defaults to the standard K8s topology labels
+(`topology.kubernetes.io/region` → `region`, `topology.kubernetes.io/zone` → `zone`).
+
+The CockroachDB Helm chart no longer renders `localityLabels`. This is a no-op for the
+migrated cluster.
 
 If your cluster uses custom K8s node labels for locality, update `localityMappings` to
 match. Each entry maps a K8s node label key to a CockroachDB locality tier name.

@@ -2210,10 +2210,19 @@ func (v *podTemplateValidators) validateInitContainer(expectedName string) {
 	require.Equal(v.subT, expectedName, initContainer.Name)
 }
 
-func (v *podTemplateValidators) validateContainer(expectedName string) {
+func (v *podTemplateValidators) validateContainer(expected PodTemplateExpected) {
 	require.NotEmpty(v.subT, v.spec.Spec.Containers, "Expected at least one container")
 	container := v.spec.Spec.Containers[0]
-	require.Equal(v.subT, expectedName, container.Name)
+	require.Equal(v.subT, expected.containerName, container.Name)
+
+	for name, quantity := range expected.containerRequests {
+		actual := container.Resources.Requests[name]
+		require.Equal(v.subT, quantity, actual.String())
+	}
+	for name, quantity := range expected.containerLimits {
+		actual := container.Resources.Limits[name]
+		require.Equal(v.subT, quantity, actual.String())
+	}
 }
 
 func (v *podTemplateValidators) validateVolume(expectedName string) {
@@ -2242,6 +2251,8 @@ type PodTemplateExpected struct {
 	annotations         map[string]string
 	initContainerName   string
 	containerName       string
+	containerRequests   map[corev1.ResourceName]string
+	containerLimits     map[corev1.ResourceName]string
 	volumeName          string
 	imagePullSecretName string
 }
@@ -2269,7 +2280,7 @@ func validatePodTemplateConfiguration(
 				validator.validateInitContainer(expected.initContainerName)
 			}
 			if expected.hasContainer {
-				validator.validateContainer(expected.containerName)
+				validator.validateContainer(expected)
 			}
 			if expected.hasVolume {
 				validator.validateVolume(expected.volumeName)
@@ -2338,6 +2349,24 @@ func TestHelmOperatorPodTemplate(t *testing.T) {
 				hasSpec:       true,
 				hasContainer:  true,
 				containerName: "logging-sidecar",
+			},
+		},
+		{
+			"Pod template with cockroachdb container resources",
+			map[string]string{
+				"operator.enabled": "true",
+				"cockroachdb.crdbCluster.podTemplate.spec.containers[0].name":                      "cockroachdb",
+				"cockroachdb.crdbCluster.podTemplate.spec.containers[0].resources.requests.cpu":    "2",
+				"cockroachdb.crdbCluster.podTemplate.spec.containers[0].resources.requests.memory": "8Gi",
+				"cockroachdb.crdbCluster.podTemplate.spec.containers[0].resources.limits.cpu":      "4",
+				"cockroachdb.crdbCluster.podTemplate.spec.containers[0].resources.limits.memory":   "16Gi",
+			},
+			PodTemplateExpected{
+				hasSpec:           true,
+				hasContainer:      true,
+				containerName:     "cockroachdb",
+				containerRequests: map[corev1.ResourceName]string{corev1.ResourceCPU: "2", corev1.ResourceMemory: "8Gi"},
+				containerLimits:   map[corev1.ResourceName]string{corev1.ResourceCPU: "4", corev1.ResourceMemory: "16Gi"},
 			},
 		},
 		{
@@ -3279,6 +3308,264 @@ func TestHelmSelfSignerAdditionalSANs(t *testing.T) {
 			} else {
 				require.Nil(t, additionalSANsEnvCron, "ADDITIONAL_SANS env var should not be present when not configured")
 			}
+		})
+	}
+}
+
+// TestHelmOperatorRemovedFieldsValidation verifies that values which used to map to
+// CrdbNodeSpec fields deprecated by the CockroachDB Operator now fail the render with
+// a message naming the replacement, rather than being dropped silently.
+func TestHelmOperatorRemovedFieldsValidation(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name   string
+		values map[string]string
+		expect string
+	}{
+		{
+			"localityLabels",
+			map[string]string{"cockroachdb.crdbCluster.localityLabels[0]": "topology.kubernetes.io/region"},
+			"cockroachdb.crdbCluster.localityLabels, use cockroachdb.crdbCluster.localityMappings",
+		},
+		{
+			"sideCars containers",
+			map[string]string{"cockroachdb.crdbCluster.sideCars.containers[0].name": "fluentbit"},
+			"cockroachdb.crdbCluster.sideCars, use cockroachdb.crdbCluster.podTemplate.spec.initContainers, .containers and .volumes",
+		},
+		{
+			"sideCars volumes",
+			map[string]string{"cockroachdb.crdbCluster.sideCars.volumes[0].name": "fluentbit-config"},
+			"cockroachdb.crdbCluster.sideCars, use cockroachdb.crdbCluster.podTemplate.spec.initContainers, .containers and .volumes",
+		},
+		{
+			"podLabels",
+			map[string]string{"cockroachdb.crdbCluster.podLabels.team": "platform"},
+			"cockroachdb.crdbCluster.podLabels, use cockroachdb.crdbCluster.podTemplate.metadata.labels",
+		},
+		{
+			"terminationGracePeriod",
+			map[string]string{"cockroachdb.crdbCluster.terminationGracePeriod": "30s"},
+			"cockroachdb.crdbCluster.terminationGracePeriod, use cockroachdb.crdbCluster.podTemplate.spec.terminationGracePeriodSeconds",
+		},
+		{
+			"flags",
+			map[string]string{"cockroachdb.crdbCluster.flags.--max-offset": "500ms"},
+			"cockroachdb.crdbCluster.flags, use cockroachdb.crdbCluster.startFlags",
+		},
+	}
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+			_, err := helm.RenderTemplateE(subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"})
+
+			require.Error(subT, err)
+			require.Contains(subT, err.Error(), testCase.expect)
+		})
+	}
+}
+
+// TestHelmOperatorEmptyRemovedFieldsRender verifies that leaving the removed keys empty,
+// as they appear in older copies of values.yaml, still renders.
+func TestHelmOperatorEmptyRemovedFieldsRender(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetJsonValues: map[string]string{
+			"cockroachdb.crdbCluster.localityLabels": "[]",
+			"cockroachdb.crdbCluster.sideCars":       `{"initContainers":[],"containers":[],"volumes":[]}`,
+		},
+	}
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+	output, err := helm.RenderTemplateE(t, options, chartPath, releaseName, []string{"templates/crdb.yaml"})
+	require.NoError(t, err)
+
+	require.NotContains(t, output, "localityLabels")
+	require.NotContains(t, output, "sideCars")
+}
+
+// TestHelmOperatorGodebug verifies the godebug values reach the cockroachdb container as a
+// GODEBUG env var, and that the chart-owned serviceAccountName survives the same merge.
+func TestHelmOperatorGodebug(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name             string
+		values           map[string]string
+		jsonValues       map[string]string
+		expectEnv        []string
+		expectContainers []string
+	}{
+		{
+			name:             "default disables THP",
+			expectEnv:        []string{"GODEBUG=disablethp=1"},
+			expectContainers: []string{"cockroachdb"},
+		},
+		{
+			name:             "multiple clauses are joined and sorted",
+			values:           map[string]string{"cockroachdb.crdbCluster.godebug.madvdontneed": "1"},
+			expectEnv:        []string{"GODEBUG=disablethp=1,madvdontneed=1"},
+			expectContainers: []string{"cockroachdb"},
+		},
+		{
+			name:             "godebug is appended after the container's own env",
+			jsonValues:       map[string]string{"cockroachdb.crdbCluster.podTemplate.spec.containers": `[{"name":"cockroachdb","env":[{"name":"COCKROACH_CHANNEL","value":"kubernetes-helm"}]}]`},
+			expectEnv:        []string{"COCKROACH_CHANNEL=kubernetes-helm", "GODEBUG=disablethp=1"},
+			expectContainers: []string{"cockroachdb"},
+		},
+		{
+			name:             "user supplied GODEBUG wins and its siblings are kept",
+			jsonValues:       map[string]string{"cockroachdb.crdbCluster.podTemplate.spec.containers": `[{"name":"cockroachdb","env":[{"name":"COCKROACH_CHANNEL","value":"kubernetes-helm"},{"name":"GODEBUG","value":"disablethp=0"}]}]`},
+			expectEnv:        []string{"COCKROACH_CHANNEL=kubernetes-helm", "GODEBUG=disablethp=0"},
+			expectContainers: []string{"cockroachdb"},
+		},
+		{
+			name:             "container is added when podTemplate omits cockroachdb",
+			jsonValues:       map[string]string{"cockroachdb.crdbCluster.podTemplate.spec.containers": `[{"name":"fluentbit","image":"fluent/fluent-bit:3.1"}]`},
+			expectEnv:        []string{"GODEBUG=disablethp=1"},
+			expectContainers: []string{"fluentbit", "cockroachdb"},
+		},
+	}
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+				SetJsonValues:  testCase.jsonValues,
+			}
+			output := helm.RenderTemplate(subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"})
+
+			var cluster struct {
+				Spec struct {
+					Template struct {
+						Spec struct {
+							PodTemplate struct {
+								Spec corev1.PodSpec `yaml:"spec"`
+							} `yaml:"podTemplate"`
+						} `yaml:"spec"`
+					} `yaml:"template"`
+				} `yaml:"spec"`
+			}
+			helm.UnmarshalK8SYaml(subT, output, &cluster)
+
+			podSpec := cluster.Spec.Template.Spec.PodTemplate.Spec
+			require.Equal(subT, releaseName+"-cockroachdb", podSpec.ServiceAccountName)
+
+			var containers []string
+			var crdbContainer *corev1.Container
+			for i := range podSpec.Containers {
+				containers = append(containers, podSpec.Containers[i].Name)
+				if podSpec.Containers[i].Name == "cockroachdb" {
+					crdbContainer = &podSpec.Containers[i]
+				}
+			}
+			require.Equal(subT, testCase.expectContainers, containers)
+			require.NotNil(subT, crdbContainer)
+
+			var env []string
+			for _, variable := range crdbContainer.Env {
+				env = append(env, fmt.Sprintf("%s=%s", variable.Name, variable.Value))
+			}
+			require.Equal(subT, testCase.expectEnv, env)
+		})
+	}
+}
+
+// TestHelmOperatorGodebugDisabled verifies clearing godebug drops the env var entirely.
+func TestHelmOperatorGodebugDisabled(t *testing.T) {
+	t.Parallel()
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetJsonValues:  map[string]string{"cockroachdb.crdbCluster.godebug": "null"},
+	}
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+	output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/crdb.yaml"})
+
+	require.NotContains(t, output, "GODEBUG")
+	require.Contains(t, output, "serviceAccountName: "+releaseName+"-cockroachdb")
+}
+
+// TestHelmOperatorServiceAccount verifies the pod runs as the ServiceAccount the chart owns,
+// whether the chart creates it or the operator brings their own.
+func TestHelmOperatorServiceAccount(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		values    map[string]string
+		expectSA  string
+		expectSet bool
+	}{
+		{
+			name:      "chart creates a ServiceAccount named after the release",
+			expectSA:  releaseName + "-cockroachdb",
+			expectSet: true,
+		},
+		{
+			name:      "chart creates a ServiceAccount with a custom name",
+			values:    map[string]string{"cockroachdb.crdbCluster.rbac.serviceAccount.name": "custom-sa"},
+			expectSA:  "custom-sa",
+			expectSet: true,
+		},
+		{
+			name: "an existing ServiceAccount is used without creating one",
+			values: map[string]string{
+				"cockroachdb.crdbCluster.rbac.serviceAccount.create": "false",
+				"cockroachdb.crdbCluster.rbac.serviceAccount.name":   "existing-sa",
+			},
+			expectSA: "existing-sa",
+		},
+		{
+			name:     "falls back to the default ServiceAccount when none is named",
+			values:   map[string]string{"cockroachdb.crdbCluster.rbac.serviceAccount.create": "false"},
+			expectSA: "default",
+		},
+	}
+
+	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      testCase.values,
+			}
+
+			output := helm.RenderTemplate(subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"})
+			require.Contains(subT, output, "serviceAccountName: "+testCase.expectSA)
+
+			saOutput, err := helm.RenderTemplateE(subT, options, chartPath, releaseName, []string{"templates/serviceaccount.yaml"})
+			if !testCase.expectSet {
+				require.Error(subT, err, "no ServiceAccount should be rendered")
+				return
+			}
+			require.NoError(subT, err)
+
+			var serviceAccount corev1.ServiceAccount
+			helm.UnmarshalK8SYaml(subT, saOutput, &serviceAccount)
+			require.Equal(subT, testCase.expectSA, serviceAccount.Name)
 		})
 	}
 }

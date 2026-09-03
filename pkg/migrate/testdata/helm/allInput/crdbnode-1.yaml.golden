@@ -33,9 +33,6 @@ spec:
   grpcPort: 26258
   httpPort: 8080
   image: cockroachdb/cockroach:v25.1.5
-  localityLabels:
-  - country
-  - region
   loggingConfigMapName: cockroachdb-log-config
   nodeName: node1
   persistentVolumeClaimRetentionPolicy:
@@ -75,8 +72,6 @@ spec:
             fieldRef:
               apiVersion: v1
               fieldPath: status.hostIP
-        - name: GODEBUG
-          value: disablethp=1
         image: cockroachdb/cockroach:v25.1.5
         name: cockroachdb
         resources:
@@ -135,6 +130,7 @@ spec:
     - --certs-dir=/cockroach/cockroach-certs/
     - --cache=25%
     - --max-sql-memory=25%
+    - --locality=country=us,region=us-central1
   tlsEnabled: true
   virtualCluster:
     mode: primary

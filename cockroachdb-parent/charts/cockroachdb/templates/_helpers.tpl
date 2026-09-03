@@ -265,6 +265,41 @@ and none when TLS is off.
 {{- end -}}
 
 
+{{/*
+Fail when a removed value is still set, so an upgrade cannot silently drop it.
+*/}}
+{{- define "cockroachdb.removedFields.validation" -}}
+{{- $crdbCluster := .Values.cockroachdb.crdbCluster -}}
+{{- $replacements := dict
+  "affinity" "cockroachdb.crdbCluster.podTemplate.spec.affinity"
+  "env" "the cockroachdb container under cockroachdb.crdbCluster.podTemplate.spec.containers"
+  "flags" "cockroachdb.crdbCluster.startFlags"
+  "localityLabels" "cockroachdb.crdbCluster.localityMappings"
+  "nodeSelector" "cockroachdb.crdbCluster.podTemplate.spec.nodeSelector"
+  "podAnnotations" "cockroachdb.crdbCluster.podTemplate.metadata.annotations"
+  "podLabels" "cockroachdb.crdbCluster.podTemplate.metadata.labels"
+  "readinessProbe" "the cockroachdb container under cockroachdb.crdbCluster.podTemplate.spec.containers"
+  "resources" "the cockroachdb container under cockroachdb.crdbCluster.podTemplate.spec.containers"
+  "terminationGracePeriod" "cockroachdb.crdbCluster.podTemplate.spec.terminationGracePeriodSeconds"
+  "tolerations" "cockroachdb.crdbCluster.podTemplate.spec.tolerations"
+  "topologySpreadConstraints" "cockroachdb.crdbCluster.podTemplate.spec.topologySpreadConstraints"
+-}}
+{{- $found := list -}}
+{{- range $field, $replacement := $replacements -}}
+{{- if index $crdbCluster $field -}}
+{{- $found = append $found (printf "cockroachdb.crdbCluster.%s, use %s" $field $replacement) -}}
+{{- end -}}
+{{- end -}}
+{{- with $crdbCluster.sideCars -}}
+{{- if or .initContainers .containers .volumes -}}
+{{- $found = append $found "cockroachdb.crdbCluster.sideCars, use cockroachdb.crdbCluster.podTemplate.spec.initContainers, .containers and .volumes" -}}
+{{- end -}}
+{{- end -}}
+{{- if $found -}}
+{{- fail (printf "The following values were removed from the CockroachDB Helm chart and are no longer applied:\n  %s\nMigrate them and remove them from your values before upgrading." (join "\n  " (sortAlpha $found))) -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "cockroachdb.tls.certs.selfSigner.validation" -}}
 {{ include "cockroachdb.tls.certs.selfSigner.caProvidedValidation" . }}
 {{ include "cockroachdb.tls.certs.selfSigner.caCertValidation" . }}
@@ -316,14 +351,51 @@ Validate the WAL failover configuration.
 {{- end -}}
 
 {{/*
-Construct the GODEBUG env var value (looks like: GODEBUG="foo=bar,baz=quux"; default: "disablethp=1")
+Construct the GODEBUG env var value (looks like: GODEBUG="foo=bar,baz=quux"). Empty when
+cockroachdb.crdbCluster.godebug is unset.
 */}}
 {{- define "godebugList" -}}
 {{- $godebugList := list -}}
 {{- range $key, $value := .Values.cockroachdb.crdbCluster.godebug }}
-  {{- $godebugList = append $godebugList (printf "%s=%s" $key $value) -}}
+  {{- $godebugList = append $godebugList (printf "%s=%v" $key $value) -}}
 {{- end }}
 {{- join "," $godebugList -}}
+{{- end }}
+
+{{/*
+Render podTemplate.spec with the chart-owned service account and GODEBUG merged in.
+A GODEBUG already set on the cockroachdb container wins, so an exported value from a migrated
+cluster is not replaced by the chart default.
+*/}}
+{{- define "cockroachdb.podTemplate.spec" -}}
+{{- $spec := deepCopy (.Values.cockroachdb.crdbCluster.podTemplate.spec | default dict) -}}
+{{- $_ := set $spec "serviceAccountName" (include "cockroachdb.serviceAccount.name" .) -}}
+{{- $godebug := include "godebugList" . -}}
+{{- if $godebug -}}
+{{- $containers := list -}}
+{{- $patched := false -}}
+{{- range $container := ($spec.containers | default list) -}}
+{{- if eq ($container.name | toString) "cockroachdb" -}}
+{{- $patched = true -}}
+{{- $env := $container.env | default list -}}
+{{- $hasGodebug := false -}}
+{{- range $var := $env -}}
+{{- if eq ($var.name | toString) "GODEBUG" -}}
+{{- $hasGodebug = true -}}
+{{- end -}}
+{{- end -}}
+{{- if not $hasGodebug -}}
+{{- $_ := set $container "env" (append $env (dict "name" "GODEBUG" "value" $godebug)) -}}
+{{- end -}}
+{{- end -}}
+{{- $containers = append $containers $container -}}
+{{- end -}}
+{{- if not $patched -}}
+{{- $containers = append $containers (dict "name" "cockroachdb" "env" (list (dict "name" "GODEBUG" "value" $godebug))) -}}
+{{- end -}}
+{{- $_ := set $spec "containers" $containers -}}
+{{- end -}}
+{{- toYaml $spec -}}
 {{- end }}
 
 {{/* Common labels that are applied to all managed objects. */}}
