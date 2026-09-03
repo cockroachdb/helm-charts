@@ -1425,8 +1425,8 @@ func requireHelmSourceFieldsPreserved(
 		"{.spec.template.spec.logsStore.volumeClaimTemplate.spec.resources.requests.storage}", "1Gi")
 	requireJSONPathEquals(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,
 		"{.spec.template.spec.loggingConfigMapName}", fmt.Sprintf("%s-log-config", clusterName))
-	requireJSONPathContains(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,
-		"{.spec.template.spec.localityLabels}", "topology.kubernetes.io/region")
+	requireJSONPathContains(t, kubectlOptions, "crdbnode", fmt.Sprintf("%s-0", clusterName),
+		"{.spec.localityMappings}", "topology.kubernetes.io/region")
 	requireJSONPathEquals(t, kubectlOptions, "crdbnode", fmt.Sprintf("%s-0", clusterName),
 		"{.spec.logsStore.mountPath}", "/cockroach/test-logs/")
 	requireJSONPathEquals(t, kubectlOptions, "crdbnode", fmt.Sprintf("%s-0", clusterName),

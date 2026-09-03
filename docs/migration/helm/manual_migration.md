@@ -72,6 +72,14 @@ bin/migration-helper build-manifest helm \
   --output-dir ./manifests
 ```
 
+If the StatefulSet passes `--locality`, the generated manifests carry the same flag in
+`spec.startFlags.upsert`, so each node keeps the locality it has today. The CockroachDB
+Operator uses a supplied locality flag as is and does not compute one from Kubernetes node
+labels. To switch to node labels after the migration, set
+`cockroachdb.crdbCluster.localityMappings` and remove `--locality` from
+`cockroachdb.crdbCluster.startFlags.upsert`. Changing locality restarts the pods, so plan it
+as a separate change once the cluster is healthy.
+
 Create the PriorityClass required by the generated resources before replacing any pods:
 
 ```

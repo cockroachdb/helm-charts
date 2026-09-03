@@ -521,11 +521,14 @@ Key fields converted during migration:
 
 ## Step 10: Configure LocalityMappings
 
-The migration controller preserves the `--locality` flag tier keys (e.g. `region`, `zone`)
-as `localityLabels` on the CrdbNodeSpec. `localityLabels` is deprecated in favor of
-`localityMappings`, which maps K8s node labels to CockroachDB locality tiers. The default
-mapping covers standard K8s topology labels (`topology.kubernetes.io/region` → `region`,
-`topology.kubernetes.io/zone` → `zone`).
+The migration controller records the `--locality` flag tier keys (e.g. `region`, `zone`)
+as `localityLabels` on each migrated CrdbNode. `localityLabels` is deprecated and does not
+determine node locality. Locality comes from `localityMappings`, which maps K8s node labels
+to CockroachDB locality tiers and defaults to the standard K8s topology labels
+(`topology.kubernetes.io/region` → `region`, `topology.kubernetes.io/zone` → `zone`).
+
+The CockroachDB Helm chart no longer renders `localityLabels`. This is a no-op for the
+migrated cluster.
 
 If your cluster uses custom K8s node labels for locality, update `localityMappings` to
 match. Each entry maps a K8s node label key to a CockroachDB locality tier name.

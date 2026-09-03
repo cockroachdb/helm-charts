@@ -112,7 +112,7 @@ $ helm install $CRDBOPERATOR ./cockroachdb-parent/charts/operator -n $NAMESPACE
           namespace: cockroach-ns
 ```
 - If the `cloudProvider` is `azure`, create an application in your Azure tenant and create a secret named `azure-cluster-identity-credentials-secret` which contains `azure_client_id` and  `azure_client_secret` to hold the application credentials.[2]
-- Modify the other relevant configuration like `topologySpreadConstraints`, `localityLabels`,  `service.ports`, as required.
+- Modify the other relevant configuration like `topologySpreadConstraints`, `localityMappings`,  `service.ports`, as required.
 
 Install the cockroachdb chart:
 

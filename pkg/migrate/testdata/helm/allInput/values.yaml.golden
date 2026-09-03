@@ -13,9 +13,6 @@ cockroachdb:
           volumeMode: Filesystem
     image:
       name: cockroachdb/cockroach:v25.1.5
-    localityLabels:
-    - country
-    - region
     loggingConfigMapName: cockroachdb-log-config
     mode: MutableOnly
     podTemplate:
@@ -53,8 +50,6 @@ cockroachdb:
               fieldRef:
                 apiVersion: v1
                 fieldPath: status.hostIP
-          - name: GODEBUG
-            value: disablethp=1
           image: cockroachdb/cockroach:v25.1.5
           name: cockroachdb
           resources:
@@ -123,6 +118,7 @@ cockroachdb:
       - --certs-dir=/cockroach/cockroach-certs/
       - --cache=25%
       - --max-sql-memory=25%
+      - --locality=country=us,region=us-central1
     virtualCluster:
       mode: primary
   tls:

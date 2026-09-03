@@ -264,7 +264,12 @@ func TestExportValuesFromV1beta1(t *testing.T) {
 					},
 					LoggingConfigMapName: "logging-config",
 					LocalityLabels:       []string{"topology.kubernetes.io/region"},
-					GRPCPort:             new(int32(26258)),
+					SideCars: v1beta1.CrdbNodeSideCars{
+						InitContainers: []corev1.Container{{Name: "fluentbit-init", Image: "fluent/fluent-bit:3.1"}},
+						Containers:     []corev1.Container{{Name: "fluentbit", Image: "fluent/fluent-bit:3.1"}},
+						Volumes:        []corev1.Volume{{Name: "fluentbit-config"}},
+					},
+					GRPCPort: new(int32(26258)),
 					HTTPPort:             new(int32(8080)),
 					SQLPort:              new(int32(26257)),
 					PodTemplate: &v1beta1.PodTemplateSpec{
@@ -385,6 +390,15 @@ func TestExportValuesFromV1beta1(t *testing.T) {
 	_, templateScopeAnnotationExists := podTemplateAnnotations["template-scope"]
 	assert.False(t, templateScopeAnnotationExists)
 
+	assert.NotContains(t, crdbClusterValues, "localityLabels")
+	assert.NotContains(t, crdbClusterValues, "sideCars")
+
+	podTemplateSpec, ok := podTemplateValues["spec"].(map[string]interface{})
+	require.True(t, ok)
+	assert.Equal(t, []interface{}{"cockroachdb", "fluentbit"}, containerNames(t, podTemplateSpec["containers"]))
+	assert.Equal(t, []interface{}{"fluentbit-init"}, containerNames(t, podTemplateSpec["initContainers"]))
+	assert.Equal(t, []interface{}{"fluentbit-config"}, containerNames(t, podTemplateSpec["volumes"]))
+
 	walFailoverSpec, ok := crdbClusterValues["walFailoverSpec"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, "/cockroach/wal-failover", walFailoverSpec["path"])
@@ -397,6 +411,19 @@ func TestExportValuesFromV1beta1(t *testing.T) {
 	uiValues, ok := ingressValues["ui"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, "ui.local.com", uiValues["host"])
+}
+
+func containerNames(t *testing.T, entries interface{}) []interface{} {
+	t.Helper()
+	list, ok := entries.([]interface{})
+	require.True(t, ok)
+	names := make([]interface{}, 0, len(list))
+	for _, entry := range list {
+		item, ok := entry.(map[string]interface{})
+		require.True(t, ok)
+		names = append(names, item["name"])
+	}
+	return names
 }
 
 // validateGoldenFile compares the generated file with the golden file

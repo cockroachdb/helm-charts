@@ -71,7 +71,7 @@ type parsedMigrationInput struct {
 	grpcPort          int32
 	httpPort          int32
 	tlsEnabled        bool
-	localityLabels    []string
+	localityTiers     []string
 	loggingConfigMap  string
 	startFlags        *v1beta1.Flags
 	certManagerInput  *certManagerInput
@@ -137,21 +137,38 @@ func yamlToDisk(path string, data []any) (retErr error) {
 	return nil
 }
 
+// appendOperatorRequiredEnv adds the env vars the CockroachDB Operator expects on a
+// CrdbNode. Anything the source cluster already set wins, so a custom GODEBUG is not
+// silently overridden by the default.
 func appendOperatorRequiredEnv(env []corev1.EnvVar) []corev1.EnvVar {
-	result := make([]corev1.EnvVar, 0, len(env)+2)
-	result = append(result, env...)
-	result = append(result, corev1.EnvVar{
-		Name: "HOST_IP",
-		ValueFrom: &corev1.EnvVarSource{
-			FieldRef: &corev1.ObjectFieldSelector{
-				APIVersion: "v1",
-				FieldPath:  "status.hostIP",
+	required := []corev1.EnvVar{
+		{
+			Name: "HOST_IP",
+			ValueFrom: &corev1.EnvVarSource{
+				FieldRef: &corev1.ObjectFieldSelector{
+					APIVersion: "v1",
+					FieldPath:  "status.hostIP",
+				},
 			},
 		},
-	}, corev1.EnvVar{
-		Name:  "GODEBUG",
-		Value: "disablethp=1",
-	})
+		{
+			Name:  "GODEBUG",
+			Value: "disablethp=1",
+		},
+	}
+
+	existing := make(map[string]struct{}, len(env))
+	for _, e := range env {
+		existing[e.Name] = struct{}{}
+	}
+
+	result := make([]corev1.EnvVar, 0, len(env)+len(required))
+	result = append(result, env...)
+	for _, e := range required {
+		if _, ok := existing[e.Name]; !ok {
+			result = append(result, e)
+		}
+	}
 	return result
 }
 
@@ -415,6 +432,16 @@ func buildHelmValuesFromV1beta1(
 		podTemplateSpec = cluster.Spec.Template.Spec.PodTemplate.Spec
 	}
 
+	// sideCars is no longer rendered by the chart, so fold it into the pod
+	// template. Without this the exported values would silently drop the
+	// containers and volumes the migrated cluster is running with.
+	if sideCars := cluster.Spec.Template.Spec.SideCars; len(sideCars.InitContainers) > 0 ||
+		len(sideCars.Containers) > 0 || len(sideCars.Volumes) > 0 {
+		podTemplateSpec.InitContainers = slices.Concat(podTemplateSpec.InitContainers, sideCars.InitContainers)
+		podTemplateSpec.Containers = slices.Concat(podTemplateSpec.Containers, sideCars.Containers)
+		podTemplateSpec.Volumes = slices.Concat(podTemplateSpec.Volumes, sideCars.Volumes)
+	}
+
 	podTemplateValue := map[string]interface{}{}
 	if len(podTemplateLabels) > 0 || len(podTemplateAnnotations) > 0 {
 		metadata := map[string]interface{}{}
@@ -468,9 +495,6 @@ func buildHelmValuesFromV1beta1(
 	if cluster.Spec.Template.Spec.WALFailoverSpec != nil {
 		crdbCluster["walFailoverSpec"] = cluster.Spec.Template.Spec.WALFailoverSpec
 	}
-	if len(cluster.Spec.Template.Spec.LocalityLabels) > 0 {
-		crdbCluster["localityLabels"] = cluster.Spec.Template.Spec.LocalityLabels
-	}
 	if len(cluster.Spec.Template.Spec.LocalityMappings) > 0 {
 		crdbCluster["localityMappings"] = cluster.Spec.Template.Spec.LocalityMappings
 	}
@@ -484,9 +508,6 @@ func buildHelmValuesFromV1beta1(
 		crdbCluster["log"] = map[string]interface{}{
 			"logsStore": cluster.Spec.Template.Spec.LogsStore,
 		}
-	}
-	if len(cluster.Spec.Template.Spec.SideCars.InitContainers) > 0 || len(cluster.Spec.Template.Spec.SideCars.Containers) > 0 || len(cluster.Spec.Template.Spec.SideCars.Volumes) > 0 {
-		crdbCluster["sideCars"] = cluster.Spec.Template.Spec.SideCars
 	}
 	if cluster.Spec.Template.Spec.StartFlags != nil {
 		crdbCluster["startFlags"] = cluster.Spec.Template.Spec.StartFlags
@@ -768,7 +789,6 @@ func buildNodeSpecFromHelm(
 			},
 		},
 		Domain:               "",
-		LocalityLabels:       input.localityLabels,
 		LoggingConfigMapName: input.loggingConfigMap,
 		Image:                sts.Spec.Template.Spec.Containers[0].Image,
 		GRPCPort:             &input.grpcPort,
@@ -869,8 +889,7 @@ func buildHelmValuesFromHelm(
 		"image": map[string]interface{}{
 			"name": sts.Spec.Template.Spec.Containers[0].Image,
 		},
-		"localityLabels": input.localityLabels,
-		"startFlags":     input.startFlags,
+		"startFlags": input.startFlags,
 		"regions": []map[string]interface{}{
 			{
 				"namespace":     namespace,
@@ -1144,11 +1163,13 @@ func extractJoinStringAndFlags(parsedInput *parsedMigrationInput, args []string)
 		case strings.HasPrefix(arg, insecureFlag):
 			parsedInput.tlsEnabled = false
 
-		case strings.HasPrefix(arg, localityFlag):
-			value := strings.TrimPrefix(arg, localityFlag+"=")
-			labels := strings.Split(value, ",")
-			for i := range labels {
-				parsedInput.localityLabels = append(parsedInput.localityLabels, strings.Split(labels[i], "=")[0])
+		// Carry --locality over untouched. The CockroachDB Operator prefers a locality flag
+		// in startFlags over localityMappings, so upserting it pins the migrated nodes to
+		// the locality they have today.
+		case strings.HasPrefix(arg, localityFlag+"="):
+			flags.Upsert = append(flags.Upsert, arg)
+			for _, tier := range strings.Split(strings.TrimPrefix(arg, localityFlag+"="), ",") {
+				parsedInput.localityTiers = append(parsedInput.localityTiers, strings.Split(tier, "=")[0])
 			}
 
 		// CockroachDB Operator automatically adds "--logs" flag if it is not present.

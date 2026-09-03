@@ -210,7 +210,7 @@ func TestGenerateParsedMigrationInput(t *testing.T) {
 		assert.Equal(t, "myregistrykey", input.imagePullSecrets[0].Name)
 	}
 
-	assert.Equal(t, []string{"country", "region"}, input.localityLabels)
+	assert.Equal(t, []string{"country", "region"}, input.localityTiers)
 	assert.Equal(t, "crdb-critical", input.priorityClassName)
 	expectedJoinString := "${STATEFULSET_NAME}-0.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-1.${STATEFULSET_FQDN}:26257,${STATEFULSET_NAME}-2.${STATEFULSET_FQDN}:26257"
 	expectedFlags := []string{
@@ -219,6 +219,7 @@ func TestGenerateParsedMigrationInput(t *testing.T) {
 		"--certs-dir=/cockroach/cockroach-certs/",
 		"--cache=25%",
 		"--max-sql-memory=25%",
+		"--locality=country=us,region=us-central1",
 		"--wal-failover=path=/cockroach/wal-failover",
 	}
 	assert.Equal(t, expectedFlags, input.startFlags.Upsert)
@@ -500,7 +501,7 @@ func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
 				sqlPort:        26257,
 				grpcPort:       26258,
 				httpPort:       8080,
-				localityLabels: []string{"region", "zone"},
+				localityTiers:   []string{"region", "zone"},
 				startFlags: &v1beta1.Flags{
 					Upsert: []string{
 						"--join=cockroachdb-0.cockroachdb:26257",
@@ -1319,7 +1320,7 @@ func TestBuildNodeSpecFromHelm_WithWalFailover(t *testing.T) {
 				sqlPort:          26257,
 				grpcPort:         26258,
 				httpPort:         8080,
-				localityLabels:   []string{"region", "zone"},
+				localityTiers:    []string{"region", "zone"},
 				walFailoverSpec:  tc.walFailoverSpec,
 				caConfigMap:      "ca-config",
 				nodeSecretName:   "node-secret",

@@ -393,26 +393,6 @@ cockroachdb:
           annotations: {}
           host: ""
       #
-    # sideCars captures the configuration for sidecar containers.
-    sideCars:
-      # initContainers captures init containers for CockroachDB pods.
-      initContainers: []
-      # containers captures additional containers for CockroachDB pods.
-      containers: []
-      # volumes captures additional volumes for CockroachDB pods.
-      volumes: []
-    # localityLabels captures labels used to determine node locality.
-    # It is an ordered, comma-separated list of keys that which must be present as labels on the nodes.
-    # For region and zone to be part of the locality, the labels (topology.kubernetes.io/region, topology.kubernetes.io/region) must be set on the nodes.
-    # For other labels, they must be set on the nodes and will be presented as key/value pairs to the node locality.
-    # Example:
-    # If localityLabels are provided as ["topology.kubernetes.io/region", "topology.kubernetes.io/zone", "example.datacenter.locality"], and the node labels are:
-    #   topology.kubernetes.io/region: us-central1
-    #   topology.kubernetes.io/zone: us-central1-c
-    #   example.datacenter.locality: dc2
-    # the resulting locality flag will be: locality=region=us-central1,zone=us-central1-c,example.datacenter.locality=dc2.
-    # It is recommended to configure `localityMappings` over `localityLabels` for locality flag computation that is passed to the CockroachDB start command.
-    localityLabels: []
     # localityMappings captures labels used to determine node locality.
     # It is an ordered, comma-separated list of key/value pairs that which must be present as labels on the nodes.
     # Each locality mapping captures the relationship between a node label and a locality label.
@@ -495,14 +475,17 @@ cockroachdb:
         #     storageClassName defines the StorageClass for the PVC.
         #     If not set, the default provisioner will be chosen (gp2 on AWS, standard on GKE).
         #     storageClassName: ""
-    # godebug captures Go runtime debug settings for CockroachDB pods.
+    # godebug sets the GODEBUG environment variable on the cockroachdb container.
+    # Each key/value pair becomes one clause. Changing it triggers a rolling restart.
     godebug:
-      # disablethp determines whether Transparent Huge Pages are disabled.
-      # By default, disables THP, which can cause memory inefficiency for CockroachDB.
+      # Disable Transparent Huge Pages, which can cause memory inefficiency for CockroachDB.
       disablethp: "1"
     # podTemplate defines the pod specification to override default pod specification configured by the operator.
     # If specified, podTemplate is merged with the default pod specification, with settings in podTemplate taking precedence.
     # This can be used to add or update containers, volumes, and other settings of the CockroachDB pod.
+    # Containers, init containers and volumes are merged by name. A name that matches one the operator
+    # already creates (cockroachdb, cert-reloader, cockroachdb-init, datadir, logsdir, cockroach-env)
+    # updates that entry, as the examples below do. Any other name is added alongside them.
     podTemplate:
       # metadata captures the pod metadata for CockroachDB pods.
       metadata:
@@ -550,6 +533,8 @@ cockroachdb:
         # # nodeSelector captures the node selector labels for scheduling pods.
         # nodeSelector: {}
         # # affinity captures scheduling affinity rules for CockroachDB pods.
+        # # Unlike the rest of podTemplate, this replaces the operator's affinity instead of merging with
+        # # it. The rule it drops keeps one CockroachDB pod per node, so repeat it here if you still want it.
         # affinity:
         #   nodeAffinity:
         #     requiredDuringSchedulingIgnoredDuringExecution:
