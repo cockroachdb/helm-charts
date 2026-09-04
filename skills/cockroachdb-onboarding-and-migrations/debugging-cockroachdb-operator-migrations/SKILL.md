@@ -16,7 +16,7 @@ Debugs migration from Helm StatefulSet or public operator v1alpha1 workloads to 
 - A Helm StatefulSet to operator migration is stuck or unclear
 - A public operator v1alpha1 to v1beta1 migration has conversion or webhook issues
 - Migration labels remain `start` or `finalized`
-- `status.migration.phase` or `status.migration.message` reports an error
+- The schema-grounded migration status field or migration labels report an error
 - Source StatefulSet ownership, pod ownerReferences, or PVC ownerReferences are unclear
 - The operator stops reconciling after migration
 
@@ -32,6 +32,8 @@ Debugs migration from Helm StatefulSet or public operator v1alpha1 workloads to 
 ## Execution Discipline
 
 - Execute one step at a time and inspect the output before moving on. Migration phase, source workload state, and ownership determine which later checks are safe.
+- Never infer a target `CrdbCluster` object name from a Helm release, service name, or CockroachDB image/version string. List `CrdbCluster` objects and use the exact `metadata.name`.
+- Before reading migration, condition, or status fields from a `CrdbCluster`, save the live CRD YAML and derive field paths from the served CRD schema for the object's `apiVersion`.
 - Do not delete the source StatefulSet, patch labels, patch mode, restart the operator, run Helm upgrades, or change ownerReferences unless the user explicitly approves the action for the target cluster.
 - Do not run interactive `kubectl exec` shells or debug containers unless the user approves them and the customer policy allows the image/source.
 - In production or when the migration phase is ambiguous, involve TSE or the operator team before changing source or target resources.
@@ -40,7 +42,7 @@ Debugs migration from Helm StatefulSet or public operator v1alpha1 workloads to 
 
 - Migration type: Helm StatefulSet to operator, or public operator v1alpha1 to v1beta1
 - Source resource name and namespace
-- Target `CrdbCluster` name and namespace
+- Target namespace and discovered `CrdbCluster.metadata.name`
 - Operator namespace and version
 - Values file or migration command used
 - Current migration label and phase
@@ -49,9 +51,74 @@ Debugs migration from Helm StatefulSet or public operator v1alpha1 workloads to 
 ## Step 1: Confirm Migration Documentation and Versions
 
 ```bash
-kubectl -n <operator-namespace> get deploy cockroach-operator -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
+export OPERATOR_NAMESPACE="<operator-namespace>"
+export CRDB_NAMESPACE="<cockroachdb-namespace>"
+export CRDB_HELM_RELEASE="<cockroachdb-release>"
+export CRDB_MIGRATION_DIR="${CRDB_MIGRATION_DIR:-$(mktemp -d)}"
+
+kubectl -n "$OPERATOR_NAMESPACE" get deploy cockroach-operator -o jsonpath='{.spec.template.spec.containers[0].image}{"\n"}'
 kubectl get crd crdbclusters.crdb.cockroachlabs.com -o jsonpath='{.spec.versions[*].name}{"\n"}'
-helm -n <cockroachdb-namespace> history <cockroachdb-release> || true
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o yaml > "$CRDB_MIGRATION_DIR/crdbclusters-crd.yaml"
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o json > "$CRDB_MIGRATION_DIR/crdbclusters-crd.json"
+helm -n "$CRDB_NAMESPACE" history "$CRDB_HELM_RELEASE" || true
+
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster -o json | jq -r '
+  .items[]
+  | [.metadata.name, .apiVersion, (.metadata.labels["app.kubernetes.io/instance"] // ""), (.metadata.labels["crdb.io/migrate"] // ""), (.metadata.labels["crdb.cockroachlabs.com/migration"] // "")]
+  | @tsv
+'
+```
+
+If no `CrdbCluster` rows are returned, stop the object-specific migration debugging and report that no live `CrdbCluster` exists in the namespace. You may collect `CrdbNode` owner references and labels as teardown evidence, but do not treat those values as a replacement for a discovered `CrdbCluster`.
+
+If multiple rows are returned, choose the target by `metadata.name`; do not use a CockroachDB version or image tag as the object name.
+
+```bash
+export CRDBCLUSTER="<metadata.name-from-crdbcluster-list>"
+test -n "$CRDBCLUSTER"
+
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster "$CRDBCLUSTER" -o yaml > "$CRDB_MIGRATION_DIR/crdbcluster.yaml"
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster "$CRDBCLUSTER" -o json > "$CRDB_MIGRATION_DIR/crdbcluster.json"
+
+export CRDBCLUSTER_API_VERSION="$(jq -r '.apiVersion | split("/")[-1]' "$CRDB_MIGRATION_DIR/crdbcluster.json")"
+export CRDBCLUSTER_SCHEMA_JSON="$CRDB_MIGRATION_DIR/crdbcluster-schema.json"
+jq -e --arg version "$CRDBCLUSTER_API_VERSION" '
+  .spec.versions[] | select(.name == $version) | .schema.openAPIV3Schema
+' "$CRDB_MIGRATION_DIR/crdbclusters-crd.json" > "$CRDBCLUSTER_SCHEMA_JSON"
+
+crdb_schema_has() {
+  jq -e --arg path "$1" '
+    def has_schema_path($schema; $parts):
+      if ($parts | length) == 0 then true
+      elif (($schema.properties? // {}) | has($parts[0])) then
+        has_schema_path($schema.properties[$parts[0]]; $parts[1:])
+      else false
+      end;
+    has_schema_path(.; $path | split("."))
+  ' "$CRDBCLUSTER_SCHEMA_JSON" >/dev/null
+}
+
+crdb_first_schema_path() {
+  for schema_path in "$@"; do
+    if crdb_schema_has "$schema_path"; then
+      printf '%s\n' "$schema_path"
+      return 0
+    fi
+  done
+  printf '\n'
+}
+
+export CRDB_MODE_PATH="$(crdb_first_schema_path spec.mode)"
+export CRDB_MIGRATION_PATH="$(crdb_first_schema_path status.migration)"
+export CRDB_CONDITIONS_PATH="$(crdb_first_schema_path status.conditions)"
+export CRDB_OBSERVED_GENERATION_PATH="$(crdb_first_schema_path status.observedGeneration)"
+
+printf '%s\n' \
+  "apiVersion=$CRDBCLUSTER_API_VERSION" \
+  "mode=$CRDB_MODE_PATH" \
+  "migration=$CRDB_MIGRATION_PATH" \
+  "conditions=$CRDB_CONDITIONS_PATH" \
+  "observedGeneration=$CRDB_OBSERVED_GENERATION_PATH"
 ```
 
 Check the local migration guide and chart changelog for version-specific migration fixes:
@@ -62,20 +129,34 @@ Check the local migration guide and chart changelog for version-specific migrati
 ## Step 2: Inspect Migration State
 
 ```bash
-kubectl -n <cockroachdb-namespace> get crdbcluster <cockroachdb-release> -o json | jq '{
-  mode: .spec.mode,
+jq \
+  --arg modePath "$CRDB_MODE_PATH" \
+  --arg migrationPath "$CRDB_MIGRATION_PATH" \
+  --arg conditionsPath "$CRDB_CONDITIONS_PATH" \
+  --arg observedGenerationPath "$CRDB_OBSERVED_GENERATION_PATH" \
+  '
+  def value($path): if $path == "" then null else getpath($path | split(".")) end;
+  {
+  apiVersion,
+  name: .metadata.name,
+  schemaPaths: {
+    mode: $modePath,
+    migration: $migrationPath,
+    conditions: $conditionsPath,
+    observedGeneration: $observedGenerationPath
+  },
+  mode: value($modePath),
   migrateLabel: .metadata.labels["crdb.io/migrate"],
   migrationStatus: .metadata.labels["crdb.cockroachlabs.com/migration"],
-  migrationPhase: .status.migration.phase,
-  migrationMessage: .status.migration.message,
-  initialized: [.status.conditions[]? | select(.type=="Initialized" or .type=="ClusterInitialized")],
+  migration: value($migrationPath),
+  conditions: value($conditionsPath),
   generation: .metadata.generation,
-  observedGeneration: .status.observedGeneration
-}'
+  observedGeneration: value($observedGenerationPath)
+}' "$CRDB_MIGRATION_DIR/crdbcluster.json"
 
-kubectl -n <operator-namespace> logs -l app=cockroach-operator --tail=300 | grep -Ei 'migrationctrl|migration|phase|cert' || true
-kubectl -n <cockroachdb-namespace> get crdbnodes -o wide
-kubectl -n <cockroachdb-namespace> get crdbnodes -o yaml
+kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --tail=300 | grep -Ei 'migrationctrl|migration|phase|cert' || true
+kubectl -n "$CRDB_NAMESPACE" get crdbnodes -o wide
+kubectl -n "$CRDB_NAMESPACE" get crdbnodes -o yaml
 ```
 
 ## Step 3: Inspect Source Workload
@@ -83,25 +164,25 @@ kubectl -n <cockroachdb-namespace> get crdbnodes -o yaml
 For Helm StatefulSet migration:
 
 ```bash
-kubectl -n <cockroachdb-namespace> get sts <source-statefulset> -o json | jq '{
+kubectl -n "$CRDB_NAMESPACE" get sts <source-statefulset> -o json | jq '{
   replicas: .spec.replicas,
   readyReplicas: .status.readyReplicas,
   migrateLabel: .metadata.labels["crdb.io/migrate"],
   ownerReferences: .metadata.ownerReferences
 }'
 
-kubectl -n <cockroachdb-namespace> get sts <source-statefulset> -o yaml
-kubectl -n <cockroachdb-namespace> get pods -l app.kubernetes.io/name=cockroachdb -o yaml | grep -E 'name:|ownerReferences:|kind:|uid:|controller:' -A8
-kubectl -n <cockroachdb-namespace> get pvc -o yaml | grep -E 'name:|ownerReferences:|kind:|uid:|controller:' -A8
+kubectl -n "$CRDB_NAMESPACE" get sts <source-statefulset> -o yaml
+kubectl -n "$CRDB_NAMESPACE" get pods -l app.kubernetes.io/name=cockroachdb -o yaml | grep -E 'name:|ownerReferences:|kind:|uid:|controller:' -A8
+kubectl -n "$CRDB_NAMESPACE" get pvc -o yaml | grep -E 'name:|ownerReferences:|kind:|uid:|controller:' -A8
 ```
 
 For public operator v1alpha1 migration:
 
 ```bash
-kubectl -n <cockroachdb-namespace> get crdbcluster.crdb.cockroachlabs.com <cluster-name> -o yaml
-kubectl -n <cockroachdb-namespace> get crdbcluster.v1beta1.crdb.cockroachlabs.com <cluster-name> -o yaml 2>&1 || true
-kubectl -n <operator-namespace> get svc cockroach-webhook-service
-kubectl -n <operator-namespace> get endpoints cockroach-webhook-service
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster.crdb.cockroachlabs.com "$CRDBCLUSTER" -o yaml
+kubectl -n "$CRDB_NAMESPACE" get crdbcluster.v1beta1.crdb.cockroachlabs.com "$CRDBCLUSTER" -o yaml 2>&1 || true
+kubectl -n "$OPERATOR_NAMESPACE" get svc cockroach-webhook-service
+kubectl -n "$OPERATOR_NAMESPACE" get endpoints cockroach-webhook-service
 kubectl get validatingwebhookconfigurations | grep cockroach
 ```
 
@@ -122,9 +203,12 @@ The operator supports both v1alpha1 and v1beta1 through conversion webhooks. If 
 ### Migration Not Progressing
 
 ```bash
-kubectl -n <cockroachdb-namespace> get crdbcluster <cockroachdb-release> -o jsonpath='{.status.migration}{"\n"}'
-kubectl -n <operator-namespace> logs -l app=cockroach-operator --tail=300 | grep -Ei 'migration|phase|cert|error' || true
-kubectl -n <operator-namespace> get deploy cockroach-operator -o jsonpath='{.spec.template.spec.containers[0].args}{"\n"}'
+jq --arg migrationPath "$CRDB_MIGRATION_PATH" '
+  def value($path): if $path == "" then null else getpath($path | split(".")) end;
+  {migrationPath: $migrationPath, migration: value($migrationPath)}
+' "$CRDB_MIGRATION_DIR/crdbcluster.json"
+kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --tail=300 | grep -Ei 'migration|phase|cert|error' || true
+kubectl -n "$OPERATOR_NAMESPACE" get deploy cockroach-operator -o jsonpath='{.spec.template.spec.containers[0].args}{"\n"}'
 ```
 
 Check:
@@ -148,10 +232,10 @@ Use [configuring-cockroachdb-helm-tls](../../cockroachdb-operations-and-lifecycl
 ### PodMigration Issues
 
 ```bash
-kubectl -n <cockroachdb-namespace> get pods -l app.kubernetes.io/name=cockroachdb -o wide
-kubectl -n <cockroachdb-namespace> describe pods -l app.kubernetes.io/name=cockroachdb
-kubectl -n <cockroachdb-namespace> get crdbnodes -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,NODE_ID:.status.nodeID,OBSERVED:.status.observedGeneration
-kubectl -n <cockroachdb-namespace> get pvc -o json | jq '.items[] | {name: .metadata.name, ownerReferences: .metadata.ownerReferences, storageClass: .spec.storageClassName, capacity: .status.capacity}'
+kubectl -n "$CRDB_NAMESPACE" get pods -l app.kubernetes.io/name=cockroachdb -o wide
+kubectl -n "$CRDB_NAMESPACE" describe pods -l app.kubernetes.io/name=cockroachdb
+kubectl -n "$CRDB_NAMESPACE" get crdbnodes -o custom-columns=NAME:.metadata.name,PHASE:.status.phase,NODE_ID:.status.nodeID,OBSERVED:.status.observedGeneration
+kubectl -n "$CRDB_NAMESPACE" get pvc -o json | jq '.items[] | {name: .metadata.name, ownerReferences: .metadata.ownerReferences, storageClass: .spec.storageClassName, capacity: .status.capacity}'
 ```
 
 Check:
@@ -185,7 +269,7 @@ Return findings in this order:
 
 1. Migration type and current phase
 2. Source workload state
-3. Target `CrdbCluster` mode, migration labels, and migration message
+3. Target `CrdbCluster` mode, migration labels, and schema-grounded migration status
 4. `CrdbNode`, pod, and PVC ownership state
 5. Current blocker and likely cause
 6. Safe next action
