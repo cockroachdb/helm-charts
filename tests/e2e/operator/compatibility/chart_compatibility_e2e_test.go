@@ -257,7 +257,7 @@ func installCockroachDBChart(
 		},
 	}
 
-	helm.Install(t, options, chart, operator.ReleaseName)
+	operator.HelmInstallWithRetry(t, options, chart, operator.ReleaseName)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroachdb-public", 30, 5*time.Second)
 }
 
@@ -283,7 +283,7 @@ func upgradeCockroachDBChart(
 		},
 	}
 
-	helm.Upgrade(t, options, chart, operator.ReleaseName)
+	operator.HelmUpgradeWithRetry(t, options, chart, operator.ReleaseName)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroachdb-public", 30, 5*time.Second)
 }
 

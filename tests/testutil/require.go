@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"testing"
@@ -109,6 +110,26 @@ func RequireCRDBClusterToBeReadyEventuallyTimeout(t *testing.T, opts *k8s.Kubect
 	require.NoError(t, err)
 }
 
+func ListPodsWithRetry(t *testing.T, opts *k8s.KubectlOptions, options metav1.ListOptions) []corev1.Pod {
+	t.Helper()
+
+	if !shouldRetryKubernetesContext(kubectlContext(opts)) {
+		pods, err := k8s.ListPodsE(t, opts, options)
+		require.NoError(t, err)
+		return pods
+	}
+
+	var pods []corev1.Pod
+	_, err := retry.DoWithRetryE(t, "list pods", 12, 5*time.Second, func() (string, error) {
+		var listErr error
+		pods, listErr = k8s.ListPodsE(t, opts, options)
+		return "", listErr
+	})
+	require.NoError(t, err)
+
+	return pods
+}
+
 func RequirePodToBeCreatedAndReady(t *testing.T, opts *k8s.KubectlOptions, podName string, timeout time.Duration) {
 	ctx := context.Background()
 	require.NoError(t, wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
@@ -151,6 +172,20 @@ func RequireServiceEndpointsAvailable(t *testing.T, opts *k8s.KubectlOptions, se
 			return false, nil
 		},
 	))
+}
+
+func shouldRetryKubernetesContext(contextName string) bool {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("PROVIDER")), "azure") {
+		return true
+	}
+	return strings.HasPrefix(contextName, "azure-")
+}
+
+func kubectlContext(opts *k8s.KubectlOptions) string {
+	if opts == nil {
+		return ""
+	}
+	return opts.ContextName
 }
 
 func logPods(ctx context.Context, sts *appsv1.StatefulSet, cfg *rest.Config, t *testing.T) {
@@ -228,7 +263,17 @@ func getDBConn(t *testing.T, crdbCluster CockroachCluster, dbName string, podNam
 	}
 
 	// Create a new database connection for the update.
-	db, err := database.NewDbConnection(conn)
+	var db *sql.DB
+	var err error
+	if shouldRetryKubernetesContext(crdbCluster.Context) {
+		_, err = retry.DoWithRetryE(t, "open database connection", 12, 5*time.Second, func() (string, error) {
+			var connErr error
+			db, connErr = database.NewDbConnection(conn)
+			return "", connErr
+		})
+	} else {
+		db, err = database.NewDbConnection(conn)
+	}
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		db.Close()
@@ -404,7 +449,7 @@ func RequireCertificatesToBeValid(t *testing.T, crdbCluster CockroachCluster) {
 	kubectlOptions := k8s.NewKubectlOptions(crdbCluster.Context, kubeConfig, crdbCluster.Namespace)
 
 	// Get the node certificate secret and load the node cert
-	nodeSecret := k8s.GetSecret(t, kubectlOptions, crdbCluster.NodeSecret)
+	nodeSecret := getSecretWithRetry(t, kubectlOptions, crdbCluster.NodeSecret)
 	nodeCert := LoadCertificate(t, nodeSecret, "tls.crt")
 
 	t.Log("Verifying the node certificate validity with its secret")
@@ -414,7 +459,7 @@ func RequireCertificatesToBeValid(t *testing.T, crdbCluster CockroachCluster) {
 	t.Log("Verifying node certs are signed by CA certificates")
 	verifyCertificate(t, nodeSecret.Data["ca.crt"], nodeCert)
 
-	clientSecret := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
+	clientSecret := getSecretWithRetry(t, kubectlOptions, crdbCluster.ClientSecret)
 	clientCert := LoadCertificate(t, clientSecret, "tls.crt")
 
 	t.Log("Verifying the client certificate validity with its secret")
@@ -423,7 +468,7 @@ func RequireCertificatesToBeValid(t *testing.T, crdbCluster CockroachCluster) {
 
 	// Get the CA certificate secret and load the ca cert
 	var caCert *x509.Certificate
-	caSecret := k8s.GetSecret(t, kubectlOptions, crdbCluster.CaSecret)
+	caSecret := getSecretWithRetry(t, kubectlOptions, crdbCluster.CaSecret)
 	if _, ok := caSecret.Data["ca.crt"]; !ok {
 		caCert = LoadCertificate(t, nodeSecret, "ca.crt")
 	} else {
@@ -437,6 +482,28 @@ func RequireCertificatesToBeValid(t *testing.T, crdbCluster CockroachCluster) {
 	}
 
 	t.Log("Certificates validated successfully")
+}
+
+func getSecretWithRetry(t *testing.T, kubectlOptions *k8s.KubectlOptions, secretName string) *corev1.Secret {
+	if !shouldRetryKubernetesContext(kubectlContext(kubectlOptions)) {
+		return k8s.GetSecret(t, kubectlOptions, secretName)
+	}
+
+	var secret *corev1.Secret
+	_, err := retry.DoWithRetryE(t, fmt.Sprintf("get secret %s", secretName),
+		12, 5*time.Second,
+		func() (string, error) {
+			fetchedSecret, err := k8s.GetSecretE(t, kubectlOptions, secretName)
+			if err != nil {
+				return "", err
+			}
+
+			secret = fetchedSecret
+			return "", nil
+		})
+	require.NoError(t, err)
+
+	return secret
 }
 
 func LoadCertificate(t *testing.T, certSecret *corev1.Secret, key string) *x509.Certificate {

@@ -34,7 +34,7 @@ type CloudProvider interface {
 func ResolveProvider(t *testing.T) string {
 	if p := strings.TrimSpace(strings.ToLower(os.Getenv("PROVIDER"))); p != "" {
 		switch p {
-		case ProviderK3D, ProviderKind, ProviderGCP, ProviderAWS, ProviderOpenShift:
+		case ProviderK3D, ProviderKind, ProviderGCP, ProviderAWS, ProviderOpenShift, ProviderAzure:
 			return p
 		default:
 			t.Fatalf("Unsupported provider override: %s", p)
@@ -70,6 +70,11 @@ func ProviderFactory(providerType string, region *operator.Region) CloudProvider
 		p := OpenShiftRegion{Region: region}
 		p.RegionCodes = GetRegionCodes(providerType)
 		region.SetProviderRuntime(openShiftRuntime{})
+		cp = &p
+	case ProviderAzure:
+		p := AzureRegion{Region: region}
+		p.RegionCodes = GetRegionCodes(providerType)
+		region.SetProviderRuntime(azureRuntime{})
 		cp = &p
 	default:
 		return nil

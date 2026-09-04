@@ -16,10 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [k3d, kind, gcp, openshift]
+        provider: [k3d, kind, gcp, openshift, azure]
     timeout-minutes: 300
     concurrency:
-      group: ${{ matrix.provider == 'openshift' && 'advanced-features-openshift' || format('advanced-features-{0}-{1}-{2}', github.run_id, github.job, matrix.provider) }}
+      group: ${{ matrix.provider == 'azure' && format('helm-charts-azure-e2e-{0}-advanced-single-region', github.ref_name) || matrix.provider == 'openshift' && 'advanced-features-openshift' || format('advanced-features-{0}-{1}-{2}', github.run_id, github.job, matrix.provider) }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -33,6 +33,7 @@ jobs:
         with:
           go-version: 1.26
       - name: Authenticate to Google Cloud
+        if: ${{ matrix.provider == 'gcp' || matrix.provider == 'openshift' }}
         uses: 'google-github-actions/auth@v2'
         id: auth
         with:
@@ -43,10 +44,42 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Set up gcloud CLI
+        if: ${{ matrix.provider == 'gcp' || matrix.provider == 'openshift' }}
         uses: google-github-actions/setup-gcloud@v2
       - name: Install gke-gcloud-auth-plugin
+        if: ${{ matrix.provider == 'gcp' || matrix.provider == 'openshift' }}
         run: |
           gcloud components install gke-gcloud-auth-plugin
+      - name: Authenticate to Azure
+        if: ${{ matrix.provider == 'azure' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Verify Azure CLI
+        if: ${{ matrix.provider == 'azure' }}
+        shell: bash
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          az version
+          az account show --subscription "${AZURE_SUBSCRIPTION_ID}" --output table
+      - name: Clean up stale Azure resource groups
+        if: ${{ matrix.provider == 'azure' }}
+        shell: bash
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_PREFIX: hc-e2e
+          AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
+        run: |
+          set -euo pipefail
+          ./build/azure-ci-debug.sh snapshot before-stale-cleanup
+          stale_status=0
+          ./build/azure-ci-debug.sh cleanup-old-resource-groups || stale_status="$?"
+          ./build/azure-ci-debug.sh snapshot after-stale-cleanup
+          exit "${stale_status}"
       - name: Install OpenShift tools
         if: ${{ matrix.provider == 'openshift' }}
         shell: bash
@@ -82,7 +115,7 @@ jobs:
             echo "EOF"
           } >> "${GITHUB_ENV}"
       - name: Run tests (advanced features - single region)
-        if: ${{ matrix.provider != 'openshift' }}
+        if: ${{ matrix.provider != 'openshift' && matrix.provider != 'azure' }}
         env:
           PROVIDER: ${{ matrix.provider }}
           TEST_ADVANCED_FEATURES: true
@@ -90,6 +123,34 @@ jobs:
         run: |
           set -euo pipefail
           make test/nightly-e2e/advanced/single-region | tee test_output.log
+      - name: Run tests (advanced features - single region - Azure)
+        if: ${{ matrix.provider == 'azure' }}
+        shell: bash
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          TEST_ADVANCED_FEATURES: true
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_PREFIX: hc-e2e
+          AZURE_RESOURCE_GROUPS_FILE: ${{ runner.temp }}/azure-resource-groups.txt
+          AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
+          E2E_ADVANCED_SINGLE_REGION_TEST_TIMEOUT: 120m
+        run: |
+          set -euo pipefail
+
+          ./build/azure-ci-debug.sh snapshot before-single-region
+          ./build/azure-ci-debug.sh watch 120 &
+          debug_pid="$!"
+          finish_debug() {
+            status="$?"
+            kill "${debug_pid}" 2>/dev/null || true
+            wait "${debug_pid}" 2>/dev/null || true
+            ./build/azure-ci-debug.sh snapshot after-single-region || true
+            exit "${status}"
+          }
+          trap finish_debug EXIT
+
+          unset AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID AZURE_REUSE_CONTEXTS AZURE_RESOURCE_GROUP
+          stdbuf -oL -eL make test/nightly-e2e/advanced/single-region 2>&1 | tee test_output.log
       - name: Run tests (advanced features - single region - OpenShift)
         if: ${{ matrix.provider == 'openshift' }}
         env:
@@ -122,6 +183,21 @@ jobs:
 
           unset OPENSHIFT_REUSE_CONTEXTS OPENSHIFT_REUSE_KUBECONFIG OPENSHIFT_REUSE_KUBECONFIGS
           stdbuf -oL -eL make test/nightly-e2e/advanced/single-region 2>&1 | tee test_output.log
+      - name: Clean up Azure resource groups
+        if: ${{ always() && matrix.provider == 'azure' }}
+        shell: bash
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_PREFIX: hc-e2e
+          AZURE_RESOURCE_GROUPS_FILE: ${{ runner.temp }}/azure-resource-groups.txt
+          AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
+        run: |
+          set -euo pipefail
+          ./build/azure-ci-debug.sh snapshot cleanup-before-single-region || true
+          cleanup_status=0
+          ./build/azure-ci-debug.sh cleanup-resource-groups || cleanup_status="$?"
+          ./build/azure-ci-debug.sh snapshot cleanup-after-single-region || true
+          exit "${cleanup_status}"
       - name: Archive test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -132,6 +208,8 @@ jobs:
           path: |
             test_output.log
             test_output.json
+            ${{ runner.temp }}/azure-debug/*.log
+            ${{ runner.temp }}/azure-resource-groups.txt
             ${{ runner.temp }}/openshift-debug/*.log
             ${{ runner.temp }}/helm-charts-ocp-*/.openshift_install.log
             ${{ runner.temp }}/helm-charts-ocp-*/metadata.json
@@ -179,10 +257,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        provider: [k3d, kind, gcp, openshift]
+        provider: [k3d, kind, gcp, openshift, azure]
     timeout-minutes: 420
     concurrency:
-      group: ${{ matrix.provider == 'openshift' && 'advanced-features-openshift' || format('advanced-features-{0}-{1}-{2}', github.run_id, github.job, matrix.provider) }}
+      group: ${{ matrix.provider == 'azure' && format('helm-charts-azure-e2e-{0}-advanced-multi-region', github.ref_name) || matrix.provider == 'openshift' && 'advanced-features-openshift' || format('advanced-features-{0}-{1}-{2}', github.run_id, github.job, matrix.provider) }}
       cancel-in-progress: false
     permissions:
       contents: read
@@ -196,6 +274,7 @@ jobs:
         with:
           go-version: 1.26
       - name: Authenticate to Google Cloud
+        if: ${{ matrix.provider == 'gcp' || matrix.provider == 'openshift' }}
         uses: 'google-github-actions/auth@v2'
         id: auth
         with:
@@ -206,10 +285,42 @@ jobs:
           workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
           service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
       - name: Set up gcloud CLI
+        if: ${{ matrix.provider == 'gcp' || matrix.provider == 'openshift' }}
         uses: google-github-actions/setup-gcloud@v2
       - name: Install gke-gcloud-auth-plugin
+        if: ${{ matrix.provider == 'gcp' || matrix.provider == 'openshift' }}
         run: |
           gcloud components install gke-gcloud-auth-plugin
+      - name: Authenticate to Azure
+        if: ${{ matrix.provider == 'azure' }}
+        uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Verify Azure CLI
+        if: ${{ matrix.provider == 'azure' }}
+        shell: bash
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+        run: |
+          set -euo pipefail
+          az version
+          az account show --subscription "${AZURE_SUBSCRIPTION_ID}" --output table
+      - name: Clean up stale Azure resource groups
+        if: ${{ matrix.provider == 'azure' }}
+        shell: bash
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_PREFIX: hc-e2e
+          AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
+        run: |
+          set -euo pipefail
+          ./build/azure-ci-debug.sh snapshot before-stale-cleanup
+          stale_status=0
+          ./build/azure-ci-debug.sh cleanup-old-resource-groups || stale_status="$?"
+          ./build/azure-ci-debug.sh snapshot after-stale-cleanup
+          exit "${stale_status}"
       - name: Install OpenShift tools
         if: ${{ matrix.provider == 'openshift' }}
         shell: bash
@@ -248,7 +359,7 @@ jobs:
             echo "EOF"
           } >> "${GITHUB_ENV}"
       - name: Run tests (advanced features - multi region)
-        if: ${{ matrix.provider != 'openshift' }}
+        if: ${{ matrix.provider != 'openshift' && matrix.provider != 'azure' }}
         env:
           PROVIDER: ${{ matrix.provider }}
           TEST_ADVANCED_FEATURES: true
@@ -256,6 +367,34 @@ jobs:
         run: |
           set -euo pipefail
           make test/nightly-e2e/advanced/multi-region | tee test_output.log
+      - name: Run tests (advanced features - multi region - Azure)
+        if: ${{ matrix.provider == 'azure' }}
+        shell: bash
+        env:
+          PROVIDER: ${{ matrix.provider }}
+          TEST_ADVANCED_FEATURES: true
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_PREFIX: hc-e2e
+          AZURE_RESOURCE_GROUPS_FILE: ${{ runner.temp }}/azure-resource-groups.txt
+          AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
+          E2E_ADVANCED_MULTI_REGION_TEST_TIMEOUT: 120m
+        run: |
+          set -euo pipefail
+
+          ./build/azure-ci-debug.sh snapshot before-multi-region
+          ./build/azure-ci-debug.sh watch 120 &
+          debug_pid="$!"
+          finish_debug() {
+            status="$?"
+            kill "${debug_pid}" 2>/dev/null || true
+            wait "${debug_pid}" 2>/dev/null || true
+            ./build/azure-ci-debug.sh snapshot after-multi-region || true
+            exit "${status}"
+          }
+          trap finish_debug EXIT
+
+          unset AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID AZURE_REUSE_CONTEXTS AZURE_RESOURCE_GROUP
+          stdbuf -oL -eL make test/nightly-e2e/advanced/multi-region 2>&1 | tee test_output.log
       - name: Run tests (advanced features - multi region - OpenShift)
         if: ${{ matrix.provider == 'openshift' }}
         env:
@@ -293,6 +432,21 @@ jobs:
 
           unset OPENSHIFT_REUSE_CONTEXTS OPENSHIFT_REUSE_KUBECONFIG OPENSHIFT_REUSE_KUBECONFIGS
           stdbuf -oL -eL make test/nightly-e2e/advanced/multi-region > >(tee test_output.log) 2>&1
+      - name: Clean up Azure resource groups
+        if: ${{ always() && matrix.provider == 'azure' }}
+        shell: bash
+        env:
+          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_PREFIX: hc-e2e
+          AZURE_RESOURCE_GROUPS_FILE: ${{ runner.temp }}/azure-resource-groups.txt
+          AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
+        run: |
+          set -euo pipefail
+          ./build/azure-ci-debug.sh snapshot cleanup-before-multi-region || true
+          cleanup_status=0
+          ./build/azure-ci-debug.sh cleanup-resource-groups || cleanup_status="$?"
+          ./build/azure-ci-debug.sh snapshot cleanup-after-multi-region || true
+          exit "${cleanup_status}"
       - name: Archive test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -303,6 +457,8 @@ jobs:
           path: |
             test_output.log
             test_output.json
+            ${{ runner.temp }}/azure-debug/*.log
+            ${{ runner.temp }}/azure-resource-groups.txt
             ${{ runner.temp }}/openshift-debug/*.log
             ${{ runner.temp }}/helm-charts-ocp-*/.openshift_install.log
             ${{ runner.temp }}/helm-charts-ocp-*/metadata.json

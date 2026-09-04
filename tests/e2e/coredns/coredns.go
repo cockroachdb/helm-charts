@@ -346,11 +346,83 @@ type CoreDNSClusterOption struct {
 	IPs []string
 }
 
+// CoreDNSCustomConfigMapData returns the AKS-style coredns-custom data map:
+// a "rewrite.override" entry plus "<host>.server" entries for every remote
+// cluster. This is the data AKS's managed CoreDNS reads from the
+// coredns-custom ConfigMap, and matches the map entries CoreDNSConfigMap
+// computes internally for its Corefile.
+func CoreDNSCustomConfigMapData(
+	thisDomain string, allClusters map[string]CoreDNSClusterOption,
+) map[string]string {
+	return buildCoreDNSDataMap(thisDomain, allClusters)
+}
+
+func buildCoreDNSDataMap(
+	thisDomain string, allClusters map[string]CoreDNSClusterOption,
+) map[string]string {
+	dataMap := map[string]string{}
+
+	quotedDomain := regexp.QuoteMeta(thisDomain)
+	rewriteStr := fmt.Sprintf(`rewrite continue {
+		name regex ^(.+)\.%s\.?$ {1}.cluster.local
+		answer name ^(.+)\.cluster\.local\.?$ {1}.%s
+		answer value ^(.+)\.cluster\.local\.?$ {1}.%s
+	}`, quotedDomain, thisDomain, thisDomain)
+	dataMap["rewrite.override"] = rewriteStr
+
+	clusters := make([]string, 0, len(allClusters))
+	for clusterDomain := range allClusters {
+		clusters = append(clusters, clusterDomain)
+	}
+	sort.Strings(clusters)
+
+	for _, clusterDomain := range clusters {
+		if clusterDomain == thisDomain {
+			continue
+		}
+		cluster := allClusters[clusterDomain]
+		if len(cluster.IPs) == 0 {
+			continue
+		}
+
+		sortedIPs := append([]string{}, cluster.IPs...)
+		sort.Strings(sortedIPs)
+		ipAddresses := strings.Join(sortedIPs, " ")
+
+		serverBlockStr := fmt.Sprintf(`{
+	log
+	errors
+	ready
+	cache 30
+	forward . %s {
+		force_tcp
+	}
+}`, ipAddresses)
+
+		var servers []string
+		if cluster.Namespace != "" {
+			servers = append(
+				servers,
+				fmt.Sprintf("%s.svc.%s", cluster.Namespace, clusterDomain),
+				fmt.Sprintf("%s.pod.%s", cluster.Namespace, clusterDomain),
+			)
+		}
+		servers = append(servers, clusterDomain)
+
+		for _, server := range servers {
+			dataMap[fmt.Sprintf("%s.server", server)] = fmt.Sprintf("%s:53 %s\n", server, serverBlockStr)
+		}
+	}
+
+	return dataMap
+}
+
 // CoreDNSConfigMap will have all the rules required to forward
 // service requests of other cluster domains.
-func CoreDNSConfigMap(thisDomain string, allClusters map[string]CoreDNSClusterOption) *corev1.ConfigMap {
+func CoreDNSConfigMap(
+	thisDomain string, allClusters map[string]CoreDNSClusterOption,
+) *corev1.ConfigMap {
 	var data strings.Builder
-	dataMap := map[string]string{}
 
 	// Our addition to the typical default server configuration.
 	quotedDomain := regexp.QuoteMeta(thisDomain)
@@ -359,11 +431,6 @@ func CoreDNSConfigMap(thisDomain string, allClusters map[string]CoreDNSClusterOp
 		answer name ^(.+)\.cluster\.local\.?$ {1}.%s
 		answer value ^(.+)\.cluster\.local\.?$ {1}.%s
 	}`, quotedDomain, thisDomain, thisDomain)
-
-	// We provide the rewrite string to Azure as a ".override" map entry.
-	// We provide it to AWS and GCP by directly constructing the entire
-	// default server string.
-	dataMap["rewrite.override"] = rewriteStr
 	// "It returns the length of s and a nil error, or else it gets the
 	// hose again"
 	// - https://golang.org/pkg/strings/#Builder.WriteString
@@ -448,11 +515,6 @@ func CoreDNSConfigMap(thisDomain string, allClusters map[string]CoreDNSClusterOp
 
 		for _, server := range servers {
 			serverStr := fmt.Sprintf("%s:53 %s\n", server, serverBlockStr)
-			// We provide the server configuration to Azure as a ".server" map
-			// entry.
-			// We provide the server configuration to AWS and GCP as a direct
-			// entry in the Corefile string.
-			dataMap[fmt.Sprintf("%s.server", server)] = serverStr
 			// "It returns the length of s and a nil error, or else it gets the
 			// hose again"
 			// - https://golang.org/pkg/strings/#Builder.WriteString
