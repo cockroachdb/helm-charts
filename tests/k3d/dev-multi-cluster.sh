@@ -8,7 +8,7 @@ set -euo pipefail
 # Default configuration
 DEFAULT_NODES=1
 DEFAULT_CLUSTERS=1
-DEFAULT_K8S_VERSION="v1.32.9"
+DEFAULT_K8S_VERSION="v1.32.13"
 DEFAULT_CLUSTER_NAME="local"
 
 # Region and networking configuration
@@ -117,6 +117,7 @@ create_clusters() {
     # K3d cluster configuration
     local k3d_args=(
         "${K3D_PATH}" cluster create "${cluster_name}"
+        --image "rancher/k3s:${version}-k3s1"
 #       --subnet ${subnet}
         --no-lb
 #       --servers-memory 2GB
@@ -135,12 +136,6 @@ create_clusters() {
 #       --registry-config "$SCRIPT_DIR/registries.yaml"  # Use this flag if k3s containers need access to local registries
         --agents ${nodes} # Number of agent nodes        # Use this Add more worker nodes
     )
-
-    # Only add --image if version is explicitly set by user
-    # else use the latest default k8s version
-    if [[ "${version}" != "${DEFAULT_K8S_VERSION}" ]]; then
-        k3d_args+=(--image "rancher/k3s:${version}-k3s1")
-    fi
 
     if ! "${k3d_args[@]}"; then
         echo "Error creating K3D cluster: ${cluster_name}"
