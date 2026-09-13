@@ -114,6 +114,46 @@ $ helm install $CRDBOPERATOR ./cockroachdb-parent/charts/operator -n $NAMESPACE
 - If the `cloudProvider` is `azure`, create an application in your Azure tenant and create a secret named `azure-cluster-identity-credentials-secret` which contains `azure_client_id` and  `azure_client_secret` to hold the application credentials.[2]
 - Modify the other relevant configuration like `topologySpreadConstraints`, `localityLabels`,  `service.ports`, as required.
 
+#### Topology spread constraints with operators before v1.1.0
+
+Chart releases before `cockroachdb-parent-25.3.4-preview+1` already render topology spread
+constraints from the first-class `cockroachdb.crdbCluster.topologySpreadConstraints` value, so no
+compatibility action is required.
+
+Starting with `cockroachdb-parent-25.3.4-preview+1`, the chart removed the first-class field from
+`cockroachdb-parent/charts/cockroachdb/values.yaml` and
+`cockroachdb-parent/charts/cockroachdb/templates/crdb.yaml` in favor of `podTemplate`. However,
+operator versions earlier than `v1.1.0` still require the first-class
+`spec.template.spec.topologySpreadConstraints` field for topology-aware scale-down.
+
+When using one of these chart releases with an operator earlier than `v1.1.0`, ensure the
+first-class field remains on the `CrdbCluster` through every Helm install or upgrade. The default
+chart does not restore the deprecated field. Users who maintain a local copy of the chart can
+temporarily add it back to both files. Add the value to `values.yaml`:
+
+```yaml
+cockroachdb:
+  crdbCluster:
+    topologySpreadConstraints:
+      - maxSkew: 1
+        topologyKey: topology.kubernetes.io/zone
+        whenUnsatisfiable: DoNotSchedule
+```
+
+Add this rendering block under `spec.template.spec` in `templates/crdb.yaml`:
+
+```yaml
+{{ "{{- with .Values.cockroachdb.crdbCluster.topologySpreadConstraints }}" }}
+topologySpreadConstraints: {{ "{{- toYaml . | nindent 8 }}" }}
+{{ "{{- end }}" }}
+```
+
+Moving the constraints to `podTemplate` is not required before upgrading the operator. If
+`podTemplate.spec.topologySpreadConstraints` is already configured, or is configured during this
+period, keep the same constraints in both fields. After every operator managing the cluster is on
+`v1.1.0`, remove the temporary first-class value and rendering block; keep the `podTemplate` value
+if it is in use.
+
 Install the cockroachdb chart:
 
 ```shell

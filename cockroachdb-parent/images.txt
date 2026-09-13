@@ -11,7 +11,7 @@
 # === Operator chart images ===
 
 # CockroachDB Operator
-docker.io/cockroachdb/cockroachdb-operator-v2:v1.0.0
+docker.io/cockroachdb/cockroachdb-operator-v2:v1.1.0
 
 # === CockroachDB chart images ===
 
@@ -27,7 +27,7 @@ docker.io/cockroachdb/cockroach-self-signer-cert:1.10
 # air-gapped environments.
 
 # Init container
-docker.io/cockroachdb/cockroachdb-init-container:v1.0.0
+docker.io/cockroachdb/cockroachdb-init-container:v1.1.0
 
 # Cert reloader (inotifywait)
-docker.io/cockroachdb/cockroachdb-cert-reloader:v1.0.0
+docker.io/cockroachdb/cockroachdb-cert-reloader:v1.1.0

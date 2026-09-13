@@ -3,6 +3,53 @@
 <!-- For new releases, separate Helm installations, Non-Helm installations,
 and shared Operator behavior when those categories apply. -->
 
+## [1.1.0] — 2026-09-21
+
+### Helm installations
+
+#### Changed
+- Updated the default operator image to `docker.io/cockroachdb/cockroachdb-operator-v2:v1.1.0`.
+
+### Non-Helm installations
+
+#### Changed
+- Updated the rendered operator bundle to use the `v1.1.0` operator and related images.
+
+### Operator behavior
+
+#### Fixed
+- Fixed cluster initialization attempts that could hang indefinitely and block reconciliation of
+  other `CrdbCluster` resources. Initialization now times out and retries without blocking other
+  clusters, with failures surfaced through status, events, and logs.
+- Fixed an issue with cluster-scoped PriorityClasses that caused repeated patches and
+  `OwnerRefInvalidNamespace` warnings when multiple `CrdbCluster` resources were installed in the
+  same Kubernetes cluster. PriorityClasses no longer receive `CrdbCluster` owner references, and
+  stale references are removed during reconciliation.
+- Fixed rolling operations that could stall when the under-replicated ranges check selected a
+  running but unready pod. The check now uses a ready pod.
+- Fixed WAL volume size changes triggering CockroachDB pod restarts. Existing node revision hashes
+  are updated without restarting healthy pods.
+- Fixed the operator continuing with an empty cloud region when node metadata lookup fails. The
+  operator now falls back to `CLOUD_REGION` and exits with an error when no region can be resolved.
+- Fixed topology-aware scale-down for clusters that configure `topologySpreadConstraints` through
+  `podTemplate`. The operator now derives topology information from the effective rendered Pod and
+  refreshes it when Kubernetes Node labels change.
+- Fixed migration conversion webhook TLS failures after operator certificate rotation. The operator
+  now keeps the `CrdbCluster` CRD conversion webhook CA bundle synchronized without requiring a
+  restart.
+
+### Upgrade Notes
+- The `cockroachdb-parent-25.3.4-preview+1` release moved `topologySpreadConstraints` from the
+  deprecated first-class field to `podTemplate`. Operators earlier than `v1.1.0` still require the
+  first-class field for topology-aware scale-down. Users running that or a later chart with an
+  earlier operator must temporarily restore the field in both `values.yaml` and
+  `templates/crdb.yaml` and keep it present through every Helm operation until the operator is
+  upgraded. Configuring `podTemplate.spec.topologySpreadConstraints` is optional; if both fields
+  are configured, keep their constraints equivalent.
+
+See [Topology spread constraints with operators before v1.1.0](../cockroachdb/README.md#topology-spread-constraints-with-operators-before-v110)
+for the Helm configuration and temporary compatibility steps.
+
 ## [1.0.0] — 2026-08-05
 
 ### Helm installations
