@@ -3,6 +3,51 @@
 <!-- For new releases, separate Helm installations, Non-Helm installations,
 and shared Operator behavior when those categories apply. -->
 
+## [1.1.0] — 2026-09-21
+
+### Helm installations
+
+#### Changed
+- Updated the default operator image to `docker.io/cockroachdb/cockroachdb-operator-v2:v1.1.0`.
+
+### Non-Helm installations
+
+#### Changed
+- Updated the rendered operator bundle to use the `v1.1.0` operator and related images.
+
+### Operator behavior
+
+#### Fixed
+- Fixed cluster initialization attempts that could hang indefinitely and block the operator from
+  reconciling other `CrdbCluster` resources. Initialization attempts now time out and retry against
+  the same pinned `CrdbNode`, while multiple controller workers allow other clusters to continue
+  reconciling. Failures are reported through cluster status, readiness checks, Kubernetes warning
+  events, and operator logs.
+- Fixed an issue with cluster-scoped PriorityClasses that caused repeated patches and
+  `OwnerRefInvalidNamespace` warnings when multiple `CrdbCluster` resources were installed in the
+  same Kubernetes cluster. PriorityClasses no longer receive `CrdbCluster` owner references, and
+  stale references are removed during reconciliation.
+- Fixed rolling operations that could stall when the under-replicated ranges check selected a
+  running but unready pod. The check now uses a ready pod.
+- Fixed WAL volume size changes triggering CockroachDB pod restarts. Existing node revision hashes
+  are updated without restarting healthy pods.
+- Fixed the operator continuing with an empty cloud region when node metadata lookup fails. The
+  operator now falls back to `CLOUD_REGION` and exits with an error when no region can be resolved.
+- Fixed topology-aware scale-down for clusters that configure `topologySpreadConstraints` through
+  `podTemplate`. The operator now derives `CrdbNode` topology status from the effective rendered
+  Pod and refreshes it when Kubernetes Node labels change.
+- Fixed migration conversion webhook TLS failures after operator certificate rotation. The operator
+  now keeps the `CrdbCluster` CRD conversion webhook CA bundle synchronized without requiring a
+  restart.
+
+### Upgrade Notes
+- Until the operator is upgraded to `v1.1.0`, users who have moved
+  `spec.template.spec.topologySpreadConstraints` to
+  `spec.template.spec.podTemplate.spec.topologySpreadConstraints` must keep the equivalent
+  deprecated first-class field configured as well. This preserves topology-aware scale-down during
+  the transition. After all operator replicas are running `v1.1.0`, the deprecated field can be
+  removed.
+
 ## [1.0.0] — 2026-08-05
 
 ### Helm installations
