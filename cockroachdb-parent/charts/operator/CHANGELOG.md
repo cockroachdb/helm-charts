@@ -3,6 +3,37 @@
 <!-- For new releases, separate Helm installations, Non-Helm installations,
 and shared Operator behavior when those categories apply. -->
 
+## [1.0.1] — 2026-09-13
+
+### Helm installations
+
+#### Changed
+- Updated the default operator image to `docker.io/cockroachdb/cockroachdb-operator-v2:v1.0.1`.
+
+### Non-Helm installations
+
+#### Changed
+- Updated the rendered operator bundle to use the `v1.0.1` operator and related images.
+
+### Operator behavior
+
+#### Fixed
+- Fixed cluster initialization attempts that could hang indefinitely and block the operator from
+  reconciling other `CrdbCluster` resources. Initialization attempts now time out and retry against
+  the same pinned `CrdbNode`, while multiple controller workers allow other clusters to continue
+  reconciling. Failures are reported through cluster status, readiness checks, Kubernetes warning
+  events, and operator logs.
+- Fixed an issue with cluster-scoped PriorityClasses that caused repeated patches and
+  `OwnerRefInvalidNamespace` warnings when multiple `CrdbCluster` resources were installed in the
+  same Kubernetes cluster. PriorityClasses no longer receive `CrdbCluster` owner references, and
+  stale references are removed during reconciliation.
+- Fixed rolling operations that could stall when the under-replicated ranges check selected a
+  running but unready pod. The check now uses a ready pod.
+- Fixed WAL volume size changes triggering CockroachDB pod restarts. Existing node revision hashes
+  are updated without restarting healthy pods.
+- Fixed the operator continuing with an empty cloud region when node metadata lookup fails. The
+  operator now falls back to `CLOUD_REGION` and exits with an error when no region can be resolved.
+
 ## [1.0.0] — 2026-08-05
 
 ### Helm installations

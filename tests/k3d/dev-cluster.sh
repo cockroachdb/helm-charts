@@ -9,7 +9,7 @@ set -euo pipefail
 DEFAULT_REGION="us-east-1"
 DEFAULT_ZONES=3
 DEFAULT_NODES=1
-DEFAULT_K8S_VERSION="v1.32.9"
+DEFAULT_K8S_VERSION="v1.32.13"
 DEFAULT_CLUSTER_NAME="local"
 
 # Binary paths
@@ -94,6 +94,7 @@ create_cluster() {
     # K3d cluster configuration
     local k3d_args=(
         "${K3D_PATH}" cluster create "${cluster_name}"
+        --image "rancher/k3s:${version}-k3s1"
 #       --subnet ${subnet}
         --no-lb
 #       --servers-memory 2GB
