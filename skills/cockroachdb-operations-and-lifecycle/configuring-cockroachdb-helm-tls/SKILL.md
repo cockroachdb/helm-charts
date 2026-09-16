@@ -86,7 +86,7 @@ Validate:
 
 ```bash
 kubectl -n <namespace> get secret custom-ca-secret
-helm template crdb ./cockroachdb-parent/charts/cockroachdb -n <namespace> -f values.yaml >/tmp/crdb-rendered.yaml
+helm template crdb ./cockroachdb-operator/charts/cockroachdb -n <namespace> -f values.yaml >/tmp/crdb-rendered.yaml
 ```
 
 ## Cert-Manager Values
@@ -263,6 +263,6 @@ Escalate with [collecting-cockroachdb-operator-escalation-packet](../../cockroac
 
 - [Self-signer certificate management](../../../docs/certificate-management/self-signer.md)
 - [cert-manager certificate management](../../../docs/certificate-management/cert-manager.md)
-- [CockroachDB Helm Chart README](../../../cockroachdb-parent/charts/cockroachdb/README.md)
+- [CockroachDB Helm Chart README](../../../cockroachdb-operator/charts/cockroachdb/README.md)
 - [CockroachDB Docs: Authentication](https://www.cockroachlabs.com/docs/stable/authentication.html)
 - [Operator escalation packet collection](../../cockroachdb-observability-and-diagnostics/collecting-cockroachdb-operator-escalation-packet/SKILL.md)

@@ -178,7 +178,7 @@ Install the operator with migration enabled. This registers the migration contro
 which watches for the `crdb.io/migrate` label.
 
 ```bash
-helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
+helm upgrade --install crdb-operator ./cockroachdb-operator/charts/operator \
   --set migration.enabled=true \
   --set cloudRegion=$REGION
 ```
@@ -204,7 +204,7 @@ Operator to the target namespace and use a distinct `appLabel` to avoid selector
 CrdbClusters cluster-wide, interfering with clusters managed by the public operator.
 
 ```bash
-helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
+helm upgrade --install crdb-operator ./cockroachdb-operator/charts/operator \
   --set migration.enabled=true \
   --set cloudRegion=$REGION \
   --set appLabel=cockroachdb-operator \
@@ -265,7 +265,7 @@ kubectl exec $STS_NAME-0 -n $NAMESPACE -c db -- \
 `cockroach node status --ranges` targets the system virtual cluster
 automatically. For the direct SQL diagnostic alternative and its
 `allow_unsafe_internals` and UA routing requirements, see
-[Inspect cluster health manually](../../../cockroachdb-parent/charts/operator/README.md#inspect-cluster-health-manually).
+[Inspect cluster health manually](../../../cockroachdb-operator/charts/operator/README.md#inspect-cluster-health-manually).
 For insecure clusters, replace `--certs-dir=/cockroach/cockroach-certs` with
 `--insecure`.
 
@@ -585,7 +585,7 @@ kubectl get pods -n $NAMESPACE -l crdb.cockroachlabs.com/cluster=$STS_NAME
 ```
 
 ```bash
-helm upgrade ${RELEASE_NAME} ./cockroachdb-parent/charts/cockroachdb \
+helm upgrade ${RELEASE_NAME} ./cockroachdb-operator/charts/cockroachdb \
   --namespace ${NAMESPACE} \
   --force-conflicts \
   --values ./manifests/values.yaml
@@ -608,7 +608,7 @@ configuration is fully applied. Post-migration there is no StatefulSet, so trigg
 restart via `helm upgrade` with an updated timestamp:
 
 ```bash
-helm upgrade ${RELEASE_NAME} ./cockroachdb-parent/charts/cockroachdb \
+helm upgrade ${RELEASE_NAME} ./cockroachdb-operator/charts/cockroachdb \
   --namespace ${NAMESPACE} \
   --set cockroachdb.crdbCluster.timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --values ./manifests/values.yaml
@@ -846,7 +846,7 @@ kubectl exec $STS_NAME-0 -n $NAMESPACE -c db -- \
 
 For the direct SQL diagnostic alternative and its `allow_unsafe_internals` and
 UA routing requirements, see
-[Inspect cluster health manually](../../../cockroachdb-parent/charts/operator/README.md#inspect-cluster-health-manually).
+[Inspect cluster health manually](../../../cockroachdb-operator/charts/operator/README.md#inspect-cluster-health-manually).
 
 ### Status Conflict Errors
 

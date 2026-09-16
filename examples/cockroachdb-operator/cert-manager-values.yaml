@@ -1,4 +1,4 @@
-# Follow Cert-manager section from the cockroachdb-parents/charts/cockroachdb/README.md to deploy the Secret, Issuer and Bundle resources.
+# Follow Cert-manager section from the cockroachdb-operator/charts/cockroachdb/README.md to deploy the Secret, Issuer and Bundle resources.
 # Once it is deployed you can run this values.yaml file to deploy the CockroachDB cluster with cert-manager.
 
 # Values configuration for the cert-manager.

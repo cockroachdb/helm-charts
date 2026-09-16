@@ -42,10 +42,10 @@ const usage = `Usage:
 type chartKind int
 
 const (
-	chartKindLegacy      chartKind = iota // cockroachdb/
-	chartKindCockroachDB                  // cockroachdb-parent/charts/cockroachdb/
-	chartKindOperator                     // cockroachdb-parent/charts/operator/
-	chartKindParent                       // cockroachdb-parent/
+	chartKindLegacy      chartKind = iota // cockroachdb-legacy/
+	chartKindCockroachDB                  // cockroachdb-operator/charts/cockroachdb/
+	chartKindOperator                     // cockroachdb-operator/charts/operator/
+	chartKindParent                       // cockroachdb-operator/
 )
 
 func (k chartKind) String() string {
@@ -137,10 +137,10 @@ func main() {
 }
 
 var chartPaths = map[chartKind]string{
-	chartKindLegacy:      "cockroachdb/Chart.yaml",
-	chartKindCockroachDB: "cockroachdb-parent/charts/cockroachdb/Chart.yaml",
-	chartKindOperator:    "cockroachdb-parent/charts/operator/Chart.yaml",
-	chartKindParent:      "cockroachdb-parent/Chart.yaml",
+	chartKindLegacy:      "cockroachdb-legacy/Chart.yaml",
+	chartKindCockroachDB: "cockroachdb-operator/charts/cockroachdb/Chart.yaml",
+	chartKindOperator:    "cockroachdb-operator/charts/operator/Chart.yaml",
+	chartKindParent:      "cockroachdb-operator/Chart.yaml",
 }
 
 func validateChartTarget(target string) error {
@@ -162,11 +162,11 @@ func validateNoDowngrade(current, proposed *semver.Version, component string) er
 func chartKindFromPath(relPath string) chartKind {
 	normalized := filepath.ToSlash(relPath)
 	switch {
-	case strings.HasPrefix(normalized, "cockroachdb-parent/charts/operator"):
+	case strings.HasPrefix(normalized, "cockroachdb-operator/charts/operator"):
 		return chartKindOperator
-	case strings.HasPrefix(normalized, "cockroachdb-parent/charts/cockroachdb"):
+	case strings.HasPrefix(normalized, "cockroachdb-operator/charts/cockroachdb"):
 		return chartKindCockroachDB
-	case strings.HasPrefix(normalized, "cockroachdb-parent"):
+	case strings.HasPrefix(normalized, "cockroachdb-operator"):
 		return chartKindParent
 	default:
 		return chartKindLegacy
@@ -269,7 +269,7 @@ func updateCRDBReleaseMetadata(root string, release crdbReleaseMetadata) error {
 		"v"+release.PreviousVersion, "v"+release.Version,
 	)
 	if err := prependChangelogEntry(
-		filepath.Join(root, "cockroachdb-parent/charts/cockroachdb/CHANGELOG.md"),
+		filepath.Join(root, "cockroachdb-operator/charts/cockroachdb/CHANGELOG.md"),
 		fmt.Sprintf("## [%s] — %s", release.CockroachDBChartVersion, release.Date),
 		v2Entry,
 	); err != nil {
@@ -283,7 +283,7 @@ func updateCRDBReleaseMetadata(root string, release crdbReleaseMetadata) error {
 			"v"+release.PreviousVersion, "v"+release.Version,
 		)
 		if err := prependChangelogEntry(
-			filepath.Join(root, "cockroachdb/CHANGELOG.md"),
+			filepath.Join(root, "cockroachdb-legacy/CHANGELOG.md"),
 			fmt.Sprintf("## [%s] %s", release.LegacyChartVersion, release.Date),
 			legacyEntry,
 		); err != nil {
@@ -328,9 +328,9 @@ func prependChangelogEntry(path, heading, entry string) error {
 }
 
 func updateCRDBImageReferences(root, version string) error {
-	paths := []string{filepath.Join(root, "cockroachdb-parent/images.txt")}
+	paths := []string{filepath.Join(root, "cockroachdb-operator/images.txt")}
 	examplePaths, err := filepath.Glob(filepath.Join(
-		root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/*.yaml",
+		root, "cockroachdb-operator/charts/operator/manifests/examples/crdb/*.yaml",
 	))
 	if err != nil {
 		return fmt.Errorf("cannot list CockroachDB example manifests: %w", err)

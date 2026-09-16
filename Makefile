@@ -70,12 +70,12 @@ generate: ## generate files from templates in build/templates
 
 .PHONY: generate/operator-manifest
 generate/operator-manifest: bin/helm ## render the kubectl-installable operator bundle
-	@mkdir -p cockroachdb-parent/charts/operator/manifests
-	@bin/helm template cockroachdb-operator cockroachdb-parent/charts/operator \
+	@mkdir -p cockroachdb-operator/charts/operator/manifests
+	@bin/helm template cockroachdb-operator cockroachdb-operator/charts/operator \
 		--namespace cockroachdb \
 		--set cloudRegion=local \
 		--set selfSignedOperatorCerts=true \
-		> cockroachdb-parent/charts/operator/manifests/cockroachdb-operator.yaml
+		> cockroachdb-operator/charts/operator/manifests/cockroachdb-operator.yaml
 
 build/chart: bin/helm ## build the legacy helm chart to build/artifacts
 	@build/make.sh
@@ -83,11 +83,11 @@ build/chart: bin/helm ## build the legacy helm chart to build/artifacts
 build/v2-charts: bin/helm ## build operator + cockroachdb charts to build/artifacts/v2
 	@build/make.sh v2
 
-SELF_SIGNER_TAG = $(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)
+SELF_SIGNER_TAG = $(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb-legacy/values.yaml)
 
 build/self-signer: bin/yq ## build the self-signer image
 	@docker build -f build/docker-image/self-signer-cert-utility/Dockerfile \
-		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) \
+		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb-legacy/Chart.yaml) \
 		-t ${REGISTRY}/${REPOSITORY}:$(SELF_SIGNER_TAG) .
 
 ##@ Release
@@ -100,7 +100,7 @@ release/v2: ## publish v2 charts to GCS and OCI registries
 
 build-and-push/self-signer: bin/yq ## push the self-signer image
 	@docker buildx build --platform=linux/amd64,linux/arm64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
-		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) --push \
+		--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb-legacy/Chart.yaml) --push \
 		-t ${REGISTRY}/${REPOSITORY}:$(SELF_SIGNER_TAG) .
 
 ##@ Dev
@@ -125,9 +125,9 @@ dev/registries/bounce: bin/k3d dev/registries/down dev/registries/up
 dev/push/local: dev/registries/up
 	@echo "$(CYAN)Pushing image to local registry...$(NC)"
 	@docker build --platform=linux/amd64 -f build/docker-image/self-signer-cert-utility/Dockerfile \
-          	--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb/Chart.yaml) \
-          	-t ${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml) .
-	@docker push "${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
+          	--build-arg COCKROACH_VERSION=$(shell bin/yq '.appVersion' ./cockroachdb-legacy/Chart.yaml) \
+          	-t ${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb-legacy/values.yaml) .
+	@docker push "${LOCAL_REGISTRY}/${REPOSITORY}:$(shell bin/yq '.tls.selfSigner.image.tag' ./cockroachdb-legacy/values.yaml)"
 
 ##@ Test
 test/cluster/bounce: bin/k3d test/cluster/down test/cluster/up ## restart a local k3d cluster for testing
@@ -188,11 +188,17 @@ test/nightly-e2e/advanced/multi-region: bin/cockroach bin/kubectl bin/helm build
 	@PATH="$(PWD)/bin:${PATH}" PROVIDER=$${PROVIDER:-kind} TEST_ADVANCED_FEATURES=true go test -timeout $(E2E_ADVANCED_MULTI_REGION_TEST_TIMEOUT) -v -test.run TestOperatorInMultiRegion ./tests/e2e/operator/multiRegion/... || (echo "Advanced multi-region tests failed with exit code $$?" && exit 1)
 
 
+validate/rename: bin/helm bin/yq bin/k3d bin/kubectl ## validate the chart-folder rename end-to-end
+	@./scripts/validate-rename.sh
+
+validate/rename/quick: bin/helm bin/yq ## validate rename without the k3d smoke deploy
+	@./scripts/validate-rename.sh --skip-k3d
+
 test/lint: bin/helm ## lint the helm chart
 	@build/lint.sh && \
-	bin/helm lint cockroachdb && \
-	bin/helm lint cockroachdb-parent/charts/cockroachdb && \
-	bin/helm lint cockroachdb-parent/charts/operator
+	bin/helm lint cockroachdb-legacy && \
+	bin/helm lint cockroachdb-operator/charts/cockroachdb && \
+	bin/helm lint cockroachdb-operator/charts/operator
 
 test/template: bin/cockroach bin/helm ## Run template tests
 	@PATH="$(PWD)/bin:${PATH}" go test -v ./tests/template/...
@@ -271,18 +277,18 @@ build-and-push-bundle-image:
 bump/cockroachdb/%: ## bump cockroachdb chart for new CRDB version
 	@bazel build //build
 	$$(bazel info bazel-bin)/build/build_/build bump --chart cockroachdb $*
-	@helm dependency update ./cockroachdb-parent
-	@rm -rf ./cockroachdb-parent/charts/*.tgz
+	@helm dependency update ./cockroachdb-operator
+	@rm -rf ./cockroachdb-operator/charts/*.tgz
 
 bump/operator/%: ## bump operator chart version
 	@bazel build //build
 	$$(bazel info bazel-bin)/build/build_/build bump --chart operator $*
 	@$(MAKE) generate/operator-manifest
-	@helm dependency update ./cockroachdb-parent
-	@rm -rf ./cockroachdb-parent/charts/*.tgz
+	@helm dependency update ./cockroachdb-operator
+	@rm -rf ./cockroachdb-operator/charts/*.tgz
 
 bump/%: ## bump CRDB version (cockroachdb + legacy charts)
 	@bazel build //build
 	$$(bazel info bazel-bin)/build/build_/build bump $*
-	@helm dependency update ./cockroachdb-parent
-	@rm -rf ./cockroachdb-parent/charts/*.tgz
+	@helm dependency update ./cockroachdb-operator
+	@rm -rf ./cockroachdb-operator/charts/*.tgz

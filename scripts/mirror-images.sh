@@ -8,7 +8,7 @@
 #
 # Usage:
 #   ./scripts/mirror-images.sh --target-registry my-registry.internal.io
-#   ./scripts/mirror-images.sh --target-registry my-registry.internal.io --source-file cockroachdb-parent/images.txt
+#   ./scripts/mirror-images.sh --target-registry my-registry.internal.io --source-file cockroachdb-operator/images.txt
 #   ./scripts/mirror-images.sh --target-registry my-registry.internal.io --tool skopeo
 #   ./scripts/mirror-images.sh --target-registry my-registry.internal.io --dry-run
 
@@ -18,7 +18,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 TARGET_REGISTRY=""
-SOURCE_FILE="${REPO_ROOT}/cockroachdb-parent/images.txt"
+SOURCE_FILE="${REPO_ROOT}/cockroachdb-operator/images.txt"
 TOOL="crane"
 DRY_RUN=false
 
@@ -30,7 +30,7 @@ Mirror CockroachDB Helm chart images to an internal registry.
 
 Options:
   --target-registry REGISTRY   Target registry to push images to (required)
-  --source-file FILE           Path to images.txt manifest (default: cockroachdb-parent/images.txt)
+  --source-file FILE           Path to images.txt manifest (default: cockroachdb-operator/images.txt)
   --tool TOOL                  Tool to use for mirroring: crane or skopeo (default: crane)
   --dry-run                    Print commands without executing
   -h, --help                   Show this help message

@@ -8,7 +8,7 @@ VERSION=$(cat version.txt)
 SRC_DIR=$(pwd)
 
 olmPath="${SRC_DIR}"/bundle
-cockroachChart="${SRC_DIR}"/cockroachdb
+cockroachChart="${SRC_DIR}"/cockroachdb-legacy
 stableCSV="${olmPath}"/manifests/cockroachdb.clusterserviceversion.yaml
 bundleDockerfile="${SRC_DIR}"/build/docker-image/olm-catalog/bundle.Dockerfile
 metaAnnotations="${olmPath}"/metadata/annotations.yaml

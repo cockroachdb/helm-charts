@@ -30,7 +30,7 @@ var (
 	k8sClient, _     = client.New(cfg, client.Options{})
 	releaseName      = "crdb-test"
 	customCASecret   = "custom-ca-secret"
-	helmChartPath, _ = filepath.Abs("../../../cockroachdb")
+	helmChartPath, _ = filepath.Abs("../../../cockroachdb-legacy")
 	k3dClusterName   = "k3d-chart-testing-cluster"
 	ClientSecret     = fmt.Sprintf("%s-cockroachdb-client-secret", releaseName)
 	NodeSecret       = fmt.Sprintf("%s-cockroachdb-node-secret", releaseName)
@@ -429,7 +429,9 @@ func (h *CockroachDBHelm) TestWALFailoverAmongStoresExistingCluster(t *testing.T
 	)
 }
 
-func testWALFailoverExistingCluster(t *testing.T, h *CockroachDBHelm, additionalValues map[string]string) {
+func testWALFailoverExistingCluster(
+	t *testing.T, h *CockroachDBHelm, additionalValues map[string]string,
+) {
 	h.Namespace = "cockroach" + strings.ToLower(random.UniqueId())
 	numReplicas := 3
 	kubectlOptions := k8s.NewKubectlOptions("", "", h.Namespace)

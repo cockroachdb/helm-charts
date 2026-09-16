@@ -8,23 +8,23 @@ the open-source, cloud-native distributed SQL database.
 You can install CockroachDB using two approaches, depending on your requirements:
 
 
-### 1. [cockroachdb](./cockroachdb)
+### 1. [cockroachdb-legacy](./cockroachdb-legacy)
 
 The traditional chart that deploys CockroachDB in **StatefulSet mode**.  
 This is a direct installation method for running CockroachDB clusters.
 
-➡️ See the [cockroachdb/README.md](./cockroachdb/README.md) for detailed installation instructions.
+➡️ See the [cockroachdb-legacy/README.md](./cockroachdb-legacy/README.md) for detailed installation instructions.
 
 
 
-### 2. [cockroachdb-parent](./cockroachdb-parent)
+### 2. [cockroachdb-operator](./cockroachdb-operator)
 
 The **new recommended way** of installing CockroachDB using the **CockroachDB Operator**.  
-This parent chart manages both the Operator and CockroachDB installation.
+This umbrella chart manages both the Operator and the CockroachDB cluster it provisions.
 
-➡️ See the [cockroachdb-parent/charts/operator/README.md](./cockroachdb-parent/charts/operator/README.md) for details on installing the Operator.
-➡️ See the [cockroachdb-parent/charts/cockroachdb/README.md](./cockroachdb-parent/charts/cockroachdb/README.md) for details on installing cockroachdb.
-➡️ See [VERSIONING.md](./cockroachdb-parent/docs/VERSIONING.md) for operator-managed chart versions, upgrade order, and published chart locations.
+➡️ See the [cockroachdb-operator/charts/operator/README.md](./cockroachdb-operator/charts/operator/README.md) for details on installing the Operator.
+➡️ See the [cockroachdb-operator/charts/cockroachdb/README.md](./cockroachdb-operator/charts/cockroachdb/README.md) for details on installing cockroachdb.
+➡️ See [VERSIONING.md](./cockroachdb-operator/docs/VERSIONING.md) for operator-managed chart versions, upgrade order, and published chart locations.
 
 
 

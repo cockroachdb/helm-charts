@@ -104,7 +104,7 @@ kubectl patch validatingwebhookconfiguration cockroach-operator-validating-webho
 kubectl patch mutatingwebhookconfiguration cockroach-operator-mutating-webhook-configuration \
   --type=json -p='[{"op":"add","path":"/webhooks/0/matchPolicy","value":"Exact"}]'
 
-helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
+helm upgrade --install crdb-operator ./cockroachdb-operator/charts/operator \
   --namespace $NAMESPACE \
   --set migration.enabled=true \
   --set appLabel=cockroachdb-operator \
@@ -169,7 +169,7 @@ kubectl exec $CRDBCLUSTER-0 -n $NAMESPACE -c db -- \
 For insecure clusters, replace `--certs-dir=/cockroach/cockroach-certs` with `--insecure`.
 `cockroach node status --ranges` targets the system virtual cluster automatically. For the
 direct SQL alternative and its `allow_unsafe_internals` and UA routing requirements, see
-[Inspect cluster health manually](../../../cockroachdb-parent/charts/operator/README.md#inspect-cluster-health-manually).
+[Inspect cluster health manually](../../../cockroachdb-operator/charts/operator/README.md#inspect-cluster-health-manually).
 
 Repeat this process for each CRDB node until the StatefulSet reaches zero replicas.
 
@@ -243,7 +243,7 @@ is deleted. This is a one-time handoff before Helm adopts the CrdbCluster.
 After the StatefulSet is gone, adopt the CrdbCluster through Helm:
 
 ```bash
-helm upgrade --install $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb \
+helm upgrade --install $CRDBCLUSTER ./cockroachdb-operator/charts/cockroachdb \
   --namespace $NAMESPACE \
   -f manifests/values.yaml \
   --force-conflicts
@@ -263,7 +263,7 @@ kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com $CRDBCLUSTER -n $NAMESPA
 Subsequent upgrades should use the normal command without `--force-conflicts`:
 
 ```bash
-helm upgrade $CRDBCLUSTER ./cockroachdb-parent/charts/cockroachdb \
+helm upgrade $CRDBCLUSTER ./cockroachdb-operator/charts/cockroachdb \
   --namespace $NAMESPACE \
   -f manifests/values.yaml
 ```
@@ -316,7 +316,7 @@ every cluster managed by the Public Operator has been migrated and is healthy.
 5. Disable migration mode only after `storedVersions` contains only `v1beta1`:
 
    ```bash
-   helm upgrade crdb-operator ./cockroachdb-parent/charts/operator \
+   helm upgrade crdb-operator ./cockroachdb-operator/charts/operator \
      --namespace $NAMESPACE \
      --reuse-values \
      --set migration.enabled=false

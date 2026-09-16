@@ -42,7 +42,7 @@ type PublicOperator struct {
 }
 
 func cockroachVersionFromChart() string {
-	valuesPath := filepath.Join(testutil.GetGitRoot(), "cockroachdb-parent/charts/cockroachdb/values.yaml")
+	valuesPath := filepath.Join(testutil.GetGitRoot(), "cockroachdb-operator/charts/cockroachdb/values.yaml")
 	valuesBytes, err := os.ReadFile(valuesPath)
 	if err != nil {
 		panic(err)

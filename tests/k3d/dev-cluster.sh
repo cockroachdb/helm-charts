@@ -18,7 +18,7 @@ K3D_PATH="./bin/k3d"
 # Self-signer tests use the image built by build/self-signer.
 SELF_SIGNER_IMAGE_REGISTRY="gcr.io"
 SELF_SIGNER_IMAGE_REPOSITORY="cockroachlabs-helm-charts/cockroach-self-signer-cert"
-SELF_SIGNER_IMAGE_TAG="$(bin/yq '.tls.selfSigner.image.tag' ./cockroachdb/values.yaml)"
+SELF_SIGNER_IMAGE_TAG="$(bin/yq '.tls.selfSigner.image.tag' ./cockroachdb-legacy/values.yaml)"
 
 # Required container images for the cluster.
 # These images are imported into the cluster during creation.
@@ -29,7 +29,7 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
     "quay.io/jetstack/trust-manager:v0.17.1"
     "quay.io/jetstack/trust-pkg-debian-bookworm:20230311.0"
-    "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
+    "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-operator/charts/cockroachdb/values.yaml)"
     "cockroachdb/cockroach-operator:v2.18.3"
     "${SELF_SIGNER_IMAGE_REGISTRY}/${SELF_SIGNER_IMAGE_REPOSITORY}:${SELF_SIGNER_IMAGE_TAG}"
 )

@@ -27,7 +27,7 @@ var (
 
 func TestCockroachDbRotateCertificates(t *testing.T) {
 	// Path to the helm chart we will test
-	helmChartPath, err := filepath.Abs("../../../cockroachdb")
+	helmChartPath, err := filepath.Abs("../../../cockroachdb-legacy")
 	require.NoError(t, err)
 
 	namespaceName := "cockroach" + strings.ToLower(random.UniqueId())
