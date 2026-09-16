@@ -498,7 +498,7 @@ func testHelmAutoCertManagerMigration(t *testing.T) {
 			"tls.certs.certManagerIssuer.name":         testutil.SelfSignedIssuerName,
 		}),
 	}
-	helmChartPath := fmt.Sprintf("%s/cockroachdb", testutil.GetGitRoot())
+	helmChartPath := fmt.Sprintf("%s/cockroachdb-legacy", testutil.GetGitRoot())
 	helm.Install(t, helmOptions, helmChartPath, releaseName)
 	defer func() {
 		_ = helm.DeleteE(t, &helm.Options{KubectlOptions: kubectlOptions}, releaseName, true)

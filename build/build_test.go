@@ -307,14 +307,14 @@ func TestChartKindFromPath(t *testing.T) {
 		path string
 		want chartKind
 	}{
-		{"cockroachdb", chartKindLegacy},
-		{"cockroachdb/Chart.yaml", chartKindLegacy},
-		{"cockroachdb-parent", chartKindParent},
-		{"cockroachdb-parent/Chart.yaml", chartKindParent},
-		{"cockroachdb-parent/charts/cockroachdb", chartKindCockroachDB},
-		{"cockroachdb-parent/charts/cockroachdb/Chart.yaml", chartKindCockroachDB},
-		{"cockroachdb-parent/charts/operator", chartKindOperator},
-		{"cockroachdb-parent/charts/operator/Chart.yaml", chartKindOperator},
+		{"cockroachdb-legacy", chartKindLegacy},
+		{"cockroachdb-legacy/Chart.yaml", chartKindLegacy},
+		{"cockroachdb-operator", chartKindParent},
+		{"cockroachdb-operator/Chart.yaml", chartKindParent},
+		{"cockroachdb-operator/charts/cockroachdb", chartKindCockroachDB},
+		{"cockroachdb-operator/charts/cockroachdb/Chart.yaml", chartKindCockroachDB},
+		{"cockroachdb-operator/charts/operator", chartKindOperator},
+		{"cockroachdb-operator/charts/operator/Chart.yaml", chartKindOperator},
 	}
 
 	for _, tc := range testCases {
@@ -329,23 +329,23 @@ func TestChartKindFromPath(t *testing.T) {
 
 func TestUpdateCRDBReleaseMetadata(t *testing.T) {
 	root := t.TempDir()
-	writeTestFile(t, root, "cockroachdb/CHANGELOG.md", "# CockroachDB Helm Chart CHANGELOG\n\n"+
+	writeTestFile(t, root, "cockroachdb-legacy/CHANGELOG.md", "# CockroachDB Helm Chart CHANGELOG\n\n"+
 		"All notable changes to the CockroachDB Helm chart will be documented in this file.\n\n"+
 		"## [21.0.4] 2026-08-05\n### Changed\n"+
 		"  - Updated the default CockroachDB image version from `v26.2.3` to `v26.2.5`.\n")
-	writeTestFile(t, root, "cockroachdb-parent/charts/cockroachdb/CHANGELOG.md", "# CockroachDB Chart — CHANGELOG\n\n"+
+	writeTestFile(t, root, "cockroachdb-operator/charts/cockroachdb/CHANGELOG.md", "# CockroachDB Chart — CHANGELOG\n\n"+
 		"## [26.2.4] — 2026-08-05\n### Changed\n"+
 		"- Updated the default CockroachDB image version from `v26.2.3` to `v26.2.5`.\n")
-	writeTestFile(t, root, "cockroachdb-parent/images.txt", `# CockroachDB database
+	writeTestFile(t, root, "cockroachdb-operator/images.txt", `# CockroachDB database
 docker.io/cockroachdb/cockroach:v26.2.5
 `)
-	writeTestFile(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/secure.yaml", `spec:
+	writeTestFile(t, root, "cockroachdb-operator/charts/operator/manifests/examples/crdb/secure.yaml", `spec:
   image: cockroachdb/cockroach:v26.2.5
 `)
-	writeTestFile(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/insecure.yaml", `spec:
+	writeTestFile(t, root, "cockroachdb-operator/charts/operator/manifests/examples/crdb/insecure.yaml", `spec:
   image: cockroachdb/cockroach:v26.2.3
 `)
-	writeTestFile(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/rbac.yaml", `kind: Role
+	writeTestFile(t, root, "cockroachdb-operator/charts/operator/manifests/examples/crdb/rbac.yaml", `kind: Role
 `)
 	writeTestFile(t, root, "pkg/migrate/testdata/fixture.yaml", `image: cockroachdb/cockroach:v25.1.5
 `)
@@ -362,27 +362,27 @@ docker.io/cockroachdb/cockroach:v26.2.5
 		t.Fatal(err)
 	}
 
-	assertTestFileEquals(t, root, "cockroachdb/CHANGELOG.md", "# CockroachDB Helm Chart CHANGELOG\n\n"+
+	assertTestFileEquals(t, root, "cockroachdb-legacy/CHANGELOG.md", "# CockroachDB Helm Chart CHANGELOG\n\n"+
 		"All notable changes to the CockroachDB Helm chart will be documented in this file.\n\n"+
 		"## [22.0.0] 2026-08-19\n### Changed\n"+
 		"  - Updated the default CockroachDB image version from `v26.2.5` to `v26.3.0`.\n\n"+
 		"## [21.0.4] 2026-08-05\n### Changed\n"+
 		"  - Updated the default CockroachDB image version from `v26.2.3` to `v26.2.5`.\n")
-	assertTestFileEquals(t, root, "cockroachdb-parent/charts/cockroachdb/CHANGELOG.md", "# CockroachDB Chart — CHANGELOG\n\n"+
+	assertTestFileEquals(t, root, "cockroachdb-operator/charts/cockroachdb/CHANGELOG.md", "# CockroachDB Chart — CHANGELOG\n\n"+
 		"## [26.3.0] — 2026-08-19\n### Changed\n"+
 		"- Updated the default CockroachDB image version from `v26.2.5` to `v26.3.0`.\n\n"+
 		"## [26.2.4] — 2026-08-05\n### Changed\n"+
 		"- Updated the default CockroachDB image version from `v26.2.3` to `v26.2.5`.\n")
-	assertTestFileEquals(t, root, "cockroachdb-parent/images.txt", `# CockroachDB database
+	assertTestFileEquals(t, root, "cockroachdb-operator/images.txt", `# CockroachDB database
 docker.io/cockroachdb/cockroach:v26.3.0
 `)
-	assertTestFileEquals(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/secure.yaml", `spec:
+	assertTestFileEquals(t, root, "cockroachdb-operator/charts/operator/manifests/examples/crdb/secure.yaml", `spec:
   image: cockroachdb/cockroach:v26.3.0
 `)
-	assertTestFileEquals(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/insecure.yaml", `spec:
+	assertTestFileEquals(t, root, "cockroachdb-operator/charts/operator/manifests/examples/crdb/insecure.yaml", `spec:
   image: cockroachdb/cockroach:v26.3.0
 `)
-	assertTestFileEquals(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/rbac.yaml", `kind: Role
+	assertTestFileEquals(t, root, "cockroachdb-operator/charts/operator/manifests/examples/crdb/rbac.yaml", `kind: Role
 `)
 	assertTestFileEquals(t, root, "pkg/migrate/testdata/fixture.yaml", `image: cockroachdb/cockroach:v25.1.5
 `)
@@ -394,13 +394,13 @@ func TestUpdateCRDBReleaseMetadataScopedBumpLeavesLegacyChangelog(t *testing.T) 
 
 ## [21.0.4] 2026-08-05
 `
-	writeTestFile(t, root, "cockroachdb/CHANGELOG.md", legacyChangelog)
-	writeTestFile(t, root, "cockroachdb-parent/charts/cockroachdb/CHANGELOG.md", `# CockroachDB Chart — CHANGELOG
+	writeTestFile(t, root, "cockroachdb-legacy/CHANGELOG.md", legacyChangelog)
+	writeTestFile(t, root, "cockroachdb-operator/charts/cockroachdb/CHANGELOG.md", `# CockroachDB Chart — CHANGELOG
 
 ## [26.2.4] — 2026-08-05
 `)
-	writeTestFile(t, root, "cockroachdb-parent/images.txt", "docker.io/cockroachdb/cockroach:v26.2.5\n")
-	writeTestFile(t, root, "cockroachdb-parent/charts/operator/manifests/examples/crdb/secure.yaml", "image: cockroachdb/cockroach:v26.2.5\n")
+	writeTestFile(t, root, "cockroachdb-operator/images.txt", "docker.io/cockroachdb/cockroach:v26.2.5\n")
+	writeTestFile(t, root, "cockroachdb-operator/charts/operator/manifests/examples/crdb/secure.yaml", "image: cockroachdb/cockroach:v26.2.5\n")
 
 	err := updateCRDBReleaseMetadata(root, crdbReleaseMetadata{
 		PreviousVersion:         "26.2.5",
@@ -412,9 +412,9 @@ func TestUpdateCRDBReleaseMetadataScopedBumpLeavesLegacyChangelog(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	assertTestFileEquals(t, root, "cockroachdb/CHANGELOG.md", legacyChangelog)
+	assertTestFileEquals(t, root, "cockroachdb-legacy/CHANGELOG.md", legacyChangelog)
 	wantV2Entry := "## [26.2.5] — 2026-08-26\n### Changed\n- Updated the default CockroachDB image version from `v26.2.5` to `v26.2.6`."
-	if got := readTestFile(t, root, "cockroachdb-parent/charts/cockroachdb/CHANGELOG.md"); !strings.Contains(got, wantV2Entry) {
+	if got := readTestFile(t, root, "cockroachdb-operator/charts/cockroachdb/CHANGELOG.md"); !strings.Contains(got, wantV2Entry) {
 		t.Fatalf("v2 changelog does not contain release entry:\n%s", got)
 	}
 }

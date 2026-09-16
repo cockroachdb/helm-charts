@@ -60,7 +60,7 @@ func (h *HelmInstall) InstallHelm(t *testing.T) {
 	}
 
 	// Deploy the cockroachdb helm chart and checks installation should succeed.
-	helmChartPath := filepath.Join(testutil.GetGitRoot(), "cockroachdb")
+	helmChartPath := filepath.Join(testutil.GetGitRoot(), "cockroachdb-legacy")
 	helm.Install(t, h.HelmOptions, helmChartPath, ReleaseName)
 
 	// Print the debug logs in case of test failure.

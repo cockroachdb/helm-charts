@@ -5,20 +5,55 @@ All notable changes to this project will be documented in this file.
 The operator and cockroachdb charts are versioned independently. The operator supports all
 CockroachDB chart versions. Any exceptions, such as a minimum operator version required for
 new CockroachDB features or unsupported CockroachDB settings, will be explicitly noted in the
-relevant changelog entry. See [VERSIONING.md](cockroachdb-parent/docs/VERSIONING.md) for details.
+relevant changelog entry. See [VERSIONING.md](cockroachdb-operator/docs/VERSIONING.md) for details.
 
 Each chart maintains its own changelog:
-- [Operator chart CHANGELOG](cockroachdb-parent/charts/operator/CHANGELOG.md)
-- [CockroachDB chart CHANGELOG](cockroachdb-parent/charts/cockroachdb/CHANGELOG.md)
+- [Operator chart CHANGELOG](cockroachdb-operator/charts/operator/CHANGELOG.md)
+- [CockroachDB chart CHANGELOG](cockroachdb-operator/charts/cockroachdb/CHANGELOG.md)
 
-Historical entries from the preview era (before per-chart versioning) are preserved below.
+Historical entries from the preview era (before per-chart versioning) are preserved below. Historical release-tag prefixes such as `cockroachdb-parent-<version>` are preserved verbatim so the git checkout commands in older migration guides continue to work.
+
+## Repository structure — chart folder rename
+
+The two top-level Helm chart source folders in this repository have been renamed to make the legacy-vs-current-operator distinction obvious from the folder name alone:
+
+| Before | After |
+|---|---|
+| `cockroachdb/` | `cockroachdb-legacy/` |
+| `cockroachdb-parent/` | `cockroachdb-operator/` |
+
+**Published chart artifact names are unchanged.** If you install from the Helm repository, your commands continue to work as-is:
+
+```shell
+helm repo add cockroachdb https://charts.cockroachdb.com/
+helm install my-release cockroachdb/cockroachdb-chart          # unchanged
+helm install my-release cockroachdb/cockroachdb-operator-chart # unchanged
+```
+
+**Action required only if you install from a cloned copy of this repo.** Update your local paths:
+
+```shell
+# Before
+helm install my-release ./cockroachdb
+helm install my-release ./cockroachdb-parent
+
+# After
+helm install my-release ./cockroachdb-legacy
+helm install my-release ./cockroachdb-operator
+```
+
+The umbrella chart's internal `name:` in `Chart.yaml` was updated from `cockroachdb-parent` to `cockroachdb-operator` to match the new folder name. This has no effect on rendered Kubernetes resources — the umbrella chart has no `templates/` of its own, and the subchart-scoped `helm.sh/chart` labels (`cockroachdb-<version>`, `cockroachdb-operator-chart-<version>`) come from each subchart's own `.Chart.Name` and are unchanged. Existing StatefulSet / Deployment pod templates are unaffected, so `helm upgrade` will not trigger a rolling restart. What does change: `helm list` CHART column flips from `cockroachdb-parent-<version>` to `cockroachdb-operator-<version>`, and the release-secret's `chart.metadata.name` is rewritten. Any tooling that filters releases by chart name (e.g. `helm list --filter '^cockroachdb-parent'`, GitOps drift detection keyed on chart name) needs to be updated.
+
+The legacy chart (`cockroachdb-legacy/`) is deprecated. See the [Kubernetes deployment deprecation notice](https://www.cockroachlabs.com/docs/v26.2/kubernetes-deprecation-notice) and consider migrating to the CockroachDB Operator umbrella chart using [docs/migration/helm/controller_migration.md](docs/migration/helm/controller_migration.md).
+
+The existing `cockroachdb-v*` and `operator-v*` git tags are unchanged. The historic `[cockroachdb-parent-<version>]` headings preserved below are documentation labels, not git tags — the corresponding release commits are tagged `v<version>-preview+<n>` in git (e.g. `v25.4.3-preview+1`). See [`cockroachdb-operator/MIGRATION_v1alpha1_to_v1beta1.md`](cockroachdb-operator/MIGRATION_v1alpha1_to_v1beta1.md) for the correct checkout targets.
 
 ## [cockroachdb-parent-26.1.3-preview+1] 2026-04-24
 ### Added
 - Hook images (`bitnami/kubectl`, `dtzar/helm-kubectl`) are now configurable via
   `hooks.kubectlImage.{registry,repository,tag,pullPolicy}` in both charts. This
   unblocks air-gapped deployments where pulling from public registries is not possible.
-- Added `cockroachdb-parent/images.txt` manifest listing all container images
+- Added `cockroachdb-operator/images.txt` manifest listing all container images
   required by both charts, including operator-managed runtime images.
 - Added `scripts/mirror-images.sh` to mirror images from the manifest into an
   internal registry using `crane` or `skopeo`.
@@ -37,14 +72,14 @@ Historical entries from the preview era (before per-chart versioning) are preser
 - **API Version Migration**: The operator now uses an image that removes `v1alpha1` entirely and keeps only `v1beta1`.
 - Operator and CockroachDB pre-upgrade validation now require the previous fully migrated state before upgrading to this version. 
   This means `v1alpha1` must not be served, `v1beta1` must be served and stored, and CRD `storedVersions` must be `["v1beta1"]`.
-- **See [MIGRATION_v1alpha1_to_v1beta1.md](cockroachdb-parent/MIGRATION_v1alpha1_to_v1beta1.md) for detailed instructions.**
+- **See [MIGRATION_v1alpha1_to_v1beta1.md](cockroachdb-operator/MIGRATION_v1alpha1_to_v1beta1.md) for detailed instructions.**
 
 ## [cockroachdb-parent-26.1.1-preview+1] 2026-03-26
 ### Added
 - Insecure cluster support. Set `cockroachdb.tls.enabled: false` and disable `selfSigner`, `certManager`, and `externalCertificates` to run without TLS. Intended for non-production use only.
 - Namespace scoping for the operator via `watchNamespaces`. Set to a single namespace or a
   comma-separated list to restrict which namespaces the operator reconciles. Defaults to `""`
-  (all namespaces). See [Namespace Scoping](cockroachdb-parent/charts/operator/README.md#namespace-scoping) for details.
+  (all namespaces). See [Namespace Scoping](cockroachdb-operator/charts/operator/README.md#namespace-scoping) for details.
 - Configurable `appLabel` for the operator Deployment selector and pod labels. Defaults to
   `cockroach-operator` to preserve backward compatibility. Changing this on an existing installation
   requires `helm upgrade --force` since the Deployment selector is immutable.
@@ -97,7 +132,7 @@ Historical entries from the preview era (before per-chart versioning) are preser
 ### Changed
 - **API Version Migration**: v1alpha1 API serving is now disabled. Only v1beta1 is served.
   - **⚠️ CRITICAL**: CockroachDB charts MUST be upgraded to the previous version (25.4.3-preview+1) before upgrading to this version.
-  - **📖 See [MIGRATION_v1alpha1_to_v1beta1.md](cockroachdb-parent/MIGRATION_v1alpha1_to_v1beta1.md) for detailed instructions.**
+  - **📖 See [MIGRATION_v1alpha1_to_v1beta1.md](cockroachdb-operator/MIGRATION_v1alpha1_to_v1beta1.md) for detailed instructions.**
 - Updated the Operator to disable v1alpha1 API serving.
 ### Added
 - Pre-upgrade validation hook in the operator chart to prevent upgrade if CockroachDB charts still use v1alpha1 Helm manifests.
@@ -110,7 +145,7 @@ Historical entries from the preview era (before per-chart versioning) are preser
 ### Changed
 - **API Version Migration (v1alpha1 to v1beta1)**: The CockroachDB custom resources are migrating from `v1alpha1` to `v1beta1`. CockroachDB chart now uses `v1beta1` templates.
   - **IMPORTANT**: Operator MUST be upgraded before CockroachDB chart.
-  - **See [MIGRATION_v1alpha1_to_v1beta1.md](cockroachdb-parent/MIGRATION_v1alpha1_to_v1beta1.md) for upgrade instructions.**
+  - **See [MIGRATION_v1alpha1_to_v1beta1.md](cockroachdb-operator/MIGRATION_v1alpha1_to_v1beta1.md) for upgrade instructions.**
 - Updated the Operator to support multiple CRD versions (v1alpha1, v1beta1) simultaneously.
 ### Added
 - Pre-upgrade validation hook to ensure smooth upgrades owing to CR version updates and prevent upgrade order issues.

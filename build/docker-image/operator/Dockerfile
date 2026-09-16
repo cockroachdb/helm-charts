@@ -8,5 +8,5 @@ USER 0
 RUN mkdir -p ${HOME}/helm-charts/cockroachdb
 USER $CONTAINER_USER_ID
 
-COPY ./cockroachdb/ ${HOME}/helm-charts/cockroachdb
+COPY ./cockroachdb-legacy/ ${HOME}/helm-charts/cockroachdb
 WORKDIR ${HOME}

@@ -110,14 +110,14 @@ helm upgrade --install crdb cockroachdb-v2/cockroachdb-chart \
 Use this path when working from a checkout of this repository:
 
 ```bash
-helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
+helm upgrade --install crdb-operator ./cockroachdb-operator/charts/operator \
   --namespace cockroach-operator-system \
   --create-namespace \
   --set cloudRegion=<current-region>
 
 kubectl -n cockroach-operator-system rollout status deploy/cockroach-operator --timeout=5m
 
-helm upgrade --install crdb ./cockroachdb-parent/charts/cockroachdb \
+helm upgrade --install crdb ./cockroachdb-operator/charts/cockroachdb \
   --namespace cockroachdb \
   --create-namespace \
   -f values.yaml
@@ -202,8 +202,8 @@ If any command fails, stop the install flow and use [diagnosing-cockroachdb-helm
 
 ## References
 
-- [CockroachDB Helm Chart Versioning](../../../cockroachdb-parent/docs/VERSIONING.md)
-- [Operator Helm Chart README](../../../cockroachdb-parent/charts/operator/README.md)
-- [CockroachDB Helm Chart README](../../../cockroachdb-parent/charts/cockroachdb/README.md)
+- [CockroachDB Helm Chart Versioning](../../../cockroachdb-operator/docs/VERSIONING.md)
+- [Operator Helm Chart README](../../../cockroachdb-operator/charts/operator/README.md)
+- [CockroachDB Helm Chart README](../../../cockroachdb-operator/charts/cockroachdb/README.md)
 - [CockroachDB Docs: Deploy with Kubernetes](https://www.cockroachlabs.com/docs/stable/deploy-cockroachdb-with-kubernetes)
 - [Helm Docs: Role-based Access Control](https://helm.sh/docs/topics/rbac/)

@@ -120,7 +120,7 @@ crdb-cockroachdb-init-fclbb   1/1     Running    0          16s
 
 At last, the cockroach db cluster comes into running state with following output:
 ```
-$ helm install crdb ./cockroachdb
+$ helm install crdb ./cockroachdb-legacy
 
 NAME: crdb
 LAST DEPLOYED: Thu Aug 19 18:03:37 2021
@@ -156,7 +156,7 @@ https://www.cockroachlabs.com/docs/
 Kick off the upgrade process by changing the new Docker image, where `$new_version` is the CockroachDB version to which you are upgrading:
 
 ```shell
-$ helm upgrade crdb ./cockroachdb \
+$ helm upgrade crdb ./cockroachdb-legacy \
 --set image.tag=$new_version \
 --reuse-values --timeout=20m
 ```
@@ -261,7 +261,7 @@ This utility will only handle the rotation of client and node certificates, the 
 First, install the operator (if it is not already installed):
 
 ```
-$ helm install cockroachdb-operator ./cockroachdb-parent/charts/operator
+$ helm install cockroachdb-operator ./cockroachdb-operator/charts/operator
 NAME: cockroachdb-operator
 LAST DEPLOYED: Mon Aug 25 15:22:37 2025
 NAMESPACE: default
@@ -281,7 +281,7 @@ default       cockroach-operator-c6ddb899-fsxg5         1/1     Running   0     
 #### Deploy CockroachDB
 
 ```
-$ helm install cockroachdb ./cockroachdb-parent/charts/cockroachdb
+$ helm install cockroachdb ./cockroachdb-operator/charts/cockroachdb
 NAME: cockroachdb
 LAST DEPLOYED: Mon Aug 25 15:24:49 2025
 NAMESPACE: default

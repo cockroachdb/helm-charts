@@ -61,13 +61,13 @@ jobs:
         with:
           filters: |
             chartVersions:
-            - 'cockroachdb-parent/Chart.yaml'
-            - 'cockroachdb-parent/Chart.lock'
-            - 'cockroachdb-parent/charts/cockroachdb/Chart.yaml'
-            - 'cockroachdb-parent/charts/operator/Chart.yaml'
-            - 'build/templates/cockroachdb-parent/Chart.yaml'
-            - 'build/templates/cockroachdb-parent/charts/cockroachdb/Chart.yaml'
-            - 'build/templates/cockroachdb-parent/charts/operator/Chart.yaml'
+            - 'cockroachdb-operator/Chart.yaml'
+            - 'cockroachdb-operator/Chart.lock'
+            - 'cockroachdb-operator/charts/cockroachdb/Chart.yaml'
+            - 'cockroachdb-operator/charts/operator/Chart.yaml'
+            - 'build/templates/cockroachdb-operator/Chart.yaml'
+            - 'build/templates/cockroachdb-operator/charts/cockroachdb/Chart.yaml'
+            - 'build/templates/cockroachdb-operator/charts/operator/Chart.yaml'
 
   detect-heavy-e2e-change:
     name: is-heavy-e2e-required
@@ -325,8 +325,25 @@ jobs:
         run: |
           set -euo pipefail
           git fetch --depth=1 "https://x-access-token:${{ github.token }}@github.com/${{ github.event.pull_request.base.repo.full_name }}.git" "${{ github.event.pull_request.base.sha }}"
-          base_operator_version="$(git show FETCH_HEAD:cockroachdb-parent/charts/operator/Chart.yaml | awk '/^version:/ {print $2; exit}')"
-          base_cockroachdb_version="$(git show FETCH_HEAD:cockroachdb-parent/charts/cockroachdb/Chart.yaml | awk '/^version:/ {print $2; exit}')"
+          # TODO(CC-36950 cleanup): DELETE THIS FALLBACK once no open PR still
+          # has master@<pre-rename-sha> as its base — typically ~1 release cycle
+          # after this PR merges. The fallback lets the job read base chart
+          # versions from the pre-rename cockroachdb-parent/ path so PRs opened
+          # before the rename landed continue to work. Also drop the matching
+          # ':!.github/workflows/ci.yaml' exclusion in scripts/validate-rename.sh
+          # guard #1 at the same time.
+          # `|| true` on each assignment: `set -euo pipefail` treats a non-zero
+          # exit from `git show` (128 when the path doesn't exist at that ref)
+          # as a script-fatal error and would kill the step BEFORE the fallback
+          # branch runs. `|| true` lets the empty result reach the [[ -z ]] check.
+          base_operator_version="$(git show FETCH_HEAD:cockroachdb-operator/charts/operator/Chart.yaml 2>/dev/null | awk '/^version:/ {print $2; exit}')" || true
+          if [[ -z "${base_operator_version}" ]]; then
+            base_operator_version="$(git show FETCH_HEAD:cockroachdb-parent/charts/operator/Chart.yaml 2>/dev/null | awk '/^version:/ {print $2; exit}')" || true
+          fi
+          base_cockroachdb_version="$(git show FETCH_HEAD:cockroachdb-operator/charts/cockroachdb/Chart.yaml 2>/dev/null | awk '/^version:/ {print $2; exit}')" || true
+          if [[ -z "${base_cockroachdb_version}" ]]; then
+            base_cockroachdb_version="$(git show FETCH_HEAD:cockroachdb-parent/charts/cockroachdb/Chart.yaml 2>/dev/null | awk '/^version:/ {print $2; exit}')" || true
+          fi
           if [[ -z "${base_operator_version}" || -z "${base_cockroachdb_version}" ]]; then
             echo "failed to read base chart versions"
             exit 1

@@ -9,8 +9,8 @@ on:
     # Trigger the workflow only for certain files. First we need to exclude all
     # files, then add the files we care about.
     - "!**"
-    - "cockroachdb/**"
-    - "cockroachdb-parent/**"
+    - "cockroachdb-legacy/**"
+    - "cockroachdb-operator/**"
 
 permissions:
   contents: write
@@ -33,21 +33,21 @@ jobs:
       - name: Check for downgrades and regenerate the patch
         run: |
           set -euxo pipefail
-          version="$(cat cockroachdb-parent/charts/cockroachdb/Chart.yaml | yq -r '.version')"
-          appVersion="$(cat cockroachdb-parent/charts/cockroachdb/Chart.yaml | yq -r '.appVersion')"
-          master_version="$(git show origin/master:cockroachdb-parent/charts/cockroachdb/Chart.yaml | yq -r '.version')"
-          master_appVersion="$(git show origin/master:cockroachdb-parent/charts/cockroachdb/Chart.yaml | yq -r '.appVersion')"
+          version="$(cat cockroachdb-operator/charts/cockroachdb/Chart.yaml | yq -r '.version')"
+          appVersion="$(cat cockroachdb-operator/charts/cockroachdb/Chart.yaml | yq -r '.appVersion')"
+          master_version="$(git show origin/master:cockroachdb-operator/charts/cockroachdb/Chart.yaml | yq -r '.version')"
+          master_appVersion="$(git show origin/master:cockroachdb-operator/charts/cockroachdb/Chart.yaml | yq -r '.appVersion')"
           release_date=""
           if [[ "$master_appVersion" != "$appVersion" ]]; then
             heading="## [$version] — "
-            release_date="$(awk -v heading="$heading" 'index($0, heading) == 1 { print substr($0, length(heading) + 1); exit }' cockroachdb-parent/charts/cockroachdb/CHANGELOG.md)"
+            release_date="$(awk -v heading="$heading" 'index($0, heading) == 1 { print substr($0, length(heading) + 1); exit }' cockroachdb-operator/charts/cockroachdb/CHANGELOG.md)"
             if [[ -z "$release_date" ]]; then
-              echo "Missing release date for CockroachDB chart $version in cockroachdb-parent/charts/cockroachdb/CHANGELOG.md"
+              echo "Missing release date for CockroachDB chart $version in cockroachdb-operator/charts/cockroachdb/CHANGELOG.md"
               exit 1
             fi
           fi
-          git checkout origin/master -- cockroachdb cockroachdb-parent
-          git restore --staged cockroachdb cockroachdb-parent
+          git checkout origin/master -- cockroachdb-legacy cockroachdb-operator
+          git restore --staged cockroachdb-legacy cockroachdb-operator
           latest_version="$(echo -e "$version\n$master_version" | sort --version-sort -r | head -n1)"
           latest_appVersion="$(echo -e "$appVersion\n$master_appVersion" | sort --version-sort -r | head -n1)"
           if [[ $latest_version != $version ]]; then
@@ -67,7 +67,7 @@ jobs:
           # `helm dependency update` is not idempotent and bumps the
           # `generated` field with the current date/TZ. Let's checkout the
           # original version to ignore the changes.
-          git checkout cockroachdb-parent/Chart.lock
+          git checkout cockroachdb-operator/Chart.lock
       - name: Confirm expected patch
         run: git diff --exit-code
       - name: Approve PR

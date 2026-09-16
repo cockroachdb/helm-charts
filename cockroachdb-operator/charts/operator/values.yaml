@@ -1,0 +1,90 @@
+# Generated file, DO NOT EDIT. Source: build/templates/cockroachdb-operator/charts/operator/values.yaml
+# Default values for the operator chart.
+
+# image captures the container image settings for Operator pods.
+image:
+  # registry is the container registry where the image is stored.
+  registry: "docker.io/cockroachdb"
+  # repository defines the image repository.
+  repository: "cockroachdb-operator-v2"
+  # pullPolicy specifies the image pull policy.
+  pullPolicy: IfNotPresent
+  # tag is the image tag.
+  tag: "v1.1.0"
+# relatedImages configures images the operator injects into CockroachDB pods.
+# By default these images share the operator image registry and tag.
+relatedImages:
+  initContainer:
+    # registry overrides image.registry for the init container image when set.
+    registry: ""
+    # repository defines the init container image repository.
+    repository: "cockroachdb-init-container"
+    # tag overrides image.tag for the init container image when set.
+    tag: ""
+  inotifywait:
+    # registry overrides image.registry for the cert-reloader image when set.
+    registry: ""
+    # repository defines the cert-reloader image repository.
+    repository: "cockroachdb-cert-reloader"
+    # tag overrides image.tag for the cert-reloader image when set.
+    tag: ""
+# certificate defines the certificate settings for the Operator.
+certificate:
+  # validForDays specifies the number of days the certificate is valid for.
+  validForDays: ""
+# numReplicas specifies the number of replicas for the Operator.
+numReplicas: 3
+# cloudRegion specifies the cloud region for the Operator.
+cloudRegion: "us-east1"
+# Namespaces the operator should watch. Leave empty to watch all namespaces (default).
+# Accepts a single namespace or a comma-separated list, e.g. "prod-a,prod-b".
+#
+# The operator's own namespace and the namespaces it watches are independent.
+# You can install the operator into "ops" while scoping it to watch "prod-a,prod-b".
+#
+# Do not configure multiple operators to watch overlapping namespaces. Both will reconcile
+# the same clusters independently, which can cause unpredictable behavior.
+watchNamespaces: ""
+# The "app" label applied to the operator Deployment, its pods, the gRPC/metrics Service
+# selector, and the operator's ServiceAccount and ClusterRoleBinding labels. Defaults to
+# "cockroach-operator" to preserve backward compatibility.
+#
+# Important: changing this on an existing installation requires helm upgrade --force since
+# the Deployment selector is immutable. The operator will be briefly unavailable during the update.
+appLabel: "cockroach-operator"
+# selfSignedOperatorCerts controls who provisions the shared cockroach-operator-certs Secret.
+# When true, the operator provisions and owns the Secret, then copies its certificates into
+# each Pod's emptyDir at startup. When false (default), Helm provisions the Secret.
+# Switching requires deleting the existing Secret first.
+selfSignedOperatorCerts: false
+# migration defines the migration settings for the Operator.
+migration:
+  # enabled determines if the migration controller should be enabled.
+  enabled: false
+# nodeReader lets a platform-owned operator chart pre-authorize CockroachDB pod
+# ServiceAccounts to read Kubernetes Nodes for locality detection.
+#
+# The operator chart does not create the tenant ServiceAccount. It only binds the listed
+# ServiceAccount subjects to a shared ClusterRole. Kubernetes allows the binding to reference
+# a ServiceAccount before the CockroachDB chart creates it.
+nodeReader:
+  # enabled determines whether the operator chart creates node-reader ClusterRole/Binding
+  # resources for the ServiceAccounts listed in subjects.
+  enabled: false
+  # name is the shared ClusterRole and ClusterRoleBinding name. Leave empty to use
+  # cockroachdb-node-reader in global mode, or cockroachdb-node-reader-<operator-namespace>
+  # when watchNamespaces is set so scoped operator releases do not conflict.
+  name: ""
+  # subjects is the list of CockroachDB pod ServiceAccounts that should receive node read
+  # access. Each entry must match the namespace and ServiceAccount name used by the
+  # cockroachdb chart.
+  #
+  # If the cockroachdb chart uses its default ServiceAccount, the name is normally
+  # "<cockroachdb-release>-cockroachdb". If users override
+  # cockroachdb.crdbCluster.rbac.serviceAccount.name, put that exact value here.
+  #
+  # Example:
+  # subjects:
+  #   - namespace: tenant-a
+  #     serviceAccountName: crdb-cockroachdb
+  subjects: []

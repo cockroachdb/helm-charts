@@ -152,7 +152,7 @@ Return a preflight report:
 
 ## References
 
-- [CockroachDB Helm Chart README: Multi Region Deployments](../../../cockroachdb-parent/charts/cockroachdb/README.md)
+- [CockroachDB Helm Chart README: Multi Region Deployments](../../../cockroachdb-operator/charts/cockroachdb/README.md)
 - [Multi-region values example](../../../examples/cockroachdb-operator/multi-region-values.yaml)
 - [Diagnosing CockroachDB Helm deployments](../../cockroachdb-observability-and-diagnostics/diagnosing-cockroachdb-helm-deployments/SKILL.md)
 - [Operator escalation packet collection](../../cockroachdb-observability-and-diagnostics/collecting-cockroachdb-operator-escalation-packet/SKILL.md)
