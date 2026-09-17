@@ -195,7 +195,7 @@ CockroachDB Operator will not interfere with clusters that have not been explici
 for migration.
 
 ```bash
-helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
+helm upgrade --install crdb-operator ./cockroachdb-operator/charts/operator \
   --set migration.enabled=true \
   --set cloudRegion=$REGION \
   --set appLabel=cockroachdb-operator
@@ -205,7 +205,7 @@ Setting `watchNamespaces` is optional. It restricts the CockroachDB Operator to 
 namespaces, which can be useful for reducing blast radius in large environments.
 
 ```bash
-helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
+helm upgrade --install crdb-operator ./cockroachdb-operator/charts/operator \
   --set migration.enabled=true \
   --set cloudRegion=$REGION \
   --set appLabel=cockroachdb-operator \
@@ -368,7 +368,7 @@ kubectl exec $CRDBCLUSTER-0 -n $NAMESPACE -c db -- \
 `cockroach node status --ranges` targets the system virtual cluster
 automatically. For the direct SQL diagnostic alternative and its
 `allow_unsafe_internals` and UA routing requirements, see
-[Inspect cluster health manually](../../../cockroachdb-parent/charts/operator/README.md#inspect-cluster-health-manually).
+[Inspect cluster health manually](../../../cockroachdb-operator/charts/operator/README.md#inspect-cluster-health-manually).
 For insecure clusters, replace `--certs-dir=/cockroach/cockroach-certs` with
 `--insecure`.
 
@@ -689,7 +689,7 @@ Use `--force-conflicts` on this first adoption command so Helm atomically takes 
 chart-managed fields. Later Helm upgrades should run normally without this flag.
 
 ```bash
-helm upgrade --install ${RELEASE_NAME} ./cockroachdb-parent/charts/cockroachdb \
+helm upgrade --install ${RELEASE_NAME} ./cockroachdb-operator/charts/cockroachdb \
   --namespace ${NAMESPACE} \
   --force-conflicts \
   --values your-values.yaml
@@ -708,7 +708,7 @@ configuration is fully applied. Post-migration there is no StatefulSet, so trigg
 restart via `helm upgrade` with an updated timestamp:
 
 ```bash
-helm upgrade ${RELEASE_NAME} ./cockroachdb-parent/charts/cockroachdb \
+helm upgrade ${RELEASE_NAME} ./cockroachdb-operator/charts/cockroachdb \
   --namespace ${NAMESPACE} \
   --set cockroachdb.crdbCluster.timestamp="$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
   --values your-values.yaml
@@ -932,7 +932,7 @@ When the operator restarts without the flag, it sees that `storedVersions` no lo
 v1alpha1, sets v1alpha1 `served=false` on the CRD, and removes the conversion webhook.
 
 ```bash
-helm upgrade crdb-operator ./cockroachdb-parent/charts/operator \
+helm upgrade crdb-operator ./cockroachdb-operator/charts/operator \
   --reuse-values \
   --set migration.enabled=false
 ```
@@ -1216,7 +1216,7 @@ kubectl exec $CRDBCLUSTER-0 -n $NAMESPACE -c db -- \
 
 For the direct SQL diagnostic alternative and its `allow_unsafe_internals` and
 UA routing requirements, see
-[Inspect cluster health manually](../../../cockroachdb-parent/charts/operator/README.md#inspect-cluster-health-manually).
+[Inspect cluster health manually](../../../cockroachdb-operator/charts/operator/README.md#inspect-cluster-health-manually).
 
 ### RBAC Conflicts Between Public and CockroachDB Operator
 
@@ -1263,7 +1263,7 @@ clusters are already migrated:
 
 ```bash
 # Option 1: Re-enable migration temporarily
-helm upgrade crdb-operator ./cockroachdb-parent/charts/operator \
+helm upgrade crdb-operator ./cockroachdb-operator/charts/operator \
   --reuse-values \
   --set migration.enabled=true
 

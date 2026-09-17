@@ -581,8 +581,8 @@ func (r *Region) OperatorRegions(index int, nodes int) []map[string]interface{} 
 
 func HelmChartPaths() (helmChartPath string, operatorChartPath string) {
 	rootPath := testutil.GetGitRoot()
-	helmChartPath = filepath.Join(rootPath, "cockroachdb-parent/charts/cockroachdb")
-	operatorChartPath = filepath.Join(rootPath, "cockroachdb-parent/charts/operator")
+	helmChartPath = filepath.Join(rootPath, "cockroachdb-operator/charts/cockroachdb")
+	operatorChartPath = filepath.Join(rootPath, "cockroachdb-operator/charts/operator")
 
 	return helmChartPath, operatorChartPath
 }
@@ -621,7 +621,9 @@ func HelmUpgradeWithRetry(t *testing.T, options *helm.Options, chart, releaseNam
 	require.NoError(t, err)
 }
 
-func HelmDeleteWithRetryE(t *testing.T, options *helm.Options, releaseName string, purge bool) error {
+func HelmDeleteWithRetryE(
+	t *testing.T, options *helm.Options, releaseName string, purge bool,
+) error {
 	t.Helper()
 	if !shouldRetryHelmAction(options) {
 		return helm.DeleteE(t, options, releaseName, purge)

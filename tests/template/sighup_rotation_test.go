@@ -16,7 +16,7 @@ import (
 
 var (
 	sighupHelmChartPath = func() string {
-		path, err := filepath.Abs("../../cockroachdb")
+		path, err := filepath.Abs("../../cockroachdb-legacy")
 		if err != nil {
 			panic(err)
 		}

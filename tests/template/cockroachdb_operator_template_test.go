@@ -24,7 +24,7 @@ var (
 
 func init() {
 	var initErr error
-	operatorChartPath, initErr = filepath.Abs("../../cockroachdb-parent/charts/operator")
+	operatorChartPath, initErr = filepath.Abs("../../cockroachdb-operator/charts/operator")
 	if initErr != nil {
 		panic(initErr)
 	}
@@ -462,11 +462,12 @@ func TestOperatorStorageMigrationTemplateRemoved(t *testing.T) {
 	require.Contains(t, err.Error(), "Could not resolve template file templates/storage-migration.yaml")
 }
 
-// TestCockroachDBParentSelfSignerAdditionalSANs tests that additionalSANs are properly passed to the self-signer Job and CronJob in the parent chart
+// TestCockroachDBParentSelfSignerAdditionalSANs tests that additionalSANs are properly passed to the self-signer Job and CronJob in the umbrella
+// (cockroachdb-operator) chart
 func TestCockroachDBParentSelfSignerAdditionalSANs(t *testing.T) {
 	t.Parallel()
 
-	chartPath, err := filepath.Abs("../../cockroachdb-parent/charts/cockroachdb")
+	chartPath, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
 	require.NoError(t, err)
 
 	testCases := []struct {

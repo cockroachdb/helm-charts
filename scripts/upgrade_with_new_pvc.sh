@@ -11,13 +11,13 @@ Help()
    echo "release_name: Helm release name, e.g. my-release"
    echo "chart: Helm chart to use (either referenced locally, or to the Helm repository), e.g. cockroachdb/cockroachdb"
    echo "chart_version: Helm chart version to upgrade to, e.g. 15.0.0"
-   echo "values_file: Path to the values file, e.g. ./cockroachdb/values.yaml"
+   echo "values_file: Path to the values file, e.g. ./cockroachdb-legacy/values.yaml"
    echo "namespace: Kubernetes namespace, e.g. default"
    echo "sts_name: Statefulset name (can be obtained through \"kubectl get sts\"), e.g. my-release-cockroachdb"
    echo "num_replicas: Number of replicas in the statefulset, e.g. 3"
    echo "kubeconfig (optional): Path to the kubeconfig file. Default is $HOME/.kube/config."
    echo
-   echo "example: ./scripts/upgrade_with_new_pvc.sh my-release cockroachdb/cockroachdb 15.0.0 ./cockroachdb/values.yaml default my-release-cockroachdb 3"
+   echo "example: ./scripts/upgrade_with_new_pvc.sh my-release cockroachdb/cockroachdb 15.0.0 ./cockroachdb-legacy/values.yaml default my-release-cockroachdb 3"
    echo
 }
 

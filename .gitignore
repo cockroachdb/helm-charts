@@ -3,3 +3,7 @@ bin/
 build/artifacts
 bazel-*
 /vendor/
+
+# Helm dependency-update outputs — never commit these; the Makefile bump targets
+# and CI regenerate them from Chart.yaml subchart dependencies.
+cockroachdb-operator/charts/*.tgz

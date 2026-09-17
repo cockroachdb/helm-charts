@@ -1,0 +1,17 @@
+apiVersion: v2
+name: cockroachdb-operator
+description: Umbrella Helm chart that installs the CockroachDB Operator and a CockroachDB cluster it manages
+type: application
+version: {{ .Version }}
+appVersion: {{ .AppVersion }}
+dependencies:
+  - name: cockroachdb-operator-chart
+    alias: operator
+    version: {{ .OperatorVersion }}
+    condition: operator.enabled
+    repository: "file://charts/operator"
+  - name: cockroachdb-chart
+    alias: cockroachdb
+    version: {{ .CockroachDBVersion }}
+    condition: cockroachdb.enabled
+    repository: "file://charts/cockroachdb"

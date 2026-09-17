@@ -24,7 +24,7 @@ K3D_PATH="./bin/k3d"
 # Operator-managed images are published to GAR and embedded by the operator.
 # CRDB itself is loaded from the chart default below.
 OPERATOR_IMAGE_REGISTRY="${OPERATOR_IMAGE_REGISTRY:-us-docker.pkg.dev/releases-prod/self-hosted}"
-OPERATOR_IMAGE_TAG="$(bin/yq '.image.tag' ./cockroachdb-parent/charts/operator/values.yaml)"
+OPERATOR_IMAGE_TAG="$(bin/yq '.image.tag' ./cockroachdb-operator/charts/operator/values.yaml)"
 # GAR keeps the cert-reloader image under its historical inotifywait repository.
 CERT_RELOADER_IMAGE="${CERT_RELOADER_IMAGE:-${OPERATOR_IMAGE_REGISTRY}/inotifywait:${OPERATOR_IMAGE_TAG}}"
 INIT_CONTAINER_IMAGE="${INIT_CONTAINER_IMAGE:-${OPERATOR_IMAGE_REGISTRY}/init-container:${OPERATOR_IMAGE_TAG}}"
@@ -32,7 +32,7 @@ INIT_CONTAINER_IMAGE="${INIT_CONTAINER_IMAGE:-${OPERATOR_IMAGE_REGISTRY}/init-co
 # Self-signer tests use the image built by build/self-signer.
 SELF_SIGNER_IMAGE_REGISTRY="gcr.io"
 SELF_SIGNER_IMAGE_REPOSITORY="cockroachlabs-helm-charts/cockroach-self-signer-cert"
-SELF_SIGNER_IMAGE_TAG="$(bin/yq '.cockroachdb.tls.selfSigner.image.tag' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
+SELF_SIGNER_IMAGE_TAG="$(bin/yq '.cockroachdb.tls.selfSigner.image.tag' ./cockroachdb-operator/charts/cockroachdb/values.yaml)"
 
 # Required container images for the clusters.
 # These images are imported into each cluster during creation.
@@ -43,7 +43,7 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-controller:v1.11.0"
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
     "coredns/coredns:1.9.2"
-    "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-parent/charts/cockroachdb/values.yaml)"
+    "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-operator/charts/cockroachdb/values.yaml)"
     "${CERT_RELOADER_IMAGE}"
     "${INIT_CONTAINER_IMAGE}"
     "${SELF_SIGNER_IMAGE_REGISTRY}/${SELF_SIGNER_IMAGE_REPOSITORY}:${SELF_SIGNER_IMAGE_TAG}"

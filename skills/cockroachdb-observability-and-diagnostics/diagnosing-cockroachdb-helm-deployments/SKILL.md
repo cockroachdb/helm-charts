@@ -383,8 +383,8 @@ Return findings in this order:
 
 ## References
 
-- [CockroachDB Helm Chart Versioning](../../../cockroachdb-parent/docs/VERSIONING.md)
-- [Operator Helm Chart README](../../../cockroachdb-parent/charts/operator/README.md)
-- [CockroachDB Helm Chart README](../../../cockroachdb-parent/charts/cockroachdb/README.md)
-- [v1alpha1 to v1beta1 Migration Guide](../../../cockroachdb-parent/MIGRATION_v1alpha1_to_v1beta1.md)
+- [CockroachDB Helm Chart Versioning](../../../cockroachdb-operator/docs/VERSIONING.md)
+- [Operator Helm Chart README](../../../cockroachdb-operator/charts/operator/README.md)
+- [CockroachDB Helm Chart README](../../../cockroachdb-operator/charts/cockroachdb/README.md)
+- [v1alpha1 to v1beta1 Migration Guide](../../../cockroachdb-operator/MIGRATION_v1alpha1_to_v1beta1.md)
 - [CockroachDB Docs: Kubernetes troubleshooting](https://www.cockroachlabs.com/docs/stable/orchestrate-cockroachdb-with-kubernetes)

@@ -30,7 +30,7 @@ export RELEASE_NAME=$(kubectl get sts $STS_NAME -n $NAMESPACE \
   -o jsonpath='{.metadata.annotations.meta\.helm\.sh/release-name}')
 
 # ORIGINAL_CHART is the same chart source and version used by the current release.
-export ORIGINAL_CHART="./cockroachdb"
+export ORIGINAL_CHART="./cockroachdb-legacy"
 
 # CLOUD_PROVIDER is the cloud vendor where the Kubernetes cluster runs.
 # Supported values include gcp, aws, and azure.
@@ -86,7 +86,7 @@ Next, install the CockroachDB Operator. `cloudRegion` must match the region gene
 namespace:
 
 ```
-helm upgrade --install crdb-operator ./cockroachdb-parent/charts/operator \
+helm upgrade --install crdb-operator ./cockroachdb-operator/charts/operator \
   --namespace $NAMESPACE \
   --set watchNamespaces=$NAMESPACE \
   --set cloudRegion=$REGION \
@@ -122,7 +122,7 @@ kubectl exec $STS_NAME-0 -n $NAMESPACE -c db -- \
 For insecure clusters, replace `--certs-dir=/cockroach/cockroach-certs` with `--insecure`.
 `cockroach node status --ranges` targets the system virtual cluster automatically. For the
 direct SQL alternative and its `allow_unsafe_internals` and UA routing requirements, see
-[Inspect cluster health manually](../../../cockroachdb-parent/charts/operator/README.md#inspect-cluster-health-manually).
+[Inspect cluster health manually](../../../cockroachdb-operator/charts/operator/README.md#inspect-cluster-health-manually).
 
 Repeat this process for each crdb node until the statefulset has zero replicas.
 
@@ -162,7 +162,7 @@ kubectl delete statefulset $STS_NAME -n $NAMESPACE --wait=true
 Finally, apply the CrdbCluster manifest using helm upgrade to complete the migration:
 
 ```
-helm upgrade $RELEASE_NAME ./cockroachdb-parent/charts/cockroachdb \
+helm upgrade $RELEASE_NAME ./cockroachdb-operator/charts/cockroachdb \
   --namespace $NAMESPACE \
   -f manifests/values.yaml \
   --force-conflicts
