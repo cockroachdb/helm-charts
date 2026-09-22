@@ -27,7 +27,7 @@ tls.certs.certManagerIssuer.name: cockroachdb
 ```
 
 ```shell
-$ helm install crdb ./cockroachdb
+$ helm install crdb ./cockroachdb-legacy
 
 NAME: crdb
 LAST DEPLOYED: Fri Aug  4 14:42:11 2023

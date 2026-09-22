@@ -56,7 +56,7 @@ helm -n <cockroachdb-namespace> history <cockroachdb-release> || true
 
 Check the local migration guide and chart changelog for version-specific migration fixes:
 
-- [v1alpha1 to v1beta1 Migration Guide](../../../cockroachdb-parent/MIGRATION_v1alpha1_to_v1beta1.md)
+- [v1alpha1 to v1beta1 Migration Guide](../../../cockroachdb-operator/MIGRATION_v1alpha1_to_v1beta1.md)
 - [CockroachDB Helm Chart Changelog](../../../CHANGELOG.md)
 
 ## Step 2: Inspect Migration State
@@ -195,5 +195,5 @@ Return findings in this order:
 
 - [diagnosing-cockroachdb-helm-deployments](../../cockroachdb-observability-and-diagnostics/diagnosing-cockroachdb-helm-deployments/SKILL.md)
 - [collecting-cockroachdb-operator-escalation-packet](../../cockroachdb-observability-and-diagnostics/collecting-cockroachdb-operator-escalation-packet/SKILL.md)
-- [v1alpha1 to v1beta1 Migration Guide](../../../cockroachdb-parent/MIGRATION_v1alpha1_to_v1beta1.md)
+- [v1alpha1 to v1beta1 Migration Guide](../../../cockroachdb-operator/MIGRATION_v1alpha1_to_v1beta1.md)
 - [CockroachDB Helm Chart Changelog](../../../CHANGELOG.md)

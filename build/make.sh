@@ -63,7 +63,7 @@ chart_version_exists() {
   "$HELM" repo add cockroachdb "https://${charts_hostname}" --force-update
   "$HELM" repo update
 
-  existing_version=$("$YQ" '.version' cockroachdb/Chart.yaml)
+  existing_version=$("$YQ" '.version' cockroachdb-legacy/Chart.yaml)
   if "$HELM" search repo cockroachdb/cockroachdb --version "$existing_version" | grep -q "$existing_version"; then
     echo "Chart version $existing_version already exists in the repository."
     return 1
@@ -77,13 +77,13 @@ build_chart() {
   curl -fsSL "https://storage.googleapis.com/$gcs_bucket/index.yaml" > "${artifacts_dir}/old-index.yaml"
 
   # Build the charts
-  "$HELM" package cockroachdb --destination "${artifacts_dir}"
+  "$HELM" package cockroachdb-legacy --destination "${artifacts_dir}"
   "$HELM" repo index "${artifacts_dir}" --url "https://${charts_hostname}" --merge "${artifacts_dir}/old-index.yaml"
   diff -u "${artifacts_dir}/old-index.yaml" "${artifacts_dir}/index.yaml" || true
 }
 
 # build_v2_charts packages the operator and cockroachdb charts from
-# cockroachdb-parent/charts/ into build/artifacts/v2/ and generates
+# cockroachdb-operator/charts/ into build/artifacts/v2/ and generates
 # a merged v2 index.yaml for the Helm repository.
 build_v2_charts() {
   mkdir -p "$v2_artifacts_dir"
@@ -100,8 +100,8 @@ build_v2_charts() {
   # Always package v2 charts, including in prod. The release step treats
   # already-published OCI artifacts as success and GCS uploads overwrite the
   # same chart package, so rerunning a partial publish is safe.
-  "$HELM" package cockroachdb-parent/charts/operator --destination "${v2_artifacts_dir}"
-  "$HELM" package cockroachdb-parent/charts/cockroachdb --destination "${v2_artifacts_dir}"
+  "$HELM" package cockroachdb-operator/charts/operator --destination "${v2_artifacts_dir}"
+  "$HELM" package cockroachdb-operator/charts/cockroachdb --destination "${v2_artifacts_dir}"
 
   "$HELM" repo index "${v2_artifacts_dir}" --url "https://${charts_hostname}/v2" --merge "${v2_artifacts_dir}/old-index.yaml"
   diff -u "${v2_artifacts_dir}/old-index.yaml" "${v2_artifacts_dir}/index.yaml" || true

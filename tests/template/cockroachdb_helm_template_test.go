@@ -31,7 +31,7 @@ var (
 )
 
 func init() {
-	helmChartPath, err = filepath.Abs("../../cockroachdb")
+	helmChartPath, err = filepath.Abs("../../cockroachdb-legacy")
 	if err != nil {
 		panic(err)
 	}
@@ -43,7 +43,7 @@ func init() {
 func TestCockroachdbPreUpgradeValidationRemoved(t *testing.T) {
 	t.Parallel()
 
-	chartPath, pathErr := filepath.Abs("../../cockroachdb-parent/charts/cockroachdb")
+	chartPath, pathErr := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
 	require.NoError(t, pathErr)
 
 	options := &helm.Options{
@@ -2095,7 +2095,7 @@ func TestHelmOperatorStartFlags(t *testing.T) {
 			}
 
 			// Use cockroachdb chart path for operator tests.
-			chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+			chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 
 			output, err := helm.RenderTemplateE(
 				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
@@ -2138,7 +2138,7 @@ func TestHelmOperatorStartFlags(t *testing.T) {
 func TestHelmOperatorEncryptionAtRestCMEKRotationFields(t *testing.T) {
 	t.Parallel()
 
-	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+	chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues: map[string]string{
@@ -2422,8 +2422,8 @@ func TestHelmOperatorPodTemplate(t *testing.T) {
 				SetValues:      testCase.values,
 			}
 
-			// Use parent chart path for operator tests.
-			chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+			// Use umbrella chart path for operator tests.
+			chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 
 			output, err := helm.RenderTemplateE(
 				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
@@ -2511,7 +2511,7 @@ func TestHelmOperatorLoggingConfigVars(t *testing.T) {
 			}
 
 			// Use cockroachdb chart path for operator tests.
-			chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+			chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 
 			output, err := helm.RenderTemplateE(
 				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
@@ -2554,7 +2554,7 @@ func TestHelmOperatorLoggingConfigVars(t *testing.T) {
 func TestHelmOperatorLogsStore(t *testing.T) {
 	t.Parallel()
 
-	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+	chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 
 	testCases := []struct {
 		name        string
@@ -2616,7 +2616,7 @@ func TestHelmOperatorLogsStore(t *testing.T) {
 func TestHelmOperatorLogValidation(t *testing.T) {
 	t.Parallel()
 
-	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+	chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 
 	testCases := []struct {
 		name       string
@@ -2736,7 +2736,7 @@ func TestHelmOperatorClusterSettings(t *testing.T) {
 				SetValues:      testCase.values,
 			}
 
-			chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+			chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 
 			output, err := helm.RenderTemplateE(
 				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
@@ -2771,7 +2771,7 @@ func TestHelmOperatorFeatures(t *testing.T) {
 		},
 	}
 
-	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+	chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 	output, err := helm.RenderTemplateE(
 		t, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
 	)
@@ -2878,7 +2878,7 @@ func TestHelmOperatorPostInitSQL(t *testing.T) {
 				SetValues:      testCase.values,
 			}
 
-			chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+			chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 
 			output, err := helm.RenderTemplateE(
 				subT, options, chartPath, releaseName, []string{"templates/crdb.yaml"},
@@ -2923,7 +2923,7 @@ func TestHelmOperatorPostInitSQL(t *testing.T) {
 func TestHelmOperatorPostInitSQLValidation(t *testing.T) {
 	t.Parallel()
 
-	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+	chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 
 	testCases := []struct {
 		name       string
@@ -2977,7 +2977,7 @@ func TestHelmOperatorPostInitSQLValidation(t *testing.T) {
 func TestHelmClusterTLSConfiguration(t *testing.T) {
 	t.Parallel()
 
-	chartPath := filepath.Join("../../cockroachdb-parent/charts/cockroachdb")
+	chartPath := filepath.Join("../../cockroachdb-operator/charts/cockroachdb")
 
 	// validation tests: invalid value combinations must be rejected at render time.
 	t.Run("validation", func(t *testing.T) {
