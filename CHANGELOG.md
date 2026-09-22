@@ -140,6 +140,17 @@ Historical entries from the preview era (before per-chart versioning) are preser
   - cockroachdb.crdbcluster.nodeSelector
   - cockroachdb.crdbcluster.affinity
   - cockroachdb.crdbcluster.tolerations
+- **Topology compatibility note:** This release removed the first-class
+  `cockroachdb.crdbCluster.topologySpreadConstraints` value and its `CrdbCluster` rendering in
+  favor of `podTemplate`. Operator versions earlier than `v1.1.0` still require the first-class
+  field for topology-aware scale-down. Users running this or a later chart with an earlier operator
+  must temporarily restore the field in both `values.yaml` and `templates/crdb.yaml` and keep it
+  present through every Helm operation until the operator is upgraded. Configuring
+  `podTemplate.spec.topologySpreadConstraints` is optional; if both fields are configured, keep
+  their constraints equivalent.
+
+See [Topology spread constraints with operators before v1.1.0](cockroachdb-parent/charts/cockroachdb/README.md#topology-spread-constraints-with-operators-before-v110)
+for the Helm configuration and temporary compatibility steps.
 
 ## [cockroachdb-parent-25.3.0-preview] - 2025-08-26
 ### Added
