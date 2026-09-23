@@ -39,6 +39,7 @@ Validates the high-risk prerequisites for multi-region CockroachDB deployments m
 ## Execution Discipline
 
 - Execute one step at a time and inspect the output before moving on. Region inventory, DNS results, network results, and certificate state determine which later checks are relevant.
+- Do not infer cross-region service names from the Helm release alone. List Services in the peer namespace and use the actual DNS service name that CockroachDB pods are expected to join.
 - Do not create debug pods, run interactive shells, use external diagnostic images, or perform Helm upgrades unless the user explicitly approves them for each participating cluster.
 - In air-gapped or private-registry environments, use customer-approved diagnostic images mirrored into the customer's registry.
 - In production or when cross-region networking, certificate trust, or locality is unclear, involve TSE or the operator team before adding regions or changing chart values.
@@ -91,7 +92,13 @@ Checklist:
 
 ## Step 3: Validate Cross-Region DNS and Network Paths
 
-From a temporary debugging pod in each region, verify that peer region service names resolve and connect. Replace names with the actual release and namespace.
+From a temporary debugging pod in each region, verify that peer region service names resolve and connect. First discover the peer service name; do not assume it is identical to the Helm release.
+
+```bash
+kubectl --context <peer-context> -n <peer-namespace> get service,endpoints -o wide
+export PEER_SERVICE="<actual-peer-sql-or-public-service-name-from-output>"
+test -n "$PEER_SERVICE"
+```
 
 ```bash
 kubectl --context <context> -n <namespace> run crdb-dns-check \
@@ -101,8 +108,8 @@ kubectl --context <context> -n <namespace> run crdb-dns-check \
 Inside the pod:
 
 ```sh
-nslookup <release-name>.<peer-namespace>.svc.<peer-domain>
-nc -vz <release-name>.<peer-namespace>.svc.<peer-domain> 26258
+nslookup <peer-service-name>.<peer-namespace>.svc.<peer-domain>
+nc -vz <peer-service-name>.<peer-namespace>.svc.<peer-domain> 26258
 ```
 
 If `nc` is unavailable, use an approved network diagnostic image or cloud-native connectivity test. Do not proceed until DNS and TCP connectivity are proven in both directions.
