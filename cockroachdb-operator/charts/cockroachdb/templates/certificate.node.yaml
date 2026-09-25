@@ -39,6 +39,9 @@ spec:
     - {{ printf "%s-join" (include "cockroachdb.fullname" .) | quote }}
     - {{ printf "%s-join.%s" (include "cockroachdb.fullname" .) .Release.Namespace | quote }}
     - {{ printf "%s-join.%s.svc.%s" (include "cockroachdb.fullname" .) .Release.Namespace .Values.cockroachdb.clusterDomain | quote }}
+  {{- range .Values.cockroachdb.tls.certManager.additionalDnsNames }}
+    - {{ . | quote }}
+  {{- end }}
   secretName: {{ .Values.cockroachdb.tls.certManager.nodeSecret }}
   issuerRef:
     name: {{ .Values.cockroachdb.tls.certManager.issuer.name }}
