@@ -672,6 +672,12 @@ tls:
       nodeCertDuration: 8760h
       # Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.
       nodeCertExpiryWindow: 168h
+      # Additional DNS names (SANs) to append to the cert-manager issued node certificate.
+      # Useful for custom or external domains that are not part of the cluster's internal
+      # Kubernetes DNS, for example when running separate clusters per region.
+      # Leaving this empty produces a certificate identical to the default.
+      # Example: ["my-domain.example.com", "*.my-domain.example.com"]
+      additionalDnsNames: []
 
   selfSigner:
     # Additional labels to apply to the Pod of this Job.
