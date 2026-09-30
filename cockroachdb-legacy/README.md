@@ -102,9 +102,11 @@ There are 3 ways to configure a secure cluster, with this chart. This all relate
 
 For instructions on using self-signer to provision certificates for the statefulset-based Helm chart, see the [Installation of statefulset-based Helm Chart with self-signer](../docs/certificate-management/self-signer.md#Installation-of-statefulset-based-helm-chart-with-self-signer) section in the documentation.
 
-##### Additional Subject Alternative Names (SANs) for Load Balancers
+##### Additional Subject Alternative Names (SANs) for Load Balancers and Custom Domains
 
-When using the self-signer, you can include additional Subject Alternative Names (SANs) in node certificates. This is useful when:
+You can include additional Subject Alternative Names (SANs) in node certificates with
+either certificate method: `tls.certs.selfSigner.additionalSANs` for the self-signer, or
+`tls.certs.certManagerIssuer.additionalDnsNames` for cert-manager. This is useful when:
 - Routing traffic through load balancers with `sslmode=verify-full`
 - Setting up Physical Cluster Replication (PCR) through external endpoints
 - Accessing the cluster through custom DNS names or IP addresses
@@ -134,6 +136,26 @@ $ helm install my-release cockroachdb/cockroachdb \
 ```
 
 **Note:** The additional SANs are automatically included in both initial certificate generation and subsequent certificate rotations.
+
+When using cert-manager instead of the self-signer, set
+`tls.certs.certManagerIssuer.additionalDnsNames`. The names are appended to the
+`dnsNames` list on the generated cert-manager `Certificate`, alongside the
+built-in internal Kubernetes DNS names. This is the path to use for custom or
+external domains that are not part of any single cluster's internal DNS, such as
+when running separate clusters per region:
+
+```yaml
+tls:
+  enabled: true
+  certs:
+    certManager: true
+    certManagerIssuer:
+      additionalDnsNames:
+        - "my-domain.example.com"
+        - "*.my-domain.example.com"
+```
+
+Leaving `additionalDnsNames` unset produces a certificate identical to the default.
 
 #### Manual
 
@@ -472,6 +494,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.certManagerIssuer.clientCertExpiryWindow`      | Expiry window of client cert means a window before actual expiry in which client cert should be rotated                                                                                                                                                                                                                                  | `48h`                                                  |
 | `tls.certs.certManagerIssuer.nodeCertDuration`            | Duration of node cert in hours                                                                                                                                                                                                                                                                                                           | `8760h`                                                |
 | `tls.certs.certManagerIssuer.nodeCertExpiryWindow`        | Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.                                                                                                                                                                                                                            | `168h`                                                 |
+| `tls.certs.certManagerIssuer.additionalDnsNames`          | Additional DNS names (SANs) appended to the cert-manager issued node certificate. Useful for custom or external domains outside the cluster's internal Kubernetes DNS                                                                                                                                                                    | `[]`                                                   |
 | `tls.selfSigner.image.repository`                         | Image to use for self signing TLS certificates                                                                                                                                                                                                                                                                                           | `cockroachdb/cockroach-self-signer-cert`               |
 | `tls.selfSigner.image.tag`                                | Image tag to use for self signing TLS certificates                                                                                                                                                                                                                                                                                       | `1.10`                                                 |
 | `tls.selfSigner.image.pullPolicy`                         | Self signing TLS certificates container pull policy                                                                                                                                                                                                                                                                                      | `IfNotPresent`                                         |

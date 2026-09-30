@@ -125,5 +125,29 @@ cockroachdb:
         nodeCertExpiryWindow: 168h
 ```
 
+### Additional DNS names (SANs) on the node certificate
+
+By default the node certificate covers only the cluster's own internal Kubernetes
+DNS names. To include custom or external domains — for example when running
+separate clusters per region, or when routing SQL traffic through an external
+endpoint with `sslmode=verify-full` — set `additionalDnsNames`. The entries are
+appended to the `dnsNames` list on the generated cert-manager `Certificate`,
+alongside the built-in names:
+
+```yaml
+cockroachdb:
+  tls:
+    certManager:
+      enabled: true
+      additionalDnsNames:
+        - "my-domain.example.com"
+        - "*.my-domain.example.com"
+```
+
+Leaving `additionalDnsNames` unset produces a certificate identical to the default.
+
+The statefulset-based chart has the same option at
+`tls.certs.certManagerIssuer.additionalDnsNames`.
+
 [1]: https://cert-manager.io/
 [2]: https://cert-manager.io/docs/trust/trust-manager/
