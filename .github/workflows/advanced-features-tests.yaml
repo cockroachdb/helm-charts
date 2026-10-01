@@ -5,6 +5,21 @@ on:
     - cron: "15 8 * * 2"  # Run at 8:15 AM on every Tuesday UTC to avoid peak times
   # Allow manual trigger on any branch
   workflow_dispatch:
+    inputs:
+      provider:
+        description: Provider to run
+        type: choice
+        default: all
+        options: [all, k3d, kind, gcp, openshift, azure]
+      jobs:
+        description: Jobs to run
+        type: choice
+        default: both
+        options: [both, single-region, multi-region]
+      openshift_skip_teardown:
+        description: Keep the OpenShift cluster after the run and upload its kubeconfig to the CI debug bucket. Destroy it yourself when done.
+        type: boolean
+        default: false
 
 env:
   OPENSHIFT_VERSION: "4.17.16"
@@ -12,11 +27,12 @@ env:
 
 jobs:
   advanced-features-single-region:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.jobs == 'both' || inputs.jobs == 'single-region' }}
     runs-on: [self-hosted, ubuntu_2404]
     strategy:
       fail-fast: false
       matrix:
-        provider: [k3d, kind, gcp, openshift, azure]
+        provider: ${{ fromJSON((github.event_name != 'workflow_dispatch' || inputs.provider == 'all') && '["k3d","kind","gcp","openshift","azure"]' || format('["{0}"]', inputs.provider)) }}
     timeout-minutes: 300
     concurrency:
       group: ${{ matrix.provider == 'azure' && format('helm-charts-azure-e2e-{0}-advanced-single-region', github.ref_name) || matrix.provider == 'openshift' && 'advanced-features-openshift' || format('advanced-features-{0}-{1}-{2}', github.run_id, github.job, matrix.provider) }}
@@ -163,7 +179,7 @@ jobs:
           OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
           OPENSHIFT_PULL_SECRET: ${{ secrets.OPENSHIFT_PULL_SECRET }}
           OPENSHIFT_ENABLE_SUBMARINER: "false"
-          OPENSHIFT_SKIP_TEARDOWN: "false"
+          OPENSHIFT_SKIP_TEARDOWN: ${{ inputs.openshift_skip_teardown && 'true' || 'false' }}
         run: |
           set -euo pipefail
 
@@ -198,6 +214,19 @@ jobs:
           ./build/azure-ci-debug.sh cleanup-resource-groups || cleanup_status="$?"
           ./build/azure-ci-debug.sh snapshot cleanup-after-single-region || true
           exit "${cleanup_status}"
+      - name: Redact cluster credentials from logs
+        if: ${{ always() && matrix.provider == 'openshift' }}
+        shell: bash
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # The installer prints the kubeadmin password. Keep it out of public artifacts.
+          for f in test_output.log "${TMPDIR}"/helm-charts-ocp-*/.openshift_install.log; do
+            [[ -f "${f}" ]] || continue
+            sed -i -E 's/(password: \\?")[^"\\]*(\\?")/\1<redacted>\2/g' "${f}"
+          done
       - name: Archive test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -222,7 +251,7 @@ jobs:
           OPENSHIFT_DEBUG_DIR: ${{ runner.temp }}/openshift-debug
           OPENSHIFT_DEBUG_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/${{ github.run_id }}/${{ github.run_attempt }}/single-region
           OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
-          OPENSHIFT_SKIP_TEARDOWN: "false"
+          OPENSHIFT_SKIP_TEARDOWN: ${{ inputs.openshift_skip_teardown && 'true' || 'false' }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -231,6 +260,7 @@ jobs:
             echo "OPENSHIFT_SKIP_TEARDOWN=true; preserving OpenShift installer state"
             ./build/openshift-ci-debug.sh snapshot skip-teardown-single-region || true
             ./build/openshift-ci-debug.sh sync || true
+            ./build/openshift-ci-debug.sh sync-credentials
             exit 0
           fi
 
@@ -253,11 +283,12 @@ jobs:
           slack-webhook-url: ${{ secrets.SLACK_WEBHOOK_URL }}
 
   advanced-features-multi-region:
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.jobs == 'both' || inputs.jobs == 'multi-region' }}
     runs-on: [self-hosted, ubuntu_2404]
     strategy:
       fail-fast: false
       matrix:
-        provider: [k3d, kind, gcp, openshift, azure]
+        provider: ${{ fromJSON((github.event_name != 'workflow_dispatch' || inputs.provider == 'all') && '["k3d","kind","gcp","openshift","azure"]' || format('["{0}"]', inputs.provider)) }}
     timeout-minutes: 420
     concurrency:
       group: ${{ matrix.provider == 'azure' && format('helm-charts-azure-e2e-{0}-advanced-multi-region', github.ref_name) || matrix.provider == 'openshift' && 'advanced-features-openshift' || format('advanced-features-{0}-{1}-{2}', github.run_id, github.job, matrix.provider) }}
@@ -407,7 +438,7 @@ jobs:
           OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
           OPENSHIFT_PULL_SECRET: ${{ secrets.OPENSHIFT_PULL_SECRET }}
           OPENSHIFT_ENABLE_SUBMARINER: "true"
-          OPENSHIFT_SKIP_TEARDOWN: "false"
+          OPENSHIFT_SKIP_TEARDOWN: ${{ inputs.openshift_skip_teardown && 'true' || 'false' }}
         run: |
           set -euo pipefail
 
@@ -447,6 +478,19 @@ jobs:
           ./build/azure-ci-debug.sh cleanup-resource-groups || cleanup_status="$?"
           ./build/azure-ci-debug.sh snapshot cleanup-after-multi-region || true
           exit "${cleanup_status}"
+      - name: Redact cluster credentials from logs
+        if: ${{ always() && matrix.provider == 'openshift' }}
+        shell: bash
+        env:
+          TMPDIR: ${{ runner.temp }}
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          # The installer prints the kubeadmin password. Keep it out of public artifacts.
+          for f in test_output.log "${TMPDIR}"/helm-charts-ocp-*/.openshift_install.log; do
+            [[ -f "${f}" ]] || continue
+            sed -i -E 's/(password: \\?")[^"\\]*(\\?")/\1<redacted>\2/g' "${f}"
+          done
       - name: Archive test results
         if: ${{ always() }}
         uses: actions/upload-artifact@v4
@@ -471,7 +515,7 @@ jobs:
           OPENSHIFT_DEBUG_DIR: ${{ runner.temp }}/openshift-debug
           OPENSHIFT_DEBUG_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/${{ github.run_id }}/${{ github.run_attempt }}/multi-region
           OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
-          OPENSHIFT_SKIP_TEARDOWN: "false"
+          OPENSHIFT_SKIP_TEARDOWN: ${{ inputs.openshift_skip_teardown && 'true' || 'false' }}
         run: |
           set -euo pipefail
           shopt -s nullglob
@@ -480,6 +524,7 @@ jobs:
             echo "OPENSHIFT_SKIP_TEARDOWN=true; preserving OpenShift installer state"
             ./build/openshift-ci-debug.sh snapshot skip-teardown-multi-region || true
             ./build/openshift-ci-debug.sh sync || true
+            ./build/openshift-ci-debug.sh sync-credentials
             exit 0
           fi
 
