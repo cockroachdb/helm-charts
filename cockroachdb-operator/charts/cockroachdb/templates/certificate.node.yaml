@@ -42,6 +42,12 @@ spec:
   {{- range .Values.cockroachdb.tls.certManager.additionalDnsNames }}
     - {{ . | quote }}
   {{- end }}
+  {{- with .Values.cockroachdb.tls.certManager.additionalIpAddresses }}
+  ipAddresses:
+  {{- range . }}
+    - {{ . | quote }}
+  {{- end }}
+  {{- end }}
   secretName: {{ .Values.cockroachdb.tls.certManager.nodeSecret }}
   issuerRef:
     name: {{ .Values.cockroachdb.tls.certManager.issuer.name }}

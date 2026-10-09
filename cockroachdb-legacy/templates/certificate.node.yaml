@@ -39,6 +39,12 @@ spec:
   {{- range .Values.tls.certs.certManagerIssuer.additionalDnsNames }}
     - {{ . | quote }}
   {{- end }}
+  {{- with .Values.tls.certs.certManagerIssuer.additionalIpAddresses }}
+  ipAddresses:
+  {{- range . }}
+    - {{ . | quote }}
+  {{- end }}
+  {{- end }}
   secretName: {{ .Values.tls.certs.nodeSecret }}
   issuerRef:
   {{- if .Values.tls.certs.certManagerIssuer.isSelfSignedIssuer }}

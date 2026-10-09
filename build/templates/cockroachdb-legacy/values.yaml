@@ -674,9 +674,19 @@ tls:
       # Additional DNS names (SANs) to append to the cert-manager issued node certificate.
       # Useful for custom or external domains that are not part of the cluster's internal
       # Kubernetes DNS, for example when running separate clusters per region.
+      # DNS names only; put IP addresses in additionalIpAddresses instead.
       # Leaving this empty produces a certificate identical to the default.
+      # Changing this on an existing install makes cert-manager reissue the node certificate;
+      # pods pick it up on their next restart.
       # Example: ["my-domain.example.com", "*.my-domain.example.com"]
       additionalDnsNames: []
+      # Additional IP address SANs to add to the cert-manager issued node certificate,
+      # for example a load balancer IP. Leaving this empty produces a certificate identical
+      # to the default.
+      # Changing this on an existing install makes cert-manager reissue the node certificate;
+      # pods pick it up on their next restart.
+      # Example: ["10.0.0.10"]
+      additionalIpAddresses: []
 
   selfSigner:
     # Additional labels to apply to the Pod of this Job.

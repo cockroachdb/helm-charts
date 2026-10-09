@@ -106,7 +106,8 @@ For instructions on using self-signer to provision certificates for the stateful
 
 You can include additional Subject Alternative Names (SANs) in node certificates with
 either certificate method: `tls.certs.selfSigner.additionalSANs` for the self-signer, or
-`tls.certs.certManagerIssuer.additionalDnsNames` for cert-manager. This is useful when:
+`tls.certs.certManagerIssuer.additionalDnsNames` and
+`tls.certs.certManagerIssuer.additionalIpAddresses` for cert-manager. This is useful when:
 - Routing traffic through load balancers with `sslmode=verify-full`
 - Setting up Physical Cluster Replication (PCR) through external endpoints
 - Accessing the cluster through custom DNS names or IP addresses
@@ -153,9 +154,21 @@ tls:
       additionalDnsNames:
         - "my-domain.example.com"
         - "*.my-domain.example.com"
+      additionalIpAddresses:
+        - "10.0.0.10"
 ```
 
-Leaving `additionalDnsNames` unset produces a certificate identical to the default.
+`additionalDnsNames` accepts DNS names only. Put IP addresses in
+`additionalIpAddresses`, which maps to the `ipAddresses` field on the `Certificate`;
+an IP listed under `additionalDnsNames` would be written as a DNS-type SAN and fail
+TLS verification against that IP.
+
+Leaving both fields unset produces a certificate identical to the default. Changing
+either field on an existing install changes the `Certificate` spec, so cert-manager
+reissues the node certificate and rewrites the node secret. Pods copy the
+certificates at startup, so they keep serving the old certificate until they
+restart; run `kubectl rollout restart statefulset/<release>-cockroachdb` to pick up
+the new one.
 
 #### Manual
 
@@ -495,6 +508,7 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.certManagerIssuer.nodeCertDuration`            | Duration of node cert in hours                                                                                                                                                                                                                                                                                                           | `8760h`                                                |
 | `tls.certs.certManagerIssuer.nodeCertExpiryWindow`        | Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.                                                                                                                                                                                                                            | `168h`                                                 |
 | `tls.certs.certManagerIssuer.additionalDnsNames`          | Additional DNS names (SANs) appended to the cert-manager issued node certificate. Useful for custom or external domains outside the cluster's internal Kubernetes DNS                                                                                                                                                                    | `[]`                                                   |
+| `tls.certs.certManagerIssuer.additionalIpAddresses`       | Additional IP address SANs added to the cert-manager issued node certificate (`ipAddresses`), for example a load balancer IP                                                                                                                                                                                                             | `[]`                                                   |
 | `tls.selfSigner.image.repository`                         | Image to use for self signing TLS certificates                                                                                                                                                                                                                                                                                           | `cockroachdb/cockroach-self-signer-cert`               |
 | `tls.selfSigner.image.tag`                                | Image tag to use for self signing TLS certificates                                                                                                                                                                                                                                                                                       | `1.10`                                                 |
 | `tls.selfSigner.image.pullPolicy`                         | Self signing TLS certificates container pull policy                                                                                                                                                                                                                                                                                      | `IfNotPresent`                                         |

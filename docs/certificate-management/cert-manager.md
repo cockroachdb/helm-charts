@@ -142,12 +142,27 @@ cockroachdb:
       additionalDnsNames:
         - "my-domain.example.com"
         - "*.my-domain.example.com"
+      additionalIpAddresses:
+        - "10.0.0.10"
 ```
 
-Leaving `additionalDnsNames` unset produces a certificate identical to the default.
+`additionalDnsNames` accepts DNS names only. To add an IP address SAN, such as a
+load balancer IP, use `additionalIpAddresses`, which maps to the `ipAddresses`
+field on the `Certificate`. An IP listed under `additionalDnsNames` would be
+written as a DNS-type SAN and fail TLS verification against that IP.
 
-The statefulset-based chart has the same option at
-`tls.certs.certManagerIssuer.additionalDnsNames`.
+Leaving both fields unset produces a certificate identical to the default.
+
+Changing either field on an existing install changes the `Certificate` spec, so
+cert-manager reissues the node certificate and rewrites the node secret. With the
+operator, running pods reload the new certificate without a restart. The
+statefulset-based chart copies certificates at pod startup, so there do a rolling
+restart (`kubectl rollout restart statefulset/<release>-cockroachdb`) to pick up the
+new one.
+
+The statefulset-based chart has the same options at
+`tls.certs.certManagerIssuer.additionalDnsNames` and
+`tls.certs.certManagerIssuer.additionalIpAddresses`.
 
 [1]: https://cert-manager.io/
 [2]: https://cert-manager.io/docs/trust/trust-manager/

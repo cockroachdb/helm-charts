@@ -117,9 +117,19 @@ cockroachdb:
       # additionalDnsNames specifies extra DNS names (SANs) to append to the node certificate.
       # Useful for custom or external domains that are not part of the cluster's internal
       # Kubernetes DNS, for example when running separate clusters per region.
+      # DNS names only; put IP addresses in additionalIpAddresses instead.
       # Leaving this empty produces a certificate identical to the default.
+      # Changing this on an existing install makes cert-manager reissue the node certificate;
+      # the operator reloads it in running pods without a restart.
       # Example: ["my-domain.example.com", "*.my-domain.example.com"]
       additionalDnsNames: []
+      # additionalIpAddresses specifies extra IP address SANs to add to the node certificate,
+      # for example a load balancer IP. Leaving this empty produces a certificate identical
+      # to the default.
+      # Changing this on an existing install makes cert-manager reissue the node certificate;
+      # the operator reloads it in running pods without a restart.
+      # Example: ["10.0.0.10"]
+      additionalIpAddresses: []
     # externalCertificates captures the configuration for using external certificates.
     externalCertificates:
       # enabled determines whether external certificates are used.
