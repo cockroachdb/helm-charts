@@ -173,6 +173,29 @@ By enabling `tls.certs.tlsSecret` the tls secrets are projected on to the correc
 
 For instructions on using cert-manager to provision certificates for the statefulset-based Helm chart, see the [Installation of statefulset-based Helm Chart with Cert Manager](../docs/certificate-management/cert-manager.md#Installation-of-statefulset-based-helm-chart-with-cert-manager) section in the documentation.
 
+##### Additional Subject Alternative Names (SANs)
+
+To add custom DNS names or IP addresses to the cert-manager issued node certificate, set
+`tls.certs.certManagerIssuer.additionalDnsNames` and
+`tls.certs.certManagerIssuer.additionalIpAddresses`:
+
+```yaml
+tls:
+  enabled: true
+  certs:
+    selfSigner:
+      enabled: false
+    certManager: true
+    certManagerIssuer:
+      additionalDnsNames:
+        - "my-domain.example.com"
+        - "*.my-domain.example.com"
+      additionalIpAddresses:
+        - "10.0.0.10"
+```
+
+See [Additional SANs on the node certificate](../docs/certificate-management/cert-manager.md#additional-sans-on-the-node-certificate) for details, including how certificate changes are picked up by running pods.
+
 ### Zero-downtime certificate rotation
 
 The chart supports zero-downtime certificate rotation using SIGHUP signal when `tls.enableSighupRotation` is set to `true`. This allows you to rotate TLS certificates without restarting CockroachDB pods.
@@ -472,6 +495,8 @@ For details see the [`values.yaml`](values.yaml) file.
 | `tls.certs.certManagerIssuer.clientCertExpiryWindow`      | Expiry window of client cert means a window before actual expiry in which client cert should be rotated                                                                                                                                                                                                                                  | `48h`                                                  |
 | `tls.certs.certManagerIssuer.nodeCertDuration`            | Duration of node cert in hours                                                                                                                                                                                                                                                                                                           | `8760h`                                                |
 | `tls.certs.certManagerIssuer.nodeCertExpiryWindow`        | Expiry window of node certificates means a window before actual expiry in which node certs should be rotated.                                                                                                                                                                                                                            | `168h`                                                 |
+| `tls.certs.certManagerIssuer.additionalDnsNames`          | Additional DNS names (SANs) appended to the cert-manager issued node certificate. Useful for custom or external domains outside the cluster's internal Kubernetes DNS                                                                                                                                                                    | `[]`                                                   |
+| `tls.certs.certManagerIssuer.additionalIpAddresses`       | Additional IP address SANs added to the cert-manager issued node certificate (`ipAddresses`), for example a load balancer IP                                                                                                                                                                                                             | `[]`                                                   |
 | `tls.selfSigner.image.repository`                         | Image to use for self signing TLS certificates                                                                                                                                                                                                                                                                                           | `cockroachdb/cockroach-self-signer-cert`               |
 | `tls.selfSigner.image.tag`                                | Image tag to use for self signing TLS certificates                                                                                                                                                                                                                                                                                       | `1.10`                                                 |
 | `tls.selfSigner.image.pullPolicy`                         | Self signing TLS certificates container pull policy                                                                                                                                                                                                                                                                                      | `IfNotPresent`                                         |

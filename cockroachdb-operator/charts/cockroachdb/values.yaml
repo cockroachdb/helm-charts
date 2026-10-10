@@ -115,6 +115,11 @@ cockroachdb:
         nodeCertDuration: 8760h
         # nodeCertExpiryWindow specifies the rotation window before node certificate expiry.
         nodeCertExpiryWindow: 168h
+      # additionalDnsNames lists extra DNS SANs for the node certificate (DNS names only).
+      # Example: ["my-domain.example.com", "*.my-domain.example.com"]
+      additionalDnsNames: []
+      # additionalIpAddresses lists extra IP SANs for the node certificate. Example: ["10.0.0.10"]
+      additionalIpAddresses: []
     # externalCertificates captures the configuration for using external certificates.
     externalCertificates:
       # enabled determines whether external certificates are used.

@@ -1,5 +1,12 @@
 # CockroachDB Chart — CHANGELOG
 
+## [Unreleased]
+### Added
+- Added `cockroachdb.tls.certManager.additionalDnsNames` and
+  `cockroachdb.tls.certManager.additionalIpAddresses` to append custom DNS names and
+  IP addresses to the cert-manager issued node certificate SANs; see
+  [cert-manager](../../../docs/certificate-management/cert-manager.md).
+
 ## [26.3.2] — 2026-09-23
 ### Changed
 - Updated the default CockroachDB image version from `v26.3.1` to `v26.3.2`.

@@ -125,5 +125,46 @@ cockroachdb:
         nodeCertExpiryWindow: 168h
 ```
 
+### Additional SANs on the node certificate
+
+By default the node certificate covers only the cluster's own internal Kubernetes
+DNS names. To include custom or external domains — for example when running
+separate clusters per region, or when routing SQL traffic through an external
+endpoint with `sslmode=verify-full` — set `additionalDnsNames`. The entries are
+appended to the `dnsNames` list on the generated cert-manager `Certificate`,
+alongside the built-in names:
+
+```yaml
+cockroachdb:
+  tls:
+    certManager:
+      enabled: true
+      additionalDnsNames:
+        - "my-domain.example.com"
+        - "*.my-domain.example.com"
+      additionalIpAddresses:
+        - "10.0.0.10"
+```
+
+`additionalDnsNames` accepts DNS names only. To add an IP address SAN, such as a
+load balancer IP, use `additionalIpAddresses`, which maps to the `ipAddresses`
+field on the `Certificate`. An IP listed under `additionalDnsNames` would be
+written as a DNS-type SAN and fail TLS verification against that IP.
+
+Leaving both fields unset produces a certificate identical to the default.
+
+Changing either field on an existing install changes the `Certificate` spec, so
+cert-manager reissues the node certificate and rewrites the node secret:
+
+* The operator reloads the new certificate in running pods automatically.
+* The statefulset-based chart copies certificates at pod startup, so by default do a
+  rolling restart (`kubectl rollout restart statefulset/<release>-cockroachdb`). With
+  `tls.enableSighupRotation: true`, certificates are mounted directly and you can send
+  SIGHUP instead; see [Zero-downtime certificate rotation](../../cockroachdb-legacy/README.md#zero-downtime-certificate-rotation).
+
+The statefulset-based chart has the same options at
+`tls.certs.certManagerIssuer.additionalDnsNames` and
+`tls.certs.certManagerIssuer.additionalIpAddresses`.
+
 [1]: https://cert-manager.io/
 [2]: https://cert-manager.io/docs/trust/trust-manager/
