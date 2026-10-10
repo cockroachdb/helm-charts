@@ -125,7 +125,7 @@ cockroachdb:
         nodeCertExpiryWindow: 168h
 ```
 
-### Additional DNS names (SANs) on the node certificate
+### Additional SANs on the node certificate
 
 By default the node certificate covers only the cluster's own internal Kubernetes
 DNS names. To include custom or external domains — for example when running
@@ -154,11 +154,13 @@ written as a DNS-type SAN and fail TLS verification against that IP.
 Leaving both fields unset produces a certificate identical to the default.
 
 Changing either field on an existing install changes the `Certificate` spec, so
-cert-manager reissues the node certificate and rewrites the node secret. With the
-operator, running pods reload the new certificate without a restart. The
-statefulset-based chart copies certificates at pod startup, so there do a rolling
-restart (`kubectl rollout restart statefulset/<release>-cockroachdb`) to pick up the
-new one.
+cert-manager reissues the node certificate and rewrites the node secret:
+
+* The operator reloads the new certificate in running pods automatically.
+* The statefulset-based chart copies certificates at pod startup, so by default do a
+  rolling restart (`kubectl rollout restart statefulset/<release>-cockroachdb`). With
+  `tls.enableSighupRotation: true`, certificates are mounted directly and you can send
+  SIGHUP instead; see [Zero-downtime certificate rotation](../../cockroachdb-legacy/README.md#zero-downtime-certificate-rotation).
 
 The statefulset-based chart has the same options at
 `tls.certs.certManagerIssuer.additionalDnsNames` and
