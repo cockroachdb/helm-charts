@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -255,6 +256,57 @@ func TestHelmSelfCertSignerJob(t *testing.T) {
 	_, err = helm.RenderTemplateE(t, options, helmChartPath, releaseName, []string{"templates/job-certSelfSigner.yaml"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Error: could not find template templates/job-certSelfSigner.yaml in chart")
+}
+
+func TestSelfSignerOperatorManagedArgs(t *testing.T) {
+	t.Parallel()
+	for _, chart := range []struct {
+		path    string
+		managed bool
+	}{
+		{"../../cockroachdb-legacy", false},
+		{"../../cockroachdb-operator/charts/cockroachdb", true},
+	} {
+		t.Run(chart.path, func(t *testing.T) {
+			options := &helm.Options{KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName)}
+			chartPath, err := filepath.Abs(chart.path)
+			require.NoError(t, err)
+			if chart.managed {
+				t.Run("rotation ConfigMap permissions", func(t *testing.T) {
+					output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/role-certRotateSelfSigner.yaml"})
+					var role rbacv1.Role
+					helm.UnmarshalK8SYaml(t, output, &role)
+					var verbs []string
+					for _, rule := range role.Rules {
+						if slices.Contains(rule.APIGroups, "") && slices.Contains(rule.Resources, "configmaps") {
+							verbs = append(verbs, rule.Verbs...)
+						}
+					}
+					require.Subset(t, verbs, []string{"get", "create", "update"})
+				})
+			}
+			for _, template := range []string{"job-certSelfSigner.yaml", "cronjob-client-node-certSelfSigner.yaml", "cronjob-ca-certSelfSigner.yaml"} {
+				t.Run(template, func(t *testing.T) {
+					output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/" + template})
+					var args []string
+					if strings.HasPrefix(template, "cronjob-") {
+						var job batchv1.CronJob
+						helm.UnmarshalK8SYaml(t, output, &job)
+						args = job.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Args
+					} else {
+						var job batchv1.Job
+						helm.UnmarshalK8SYaml(t, output, &job)
+						args = job.Spec.Template.Spec.Containers[0].Args
+					}
+					if chart.managed {
+						require.Contains(t, args, "--operator-managed=true")
+					} else {
+						require.NotContains(t, args, "--operator-managed=true")
+					}
+				})
+			}
+		})
+	}
 }
 
 // TestHelmSelfCertSignerCronJob contains the tests around the cronjob of self signer utility

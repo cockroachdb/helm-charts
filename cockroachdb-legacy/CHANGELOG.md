@@ -8,6 +8,9 @@ All notable changes to the CockroachDB Helm chart will be documented in this fil
     `tls.certs.certManagerIssuer.additionalIpAddresses` to append custom DNS names and
     IP addresses to the cert-manager issued node certificate SANs.
 
+### Changed
+- Updated the self-signer image to `1.11` for operator-managed certificate rotation fixes.
+
 ## [22.0.4] 2026-09-23
 ### Changed
   - Updated the default CockroachDB image version from `v26.3.1` to `v26.3.2`.

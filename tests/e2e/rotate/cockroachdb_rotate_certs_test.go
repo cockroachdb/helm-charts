@@ -143,7 +143,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
 
 	t.Log("Verify that CA certificate duration is changed")
-	newCaCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
-	require.NotEqual(t, caCert.Annotations["certificate-valid-upto"], newCaCert.Annotations["certificate-valid-upto"])
+	newCaCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.CaSecret)
+	require.NotEqual(t, caCert.Data["ca.crt"], newCaCert.Data["ca.crt"])
 	t.Log("CA Certificates rotated successfully")
 }

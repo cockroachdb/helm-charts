@@ -663,6 +663,9 @@ func RequireCertRotateJobToBeCompleted(t *testing.T, jobName string, crdbCluster
 				t.Log("Waiting for certificate rotation job to complete")
 			}
 
+			if job.Status.Failed > 0 {
+				return false, fmt.Errorf("certificate rotation job %s had %d failed attempts", jobName, job.Status.Failed)
+			}
 			if job.Status.Succeeded > 0 {
 				return true, nil
 			}

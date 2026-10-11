@@ -48,6 +48,16 @@ var rootCmd = &cobra.Command{
 // Execute adds all child commands to the root command and sets flags appropriately.
 // This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
+	ctx = context.Background()
+	runtimeScheme := runtime.NewScheme()
+	_ = clientgoscheme.AddToScheme(runtimeScheme)
+	config := controllerruntime.GetConfigOrDie()
+	var err error
+	cl, err = client.New(config, client.Options{Scheme: runtimeScheme})
+	if err != nil {
+		log.Panic("Failed to create client for certificate generation", err)
+	}
+
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
@@ -57,6 +67,7 @@ func Execute() {
 func init() {
 	// all the common flags are attached to root command
 	rootCmd.PersistentFlags().StringVar(&caSecret, "ca-secret", "", "name of user provided CA secret")
+	rootCmd.PersistentFlags().BoolVar(&operatorManaged, "operator-managed", false, "generate or rotate certificates for an operator-managed cluster")
 
 	rootCmd.PersistentFlags().StringVar(&caDuration, "ca-duration", "43800h", "duration of CA cert. Defaults to 43800h (5 years)")
 	rootCmd.PersistentFlags().StringVar(&caExpiry, "ca-expiry", "648h", "expiry window for CA cert. Defaults to 27 days")
@@ -66,21 +77,6 @@ func init() {
 
 	rootCmd.PersistentFlags().StringVar(&clientDuration, "client-duration", "672h", "duration of Client cert. Defaults to 28 days")
 	rootCmd.PersistentFlags().StringVar(&clientExpiry, "client-expiry", "48h", "expiry window for Client(root) cert. Defaults to 2 days")
-
-	var err error
-	ctx = context.Background()
-	runtimeScheme := runtime.NewScheme()
-
-	_ = clientgoscheme.AddToScheme(runtimeScheme)
-	config := controllerruntime.GetConfigOrDie()
-
-	cl, err = client.New(config, client.Options{
-		Scheme: runtimeScheme,
-		Mapper: nil,
-	})
-	if err != nil {
-		log.Panic("Failed to create client for certificate generation", err)
-	}
 }
 
 // getInitialConfig initializes a GenerateCert instance from certificate durations
@@ -91,6 +87,7 @@ func getInitialConfig(
 ) (generator.GenerateCert, error) {
 
 	genCert := generator.NewGenerateCert(cl)
+	genCert.OperatorManaged = operatorManaged
 
 	if err := genCert.CaCertConfig.SetConfig(caDuration, caExpiry); err != nil {
 		return genCert, err

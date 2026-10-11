@@ -42,7 +42,6 @@ var (
 
 func init() {
 	generateCmd.Flags().BoolVar(&clientOnly, "client-only", false, "generate certificates for custom user")
-	generateCmd.Flags().BoolVar(&operatorManaged, "operator-managed", false, "generate certificates for operator managed cluster")
 	rootCmd.AddCommand(generateCmd)
 }
 
@@ -54,7 +53,6 @@ func generate(cmd *cobra.Command, args []string) {
 	}
 
 	genCert.CaSecret = caSecret
-	genCert.OperatorManaged = operatorManaged
 
 	namespace, exists := os.LookupEnv("NAMESPACE")
 	if !exists {
