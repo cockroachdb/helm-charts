@@ -105,14 +105,14 @@ func getInitialConfig(
 		// STATEFULSET_NAME is derived from {{ template "cockroachdb.fullname" . }} in helm chart.
 		stsName, exists := os.LookupEnv("STATEFULSET_NAME")
 		if !exists {
-			return genCert, errors.New("Required STATEFULSET_NAME env not found")
+			return genCert, errors.New("required STATEFULSET_NAME env not found")
 		}
 		genCert.PublicServiceName = stsName + "-public"
 		genCert.DiscoveryServiceName = stsName
 
 		domain, exists := os.LookupEnv("CLUSTER_DOMAIN")
 		if !exists {
-			return genCert, errors.New("Required CLUSTER_DOMAIN env not found")
+			return genCert, errors.New("required CLUSTER_DOMAIN env not found")
 		}
 		genCert.ClusterDomain = domain
 

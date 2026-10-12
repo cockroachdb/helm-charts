@@ -248,7 +248,11 @@ func TestUpdatePublicService(t *testing.T) {
 	require.NoError(t, err)
 
 	// remove the public-service.yaml file generated as a part of this test.
-	defer os.Remove(publicSvcYaml)
+	t.Cleanup(func() {
+		if err := os.Remove(publicSvcYaml); err != nil {
+			t.Logf("Failed to remove generated service file: %v", err)
+		}
+	})
 
 	err = yaml.Unmarshal(svcBytes, svc)
 	require.NoError(t, err)
@@ -290,7 +294,11 @@ func TestBuildRBACFromPublicOperator(t *testing.T) {
 	// Read and parse the generated RBAC yaml file
 	manifestBytes, err := os.ReadFile("rbac.yaml")
 	require.NoError(t, err)
-	defer os.Remove("rbac.yaml")
+	t.Cleanup(func() {
+		if err := os.Remove("rbac.yaml"); err != nil {
+			t.Logf("Failed to remove generated RBAC file: %v", err)
+		}
+	})
 
 	// Split the yaml into separate documents
 	docs := bytes.Split(manifestBytes, []byte("---\n"))

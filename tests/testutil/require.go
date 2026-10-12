@@ -276,7 +276,9 @@ func getDBConn(t *testing.T, crdbCluster CockroachCluster, dbName string, podNam
 	}
 	require.NoError(t, err)
 	t.Cleanup(func() {
-		db.Close()
+		if err := db.Close(); err != nil {
+			t.Logf("Failed to close test database connection: %v", err)
+		}
 	})
 	return db
 }
@@ -346,7 +348,11 @@ func RequireCRDBToFunction(t *testing.T, crdbCluster CockroachCluster, validateE
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			t.Logf("Failed to close test query rows: %v", err)
+		}
+	}()
 	t.Log("Initial balances:")
 	for rows.Next() {
 		var id, balance int
@@ -355,12 +361,17 @@ func RequireCRDBToFunction(t *testing.T, crdbCluster CockroachCluster, validateE
 		}
 		t.Log("balances", id, balance)
 	}
+	require.NoError(t, rows.Err())
 
 	countRows, err := db.Query("SELECT COUNT(*) as count FROM accounts")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer countRows.Close()
+	defer func() {
+		if err := countRows.Close(); err != nil {
+			t.Logf("Failed to close test query rows: %v", err)
+		}
+	}()
 	count := getCount(t, countRows)
 	if count != 2 {
 		t.Fatal(fmt.Errorf("found incorrect number of rows.  Expected 2 got %v", count))
@@ -406,7 +417,11 @@ func RequireCRDBClusterToFunction(t *testing.T, crdbCluster CockroachCluster, ro
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() {
+		if err := rows.Close(); err != nil {
+			t.Logf("Failed to close test query rows: %v", err)
+		}
+	}()
 	t.Log("Initial balances:")
 	for rows.Next() {
 		var id, balance int
@@ -415,12 +430,17 @@ func RequireCRDBClusterToFunction(t *testing.T, crdbCluster CockroachCluster, ro
 		}
 		t.Log("balances", id, balance)
 	}
+	require.NoError(t, rows.Err())
 
 	countRows, err := db.Query("SELECT COUNT(*) as count FROM accounts")
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer countRows.Close()
+	defer func() {
+		if err := countRows.Close(); err != nil {
+			t.Logf("Failed to close test query rows: %v", err)
+		}
+	}()
 	count := getCount(t, countRows)
 	if count != 2 {
 		t.Fatal(fmt.Errorf("found incorrect number of rows.  Expected 2 got %v", count))
@@ -436,6 +456,7 @@ func getCount(t *testing.T, rows *sql.Rows) (count int) {
 			t.Fatal(err)
 		}
 	}
+	require.NoError(t, rows.Err())
 	return count
 }
 

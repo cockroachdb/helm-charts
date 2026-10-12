@@ -296,7 +296,7 @@ func (r *Region) VerifyHelmUpgrade(
 			// as verifying just one pod and cleaning up the resources via Helm delete may cause issues
 			// because the pods might still be in the upgrade process.
 			for _, pod := range pods {
-				if !pod.CreationTimestamp.Time.After(initialTimestamp) {
+				if !pod.CreationTimestamp.After(initialTimestamp) {
 					return "", fmt.Errorf("pod %s has not been recreated with a new timestamp yet", pod.Name)
 				}
 

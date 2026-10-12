@@ -1278,10 +1278,11 @@ func generateUpdatedPublicServiceConfig(
 	}
 
 	for i := range svc.Spec.Ports {
-		if svc.Spec.Ports[i].Name == grpcName {
+		switch svc.Spec.Ports[i].Name {
+		case grpcName:
 			grpcFound = true
 			svc.Spec.Ports[i] = grpcSvcPort
-		} else if svc.Spec.Ports[i].Name == sqlName {
+		case sqlName:
 			sqlFound = true
 			svc.Spec.Ports[i] = sqlSvcPort
 		}

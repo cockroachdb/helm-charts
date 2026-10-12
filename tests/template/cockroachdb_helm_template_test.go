@@ -2162,19 +2162,19 @@ func TestHelmOperatorStartFlags(t *testing.T) {
 
 			spec := crdbCluster.Spec
 
-			if len(testCase.expect.upsertFlags) > 0 || len(testCase.expect.omitFlags) > 0 {
+			if len(testCase.upsertFlags) > 0 || len(testCase.omitFlags) > 0 {
 				require.NotNil(subT, spec.Template.Spec.StartFlags, "Expected startFlags to exist in template spec")
 
 				// Check upsert flags.
-				if len(testCase.expect.upsertFlags) > 0 {
+				if len(testCase.upsertFlags) > 0 {
 					require.NotNil(subT, spec.Template.Spec.StartFlags.Upsert, "Expected upsert field to exist")
-					require.ElementsMatch(subT, testCase.expect.upsertFlags, spec.Template.Spec.StartFlags.Upsert)
+					require.ElementsMatch(subT, testCase.upsertFlags, spec.Template.Spec.StartFlags.Upsert)
 				}
 
 				// Check omit flags.
-				if len(testCase.expect.omitFlags) > 0 {
+				if len(testCase.omitFlags) > 0 {
 					require.NotNil(subT, spec.Template.Spec.StartFlags.Omit, "Expected omit field to exist")
-					require.ElementsMatch(subT, testCase.expect.omitFlags, spec.Template.Spec.StartFlags.Omit)
+					require.ElementsMatch(subT, testCase.omitFlags, spec.Template.Spec.StartFlags.Omit)
 				}
 			} else {
 				// If no flags are expected, startFlags should not exist or be nil.
@@ -2578,19 +2578,19 @@ func TestHelmOperatorLoggingConfigVars(t *testing.T) {
 
 			spec := crdbCluster.Spec
 
-			require.Equal(subT, testCase.expect.loggingConfigMapName, spec.Template.Spec.LoggingConfigMapName)
-			require.Equal(subT, testCase.expect.loggingConfigVars, spec.Template.Spec.LoggingConfigVars)
+			require.Equal(subT, testCase.loggingConfigMapName, spec.Template.Spec.LoggingConfigMapName)
+			require.Equal(subT, testCase.loggingConfigVars, spec.Template.Spec.LoggingConfigVars)
 
 			// Verify configmap rendering.
 			configMapOutput, configMapErr := helm.RenderTemplateE(
 				subT, options, chartPath, releaseName, []string{"templates/configmap.logconfig.yaml"},
 			)
-			if testCase.expect.hasConfigMap {
+			if testCase.hasConfigMap {
 				require.NoError(subT, configMapErr)
 				var configMap corev1.ConfigMap
 				helm.UnmarshalK8SYaml(subT, configMapOutput, &configMap)
-				require.Equal(subT, testCase.expect.loggingConfigMapName, configMap.Name)
-				require.Contains(subT, configMap.Data["logs.yaml"], testCase.expect.configMapContent)
+				require.Equal(subT, testCase.loggingConfigMapName, configMap.Name)
+				require.Contains(subT, configMap.Data["logs.yaml"], testCase.configMapContent)
 			} else {
 				// When log.config is not set the template produces no output and Helm
 				// reports "could not find template" when rendering it with --show-only.
@@ -2803,9 +2803,9 @@ func TestHelmOperatorClusterSettings(t *testing.T) {
 
 			spec := crdbCluster.Spec
 
-			if testCase.expect.hasClusterSettings {
+			if testCase.hasClusterSettings {
 				require.NotNil(subT, spec.ClusterSettings, "Expected clusterSettings field to exist")
-				require.Equal(subT, testCase.expect.clusterSettings, spec.ClusterSettings)
+				require.Equal(subT, testCase.clusterSettings, spec.ClusterSettings)
 			} else {
 				require.Nil(subT, spec.ClusterSettings)
 			}
@@ -2945,26 +2945,26 @@ func TestHelmOperatorPostInitSQL(t *testing.T) {
 
 			spec := crdbCluster.Spec
 
-			if !testCase.expect.hasPostInitSQL {
+			if !testCase.hasPostInitSQL {
 				require.Nil(subT, spec.PostInitSQL)
 				return
 			}
 
 			require.NotNil(subT, spec.PostInitSQL, "Expected postInitSQL field to exist")
-			require.Equal(subT, testCase.expect.inline, spec.PostInitSQL.Inline)
+			require.Equal(subT, testCase.inline, spec.PostInitSQL.Inline)
 
-			if testCase.expect.configMapName != "" {
+			if testCase.configMapName != "" {
 				require.NotNil(subT, spec.PostInitSQL.ConfigMapRef)
-				require.Equal(subT, testCase.expect.configMapName, spec.PostInitSQL.ConfigMapRef.Name)
-				require.Equal(subT, testCase.expect.configMapKey, spec.PostInitSQL.ConfigMapRef.Key)
+				require.Equal(subT, testCase.configMapName, spec.PostInitSQL.ConfigMapRef.Name)
+				require.Equal(subT, testCase.configMapKey, spec.PostInitSQL.ConfigMapRef.Key)
 			} else {
 				require.Nil(subT, spec.PostInitSQL.ConfigMapRef)
 			}
 
-			if testCase.expect.secretName != "" {
+			if testCase.secretName != "" {
 				require.NotNil(subT, spec.PostInitSQL.SecretRef)
-				require.Equal(subT, testCase.expect.secretName, spec.PostInitSQL.SecretRef.Name)
-				require.Equal(subT, testCase.expect.secretKey, spec.PostInitSQL.SecretRef.Key)
+				require.Equal(subT, testCase.secretName, spec.PostInitSQL.SecretRef.Name)
+				require.Equal(subT, testCase.secretKey, spec.PostInitSQL.SecretRef.Key)
 			} else {
 				require.Nil(subT, spec.PostInitSQL.SecretRef)
 			}
