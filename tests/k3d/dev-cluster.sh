@@ -120,7 +120,7 @@ create_cluster() {
     fi
 
     configure_node_labels "${cluster_name}"
-    import_container_images "${cluster_name}"
+    import_container_images "${cluster_name}" || return 1
 
     echo "Cluster '${cluster_name}' created and configured successfully"
 }
@@ -145,17 +145,24 @@ configure_node_labels() {
 }
 
 # Pull images that don't exist locally and import them into the k3d cluster.
-import_container_images() {
+import_container_images() (
     local cluster_name="$1"
+    local platform image_archive
+    platform=$(docker version --format '{{.Server.Os}}/{{.Server.Arch}}') || exit 1
+    image_archive=$(mktemp "${TMPDIR:-/tmp}/k3d-images.XXXXXX.tar") || exit 1
+    trap 'rm -f "$image_archive"' EXIT
+
     echo "Pulling and importing required container images..."
     for image in "${REQUIRED_IMAGES[@]}"; do
         if ! docker image inspect "$image" >/dev/null 2>&1; then
             echo "Pulling image: $image"
-            docker pull "$image"
+            docker pull --platform "$platform" "$image" || exit 1
         fi
     done
-    "${K3D_PATH}" image import "${REQUIRED_IMAGES[@]}" -c "${cluster_name}"
-}
+    # Export only the node platform to avoid importing missing platform manifests.
+    docker image save --platform "$platform" -o "$image_archive" "${REQUIRED_IMAGES[@]}" || exit 1
+    "${K3D_PATH}" image import "$image_archive" --mode direct -c "${cluster_name}" || exit 1
+)
 
 case $COMMAND in
     up)
