@@ -154,7 +154,7 @@ import_container_images() (
 
     echo "Pulling and importing required container images..."
     for image in "${REQUIRED_IMAGES[@]}"; do
-        if ! docker image inspect "$image" >/dev/null 2>&1; then
+        if [[ "$(docker image inspect --format '{{.Os}}/{{.Architecture}}' "$image" 2>/dev/null)" != "$platform" ]]; then
             echo "Pulling image: $image"
             docker pull --platform "$platform" "$image" || exit 1
         fi

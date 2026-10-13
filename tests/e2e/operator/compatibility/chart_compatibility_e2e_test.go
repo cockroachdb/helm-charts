@@ -1,6 +1,7 @@
 package compatibility
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -8,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/helm-charts/pkg/security"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator/infra"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
@@ -18,6 +20,7 @@ import (
 	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
+	batchv1 "k8s.io/api/batch/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -95,6 +98,7 @@ func TestChartCompatibilityUpgrade(t *testing.T) {
 		cockroachDBVersion,
 	)
 	r.ValidateCRDB(t, cluster)
+	brokenNodeCert := requireOldSelfSignerRotation(t, r, cluster, kubectlOptions)
 
 	helmChartPath, operatorChartPath := operator.HelmChartPaths()
 
@@ -107,6 +111,12 @@ func TestChartCompatibilityUpgrade(t *testing.T) {
 	upgradeCockroachDBChart(t, kubectlOptions, helmChartPath, map[string]string{
 		"cockroachdb.crdbCluster.postInitSQL.inline[0]": fmt.Sprintf("CREATE DATABASE IF NOT EXISTS %s", postInitSQLDatabase),
 	})
+	nodeAfterUpgrade := k8s.GetSecret(t, kubectlOptions, "cockroachdb-node-secret")
+	require.Equal(t, brokenNodeCert, nodeAfterUpgrade.Data["tls.crt"],
+		"upgrading the chart and image alone should not repair the broken certificate")
+	t.Run("recover join SANs after upgrade", func(t *testing.T) {
+		requireSelfSignerRotation(t, r, cluster, kubectlOptions, helmChartPath)
+	})
 
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, testutil.CockroachCluster{
 		DesiredNodes: r.NodeCount,
@@ -114,7 +124,7 @@ func TestChartCompatibilityUpgrade(t *testing.T) {
 	r.ValidateCRDB(t, cluster)
 	requirePostInitSQLDatabase(t, kubectlOptions, postInitSQLDatabase)
 
-	t.Log("Exercising release-specific migration and split-chart node-reader settings")
+	t.Log("Checking migration settings and node-reader RBAC transfer after upgrade")
 	nodeReaderName := fmt.Sprintf("compat-node-reader-%s", r.Namespace[cluster])
 	operator.UpgradeCockroachDBOperatorChart(
 		t,
@@ -265,6 +275,19 @@ func upgradeCockroachDBChart(
 	t *testing.T, kubectlOptions *k8s.KubectlOptions, chart string, overrides ...map[string]string,
 ) {
 	values := cockroachDBCompatibilityValues()
+	// Reused values can retain the published chart's older self-signer image.
+	valuesBytes, err := os.ReadFile(filepath.Join(chart, "values.yaml"))
+	require.NoError(t, err)
+	var localValues struct {
+		CockroachDB struct {
+			TLS struct {
+				SelfSigner operatorImageValues `yaml:"selfSigner"`
+			} `yaml:"tls"`
+		} `yaml:"cockroachdb"`
+	}
+	require.NoError(t, yaml.Unmarshal(valuesBytes, &localValues))
+	require.NotEmpty(t, localValues.CockroachDB.TLS.SelfSigner.Image.Tag)
+	values["cockroachdb.tls.selfSigner.image.tag"] = localValues.CockroachDB.TLS.SelfSigner.Image.Tag
 	for _, override := range overrides {
 		for key, value := range override {
 			values[key] = value
@@ -285,6 +308,130 @@ func upgradeCockroachDBChart(
 
 	operator.HelmUpgradeWithRetry(t, options, chart, operator.ReleaseName)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroachdb-public", 30, 5*time.Second)
+}
+
+func requireOldSelfSignerRotation(
+	t *testing.T, r *compatibilityRegion, cluster string, kubectlOptions *k8s.KubectlOptions,
+) []byte {
+	t.Helper()
+	ctx := context.Background()
+	nodeSecret := k8s.GetSecret(t, kubectlOptions, "cockroachdb-node-secret")
+	joinHostname := fmt.Sprintf("cockroachdb-join.%s.svc.%s", kubectlOptions.Namespace, operator.CustomDomains[0])
+	cert, err := security.GetCertObj(nodeSecret.Data["tls.crt"])
+	require.NoError(t, err)
+	require.NoError(t, cert.VerifyHostname(joinHostname))
+
+	k8s.RunKubectl(t, kubectlOptions, "annotate", "secret", nodeSecret.Name,
+		"certificate-valid-upto=2000-01-01T00:00:00Z", "--overwrite")
+	var cronJob batchv1.CronJob
+	require.NoError(t, r.Clients[cluster].Get(ctx, client.ObjectKey{
+		Namespace: kubectlOptions.Namespace, Name: "cockroachdb-rotate-self-signer-client",
+	}, &cronJob))
+
+	job := &batchv1.Job{
+		ObjectMeta: metav1.ObjectMeta{Name: "compat-old-certificate-rotate", Namespace: kubectlOptions.Namespace},
+		Spec:       *cronJob.Spec.JobTemplate.Spec.DeepCopy(),
+	}
+	// Pin the broken signer and arguments so this still reproduces after later releases.
+	container := &job.Spec.Template.Spec.Containers[0]
+	container.Image = fmt.Sprintf("%s/%s:1.10", testutil.TestSelfSignerImageRegistry, testutil.TestSelfSignerImageRepository)
+	args := make([]string, 0, len(container.Args))
+	for _, arg := range container.Args {
+		if !strings.HasPrefix(arg, "--operator-managed") {
+			args = append(args, arg)
+		}
+	}
+	container.Args = args
+	require.NoError(t, r.Clients[cluster].Create(ctx, job))
+
+	// The old job updates the Secret, then its retry skips rotation and succeeds.
+	testutil.RequireCertRotateJobToBeCompleted(t, job.Name, testutil.CockroachCluster{
+		K8sClient: r.Clients[cluster], Namespace: kubectlOptions.Namespace,
+	}, 600*time.Second)
+	rotatedNode := k8s.GetSecret(t, kubectlOptions, nodeSecret.Name)
+	require.NotEqual(t, nodeSecret.Data["tls.crt"], rotatedNode.Data["tls.crt"])
+	cert, err = security.GetCertObj(rotatedNode.Data["tls.crt"])
+	require.NoError(t, err)
+	for _, hostname := range []string{"cockroachdb-join", "cockroachdb-join." + kubectlOptions.Namespace, joinHostname} {
+		require.Error(t, cert.VerifyHostname(hostname), "old rotation should drop join SAN %s", hostname)
+	}
+	return rotatedNode.Data["tls.crt"]
+}
+
+func requireSelfSignerRotation(
+	t *testing.T, r *compatibilityRegion, cluster string, kubectlOptions *k8s.KubectlOptions, chart string,
+) {
+	t.Helper()
+
+	nodeSecret := k8s.GetSecret(t, kubectlOptions, "cockroachdb-node-secret")
+	caSecret := k8s.GetSecret(t, kubectlOptions, "cockroachdb-ca-secret")
+	upgradeCockroachDBChart(t, kubectlOptions, chart, map[string]string{
+		"cockroachdb.tls.selfSigner.additionalSANs[0]":                       "compat.example.com",
+		"cockroachdb.crdbCluster.clusterSettings.sql\\.defaults\\.vectorize": "on",
+	})
+
+	nodeAfterUpgrade := k8s.GetSecret(t, kubectlOptions, nodeSecret.Name)
+	require.Equal(t, nodeSecret.Data["tls.crt"], nodeAfterUpgrade.Data["tls.crt"],
+		"upgrading the chart alone should not regenerate the node certificate")
+
+	clientSecret := k8s.GetSecret(t, kubectlOptions, "cockroachdb-client-secret")
+	for _, name := range []string{nodeSecret.Name, clientSecret.Name} {
+		k8s.RunKubectl(t, kubectlOptions, "annotate", "secret", name,
+			"certificate-valid-upto=2000-01-01T00:00:00Z", "--overwrite")
+	}
+	jobName := "compat-certificate-rotate"
+	k8s.RunKubectl(t, kubectlOptions, "create", "job", jobName,
+		"--from=cronjob/cockroachdb-rotate-self-signer-client")
+	testutil.RequireCertRotateJobToBeCompleted(t, jobName, testutil.CockroachCluster{
+		K8sClient: r.Clients[cluster], Namespace: kubectlOptions.Namespace,
+	}, 600*time.Second)
+
+	rotatedNode := k8s.GetSecret(t, kubectlOptions, nodeSecret.Name)
+	rotatedClient := k8s.GetSecret(t, kubectlOptions, clientSecret.Name)
+	require.NotEqual(t, nodeSecret.Data["tls.crt"], rotatedNode.Data["tls.crt"])
+	require.NotEqual(t, clientSecret.Data["tls.crt"], rotatedClient.Data["tls.crt"])
+
+	cert, err := security.GetCertObj(rotatedNode.Data["tls.crt"])
+	require.NoError(t, err)
+	for _, hostname := range []string{
+		"cockroachdb-join",
+		"cockroachdb-join." + kubectlOptions.Namespace,
+		fmt.Sprintf("cockroachdb-join.%s.svc.%s", kubectlOptions.Namespace, operator.CustomDomains[0]),
+		"compat.example.com",
+	} {
+		require.NoError(t, cert.VerifyHostname(hostname))
+	}
+
+	caAfterRotation := k8s.GetSecret(t, kubectlOptions, caSecret.Name)
+	require.Equal(t, caSecret.Data["ca.crt"], caAfterRotation.Data["ca.crt"],
+		"node regeneration should keep the existing CA")
+	caBundle, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"get", "configmap", "cockroachdb-ca-secret-crt", "-o", "jsonpath={.data.ca\\.crt}")
+	require.NoError(t, err)
+	require.Equal(t, string(caSecret.Data["ca.crt"]), caBundle)
+
+	// This makes the operator open a SQL connection using the rotated join certificate.
+	upgradeCockroachDBChart(t, kubectlOptions, chart, map[string]string{
+		"cockroachdb.crdbCluster.clusterSettings.sql\\.defaults\\.vectorize": "off",
+	})
+	_, err = retry.DoWithRetryE(t, "waiting for cluster setting after certificate rotation", 60, 10*time.Second, func() (string, error) {
+		pods, err := k8s.ListPodsE(t, kubectlOptions, metav1.ListOptions{LabelSelector: operator.LabelSelector})
+		if err != nil {
+			return "", err
+		}
+		if len(pods) == 0 {
+			return "", fmt.Errorf("no CockroachDB pods found")
+		}
+		output, err := operator.ExecSQL(t, kubectlOptions, pods[0].Name, "SHOW CLUSTER SETTING sql.defaults.vectorize")
+		if err != nil {
+			return output, err
+		}
+		if !strings.Contains(output, "off") {
+			return output, fmt.Errorf("cluster setting has not been applied: %s", output)
+		}
+		return output, nil
+	})
+	require.NoError(t, err)
 }
 
 func requireOperatorMigrationFlag(t *testing.T, kubectlOptions *k8s.KubectlOptions, expected bool) {

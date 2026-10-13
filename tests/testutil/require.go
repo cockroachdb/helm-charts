@@ -684,11 +684,17 @@ func RequireCertRotateJobToBeCompleted(t *testing.T, jobName string, crdbCluster
 				t.Log("Waiting for certificate rotation job to complete")
 			}
 
-			if job.Status.Failed > 0 {
-				return false, fmt.Errorf("certificate rotation job %s had %d failed attempts", jobName, job.Status.Failed)
-			}
-			if job.Status.Succeeded > 0 {
-				return true, nil
+			// Failed pod attempts can remain in the status after a successful retry.
+			for _, condition := range job.Status.Conditions {
+				if condition.Status != corev1.ConditionTrue {
+					continue
+				}
+				switch condition.Type {
+				case batchv1.JobComplete:
+					return true, nil
+				case batchv1.JobFailed:
+					return false, fmt.Errorf("certificate rotation job %s failed: %s", jobName, condition.Message)
+				}
 			}
 
 			return false, nil
