@@ -20,6 +20,7 @@ import (
 	"context"
 	"testing"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -377,6 +378,54 @@ func TestIsRotationRequired(t *testing.T) {
 
 		})
 	}
+}
+
+// TestNextRotationRunWithTimeZoneSkew reproduces client certs expiring when the
+// kube-controller-manager time zone differs from the UTC container running the rotate job.
+// Without spec.timeZone, the CronJob fires at midnight controller-local time, so for zones
+// ahead of UTC the job starts before its own scheduled slot in UTC.
+func TestNextRotationRunWithTimeZoneSkew(t *testing.T) {
+	// Values from the production incident: minimumCertDuration 624h renders to
+	// "0 0 */26 * *" (days 1 and 27), and the client cert was valid until Feb 23.
+	const cronStr = "0 0 */26 * *"
+	expiry := time.Date(2024, time.February, 23, 23, 0, 2, 0, time.UTC)
+
+	tests := []struct {
+		name     string
+		location string
+	}{
+		{name: "controller in UTC", location: "UTC"},
+		{name: "controller behind UTC", location: "America/New_York"},
+		{name: "controller in CET (incident)", location: "Europe/Amsterdam"},
+		{name: "controller in IST", location: "Asia/Kolkata"},
+		{name: "controller at UTC+14", location: "Pacific/Kiritimati"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			loc, err := time.LoadLocation(tt.location)
+			require.NoError(t, err)
+
+			// The Feb 1 run as fired by the controller, and the run that actually follows it.
+			now := time.Date(2024, time.February, 1, 0, 0, 1, 0, loc)
+			actualNextRun := time.Date(2024, time.February, 27, 0, 0, 0, 0, loc)
+
+			// The rotate container runs in UTC.
+			nextRun, err := resource.NextRotationRun(cronStr, now.UTC())
+			require.NoError(t, err)
+
+			assert.False(t, nextRun.Before(actualNextRun),
+				"run at %s computed next run %s, but the job next runs at %s",
+				now.UTC().Format(time.RFC3339), nextRun.Format(time.RFC3339), actualNextRun.UTC().Format(time.RFC3339))
+			assert.True(t, expiry.Before(nextRun),
+				"cert expiring %s would not be rotated before it expires", expiry.Format(time.RFC3339))
+		})
+	}
+}
+
+func TestNextRotationRunInvalidCron(t *testing.T) {
+	_, err := resource.NextRotationRun("@invalid", time.Now())
+	assert.Error(t, err)
 }
 
 func secretObj(name, namespace string, data map[string][]byte, annotations map[string]string) *corev1.Secret {
