@@ -1197,7 +1197,7 @@ func verifyHelmAdoptionSupportsUpgrade(
 		}
 
 		for _, pod := range pods {
-			if !pod.CreationTimestamp.Time.After(initialTimestamp) {
+			if !pod.CreationTimestamp.After(initialTimestamp) {
 				return "", fmt.Errorf("pod %s has not been recreated after helm upgrade", pod.Name)
 			}
 			if pod.Status.Phase != corev1.PodRunning {

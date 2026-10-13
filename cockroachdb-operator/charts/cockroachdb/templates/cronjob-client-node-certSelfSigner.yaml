@@ -43,6 +43,7 @@ spec:
               imagePullPolicy: "{{ .Values.cockroachdb.tls.selfSigner.image.pullPolicy }}"
               args:
                 - rotate
+                - --operator-managed=true
             {{- if .Values.cockroachdb.tls.selfSigner.caProvided }}
                 - --ca-secret={{ .Values.cockroachdb.tls.selfSigner.caSecret }}
             {{- else }}

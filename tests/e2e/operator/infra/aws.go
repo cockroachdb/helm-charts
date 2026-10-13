@@ -2797,60 +2797,6 @@ func (r *AwsRegion) deleteNetworkInterfaces(
 	return nil
 }
 
-// releaseElasticIPs releases Elastic IPs associated with test resources
-func (r *AwsRegion) releaseElasticIPs(
-	ctx context.Context, t *testing.T, ec2Clients map[string]*ec2.EC2,
-) error {
-	var wg sync.WaitGroup
-
-	for region, ec2Client := range ec2Clients {
-		wg.Add(1)
-		go func(reg string, ec2Client *ec2.EC2) {
-			defer wg.Done()
-
-			// List all Elastic IPs with our tags
-			eips, err := ec2Client.DescribeAddressesWithContext(ctx, &ec2.DescribeAddressesInput{
-				Filters: []*ec2.Filter{
-					{
-						Name:   aws.String("tag:ManagedBy"),
-						Values: []*string{aws.String("helm-charts-e2e")},
-					},
-					{
-						Name:   aws.String("tag:TestRun"),
-						Values: []*string{aws.String(r.getTestRunTag())},
-					},
-				},
-			})
-			if err != nil {
-				return
-			}
-
-			for _, eip := range eips.Addresses {
-				// Disassociate if associated
-				if eip.AssociationId != nil {
-					_, _ = ec2Client.DisassociateAddressWithContext(ctx, &ec2.DisassociateAddressInput{
-						AssociationId: eip.AssociationId,
-					})
-					time.Sleep(2 * time.Second)
-				}
-
-				// Release the Elastic IP
-				_, err := ec2Client.ReleaseAddressWithContext(ctx, &ec2.ReleaseAddressInput{
-					AllocationId: eip.AllocationId,
-				})
-				if err != nil {
-					t.Logf("[%s] Warning: failed to release EIP %s: %v", ProviderAWS, *eip.AllocationId, err)
-				} else {
-					t.Logf("[%s] Released Elastic IP %s", ProviderAWS, *eip.AllocationId)
-				}
-			}
-		}(region, ec2Client)
-	}
-
-	wg.Wait()
-	return nil
-}
-
 // deleteVPCEndpoints deletes VPC endpoints in test VPCs
 func (r *AwsRegion) deleteVPCEndpoints(
 	ctx context.Context, t *testing.T, ec2Clients map[string]*ec2.EC2,
@@ -3282,50 +3228,6 @@ func (r *AwsRegion) scheduleKMSKeyDeletion(t *testing.T, region string, keyARN s
 	return nil
 }
 
-// deleteKMSRole deletes an IAM role and its inline policies
-func (r *AwsRegion) deleteKMSRole(t *testing.T, region string, roleARN string) error {
-	sess, err := session.NewSession(&aws.Config{Region: aws.String(region)})
-	if err != nil {
-		return fmt.Errorf("failed to create AWS session: %w", err)
-	}
-	iamClient := iam.New(sess)
-
-	// Extract role name from ARN (format: arn:aws:iam::123456:role/RoleName)
-	parts := strings.Split(roleARN, "/")
-	if len(parts) < 2 {
-		return fmt.Errorf("invalid role ARN format: %s", roleARN)
-	}
-	roleName := parts[len(parts)-1]
-
-	// List and delete all inline policies
-	listPoliciesOutput, err := iamClient.ListRolePolicies(&iam.ListRolePoliciesInput{
-		RoleName: aws.String(roleName),
-	})
-	if err != nil {
-		return fmt.Errorf("IAM ListRolePolicies failed: %w", err)
-	}
-
-	for _, policyName := range listPoliciesOutput.PolicyNames {
-		_, err := iamClient.DeleteRolePolicy(&iam.DeleteRolePolicyInput{
-			RoleName:   aws.String(roleName),
-			PolicyName: policyName,
-		})
-		if err != nil {
-			t.Logf("Warning: Failed to delete policy %s from role %s: %v", *policyName, roleName, err)
-		}
-	}
-
-	// Delete the role
-	_, err = iamClient.DeleteRole(&iam.DeleteRoleInput{
-		RoleName: aws.String(roleName),
-	})
-	if err != nil {
-		return fmt.Errorf("IAM DeleteRole failed: %w", err)
-	}
-
-	return nil
-}
-
 // createIAMUserForKMS creates an IAM user with programmatic access for KMS operations
 // Returns: (userName, userARN, accessKeyID, secretAccessKey, error)
 // The operator requires permanent credentials (not temporary session tokens)
@@ -3364,7 +3266,9 @@ func (r *AwsRegion) createIAMUserForKMS(t *testing.T) (string, string, string, s
 	})
 	if err != nil {
 		// Clean up user if key creation fails
-		iamClient.DeleteUser(&iam.DeleteUserInput{UserName: aws.String(userName)})
+		if _, cleanupErr := iamClient.DeleteUser(&iam.DeleteUserInput{UserName: aws.String(userName)}); cleanupErr != nil {
+			t.Logf("Failed to clean up IAM user %s: %v", userName, cleanupErr)
+		}
 		return "", "", "", "", fmt.Errorf("IAM CreateAccessKey failed: %w", err)
 	}
 
@@ -3476,7 +3380,9 @@ func (r *AwsRegion) createGlobalKMSRoleForUser(
 	})
 	if err != nil {
 		// Clean up role if policy attachment fails
-		iamClient.DeleteRole(&iam.DeleteRoleInput{RoleName: aws.String(roleName)})
+		if _, cleanupErr := iamClient.DeleteRole(&iam.DeleteRoleInput{RoleName: aws.String(roleName)}); cleanupErr != nil {
+			t.Logf("Failed to clean up IAM role %s: %v", roleName, cleanupErr)
+		}
 		return "", fmt.Errorf("IAM PutRolePolicy failed: %w", err)
 	}
 

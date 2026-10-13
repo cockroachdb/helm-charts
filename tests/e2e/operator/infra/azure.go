@@ -87,10 +87,6 @@ func captureAzureCLIEnv() map[string]string {
 	return env
 }
 
-func azureCommand(args ...string) *exec.Cmd {
-	return azureCommandContext(context.Background(), args...)
-}
-
 func azureCommandContext(ctx context.Context, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, "az", args...)
 	cmd.Env = withEnvOverrides(os.Environ(), azureCLIEnvOverrides)
@@ -478,10 +474,13 @@ func (r *AzureRegion) recordResourceGroupForCI() error {
 	if err != nil {
 		return fmt.Errorf("open %s: %w", recordFile, err)
 	}
-	defer file.Close()
-
-	if _, err := fmt.Fprintln(file, r.resourceGroupName); err != nil {
+	_, err = fmt.Fprintln(file, r.resourceGroupName)
+	closeErr := file.Close()
+	if err != nil {
 		return fmt.Errorf("write %s: %w", recordFile, err)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close %s: %w", recordFile, closeErr)
 	}
 	return nil
 }

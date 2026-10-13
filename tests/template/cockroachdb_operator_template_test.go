@@ -209,7 +209,11 @@ func TestOperatorMultipleWatchNamespaces(t *testing.T) {
 	// comma-separated namespace list must be supplied via a values file.
 	valuesFile, err := os.CreateTemp("", "operator-values-*.yaml")
 	require.NoError(t, err)
-	defer os.Remove(valuesFile.Name())
+	t.Cleanup(func() {
+		if err := os.Remove(valuesFile.Name()); err != nil {
+			t.Logf("Failed to remove temporary values file: %v", err)
+		}
+	})
 	_, err = valuesFile.WriteString("watchNamespaces: \"ns-a,ns-b,ns-c\"\n")
 	require.NoError(t, err)
 	require.NoError(t, valuesFile.Close())

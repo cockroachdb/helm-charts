@@ -1,11 +1,12 @@
 #!/bin/bash
 
-tag=$(bin/yq '.tls.selfSigner.image.tag' ./cockroachdb-legacy/values.yaml)
-echo "Your current tag is ${tag}"
-currentCommit=$(git rev-parse HEAD)
-lastCommit=$(git rev-parse @~)
+set -euo pipefail
 
-git diff "${lastCommit}" "${currentCommit}" cockroachdb-legacy/values.yaml | grep -w "$tag" | grep +
-if [[ $? -eq 0 ]]; then
+baseRef=${1:-HEAD~1}
+tag=$(bin/yq '.tls.selfSigner.image.tag' ./cockroachdb-legacy/values.yaml)
+previousTag=$(git show "${baseRef}:cockroachdb-legacy/values.yaml" | bin/yq '.tls.selfSigner.image.tag' -)
+echo "Your current tag is ${tag}"
+
+if [[ "$tag" != "$previousTag" ]]; then
   echo "You have changed the tag of selfSigner utility"
 fi

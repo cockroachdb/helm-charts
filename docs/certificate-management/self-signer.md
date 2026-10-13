@@ -224,6 +224,33 @@ rotation with following setting:
 cockroachdb.tls.selfSigner.rotateCerts: true
 ```
 
+#### Recover missing join-service SANs after rotation
+
+If rotation removed the join-service SANs from your node certificate, regenerate it
+with the fixed self-signer. You can keep your current CockroachDB and chart versions.
+
+1. Once image `1.11` is available, use it in both rotation CronJobs. If your chart does
+   not include `--operator-managed=true`, add it manually to the container arguments
+   in both rotation CronJob templates.
+   Also grant the rotation Role `get`, `create`, and `update` permissions on ConfigMaps.
+   Then deploy the updated chart.
+2. Mark the node Secret as due for rotation and run the updated node/client CronJob.
+   Replace the placeholders with your namespace and resource names:
+
+   ```shell
+   kubectl -n <namespace> annotate secret <cluster>-node-secret \
+     certificate-valid-upto=2000-01-01T00:00:00Z --overwrite
+   kubectl -n <namespace> create job repair-node-sans \
+     --from=cronjob/<node-client-rotation-cronjob>
+   kubectl -n <namespace> wait --for=condition=complete job/repair-node-sans --timeout=10m
+   ```
+
+   This forces regeneration using the existing CA, even if the node certificate is
+   not near expiry.
+3. Verify the new node certificate contains `<cluster>-join`, `<cluster>-join.<namespace>`,
+   and `<cluster>-join.<namespace>.svc.<cluster-domain>`. Once the pods have reloaded
+   the updated certificate, retry the failing connection.
+
 #### Certificate managed by cockroachdb and CA provided by user
 
 If user has a custom CA which they already use for certificate signing in their organisation, this utility provides a way

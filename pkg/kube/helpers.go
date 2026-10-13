@@ -102,7 +102,7 @@ func WaitUntilAllStsPodsAreReady(ctx context.Context, cl client.Client, stsName,
 		numCRDBPods := int(sts.Status.Replicas)
 		if got != numCRDBPods {
 			logrus.Errorf("Number of ready replicas found [%v], expected number of ready replicas [%v]", got, numCRDBPods)
-			return fmt.Errorf("Replicas are not equal")
+			return fmt.Errorf("replicas are not equal")
 		}
 
 		logrus.Info("All replicas are ready")
@@ -162,7 +162,7 @@ func WaitForPodReady(ctx context.Context, cl client.Client, name, namespace stri
 		}
 
 		if pod.Status.Phase == corev1.PodPending || !IsPodReady(&pod) {
-			return fmt.Errorf("Pod %s not in ready state", name)
+			return fmt.Errorf("pod %s not in ready state", name)
 		}
 
 		logrus.Infof("Pod %s in ready state now", name)

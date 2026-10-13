@@ -40,7 +40,7 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/cert-manager-webhook:v1.11.0"
     "quay.io/jetstack/cert-manager-controller:v1.11.0"
     "quay.io/jetstack/cert-manager-ctl:v1.11.0"
-    "coredns/coredns:1.9.2"
+    "coredns/coredns:1.10.1"
     "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-operator/charts/cockroachdb/values.yaml)"
     "${CERT_RELOADER_IMAGE}"
     "bash:latest"

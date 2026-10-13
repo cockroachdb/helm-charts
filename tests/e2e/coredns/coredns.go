@@ -223,7 +223,7 @@ func CoreDNSDeployment(replicas int32) *appsv1.Deployment {
 					Containers: []corev1.Container{
 						{
 							Name:            "coredns",
-							Image:           "coredns/coredns:1.9.2",
+						Image:           "coredns/coredns:1.10.1",
 							ImagePullPolicy: corev1.PullIfNotPresent,
 							Resources: corev1.ResourceRequirements{
 								Requests: corev1.ResourceList{

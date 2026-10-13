@@ -59,7 +59,7 @@ func rotate(cmd *cobra.Command, args []string) {
 			"rotated at a time")
 	}
 
-	if !(clientFlag || nodeFlag || caFlag) {
+	if !clientFlag && !nodeFlag && !caFlag {
 		log.Panic("None of the CA, Node and client is provided for cert rotation")
 	}
 

@@ -17,7 +17,9 @@ limitations under the License.
 package generator
 
 import (
+	"context"
 	"crypto/x509"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -25,9 +27,103 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
+	"github.com/cockroachdb/helm-charts/pkg/resource"
 	"github.com/cockroachdb/helm-charts/pkg/security"
+	"github.com/cockroachdb/helm-charts/pkg/testutils"
 )
+
+func TestCertificateRotation(t *testing.T) {
+	for _, operatorManaged := range []bool{false, true} {
+		for _, rotateCA := range []bool{false, true} {
+			t.Run(fmt.Sprintf("operator=%t/ca=%t", operatorManaged, rotateCA), func(t *testing.T) {
+				ctx := context.Background()
+				const namespace = "test-namespace"
+				cl := testutils.NewFakeClient(testutils.InitScheme(t))
+				gen := NewGenerateCert(cl)
+				gen.DiscoveryServiceName = "test-crdb"
+				gen.PublicServiceName = "test-crdb-public"
+				gen.ClusterDomain = "cluster.local"
+				gen.OperatorManaged = operatorManaged
+				gen.AdditionalSANs = []string{"sql.example.com", "10.0.0.10"}
+				require.NoError(t, gen.CaCertConfig.SetConfig("43800h", "648h"))
+				require.NoError(t, gen.NodeCertConfig.SetConfig("8760h", "168h"))
+				require.NoError(t, gen.ClientCertConfig.SetConfig("672h", "48h"))
+				t.Setenv("USER_NAME", "")
+				require.NoError(t, os.Unsetenv("USER_NAME"))
+				require.NoError(t, gen.Do(ctx, namespace))
+
+				getSecret := func(name string) *corev1.Secret {
+					t.Helper()
+					secret := &corev1.Secret{}
+					require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret))
+					return secret
+				}
+				oldCA := getSecret(gen.getCASecretName())
+				oldNode := getSecret(gen.getNodeSecretName())
+				oldClient := getSecret(gen.getClientSecretName())
+
+				// Make rotation due without deleting the existing secrets.
+				for _, name := range []string{gen.getCASecretName(), gen.getNodeSecretName(), gen.getClientSecretName()} {
+					secret := getSecret(name)
+					secret.Annotations[resource.CertValidUpto] = time.Now().Add(-time.Hour).Format(time.RFC3339)
+					require.NoError(t, cl.Update(ctx, secret))
+				}
+				gen.RotateCACert = rotateCA
+				gen.RotateNodeCert = !rotateCA
+				gen.RotateClientCert = !rotateCA
+				gen.CACronSchedule = "0 0 * * *"
+				gen.NodeAndClientCronSchedule = "0 0 * * *"
+				err := gen.Do(ctx, namespace)
+				if operatorManaged {
+					// There is no StatefulSet. The operator reloads projected certificates.
+					require.NoError(t, err)
+				} else {
+					require.True(t, apierrors.IsNotFound(err), "legacy rotation must still try to restart the StatefulSet: %v", err)
+				}
+
+				newCA := getSecret(gen.getCASecretName())
+				newNode := getSecret(gen.getNodeSecretName())
+				newClient := getSecret(gen.getClientSecretName())
+				if rotateCA {
+					require.NotEqual(t, oldCA.Data[resource.CaCert], newCA.Data[resource.CaCert])
+					require.Contains(t, string(newCA.Data[resource.CaCert]), string(oldCA.Data[resource.CaCert]))
+					require.Equal(t, newCA.Data[resource.CaCert], newNode.Data[resource.CaCert])
+					require.Equal(t, newCA.Data[resource.CaCert], newClient.Data[resource.CaCert])
+					require.Equal(t, oldNode.Data[corev1.TLSCertKey], newNode.Data[corev1.TLSCertKey])
+					if operatorManaged {
+						cm := &corev1.ConfigMap{}
+						require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: gen.getCASecretName() + "-crt"}, cm))
+						require.Equal(t, string(newCA.Data[resource.CaCert]), cm.Data[resource.CaCert])
+					}
+				} else {
+					require.NotEqual(t, oldNode.Data[corev1.TLSCertKey], newNode.Data[corev1.TLSCertKey])
+					require.NotEqual(t, oldClient.Data[corev1.TLSCertKey], newClient.Data[corev1.TLSCertKey])
+				}
+
+				before, err := security.GetCertObj(oldNode.Data[corev1.TLSCertKey])
+				require.NoError(t, err)
+				after, err := security.GetCertObj(newNode.Data[corev1.TLSCertKey])
+				require.NoError(t, err)
+				require.ElementsMatch(t, before.DNSNames, after.DNSNames)
+				require.Equal(t, before.IPAddresses, after.IPAddresses)
+				roots := x509.NewCertPool()
+				require.True(t, roots.AppendCertsFromPEM(newCA.Data[resource.CaCert]))
+				hosts := []string{"test-crdb-public", "test-crdb-0.test-crdb.test-namespace.svc.cluster.local", "sql.example.com", "10.0.0.10"}
+				if operatorManaged {
+					hosts = append(hosts, "test-crdb-join", "test-crdb-join.test-namespace", "test-crdb-join.test-namespace.svc.cluster.local")
+				}
+				for _, host := range hosts {
+					_, err := after.Verify(x509.VerifyOptions{Roots: roots, DNSName: host})
+					require.NoError(t, err, "rotated certificate must verify for %s", host)
+				}
+			})
+		}
+	}
+}
 
 const testCALifetime = 5 * 366 * 24 * time.Hour   // five years
 const testCertLifetime = 1 * 366 * 24 * time.Hour // one year

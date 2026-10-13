@@ -72,7 +72,7 @@ func (f KubeFetcher) Fetch(o client.Object) error {
 		return err
 	}
 
-	err = f.Reader.Get(f.ctx, f.makeKey(accessor.GetName()), o)
+	err = f.Get(f.ctx, f.makeKey(accessor.GetName()), o)
 
 	return err
 }

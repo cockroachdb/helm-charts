@@ -7,6 +7,20 @@
   IP addresses to the cert-manager issued node certificate SANs; see
   [cert-manager](../../../docs/certificate-management/cert-manager.md).
 
+### Fixed
+- Fixed self-signer rotation dropping join-service SANs for operator-managed deployments,
+  leaving the CA ConfigMap stale, and attempting StatefulSet restarts in deployments
+  that do not use StatefulSets.
+- Updated the self-signer image to `1.11`, which includes these fixes.
+
+### Upgrade notes
+- Node certificates rotated by affected self-signer versions may be missing join-service
+  SANs and need regeneration. Updating the chart or image alone does not repair them.
+  For older chart versions that do not pass `--operator-managed=true` during rotation,
+  follow the [recovery steps] to regenerate the node certificates.
+
+[recovery steps]: ../../../docs/certificate-management/self-signer.md#recover-missing-join-service-sans-after-rotation
+
 ## [26.3.2] — 2026-09-23
 ### Changed
 - Updated the default CockroachDB image version from `v26.3.1` to `v26.3.2`.

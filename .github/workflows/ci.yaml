@@ -133,9 +133,9 @@ jobs:
           repository: ${{github.event.pull_request.head.repo.full_name}}
 
       - name: Run golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v9
         with:
-          version: v1.64
+          version: v2.11.4
           working-directory: .
           args: --timeout=5m
 
@@ -211,10 +211,12 @@ jobs:
 
       - name: Verify tag change
         id: changetag
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
         run: |
-          output=$(./build/self-signer-utility.sh)
-          echo $output | grep "You have changed the tag of selfSigner utility"
-          exit $?
+          git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
+          output=$(./build/self-signer-utility.sh "$PR_BASE_SHA")
+          echo "$output" | grep "You have changed the tag of selfSigner utility"
 
   # pre job to run helm e2e tests
   helm-install-e2e:

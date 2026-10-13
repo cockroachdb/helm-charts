@@ -163,7 +163,9 @@ func TestIngressRoutingDirect(t *testing.T, clusterOptions *k8s.KubectlOptions, 
 		if err != nil {
 			t.Logf("Attempt %d: Request failed: %v", i+1, err)
 		} else {
-			defer resp.Body.Close()
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Failed to close ingress response body: %v", err)
+			}
 			t.Logf("Attempt %d: Status Code: %d", i+1, resp.StatusCode)
 			if resp.StatusCode == 200 {
 				t.Log("Ingress returned 200 OK — success")

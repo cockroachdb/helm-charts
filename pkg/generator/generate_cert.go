@@ -336,8 +336,9 @@ func (rc *GenerateCert) generateNodeCert(ctx context.Context, nodeSecretName str
 					return err
 				}
 
-				if err = kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait, rc.PodUpdateTimeout); err != nil {
-					return
+				// The operator's sidecar reloads certificates without restarting pods.
+				if !rc.OperatorManaged {
+					return kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait, rc.PodUpdateTimeout)
 				}
 				return nil
 			}
@@ -503,8 +504,8 @@ func (rc *GenerateCert) UpdateNewCA(ctx context.Context, namespace string) error
 
 	logrus.Info("Updating new CA in client secret")
 
-	if err := kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait, rc.PodUpdateTimeout); err != nil {
-		return err
+	if !rc.OperatorManaged {
+		return kube.RollingUpdate(ctx, rc.client, rc.DiscoveryServiceName, namespace, rc.ReadinessWait, rc.PodUpdateTimeout)
 	}
 	return nil
 }

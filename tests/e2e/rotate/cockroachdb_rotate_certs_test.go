@@ -58,10 +58,9 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	defer k8s.DeleteNamespace(t, kubectlOptions, namespaceName)
 
 	// Setup the args. For this test, we will set the following input values:
-	helmValues := map[string]string{
+	helmValues := testutil.PatchHelmValues(map[string]string{
 		"operator.enabled":                            "false",
 		"tls.selfSigner.image.tag":                    tagOutput,
-		"storage.persistentVolume.size":               "1Gi",
 		"tls.certs.selfSigner.minimumCertDuration":    "24h",
 		"tls.certs.selfSigner.caCertDuration":         "720h",
 		"tls.certs.selfSigner.caCertExpiryWindow":     "48h",
@@ -69,7 +68,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 		"tls.certs.selfSigner.clientCertExpiryWindow": "24h",
 		"tls.certs.selfSigner.nodeCertDuration":       "440h",
 		"tls.certs.selfSigner.nodeCertExpiryWindow":   "36h",
-	}
+	})
 	options := &helm.Options{
 		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
 		SetValues:      helmValues,
@@ -143,7 +142,7 @@ func TestCockroachDbRotateCertificates(t *testing.T) {
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
 
 	t.Log("Verify that CA certificate duration is changed")
-	newCaCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.ClientSecret)
-	require.NotEqual(t, caCert.Annotations["certificate-valid-upto"], newCaCert.Annotations["certificate-valid-upto"])
+	newCaCert := k8s.GetSecret(t, kubectlOptions, crdbCluster.CaSecret)
+	require.NotEqual(t, caCert.Data["ca.crt"], newCaCert.Data["ca.crt"])
 	t.Log("CA Certificates rotated successfully")
 }
