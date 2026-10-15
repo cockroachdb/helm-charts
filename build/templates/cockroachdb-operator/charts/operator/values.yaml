@@ -56,6 +56,11 @@ appLabel: "cockroach-operator"
 # each Pod's emptyDir at startup. When false (default), Helm provisions the Secret.
 # Switching requires deleting the existing Secret first.
 selfSignedOperatorCerts: false
+# podAnnotations defines additional annotations for the operator pods,
+# e.g. sidecar.istio.io/inject: "false" to keep Istio from injecting a sidecar.
+podAnnotations: {}
+# podLabels defines additional labels for the operator pods.
+podLabels: {}
 # migration defines the migration settings for the Operator.
 migration:
   # enabled determines if the migration controller should be enabled.

@@ -272,6 +272,40 @@ func TestOperatorCustomAppLabel(t *testing.T) {
 	require.Equal(t, customLabel, res.ClusterRoleBinding.Labels["app"])
 }
 
+// TestOperatorPodAnnotationsAndLabels tests that podAnnotations and podLabels are added to
+// the operator pod template without changing the deployment selector.
+func TestOperatorPodAnnotationsAndLabels(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unset", func(t *testing.T) {
+		t.Parallel()
+		options := &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		}
+		res := renderOperatorResources(t, options)
+
+		require.Empty(t, res.Deployment.Spec.Template.Annotations)
+		require.Equal(t, map[string]string{"app": "cockroach-operator"}, res.Deployment.Spec.Template.Labels)
+	})
+
+	t.Run("set", func(t *testing.T) {
+		t.Parallel()
+		options := &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+			SetStrValues: map[string]string{
+				"podAnnotations.sidecar\\.istio\\.io/inject": "false",
+				"podLabels.team": "platform",
+			},
+		}
+		res := renderOperatorResources(t, options)
+
+		require.Equal(t, map[string]string{"sidecar.istio.io/inject": "false"}, res.Deployment.Spec.Template.Annotations)
+		require.Equal(t, "platform", res.Deployment.Spec.Template.Labels["team"])
+		require.Equal(t, "cockroach-operator", res.Deployment.Spec.Template.Labels["app"])
+		require.Equal(t, map[string]string{"app": "cockroach-operator"}, res.Deployment.Spec.Selector.MatchLabels)
+	})
+}
+
 // TestOperatorImageDigestUpdated keeps the expected image aligned with chart defaults.
 func TestOperatorImageDigestUpdated(t *testing.T) {
 	t.Parallel()
