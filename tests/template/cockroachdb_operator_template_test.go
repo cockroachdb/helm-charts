@@ -583,3 +583,44 @@ func TestCockroachDBParentSelfSignerAdditionalSANs(t *testing.T) {
 		})
 	}
 }
+
+// TestCockroachDBTestPodAnnotationsAndLabels tests that tests.podAnnotations and
+// tests.podLabels are added to the helm test pod alongside the helm hook annotation.
+func TestCockroachDBTestPodAnnotationsAndLabels(t *testing.T) {
+	t.Parallel()
+
+	chartPath, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
+	require.NoError(t, err)
+
+	render := func(t *testing.T, setStrValues map[string]string) corev1.Pod {
+		t.Helper()
+		options := &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+			SetStrValues:   setStrValues,
+		}
+		output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/tests/client.yaml"})
+		var pod corev1.Pod
+		helm.UnmarshalK8SYaml(t, output, &pod)
+		return pod
+	}
+
+	t.Run("unset", func(t *testing.T) {
+		t.Parallel()
+		pod := render(t, nil)
+
+		require.Equal(t, map[string]string{"helm.sh/hook": "test-success"}, pod.Annotations)
+		require.Empty(t, pod.Labels)
+	})
+
+	t.Run("set", func(t *testing.T) {
+		t.Parallel()
+		pod := render(t, map[string]string{
+			"cockroachdb.tests.podAnnotations.sidecar\\.istio\\.io/inject": "false",
+			"cockroachdb.tests.podLabels.team":                             "platform",
+		})
+
+		require.Equal(t, "test-success", pod.Annotations["helm.sh/hook"])
+		require.Equal(t, "false", pod.Annotations["sidecar.istio.io/inject"])
+		require.Equal(t, map[string]string{"team": "platform"}, pod.Labels)
+	})
+}

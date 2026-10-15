@@ -6,6 +6,9 @@
   `cockroachdb.tls.certManager.additionalIpAddresses` to append custom DNS names and
   IP addresses to the cert-manager issued node certificate SANs; see
   [cert-manager](../../../docs/certificate-management/cert-manager.md).
+- Added `cockroachdb.tests.podAnnotations` and `cockroachdb.tests.podLabels` for the `helm test`
+  pod, for example `sidecar.istio.io/inject: "false"` so `helm test` completes in an
+  Istio-injected namespace.
 
 ### Fixed
 - Fixed self-signer rotation dropping join-service SANs for operator-managed deployments,

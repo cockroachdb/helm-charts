@@ -376,6 +376,35 @@ $ helm upgrade --reuse-values $CRDBCLUSTER ./cockroachdb-operator/charts/cockroa
 $ kubectl delete pod <pod-name> -n $NAMESPACE
 ```
 
+## Running with a Service Mesh (Istio)
+
+In a namespace with Istio sidecar injection enabled, opt the chart's pods out of injection with the
+`sidecar.istio.io/inject: "false"` annotation. Jobs and test pods with a sidecar never complete,
+because the sidecar keeps running after the main container exits.
+
+| Pods | Value |
+|---|---|
+| CockroachDB pods | `cockroachdb.crdbCluster.podTemplate.metadata.annotations` |
+| Self-signer certificate jobs | `cockroachdb.tls.selfSigner.annotations` |
+| `helm test` pod | `cockroachdb.tests.podAnnotations` |
+| Operator pods (operator chart) | `podAnnotations` |
+
+```yaml
+cockroachdb:
+  crdbCluster:
+    podTemplate:
+      metadata:
+        annotations:
+          sidecar.istio.io/inject: "false"
+  tls:
+    selfSigner:
+      annotations:
+        sidecar.istio.io/inject: "false"
+  tests:
+    podAnnotations:
+      sidecar.istio.io/inject: "false"
+```
+
 ## Uninstalling the Chart
 
 To uninstall/delete the CockroachDB cluster:
