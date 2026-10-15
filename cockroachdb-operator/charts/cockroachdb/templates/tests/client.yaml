@@ -21,9 +21,21 @@ spec:
   {{- if .Values.cockroachdb.tls.enabled }}
   volumes:
     - name: client-certs
-      secret:
-        secretName: cockroachdb-root
+      projected:
         defaultMode: 0400
+        sources:
+          - secret:
+              name: {{ include "cockroachdb.tests.rootClientSecretName" . }}
+              items:
+                - key: tls.crt
+                  path: client.root.crt
+                - key: tls.key
+                  path: client.root.key
+          - configMap:
+              name: {{ include "cockroachdb.tests.caConfigMapName" . }}
+              items:
+                - key: ca.crt
+                  path: ca.crt
   {{- end }}
   containers:
     - name: client-test
@@ -46,6 +58,6 @@ spec:
         - --host
         - {{ template "cockroachdb.fullname" . }}-public.{{ .Release.Namespace }}
         - --port
-        - {{ .Values.cockroachdb.crdbCluster.service.ports.grpc.port | quote }}
+        - {{ .Values.cockroachdb.crdbCluster.service.ports.sql.port | quote }}
         - -e
         - SHOW DATABASES;
