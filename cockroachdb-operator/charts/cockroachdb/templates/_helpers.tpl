@@ -380,3 +380,29 @@ Before proceeding, you must first migrate your existing CockroachDB cluster to o
 🔄 Follow the migration steps at docs/migration/helm/controller_migration.md`) -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+Root SQL client secret and CA ConfigMap for the helm test pod.
+These must match the certificates configured on the CrdbCluster in crdb.yaml.
+*/}}
+{{- define "cockroachdb.tests.rootClientSecretName" -}}
+{{- if .Values.cockroachdb.tls.externalCertificates.enabled -}}
+{{- .Values.cockroachdb.tls.externalCertificates.certificates.rootSqlClientSecretName -}}
+{{- else if .Values.cockroachdb.tls.selfSigner.enabled -}}
+{{- printf "%s-client-secret" (include "cockroachdb.fullname" .) -}}
+{{- else if .Values.cockroachdb.tls.certManager.enabled -}}
+{{- .Values.cockroachdb.tls.certManager.clientRootSecret -}}
+{{- end -}}
+{{- end -}}
+
+{{- define "cockroachdb.tests.caConfigMapName" -}}
+{{- if .Values.cockroachdb.tls.externalCertificates.enabled -}}
+{{- with .Values.cockroachdb.tls.externalCertificates.certificates -}}
+{{- .caConfigMapName | default .nodeCaConfigMapName -}}
+{{- end -}}
+{{- else if .Values.cockroachdb.tls.selfSigner.enabled -}}
+{{- printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .) -}}
+{{- else if .Values.cockroachdb.tls.certManager.enabled -}}
+{{- .Values.cockroachdb.tls.certManager.caConfigMap -}}
+{{- end -}}
+{{- end -}}
