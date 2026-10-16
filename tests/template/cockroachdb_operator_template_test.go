@@ -670,6 +670,24 @@ func TestCockroachDBTestPodClientCerts(t *testing.T) {
 			expectSecret: "ext-root",
 			expectCA:     "ext-ca",
 		},
+		{
+			// Split CA: caConfigMapName is left empty and the node CA is set
+			// instead. The test pod validates the server it connects to, so it
+			// must fall back to the node CA. See the external-certificates docs
+			// on split CA certificates in values.yaml.
+			name: "external certificates split CA",
+			setValues: map[string]string{
+				"cockroachdb.tls.selfSigner.enabled":                                        "false",
+				"cockroachdb.tls.externalCertificates.enabled":                              "true",
+				"cockroachdb.tls.externalCertificates.certificates.nodeCaConfigMapName":     "ext-node-ca",
+				"cockroachdb.tls.externalCertificates.certificates.clientCaConfigMapName":   "ext-client-ca",
+				"cockroachdb.tls.externalCertificates.certificates.nodeSecretName":          "ext-node",
+				"cockroachdb.tls.externalCertificates.certificates.httpSecretName":          "ext-root",
+				"cockroachdb.tls.externalCertificates.certificates.rootSqlClientSecretName": "ext-root",
+			},
+			expectSecret: "ext-root",
+			expectCA:     "ext-node-ca",
+		},
 	}
 
 	for _, tc := range testCases {
