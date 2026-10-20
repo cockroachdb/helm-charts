@@ -66,6 +66,16 @@ func TestCertificateRotation(t *testing.T) {
 				oldNode := getSecret(gen.getNodeSecretName())
 				oldClient := getSecret(gen.getClientSecretName())
 
+				// With rotation enabled but not yet due, ready secrets are kept.
+				// Nothing is regenerated, so the legacy path never reaches the
+				// StatefulSet restart and both modes succeed.
+				gen.RotateNodeCert = true
+				gen.RotateClientCert = true
+				gen.NodeAndClientCronSchedule = "0 0 * * *"
+				require.NoError(t, gen.Do(ctx, namespace))
+				require.Equal(t, oldNode.Data[corev1.TLSCertKey], getSecret(gen.getNodeSecretName()).Data[corev1.TLSCertKey])
+				require.Equal(t, oldClient.Data[corev1.TLSCertKey], getSecret(gen.getClientSecretName()).Data[corev1.TLSCertKey])
+
 				// Make rotation due without deleting the existing secrets.
 				for _, name := range []string{gen.getCASecretName(), gen.getNodeSecretName(), gen.getClientSecretName()} {
 					secret := getSecret(name)
