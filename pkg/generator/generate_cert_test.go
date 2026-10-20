@@ -427,3 +427,50 @@ func TestNodeCertHosts(t *testing.T) {
 	// so callers can tell the two apart.
 	require.NotContains(t, managed.NodeCertHosts("default"), "extra.example.com")
 }
+
+// TestInheritSANs covers the carry-over a path that reissues an existing node
+// certificate relies on: everything the certificate carries beyond
+// NodeCertHosts is kept, nothing standard is duplicated, and names already in
+// AdditionalSANs are not added twice.
+func TestInheritSANs(t *testing.T) {
+	certsDir, caKey, genCert, cleanup := setupTestCertEnv(t, nil)
+	defer cleanup()
+	genCert.OperatorManaged = true
+	namespace := "default"
+
+	extras := []string{"sql.example.com", "backup.example.com", "10.0.0.10"}
+	hosts := append(genCert.NodeCertHosts(namespace), extras...)
+	createAndParseCert(t, certsDir, caKey, genCert, hosts)
+	pemCert, err := os.ReadFile(filepath.Join(certsDir, "node.crt"))
+	require.NoError(t, err)
+
+	t.Run("extras are carried over, standard and join names are not", func(t *testing.T) {
+		rc := genCert
+		require.NoError(t, rc.InheritSANs(pemCert, namespace))
+		require.ElementsMatch(t, extras, rc.AdditionalSANs)
+	})
+
+	t.Run("already-known names are not duplicated", func(t *testing.T) {
+		rc := genCert
+		rc.AdditionalSANs = []string{"sql.example.com"}
+		require.NoError(t, rc.InheritSANs(pemCert, namespace))
+		require.ElementsMatch(t, extras, rc.AdditionalSANs)
+	})
+
+	t.Run("a standard-only certificate adds nothing", func(t *testing.T) {
+		// A separate directory: the CLI refuses to overwrite node.crt.
+		dir, key, rc, cleanupStandard := setupTestCertEnv(t, nil)
+		defer cleanupStandard()
+		rc.OperatorManaged = true
+		createAndParseCert(t, dir, key, rc, rc.NodeCertHosts(namespace))
+		standardPEM, err := os.ReadFile(filepath.Join(dir, "node.crt"))
+		require.NoError(t, err)
+		require.NoError(t, rc.InheritSANs(standardPEM, namespace))
+		require.Empty(t, rc.AdditionalSANs)
+	})
+
+	t.Run("garbage is an error", func(t *testing.T) {
+		rc := genCert
+		require.Error(t, rc.InheritSANs([]byte("not a certificate"), namespace))
+	})
+}

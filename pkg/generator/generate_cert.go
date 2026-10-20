@@ -449,6 +449,16 @@ func (rc *GenerateCert) generateClientCert(ctx context.Context, user, clientSecr
 	return nil
 }
 
+// RegenerateClientCert issues a new client certificate for user even when a
+// ready one exists, unlike GenerateClientCert, which keeps a ready secret and
+// reads the user from USER_NAME. Callers that cannot rely on later rotation
+// (see pkg/migrate) use it to reset the certificate's lifetime; they name the
+// user explicitly so the ambient environment cannot redirect the write to a
+// different secret.
+func (rc *GenerateCert) RegenerateClientCert(ctx context.Context, user, clientSecretName, namespace string) error {
+	return rc.generateClientCert(ctx, user, clientSecretName, namespace)
+}
+
 func (rc *GenerateCert) getCASecretName() string {
 	return rc.DiscoveryServiceName + "-ca-secret"
 }
@@ -572,6 +582,45 @@ func (rc *GenerateCert) NodeCertHosts(namespace string) []string {
 		)
 	}
 	return hosts
+}
+
+// InheritSANs adds to AdditionalSANs every DNS name and IP address in pemCert
+// that is not in NodeCertHosts(namespace) and not already present. A path
+// that reissues an existing node certificate (today, the migration helper)
+// uses it to keep the identity the certificate already had without knowing
+// which configuration produced it: the certificate is the record, not the
+// values that generated it.
+func (rc *GenerateCert) InheritSANs(pemCert []byte, namespace string) error {
+	cert, err := security.GetCertObj(pemCert)
+	if err != nil {
+		return errors.Wrap(err, "parsing existing node certificate")
+	}
+	known := make(map[string]struct{})
+	for _, h := range rc.NodeCertHosts(namespace) {
+		known[h] = struct{}{}
+	}
+	for _, s := range rc.AdditionalSANs {
+		known[s] = struct{}{}
+	}
+	var extra []string
+	add := func(s string) {
+		if _, ok := known[s]; ok {
+			return
+		}
+		known[s] = struct{}{}
+		extra = append(extra, s)
+	}
+	for _, name := range cert.DNSNames {
+		add(name)
+	}
+	for _, ip := range cert.IPAddresses {
+		add(ip.String())
+	}
+	if len(extra) > 0 {
+		logrus.Infof("Inheriting SANs from the existing node certificate: %v", extra)
+		rc.AdditionalSANs = append(rc.AdditionalSANs, extra...)
+	}
+	return nil
 }
 
 // GenerateNodeCert generates the Node key and certificate and stores them in a secret.

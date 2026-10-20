@@ -54,6 +54,14 @@ the required resources:
 bin/migration-helper migrate-certs --statefulset-name $CRDBCLUSTER --namespace $NAMESPACE
 ```
 
+`migrate-certs` regenerates the node certificate with the join-service names the operator requires and
+carries over any additional SANs the existing node certificate already had; it logs the names it carried
+over. It also reissues the root client certificate for the node certificate's duration (`--client-duration`
+defaults to `--node-duration`), because the migrated cluster's values disable the self-signer and nothing
+rotates certificates until you re-enable it. Before you enable `cockroachdb.tls.selfSigner.enabled: true`,
+copy the carried-over names into `cockroachdb.tls.selfSigner.additionalSANs`; the self-signer rebuilds
+certificates from configuration, not from the previous certificate.
+
 Generate a manifest for each CrdbNode and the CrdbCluster from the current StatefulSet. The
 generated resources retain the pod and PVC names, allowing operator-managed pods to reuse the
 existing storage without replicating data into empty volumes:
