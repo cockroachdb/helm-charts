@@ -1,5 +1,11 @@
 # CockroachDB Chart — CHANGELOG
 
+## [Unreleased]
+### Fixed
+- Fixed permission drift between self-signer install and rotation jobs by sharing their RBAC
+  rules. The rotation CronJobs also render the same pod and container `securityContext` as the
+  install Job, so namespaces enforcing Pod Security Admission `restricted` no longer reject them.
+
 ## [26.4.2] — 2026-11-18
 ### Changed
 - Updated the default CockroachDB image version from `v26.4.0` to `v26.4.1`.
