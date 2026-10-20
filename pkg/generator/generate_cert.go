@@ -544,12 +544,15 @@ func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) erro
 	return nil
 }
 
-// GenerateNodeCert generates the Node key and certificate and stores them in a secret.
-func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, namespace string) error {
-	logrus.Info("Generating node certificate")
-
-	// hosts are the various DNS names and IP address that have to exist in the Node certificates
-	// for the database to function
+// NodeCertHosts returns the DNS names and IP addresses every node certificate
+// must carry for the database to function: the loopback names, the public
+// service, the per-pod discovery wildcards and, for operator-managed clusters,
+// the join service nodes use to find each other. It is the single definition
+// of the standard host list; anything that must tell standard SANs from
+// user-added ones builds on it. User-provided AdditionalSANs are appended by
+// GenerateNodeCert, not here, so a caller can tell the identity the chart
+// requires from the identity the user added.
+func (rc *GenerateCert) NodeCertHosts(namespace string) []string {
 	hosts := []string{
 		"localhost",
 		"127.0.0.1",
@@ -560,16 +563,21 @@ func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, na
 		fmt.Sprintf("*.%s.%s", rc.DiscoveryServiceName, namespace),
 		fmt.Sprintf("*.%s.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
 	}
-
 	if rc.OperatorManaged {
-		operatorJoinServiceHosts := []string{
+		hosts = append(hosts,
 			fmt.Sprintf("%s-join", rc.DiscoveryServiceName),
 			fmt.Sprintf("%s-join.%s", rc.DiscoveryServiceName, namespace),
 			fmt.Sprintf("%s-join.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
-		}
-
-		hosts = append(hosts, operatorJoinServiceHosts...)
+		)
 	}
+	return hosts
+}
+
+// GenerateNodeCert generates the Node key and certificate and stores them in a secret.
+func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, namespace string) error {
+	logrus.Info("Generating node certificate")
+
+	hosts := rc.NodeCertHosts(namespace)
 
 	// Append additional user-provided SANs
 	if len(rc.AdditionalSANs) > 0 {

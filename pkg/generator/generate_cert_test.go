@@ -166,20 +166,6 @@ func setupTestCertEnv(t *testing.T, additionalSANs []string) (string, string, Ge
 	return certsDir, caKey, genCert, cleanup
 }
 
-// buildStandardHosts creates the standard hosts list for node certificates.
-func buildStandardHosts(genCert GenerateCert, namespace string) []string {
-	return []string{
-		"localhost",
-		"127.0.0.1",
-		genCert.PublicServiceName,
-		genCert.PublicServiceName + "." + namespace,
-		genCert.PublicServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
-		"*." + genCert.DiscoveryServiceName,
-		"*." + genCert.DiscoveryServiceName + "." + namespace,
-		"*." + genCert.DiscoveryServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
-	}
-}
-
 // createAndParseCert creates a node certificate and returns the parsed x509 certificate.
 func createAndParseCert(t *testing.T, certsDir, caKey string, genCert GenerateCert, hosts []string) *x509.Certificate {
 	// Create node certificate
@@ -277,7 +263,7 @@ func TestCreateNodeCertWithAdditionalSANs(t *testing.T) {
 			defer cleanup()
 
 			namespace := "default"
-			hosts := buildStandardHosts(genCert, namespace)
+			hosts := genCert.NodeCertHosts(namespace)
 
 			// Apply sanitization and append additional SANs
 			validSANs := SanitizeAdditionalSANs(genCert.AdditionalSANs)
@@ -392,4 +378,42 @@ func TestSanitizeAdditionalSANs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNodeCertHosts pins the one definition of the node certificate's standard
+// identity. Everything else that reasons about "standard versus extra" SANs
+// (GenerateNodeCert, InheritSANs, the migration helper) builds on it.
+func TestNodeCertHosts(t *testing.T) {
+	base := GenerateCert{
+		PublicServiceName:    "test-public",
+		DiscoveryServiceName: "test-service",
+		ClusterDomain:        "cluster.local",
+		AdditionalSANs:       []string{"extra.example.com"},
+	}
+	standard := []string{
+		"localhost",
+		"127.0.0.1",
+		"test-public",
+		"test-public.default",
+		"test-public.default.svc.cluster.local",
+		"*.test-service",
+		"*.test-service.default",
+		"*.test-service.default.svc.cluster.local",
+	}
+	join := []string{
+		"test-service-join",
+		"test-service-join.default",
+		"test-service-join.default.svc.cluster.local",
+	}
+
+	plain := base
+	require.Equal(t, standard, plain.NodeCertHosts("default"))
+
+	managed := base
+	managed.OperatorManaged = true
+	require.Equal(t, append(append([]string{}, standard...), join...), managed.NodeCertHosts("default"))
+
+	// AdditionalSANs are appended by GenerateNodeCert, never by NodeCertHosts,
+	// so callers can tell the two apart.
+	require.NotContains(t, managed.NodeCertHosts("default"), "extra.example.com")
 }
