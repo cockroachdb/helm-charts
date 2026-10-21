@@ -2,6 +2,10 @@
 
 All notable changes to the CockroachDB Helm chart will be documented in this file.
 
+## [22.0.5] 2026-10-21
+### Changed
+  - Updated the default CockroachDB image version from `v26.3.2` to `v26.3.3`.
+
 ## [Unreleased]
 ### Added
   - Added `tls.certs.certManagerIssuer.additionalDnsNames` and
