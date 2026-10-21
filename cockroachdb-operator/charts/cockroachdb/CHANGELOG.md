@@ -1,5 +1,9 @@
 # CockroachDB Chart — CHANGELOG
 
+## [26.3.3] — 2026-10-21
+### Changed
+- Updated the default CockroachDB image version from `v26.3.2` to `v26.3.3`.
+
 ## [Unreleased]
 ### Added
 - Added `cockroachdb.tls.certManager.additionalDnsNames` and
