@@ -1,4 +1,4 @@
-{{- if and .Values.cockroachdb.tls.selfSigner.enabled .Values.cockroachdb.tls.selfSigner.rotateCerts }}
+{{- if and (include "selfcerts.enabled" .) .Values.cockroachdb.tls.selfSigner.rotateCerts }}
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -27,6 +27,9 @@ spec:
           imagePullSecrets:
             - name: {{ template "cockroachdb.fullname" . }}.init-certs.registry
           {{- end }}
+        {{- with include "selfcerts.podSecurityContext" . }}
+          {{- . | nindent 10 }}
+        {{- end }}
           restartPolicy: Never
         {{- with .Values.cockroachdb.tls.selfSigner.affinity }}
           affinity: {{- toYaml . | nindent 12 }}
@@ -70,5 +73,8 @@ spec:
                 - name: ADDITIONAL_SANS
                   value: {{ .Values.cockroachdb.tls.selfSigner.additionalSANs | join "," | quote }}
                 {{- end }}
+              {{- with include "selfcerts.containerSecurityContext" . }}
+                {{- . | nindent 14 }}
+              {{- end }}
           serviceAccountName: {{ template "rotatecerts.fullname" . }}
   {{- end}}
