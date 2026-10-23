@@ -180,6 +180,13 @@ podLabels:
   team: platform
 ```
 
+To keep the operator in the mesh instead, have Istio start the proxy before the operator container:
+
+```yaml
+podAnnotations:
+  proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+```
+
 To annotate the CockroachDB pods, use `cockroachdb.crdbCluster.podTemplate.metadata.annotations`
 in the CockroachDB chart.
 

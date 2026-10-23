@@ -379,9 +379,9 @@ $ kubectl delete pod <pod-name> -n $NAMESPACE
 
 ## Running with a Service Mesh (Istio)
 
-In a namespace with Istio sidecar injection enabled, opt the chart's pods out of injection with the
-`sidecar.istio.io/inject: "false"` annotation. Jobs and test pods with a sidecar never complete,
-because the sidecar keeps running after the main container exits.
+In a namespace with Istio sidecar injection enabled, every pod the chart creates gets an
+`istio-proxy` sidecar. To opt pods out of injection, set the `sidecar.istio.io/inject: "false"`
+annotation with these values:
 
 | Pods | Value |
 |---|---|
@@ -405,6 +405,28 @@ cockroachdb:
     podAnnotations:
       sidecar.istio.io/inject: "false"
 ```
+
+### Keeping the operator in the mesh
+
+To keep the operator's sidecar instead of opting it out, have Istio start the proxy before the
+operator container. This avoids the operator's first call to the Kubernetes API failing because the
+proxy is not ready yet:
+
+```yaml
+podAnnotations:
+  proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+```
+
+### Jobs and test pods with a sidecar
+
+Whether an injected job or `helm test` pod completes depends on how Istio injects the sidecar:
+
+- **Native sidecars** (`istio-proxy` is listed under `initContainers`): Kubernetes stops the sidecar
+  when the main container exits, and the pod completes.
+- **Traditional sidecars** (`istio-proxy` is listed under `containers`): the sidecar keeps running
+  after the main container exits, so the pod never completes. Opt these pods out as shown above, or
+  stop the proxy from the main container when it finishes, for example with
+  `curl -X POST http://localhost:15020/quitquitquit`. The chart does not do this for you.
 
 ## Uninstalling the Chart
 
