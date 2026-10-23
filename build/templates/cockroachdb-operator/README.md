@@ -103,16 +103,6 @@ Alternatively, a YAML file that specifies the values for the parameters can be p
 helm install $CRDBCLUSTER ./cockroachdb-operator -n $NAMESPACE --create-namespace -f values-override.yaml
 ```
 
-### Installing the operator CRDs
-
-The operator reconciles `CrdbCluster` and `CrdbNode` custom resources, so their CRDs must exist in the cluster before the chart is installed. On a fresh cluster, apply them first:
-
-```bash
-kubectl apply --server-side -f cockroachdb-operator/charts/operator/manifests/crds/
-```
-
-`--server-side` is required because the CRDs are larger than the 256 KB limit on the client-side `kubectl.kubernetes.io/last-applied-configuration` annotation that a plain `kubectl apply` would set. Without the CRDs in place, `helm install` fails with `no matches for kind "CrdbCluster"`.
-
 ### Multi Region Deployments
 
 For multi-region cluster deployments, ensure the required networking is setup which allows for service discovery across regions. Also, ensure that the same CA cert is used across all the regions.
