@@ -66,6 +66,16 @@ func TestCertificateRotation(t *testing.T) {
 				oldNode := getSecret(gen.getNodeSecretName())
 				oldClient := getSecret(gen.getClientSecretName())
 
+				// With rotation enabled but not yet due, ready secrets are kept.
+				// Nothing is regenerated, so the legacy path never reaches the
+				// StatefulSet restart and both modes succeed.
+				gen.RotateNodeCert = true
+				gen.RotateClientCert = true
+				gen.NodeAndClientCronSchedule = "0 0 * * *"
+				require.NoError(t, gen.Do(ctx, namespace))
+				require.Equal(t, oldNode.Data[corev1.TLSCertKey], getSecret(gen.getNodeSecretName()).Data[corev1.TLSCertKey])
+				require.Equal(t, oldClient.Data[corev1.TLSCertKey], getSecret(gen.getClientSecretName()).Data[corev1.TLSCertKey])
+
 				// Make rotation due without deleting the existing secrets.
 				for _, name := range []string{gen.getCASecretName(), gen.getNodeSecretName(), gen.getClientSecretName()} {
 					secret := getSecret(name)
@@ -166,20 +176,6 @@ func setupTestCertEnv(t *testing.T, additionalSANs []string) (string, string, Ge
 	return certsDir, caKey, genCert, cleanup
 }
 
-// buildStandardHosts creates the standard hosts list for node certificates.
-func buildStandardHosts(genCert GenerateCert, namespace string) []string {
-	return []string{
-		"localhost",
-		"127.0.0.1",
-		genCert.PublicServiceName,
-		genCert.PublicServiceName + "." + namespace,
-		genCert.PublicServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
-		"*." + genCert.DiscoveryServiceName,
-		"*." + genCert.DiscoveryServiceName + "." + namespace,
-		"*." + genCert.DiscoveryServiceName + "." + namespace + ".svc." + genCert.ClusterDomain,
-	}
-}
-
 // createAndParseCert creates a node certificate and returns the parsed x509 certificate.
 func createAndParseCert(t *testing.T, certsDir, caKey string, genCert GenerateCert, hosts []string) *x509.Certificate {
 	// Create node certificate
@@ -277,7 +273,7 @@ func TestCreateNodeCertWithAdditionalSANs(t *testing.T) {
 			defer cleanup()
 
 			namespace := "default"
-			hosts := buildStandardHosts(genCert, namespace)
+			hosts := genCert.NodeCertHosts(namespace)
 
 			// Apply sanitization and append additional SANs
 			validSANs := SanitizeAdditionalSANs(genCert.AdditionalSANs)
@@ -392,4 +388,89 @@ func TestSanitizeAdditionalSANs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNodeCertHosts pins the one definition of the node certificate's standard
+// identity. Everything else that reasons about "standard versus extra" SANs
+// (GenerateNodeCert, InheritSANs, the migration helper) builds on it.
+func TestNodeCertHosts(t *testing.T) {
+	base := GenerateCert{
+		PublicServiceName:    "test-public",
+		DiscoveryServiceName: "test-service",
+		ClusterDomain:        "cluster.local",
+		AdditionalSANs:       []string{"extra.example.com"},
+	}
+	standard := []string{
+		"localhost",
+		"127.0.0.1",
+		"test-public",
+		"test-public.default",
+		"test-public.default.svc.cluster.local",
+		"*.test-service",
+		"*.test-service.default",
+		"*.test-service.default.svc.cluster.local",
+	}
+	join := []string{
+		"test-service-join",
+		"test-service-join.default",
+		"test-service-join.default.svc.cluster.local",
+	}
+
+	plain := base
+	require.Equal(t, standard, plain.NodeCertHosts("default"))
+
+	managed := base
+	managed.OperatorManaged = true
+	require.Equal(t, append(append([]string{}, standard...), join...), managed.NodeCertHosts("default"))
+
+	// AdditionalSANs are appended by GenerateNodeCert, never by NodeCertHosts,
+	// so callers can tell the two apart.
+	require.NotContains(t, managed.NodeCertHosts("default"), "extra.example.com")
+}
+
+// TestInheritSANs covers the carry-over a path that reissues an existing node
+// certificate relies on: everything the certificate carries beyond
+// NodeCertHosts is kept, nothing standard is duplicated, and names already in
+// AdditionalSANs are not added twice.
+func TestInheritSANs(t *testing.T) {
+	certsDir, caKey, genCert, cleanup := setupTestCertEnv(t, nil)
+	defer cleanup()
+	genCert.OperatorManaged = true
+	namespace := "default"
+
+	extras := []string{"sql.example.com", "backup.example.com", "10.0.0.10"}
+	hosts := append(genCert.NodeCertHosts(namespace), extras...)
+	createAndParseCert(t, certsDir, caKey, genCert, hosts)
+	pemCert, err := os.ReadFile(filepath.Join(certsDir, "node.crt"))
+	require.NoError(t, err)
+
+	t.Run("extras are carried over, standard and join names are not", func(t *testing.T) {
+		rc := genCert
+		require.NoError(t, rc.InheritSANs(pemCert, namespace))
+		require.ElementsMatch(t, extras, rc.AdditionalSANs)
+	})
+
+	t.Run("already-known names are not duplicated", func(t *testing.T) {
+		rc := genCert
+		rc.AdditionalSANs = []string{"sql.example.com"}
+		require.NoError(t, rc.InheritSANs(pemCert, namespace))
+		require.ElementsMatch(t, extras, rc.AdditionalSANs)
+	})
+
+	t.Run("a standard-only certificate adds nothing", func(t *testing.T) {
+		// A separate directory: the CLI refuses to overwrite node.crt.
+		dir, key, rc, cleanupStandard := setupTestCertEnv(t, nil)
+		defer cleanupStandard()
+		rc.OperatorManaged = true
+		createAndParseCert(t, dir, key, rc, rc.NodeCertHosts(namespace))
+		standardPEM, err := os.ReadFile(filepath.Join(dir, "node.crt"))
+		require.NoError(t, err)
+		require.NoError(t, rc.InheritSANs(standardPEM, namespace))
+		require.Empty(t, rc.AdditionalSANs)
+	})
+
+	t.Run("garbage is an error", func(t *testing.T) {
+		rc := genCert
+		require.Error(t, rc.InheritSANs([]byte("not a certificate"), namespace))
+	})
 }

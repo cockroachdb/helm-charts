@@ -14,6 +14,8 @@ All notable changes to the CockroachDB Helm chart will be documented in this fil
 
 ### Changed
 - Updated the self-signer image to `1.11` for operator-managed certificate rotation fixes.
+- Updated the self-signer image to `1.12`: `migrate-certs` now carries the node certificate's
+  additional SANs over to the operator-managed secrets and reissues the root client certificate.
 
 ## [22.0.4] 2026-09-23
 ### Changed
