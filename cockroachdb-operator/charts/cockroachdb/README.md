@@ -387,7 +387,6 @@ annotation with these values:
 |---|---|
 | CockroachDB pods | `cockroachdb.crdbCluster.podTemplate.metadata.annotations` |
 | Self-signer certificate jobs | `cockroachdb.tls.selfSigner.annotations` |
-| `helm test` pod | `cockroachdb.tests.podAnnotations` |
 | Operator pods (operator chart) | `podAnnotations` |
 
 ```yaml
@@ -401,9 +400,6 @@ cockroachdb:
     selfSigner:
       annotations:
         sidecar.istio.io/inject: "false"
-  tests:
-    podAnnotations:
-      sidecar.istio.io/inject: "false"
 ```
 
 ### Keeping the operator in the mesh
