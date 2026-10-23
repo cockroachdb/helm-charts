@@ -490,6 +490,13 @@ spec:
     metadata:
       labels:
         app: {{ .Values.appLabel | quote }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
     spec:
       shareProcessNamespace: true
       serviceAccountName: cockroach-operator-default

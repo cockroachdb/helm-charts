@@ -597,6 +597,13 @@ cockroachdb:
     #   # depending on which cluster you want to initialise.
     #   # Possible Values: disabled, primary, standby
     #   mode: "disabled"
+  # tests captures the configuration for the pod created by `helm test`.
+  tests:
+    # podAnnotations defines additional annotations for the test pod,
+    # e.g. sidecar.istio.io/inject: "false" so the pod can complete in an Istio-injected namespace.
+    podAnnotations: {}
+    # podLabels defines additional labels for the test pod.
+    podLabels: {}
 
 k8s:
   # nameOverride overrides the name of the chart. If not set, the chart name will be used.

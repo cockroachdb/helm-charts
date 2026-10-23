@@ -272,6 +272,40 @@ func TestOperatorCustomAppLabel(t *testing.T) {
 	require.Equal(t, customLabel, res.ClusterRoleBinding.Labels["app"])
 }
 
+// TestOperatorPodAnnotationsAndLabels tests that podAnnotations and podLabels are added to
+// the operator pod template without changing the deployment selector.
+func TestOperatorPodAnnotationsAndLabels(t *testing.T) {
+	t.Parallel()
+
+	t.Run("unset", func(t *testing.T) {
+		t.Parallel()
+		options := &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		}
+		res := renderOperatorResources(t, options)
+
+		require.Empty(t, res.Deployment.Spec.Template.Annotations)
+		require.Equal(t, map[string]string{"app": "cockroach-operator"}, res.Deployment.Spec.Template.Labels)
+	})
+
+	t.Run("set", func(t *testing.T) {
+		t.Parallel()
+		options := &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+			SetStrValues: map[string]string{
+				"podAnnotations.sidecar\\.istio\\.io/inject": "false",
+				"podLabels.team": "platform",
+			},
+		}
+		res := renderOperatorResources(t, options)
+
+		require.Equal(t, map[string]string{"sidecar.istio.io/inject": "false"}, res.Deployment.Spec.Template.Annotations)
+		require.Equal(t, "platform", res.Deployment.Spec.Template.Labels["team"])
+		require.Equal(t, "cockroach-operator", res.Deployment.Spec.Template.Labels["app"])
+		require.Equal(t, map[string]string{"app": "cockroach-operator"}, res.Deployment.Spec.Selector.MatchLabels)
+	})
+}
+
 // TestOperatorImageDigestUpdated keeps the expected image aligned with chart defaults.
 func TestOperatorImageDigestUpdated(t *testing.T) {
 	t.Parallel()
@@ -548,4 +582,161 @@ func TestCockroachDBParentSelfSignerAdditionalSANs(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestCockroachDBTestPodAnnotationsAndLabels tests that tests.podAnnotations and
+// tests.podLabels are added to the helm test pod alongside the helm hook annotation.
+func TestCockroachDBTestPodAnnotationsAndLabels(t *testing.T) {
+	t.Parallel()
+
+	chartPath, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
+	require.NoError(t, err)
+
+	render := func(t *testing.T, setStrValues map[string]string) corev1.Pod {
+		t.Helper()
+		options := &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+			SetStrValues:   setStrValues,
+		}
+		output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/tests/client.yaml"})
+		var pod corev1.Pod
+		helm.UnmarshalK8SYaml(t, output, &pod)
+		return pod
+	}
+
+	t.Run("unset", func(t *testing.T) {
+		t.Parallel()
+		pod := render(t, nil)
+
+		require.Equal(t, map[string]string{"helm.sh/hook": "test-success"}, pod.Annotations)
+		require.Empty(t, pod.Labels)
+	})
+
+	t.Run("set", func(t *testing.T) {
+		t.Parallel()
+		pod := render(t, map[string]string{
+			"cockroachdb.tests.podAnnotations.sidecar\\.istio\\.io/inject": "false",
+			"cockroachdb.tests.podLabels.team":                             "platform",
+		})
+
+		require.Equal(t, "test-success", pod.Annotations["helm.sh/hook"])
+		require.Equal(t, "false", pod.Annotations["sidecar.istio.io/inject"])
+		require.Equal(t, map[string]string{"team": "platform"}, pod.Labels)
+	})
+}
+
+// TestCockroachDBTestPodClientCerts tests that the helm test pod mounts the root client
+// certificate and CA used by the CrdbCluster for each TLS mode, and connects to the SQL port.
+func TestCockroachDBTestPodClientCerts(t *testing.T) {
+	t.Parallel()
+
+	chartPath, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
+	require.NoError(t, err)
+
+	testCases := []struct {
+		name         string
+		setValues    map[string]string
+		expectSecret string
+		expectCA     string
+	}{
+		{
+			name:         "self-signer",
+			setValues:    map[string]string{},
+			expectSecret: releaseName + "-cockroachdb-client-secret",
+			expectCA:     releaseName + "-cockroachdb-ca-secret-crt",
+		},
+		{
+			name: "cert-manager",
+			setValues: map[string]string{
+				"cockroachdb.tls.selfSigner.enabled":           "false",
+				"cockroachdb.tls.certManager.enabled":          "true",
+				"cockroachdb.tls.certManager.issuer.name":      "issuer",
+				"cockroachdb.tls.certManager.clientRootSecret": "my-root",
+				"cockroachdb.tls.certManager.caConfigMap":      "my-ca",
+			},
+			expectSecret: "my-root",
+			expectCA:     "my-ca",
+		},
+		{
+			name: "external certificates",
+			setValues: map[string]string{
+				"cockroachdb.tls.selfSigner.enabled":                                        "false",
+				"cockroachdb.tls.externalCertificates.enabled":                              "true",
+				"cockroachdb.tls.externalCertificates.certificates.caConfigMapName":         "ext-ca",
+				"cockroachdb.tls.externalCertificates.certificates.nodeSecretName":          "ext-node",
+				"cockroachdb.tls.externalCertificates.certificates.httpSecretName":          "ext-root",
+				"cockroachdb.tls.externalCertificates.certificates.rootSqlClientSecretName": "ext-root",
+			},
+			expectSecret: "ext-root",
+			expectCA:     "ext-ca",
+		},
+		{
+			// Split CA: caConfigMapName is left empty and the node CA is set
+			// instead. The test pod validates the server it connects to, so it
+			// must fall back to the node CA. See the external-certificates docs
+			// on split CA certificates in values.yaml.
+			name: "external certificates split CA",
+			setValues: map[string]string{
+				"cockroachdb.tls.selfSigner.enabled":                                        "false",
+				"cockroachdb.tls.externalCertificates.enabled":                              "true",
+				"cockroachdb.tls.externalCertificates.certificates.nodeCaConfigMapName":     "ext-node-ca",
+				"cockroachdb.tls.externalCertificates.certificates.clientCaConfigMapName":   "ext-client-ca",
+				"cockroachdb.tls.externalCertificates.certificates.nodeSecretName":          "ext-node",
+				"cockroachdb.tls.externalCertificates.certificates.httpSecretName":          "ext-root",
+				"cockroachdb.tls.externalCertificates.certificates.rootSqlClientSecretName": "ext-root",
+			},
+			expectSecret: "ext-root",
+			expectCA:     "ext-node-ca",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				SetValues:      tc.setValues,
+			}
+			output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/tests/client.yaml"})
+			var pod corev1.Pod
+			helm.UnmarshalK8SYaml(t, output, &pod)
+
+			require.Len(t, pod.Spec.Volumes, 1)
+			projected := pod.Spec.Volumes[0].Projected
+			require.NotNil(t, projected)
+			require.Len(t, projected.Sources, 2)
+
+			secret := projected.Sources[0].Secret
+			require.NotNil(t, secret)
+			require.Equal(t, tc.expectSecret, secret.Name)
+			require.Equal(t, []corev1.KeyToPath{
+				{Key: "tls.crt", Path: "client.root.crt"},
+				{Key: "tls.key", Path: "client.root.key"},
+			}, secret.Items)
+
+			ca := projected.Sources[1].ConfigMap
+			require.NotNil(t, ca)
+			require.Equal(t, tc.expectCA, ca.Name)
+			require.Equal(t, []corev1.KeyToPath{{Key: "ca.crt", Path: "ca.crt"}}, ca.Items)
+
+			require.Contains(t, strings.Join(pod.Spec.Containers[0].Command, " "), "--port 26257")
+		})
+	}
+
+	t.Run("insecure", func(t *testing.T) {
+		t.Parallel()
+		options := &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+			SetValues: map[string]string{
+				"cockroachdb.tls.enabled":            "false",
+				"cockroachdb.tls.selfSigner.enabled": "false",
+			},
+		}
+		output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/tests/client.yaml"})
+		var pod corev1.Pod
+		helm.UnmarshalK8SYaml(t, output, &pod)
+
+		require.Empty(t, pod.Spec.Volumes)
+		require.Contains(t, pod.Spec.Containers[0].Command, "--insecure")
+	})
 }

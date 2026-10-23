@@ -164,6 +164,32 @@ only when the shared Secret is replaced.
 Switching this flag on an existing installation requires the `cockroach-operator-certs` Secret
 to be deleted first. If it is not, the chart will fail with a clear error explaining the required steps.
 
+## Operator Pod Annotations and Labels
+
+Use `podAnnotations` and `podLabels` to add metadata to the operator pods. Both default to empty,
+and the Deployment selector is not affected by `podLabels`.
+
+A common use is keeping a service mesh such as Istio from injecting a sidecar into the operator.
+With a sidecar, the operator can start before the proxy is ready and fail its first call to the
+Kubernetes API.
+
+```yaml
+podAnnotations:
+  sidecar.istio.io/inject: "false"
+podLabels:
+  team: platform
+```
+
+To keep the operator in the mesh instead, have Istio start the proxy before the operator container:
+
+```yaml
+podAnnotations:
+  proxy.istio.io/config: '{"holdApplicationUntilProxyStarts": true}'
+```
+
+To annotate the CockroachDB pods, use `cockroachdb.crdbCluster.podTemplate.metadata.annotations`
+in the CockroachDB chart.
+
 ## Split-Chart Node Reader RBAC
 
 CockroachDB pod init containers read Kubernetes Node labels to derive locality, so the pod
