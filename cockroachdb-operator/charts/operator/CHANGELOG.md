@@ -3,13 +3,22 @@
 <!-- For new releases, separate Helm installations, Non-Helm installations,
 and shared Operator behavior when those categories apply. -->
 
-## [Unreleased]
+## [1.2.0] — 2026-10-29
 
 ### Helm installations
 
 #### Added
 - Added `podAnnotations` and `podLabels` to add annotations and labels to the operator pods,
   for example `sidecar.istio.io/inject: "false"` to keep Istio from injecting a sidecar.
+
+#### Changed
+- Updated the default operator image and related init-container and certificate-reloader images
+  to `v1.2.0`.
+
+### Non-Helm installations
+
+#### Changed
+- Updated the rendered operator bundle to use the `v1.2.0` operator and related images.
 
 ## [1.1.0] — 2026-09-21
 
