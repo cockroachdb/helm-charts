@@ -26,6 +26,8 @@
   leaving the CA ConfigMap stale, and attempting StatefulSet restarts in deployments
   that do not use StatefulSets.
 - Updated the self-signer image to `1.11`, which includes these fixes.
+- Updated the self-signer image to `1.12`: `migrate-certs` now carries the node certificate's
+  additional SANs over to the operator-managed secrets and reissues the root client certificate.
 
 ### Upgrade notes
 - Node certificates rotated by affected self-signer versions may be missing join-service

@@ -102,11 +102,40 @@ EOF`, rc.DiscoveryServiceName, caSecret, namespace)
 		return err
 	}
 
+	// The existing node certificate is the only record of SANs added beyond
+	// the standard list (the legacy chart's tls.certs.selfSigner.additionalSANs);
+	// the migration has no access to the old values. Carry them over before
+	// regenerating, the way the cert-manager branch keeps the Certificate CR's
+	// existing DNSNames. The legacy chart stores the node certificate in
+	// <name>-node-secret and the public operator in <name>-node.
+	inherited := false
+	for _, name := range []string{nodeSecretName, fmt.Sprintf("%s-node", rc.DiscoveryServiceName)} {
+		existing, err := resource.LoadTLSSecret(name, resource.NewKubeResource(ctx, cl, namespace, kube.DefaultPersister))
+		if client.IgnoreNotFound(err) != nil {
+			return errors.Wrapf(err, "loading node secret [%s]", name)
+		}
+		if err != nil || len(existing.TLSCert()) == 0 {
+			continue
+		}
+		if err := rc.InheritSANs(existing.TLSCert(), namespace); err != nil {
+			return errors.Wrapf(err, "node secret [%s]", name)
+		}
+		inherited = true
+		break
+	}
+	if !inherited {
+		logrus.Warnf("No existing node certificate found in [%s] or [%s-node]; no SANs to carry over", nodeSecretName, rc.DiscoveryServiceName)
+	}
+
 	if err := rc.GenerateNodeCert(ctx, nodeSecretName, namespace); err != nil {
 		return err
 	}
 
-	if err := rc.GenerateClientCert(ctx, clientSecretName, namespace); err != nil {
+	// The exported values disable the self-signer, so nothing rotates the
+	// client certificate after migration. Reissue it now rather than keeping
+	// the legacy one, so it does not expire within 28 days while the node
+	// certificate lasts a year.
+	if err := rc.RegenerateClientCert(ctx, security.RootUser, clientSecretName, namespace); err != nil {
 		return err
 	}
 
