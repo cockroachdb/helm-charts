@@ -22,7 +22,7 @@ spec:
   rollingRestartDelay: 30s
   template:
     spec:
-      image: cockroachdb/cockroach:v26.3.3
+      image: cockroachdb/cockroach:v26.3.4
       dataStore:
         volumeClaimTemplate:
           metadata: {}
