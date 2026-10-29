@@ -172,6 +172,33 @@ sync_debug() {
   done
 }
 
+# sync_credentials uploads each preserved cluster's kubeconfig, kubeadmin password
+# and installer metadata to the private debug bucket, so a skip-teardown run can
+# be used and later destroyed from a workstation.
+sync_credentials() {
+  if [[ -z "${gcs_uri}" ]]; then
+    echo "OPENSHIFT_DEBUG_GCS_URI is unset; cannot preserve cluster credentials" >&2
+    return 1
+  fi
+  local install_dir name file status=0
+  for install_dir in $(install_dirs); do
+    name="$(basename "${install_dir}")"
+    for file in "${install_dir}"/auth/kubeconfig "${install_dir}"/auth/kubeadmin-password "${install_dir}"/metadata.json; do
+      [[ -f "${file}" ]] || continue
+      if ! gcloud storage cp "${file}" "${gcs_uri}/${name}-$(basename "${file}")"; then
+        echo "failed to upload ${file}" >&2
+        status=1
+      fi
+    done
+    cat <<EOF
+Preserved OpenShift cluster ${name}.
+  use:     gcloud storage cp ${gcs_uri}/${name}-kubeconfig ./kubeconfig
+  destroy: mkdir ${name} && gcloud storage cp ${gcs_uri}/${name}-metadata.json ${name}/metadata.json && openshift-install destroy cluster --dir ${name}
+EOF
+  done
+  return "${status}"
+}
+
 short_infra_id() {
   local infra_id="$1"
   IFS="-" read -r first second _ <<< "${infra_id}"
@@ -257,8 +284,11 @@ case "${1:-}" in
   sync)
     sync_debug
     ;;
+  sync-credentials)
+    sync_credentials
+    ;;
   *)
-    echo "usage: $0 {snapshot [label]|watch [seconds]|cleanup-multicluster|ensure-gcs|sync}" >&2
+    echo "usage: $0 {snapshot [label]|watch [seconds]|cleanup-multicluster|ensure-gcs|sync|sync-credentials}" >&2
     exit 2
     ;;
 esac
