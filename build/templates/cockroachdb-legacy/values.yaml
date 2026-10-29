@@ -699,7 +699,7 @@ tls:
     # Image for the selfSigner utility.
     image:
       repository: cockroachdb/cockroach-self-signer-cert
-      tag: "1.11"
+      tag: "1.12"
       pullPolicy: IfNotPresent
       registry: docker.io
       credentials: {}
