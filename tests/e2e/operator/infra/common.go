@@ -1,15 +1,19 @@
 package infra
 
 import (
+	"context"
 	"fmt"
 	"net"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cockroachdb/helm-charts/tests/e2e/coredns"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
+	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/gruntwork-io/terratest/modules/retry"
 	"github.com/stretchr/testify/require"
@@ -118,6 +122,13 @@ var NetworkConfigs = map[string]map[string]interface{}{
 	},
 	// AWS network configs are defined as constants in aws.go (awsVPCCIDR*, awsPodCIDR*)
 	// and managed directly during EKS cluster creation.
+}
+
+func runCloudCleanup(ctx context.Context, env []string, script string, args ...string) error {
+	path := filepath.Join(testutil.GetGitRoot(), "scripts", "cleanup", script)
+	cmd := exec.CommandContext(ctx, "bash", append([]string{path}, args...)...)
+	cmd.Env, cmd.Stdout, cmd.Stderr = env, os.Stdout, os.Stderr
+	return cmd.Run()
 }
 
 // IsResourceConflict checks if error is a 409 conflict (resource already exists)

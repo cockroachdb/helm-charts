@@ -3,13 +3,14 @@ package infra
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
@@ -164,7 +165,7 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 		t.Fatalf("VPC creation failed: %v", err)
 	}
 	if networkOp != nil {
-		waitForGlobalComputeOperation(ctx, computeService, getProjectID(), networkOp.Name)
+		require.NoError(t, waitForGlobalComputeOperation(ctx, computeService, getProjectID(), networkOp.Name))
 	}
 	vpcSelfLink := fmt.Sprintf("projects/%s/global/networks/%s", getProjectID(), r.vpcName)
 
@@ -183,7 +184,7 @@ func (r *GcpRegion) SetUpInfra(t *testing.T) {
 			t.Fatalf("subnet %s creation failed: %v", subnetName, err)
 		}
 		if subnetOp != nil {
-			waitForRegionalComputeOperation(ctx, computeService, getProjectID(), setup.Region, subnetOp.Name)
+			require.NoError(t, waitForRegionalComputeOperation(ctx, computeService, getProjectID(), setup.Region, subnetOp.Name))
 		}
 		allSubnetRanges = append(allSubnetRanges, setup.SubnetRange)
 		allClusterIPV4CIDRs = append(allClusterIPV4CIDRs, setup.ClusterIPV4CIDR)
@@ -398,81 +399,18 @@ func gcpRunKubectl(kubectlOptions *k8s.KubectlOptions, args ...string) error {
 
 // TeardownInfra deletes all GCP resources created by SetUpInfra.
 func (r *GcpRegion) TeardownInfra(t *testing.T) {
-	// Ensure teardown continues even if individual steps fail
-	defer func() {
-		if r := recover(); r != nil {
-			t.Logf("[%s] Panic during teardown (continuing cleanup): %v", ProviderGCP, r)
-		}
-	}()
-
-	t.Logf("[%s] Starting infrastructure teardown", ProviderGCP)
-
-	// Initialize clients
-	ctx := context.Background()
-
-	computeService, err := createComputeServiceClient(ctx)
-	if err != nil {
-		t.Logf("[%s] Warning: failed to create compute client for teardown: %v", ProviderGCP, err)
+	if r.vpcName == "" {
 		return
 	}
-
-	gkeService, err := createGKEServiceClient(ctx)
-	if err != nil {
-		t.Logf("[%s] Warning: failed to create GKE client for teardown: %v", ProviderGCP, err)
-		return
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
+	defer cancel()
+	env := append(os.Environ(), "GCP_PROJECT_ID="+getProjectID(), "CLEANUP_DRY_RUN=false", "GCP_CLEANUP_REUSE_CONTEXTS=true")
+	if os.Getenv(githubActions) == "true" {
+		env = append(env, "GCP_CLEANUP_OWNER_RUN_ID="+os.Getenv("GITHUB_RUN_ID"))
 	}
-
-	// safely executes teardown steps
-	safeExecute := func(stepName string, fn func() error) {
-		defer func() {
-			if r := recover(); r != nil {
-				t.Logf("[%s] Panic during %s (continuing teardown): %v", ProviderGCP, stepName, r)
-			}
-		}()
-
-		if err := fn(); err != nil {
-			t.Logf("[%s] Warning: %s failed: %v", ProviderGCP, stepName, err)
-		}
+	if err := runCloudCleanup(ctx, env, "gcp.sh", "network", r.vpcName); err != nil {
+		t.Errorf("[%s] infrastructure cleanup failed: %v", ProviderGCP, err)
 	}
-
-	// 1) Delete GKE clusters
-	safeExecute("cluster deletion", func() error {
-		return r.deleteGKEClusters(ctx, t, gkeService)
-	})
-
-	// 2) Delete static IPs and firewall rules in parallel
-	safeExecute("static IPs and firewall rules deletion", func() error {
-		return r.deleteStaticIPsAndFirewallRules(ctx, t, computeService)
-	})
-
-	// 3) Delete subnets (must be after static IPs since static IPs reference subnets)
-	safeExecute("subnet deletion", func() error {
-		return r.deleteSubnets(ctx, t, computeService)
-	})
-
-	// 5) Delete VPC
-	safeExecute("VPC deletion", func() error {
-		if r.vpcName != "" {
-			// Add a small delay to ensure all dependent resources are fully cleaned up
-			time.Sleep(10 * time.Second)
-
-			op, err := computeService.Networks.Delete(getProjectID(), r.vpcName).Context(ctx).Do()
-			if err != nil && !IsResourceNotFound(err) {
-				t.Logf("[%s] Warning: failed to delete VPC %s: %v", ProviderGCP, r.vpcName, err)
-				return err
-			} else if op != nil {
-				t.Logf("[%s] Initiated deletion of VPC %s", ProviderGCP, r.vpcName)
-				// Wait for VPC deletion to complete
-				waitForGlobalComputeOperation(ctx, computeService, getProjectID(), op.Name)
-				t.Logf("[%s] Successfully deleted VPC %s", ProviderGCP, r.vpcName)
-			} else {
-				t.Logf("[%s] VPC %s was already deleted", ProviderGCP, r.vpcName)
-			}
-		}
-		return nil
-	})
-
-	t.Logf("[%s] Infrastructure teardown completed", ProviderGCP)
 }
 
 // ScaleNodePool scales the node pool for a GKE cluster.
@@ -655,7 +593,29 @@ func createComputeServiceClient(ctx context.Context) (*compute.Service, error) {
 
 // ─── RESOURCE CREATION ──────────────────────────────────────────────────────────
 
+func gcpCleanupMetadata(provider string) (map[string]string, error) {
+	if os.Getenv(githubActions) != "true" {
+		return nil, nil
+	}
+	runID := os.Getenv("GITHUB_RUN_ID")
+	if _, err := strconv.ParseUint(runID, 10, 64); err != nil || os.Getenv("GITHUB_REPOSITORY") == "" || os.Getenv("GCP_PROJECT_ID") == "" {
+		return nil, fmt.Errorf("CI provisioning requires GITHUB_RUN_ID, GITHUB_REPOSITORY and GCP_PROJECT_ID")
+	}
+	return map[string]string{
+		"managed_by": "helm-charts-e2e",
+		"repository": os.Getenv("GITHUB_REPOSITORY"),
+		"run_id":     runID,
+		"created_at": strconv.FormatInt(time.Now().UTC().Unix(), 10),
+		"provider":   provider,
+		"project":    getProjectID(),
+	}, nil
+}
+
 func createVPC(ctx context.Context, client *compute.Service, projectID, vpcName string) (*compute.Operation, error) {
+	metadata, err := gcpCleanupMetadata(ProviderGCP)
+	if err != nil {
+		return nil, err
+	}
 	network := &compute.Network{
 		Name:                  vpcName,
 		AutoCreateSubnetworks: false, // This makes it a custom mode network
@@ -663,6 +623,13 @@ func createVPC(ctx context.Context, client *compute.Service, projectID, vpcName 
 			RoutingMode: "REGIONAL",
 		},
 		ForceSendFields: []string{"AutoCreateSubnetworks"},
+	}
+	if metadata != nil {
+		data, err := json.Marshal(metadata)
+		if err != nil {
+			return nil, err
+		}
+		network.Description = string(data)
 	}
 	return client.Networks.Insert(projectID, network).Context(ctx).Do()
 }
@@ -734,8 +701,7 @@ func ensureStaticIPAddress(ctx context.Context, client *compute.Service, project
 		}
 		return "", err
 	}
-	waitForRegionalComputeOperation(ctx, client, projectID, region, op.Name)
-	return addressIP, nil
+	return addressIP, waitForRegionalComputeOperation(ctx, client, projectID, region, op.Name)
 }
 
 // discoverNodeLocations lists zones in a given region.
@@ -804,6 +770,14 @@ func createGKERegionalCluster(ctx context.Context, client *container.Service, se
 		"--quiet", // Suppress interactive prompts
 	}
 
+	metadata, err := gcpCleanupMetadata(ProviderGCP)
+	if err != nil {
+		return err
+	}
+	if metadata != nil {
+		labels := fmt.Sprintf("managed-by=helm-charts-e2e,github-run-id=%s,created-at=%s", metadata["run_id"], metadata["created_at"])
+		args = append(args, "--labels", labels)
+	}
 	if sa := getNodeServiceAccount(); sa != "" {
 		args = append(args, "--service-account", sa)
 	}
@@ -824,336 +798,39 @@ func createGKERegionalCluster(ctx context.Context, client *container.Service, se
 	return nil
 }
 
-// ─── DELETE RESOURCES ──────────────────────────────────────────────────────────
-
-// deleteStaticIPsAndFirewallRules handles deletion of static IPs and firewall rules in parallel
-func (r *GcpRegion) deleteStaticIPsAndFirewallRules(ctx context.Context, t *testing.T, computeService *compute.Service) error {
-	type operationResult struct {
-		resourceType string
-		resourceName string
-		operation    *compute.Operation
-		err          error
-		isGlobal     bool
-		region       string
-	}
-
-	resultsChan := make(chan operationResult, 100) // Buffer for all possible operations
-	var wg sync.WaitGroup
-
-	// Static IP deletions (parallel by region)
-	for _, cfg := range clusterConfigurations[:len(r.Clusters)] {
-		if cfg.UseDynamicIP {
-			continue // Skip if using dynamic IP
-		}
-		wg.Add(1)
-		go func(config ClusterSetupConfig) {
-			defer wg.Done()
-			addressName := fmt.Sprintf("coredns-loadbalancer-%s-%s", config.Region, r.vpcName)
-			op, err := computeService.Addresses.Delete(getProjectID(), config.Region, addressName).Context(ctx).Do()
-			result := operationResult{
-				resourceType: "static IP",
-				resourceName: addressName,
-				operation:    op,
-				err:          err,
-				isGlobal:     false,
-				region:       config.Region,
-			}
-			if err != nil && !IsResourceNotFound(err) {
-				t.Logf("[%s] Warning: failed to delete static IP %s: %v", ProviderGCP, addressName, err)
-			} else if op != nil {
-				t.Logf("[%s] Initiated deletion of static IP %s", ProviderGCP, addressName)
-			}
-			resultsChan <- result
-		}(cfg)
-	}
-
-	// Firewall rule deletions (parallel)
-	webhookFirewallName := fmt.Sprintf("%s-%s", webhookFirewallRuleName, r.vpcName)
-	internalFirewallName := fmt.Sprintf("%s-%s", internalFirewallRuleName, r.vpcName)
-	firewallRules := []string{webhookFirewallName, internalFirewallName}
-	for _, rule := range firewallRules {
-		wg.Add(1)
-		go func(ruleName string) {
-			defer wg.Done()
-			op, err := computeService.Firewalls.Delete(getProjectID(), ruleName).Context(ctx).Do()
-			result := operationResult{
-				resourceType: "firewall rule",
-				resourceName: ruleName,
-				operation:    op,
-				err:          err,
-				isGlobal:     true,
-			}
-			if err != nil && !IsResourceNotFound(err) {
-				t.Logf("[%s] Warning: failed to delete firewall rule %s: %v", ProviderGCP, ruleName, err)
-			} else if op != nil {
-				t.Logf("[%s] Initiated deletion of firewall rule %s", ProviderGCP, ruleName)
-			}
-			resultsChan <- result
-		}(rule)
-	}
-
-	// Close the channel when all goroutines complete
-	go func() {
-		wg.Wait()
-		close(resultsChan)
-	}()
-
-	// Collect all operations and wait for them in parallel
-	var globalOps []*compute.Operation
-	var regionalOps []struct {
-		op     *compute.Operation
-		region string
-	}
-
-	for result := range resultsChan {
-		if result.err == nil && result.operation != nil {
-			if result.isGlobal {
-				globalOps = append(globalOps, result.operation)
-			} else {
-				regionalOps = append(regionalOps, struct {
-					op     *compute.Operation
-					region string
-				}{result.operation, result.region})
-			}
-		}
-	}
-
-	// Wait for all operations in parallel
-	var waitWg sync.WaitGroup
-
-	// Wait for global operations
-	for _, op := range globalOps {
-		waitWg.Add(1)
-		go func(operation *compute.Operation) {
-			defer waitWg.Done()
-			waitForGlobalComputeOperation(ctx, computeService, getProjectID(), operation.Name)
-		}(op)
-	}
-
-	// Wait for regional operations
-	for _, regOp := range regionalOps {
-		waitWg.Add(1)
-		go func(operation *compute.Operation, region string) {
-			defer waitWg.Done()
-			waitForRegionalComputeOperation(ctx, computeService, getProjectID(), region, operation.Name)
-		}(regOp.op, regOp.region)
-	}
-
-	waitWg.Wait()
-	return nil
-}
-
-// deleteSubnets handles deletion of subnets in parallel (must be called after static IPs are deleted)
-func (r *GcpRegion) deleteSubnets(ctx context.Context, t *testing.T, computeService *compute.Service) error {
-	type operationResult struct {
-		resourceName string
-		operation    *compute.Operation
-		err          error
-		region       string
-	}
-
-	resultsChan := make(chan operationResult, len(r.Clusters))
-	var wg sync.WaitGroup
-
-	// Subnet deletions (parallel by region)
-	for _, cfg := range clusterConfigurations[:len(r.Clusters)] {
-		wg.Add(1)
-		go func(config ClusterSetupConfig) {
-			defer wg.Done()
-			op, err := computeService.Subnetworks.Delete(getProjectID(), config.Region, config.SubnetName).Context(ctx).Do()
-			result := operationResult{
-				resourceName: config.SubnetName,
-				operation:    op,
-				err:          err,
-				region:       config.Region,
-			}
-			if err != nil && !IsResourceNotFound(err) {
-				t.Logf("[%s] Warning: failed to delete subnet %s: %v", ProviderGCP, config.SubnetName, err)
-			} else if op != nil {
-				t.Logf("[%s] Initiated deletion of subnet %s", ProviderGCP, config.SubnetName)
-			}
-			resultsChan <- result
-		}(cfg)
-	}
-
-	// Close the channel when all goroutines complete
-	go func() {
-		wg.Wait()
-		close(resultsChan)
-	}()
-
-	// Collect all operations and wait for them in parallel
-	var operations []struct {
-		op     *compute.Operation
-		region string
-	}
-
-	for result := range resultsChan {
-		if result.err == nil && result.operation != nil {
-			operations = append(operations, struct {
-				op     *compute.Operation
-				region string
-			}{result.operation, result.region})
-		}
-	}
-
-	// Wait for all subnet deletion operations in parallel
-	var waitWg sync.WaitGroup
-	for _, opInfo := range operations {
-		waitWg.Add(1)
-		go func(operation *compute.Operation, region string) {
-			defer waitWg.Done()
-			waitForRegionalComputeOperation(ctx, computeService, getProjectID(), region, operation.Name)
-		}(opInfo.op, opInfo.region)
-	}
-
-	waitWg.Wait()
-	return nil
-}
-
-// deleteGKEClusters handles the complex logic of deleting GKE clusters in parallel
-func (r *GcpRegion) deleteGKEClusters(ctx context.Context, t *testing.T, gkeService *container.Service) error {
-	const maxRetries = 20
-	const retryDelay = 30 * time.Second
-
-	// Delete all clusters in parallel
-	type deletionResult struct {
-		clusterName string
-		err         error
-	}
-
-	resultsChan := make(chan deletionResult, len(r.Clusters))
-
-	for _, cfg := range clusterConfigurations[:len(r.Clusters)] {
-		go func(config ClusterSetupConfig) {
-			defer func() {
-				if rec := recover(); rec != nil {
-					resultsChan <- deletionResult{
-						clusterName: config.ClusterName,
-						err:         fmt.Errorf("panic during cluster deletion: %v", rec),
-					}
-				}
-			}()
-
-			// Initiate deletion
-			if err := r.deleteGKECluster(ctx, t, gkeService, config); err != nil {
-				resultsChan <- deletionResult{clusterName: config.ClusterName, err: err}
-				return
-			}
-
-			// Wait for deletion to complete
-			r.waitForClusterDeletion(ctx, t, gkeService, config.ClusterName, config.Region, maxRetries, retryDelay)
-			resultsChan <- deletionResult{clusterName: config.ClusterName, err: nil}
-		}(cfg)
-	}
-
-	// Wait for all deletions to complete
-	for i := 0; i < len(r.Clusters); i++ {
-		result := <-resultsChan
-		if result.err != nil {
-			t.Logf("[%s] Warning: failed to delete cluster %s: %v", ProviderGCP, result.clusterName, result.err)
-		}
-	}
-
-	return nil
-}
-
-// deleteGKECluster handles the deletion of a single GKE cluster
-func (r *GcpRegion) deleteGKECluster(ctx context.Context, t *testing.T, gkeService *container.Service, cfg ClusterSetupConfig) error {
-	t.Logf("[%s] Deleting GKE cluster '%s'", ProviderGCP, cfg.ClusterName)
-
-	clusterPath := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", getProjectID(), cfg.Region, cfg.ClusterName)
-	cluster, err := gkeService.Projects.Locations.Clusters.Get(clusterPath).Context(ctx).Do()
-	if err != nil {
-		if IsResourceNotFound(err) {
-			t.Logf("[%s] Cluster %s already deleted", ProviderGCP, cfg.ClusterName)
-			return nil
-		}
-		return fmt.Errorf("error checking cluster %s status: %w", cfg.ClusterName, err)
-	}
-
-	// Wait for any ongoing operations to complete
-	if err := r.waitForOngoingOperations(ctx, t, gkeService, cluster, cfg); err != nil {
-		t.Logf("[%s] Warning: error waiting for ongoing operations on cluster %s: %v", ProviderGCP, cfg.ClusterName, err)
-	}
-
-	// Initiate cluster deletion
-	delCmd := exec.Command("gcloud", "container", "clusters", "delete", cfg.ClusterName,
-		"--region", cfg.Region, "--project", getProjectID(), "--quiet", "--async")
-	delCmd.Stdout = os.Stdout
-	delCmd.Stderr = os.Stderr
-	return delCmd.Run()
-}
-
 // ─── WAIT‐FOR‐OPERATION HELPERS ──────────────────────────────────────────────────
 
-func waitForGlobalComputeOperation(ctx context.Context, client *compute.Service, projectID, opName string) {
+func waitForGlobalComputeOperation(ctx context.Context, client *compute.Service, projectID, opName string) error {
+	return waitForComputeOperation(ctx, func(ctx context.Context) (*compute.Operation, error) {
+		return client.GlobalOperations.Get(projectID, opName).Context(ctx).Do()
+	})
+}
+
+func waitForRegionalComputeOperation(ctx context.Context, client *compute.Service, projectID, region, opName string) error {
+	return waitForComputeOperation(ctx, func(ctx context.Context) (*compute.Operation, error) {
+		return client.RegionOperations.Get(projectID, region, opName).Context(ctx).Do()
+	})
+}
+
+func waitForComputeOperation(ctx context.Context, get func(context.Context) (*compute.Operation, error)) error {
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
 	for {
-		op, err := client.GlobalOperations.Get(projectID, opName).Context(ctx).Do()
+		op, err := get(ctx)
 		if err != nil {
-			break
+			return err
 		}
 		if op.Status == "DONE" {
-			break
+			if op.Error != nil {
+				return fmt.Errorf("compute operation %s failed: %v", op.Name, op.Error.Errors)
+			}
+			return nil
 		}
-		time.Sleep(10 * time.Second)
-	}
-}
-
-func waitForRegionalComputeOperation(ctx context.Context, client *compute.Service, projectID, region, opName string) {
-	for {
-		op, err := client.RegionOperations.Get(projectID, region, opName).Context(ctx).Do()
-		if err != nil {
-			break
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(10 * time.Second):
 		}
-		if op.Status == "DONE" {
-			break
-		}
-		time.Sleep(10 * time.Second)
-	}
-}
-
-// waitForOngoingOperations waits for any ongoing operations on a cluster
-func (r *GcpRegion) waitForOngoingOperations(ctx context.Context, t *testing.T, gkeService *container.Service, cluster *container.Cluster, cfg ClusterSetupConfig) error {
-	if cluster.Status == "RUNNING" || cluster.Status == "ERROR" {
-		return nil
-	}
-
-	t.Logf("[%s] Cluster %s is in %s state, waiting for operation to complete...", ProviderGCP, cfg.ClusterName, cluster.Status)
-
-	if cluster.SelfLink == "" {
-		return nil
-	}
-
-	operationsPath := fmt.Sprintf("projects/%s/locations/%s/operations", getProjectID(), cfg.Region)
-	ops, err := gkeService.Projects.Locations.Operations.List(operationsPath).Context(ctx).Do()
-	if err != nil {
-		return err
-	}
-
-	for _, op := range ops.Operations {
-		if strings.Contains(op.TargetLink, cfg.ClusterName) && op.Status != "DONE" {
-			return r.waitForGKEOperation(gkeService, op.Name, cfg.Region, "")
-		}
-	}
-	return nil
-}
-
-// waitForClusterDeletion waits for a cluster deletion to complete
-func (r *GcpRegion) waitForClusterDeletion(ctx context.Context, t *testing.T, gkeService *container.Service, clusterName, region string, maxRetries int, retryDelay time.Duration) {
-	clusterPath := fmt.Sprintf("projects/%s/locations/%s/clusters/%s", getProjectID(), region, clusterName)
-
-	for retries := 0; retries < maxRetries; retries++ {
-		_, err := gkeService.Projects.Locations.Clusters.Get(clusterPath).Context(ctx).Do()
-		if IsResourceNotFound(err) {
-			t.Logf("[%s] Confirmed deletion of cluster %s", ProviderGCP, clusterName)
-			return
-		}
-		if retries == maxRetries-1 {
-			t.Logf("[%s] Warning: timed out waiting for cluster %s deletion", ProviderGCP, clusterName)
-			return
-		}
-		time.Sleep(retryDelay)
 	}
 }
 

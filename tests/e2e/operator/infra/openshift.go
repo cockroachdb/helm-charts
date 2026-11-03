@@ -1,6 +1,7 @@
 package infra
 
 import (
+	"context"
 	"crypto/sha1"
 	"encoding/base64"
 	"encoding/hex"
@@ -112,11 +113,21 @@ platform:
   gcp:
     projectID: {{ .ProjectID }}
     region: {{ .Region }}
+{{- if .CIMetadata }}
+    userLabels:
+    - key: managed-by
+      value: helm-charts-e2e
+    - key: github-run-id
+      value: '{{ index .CIMetadata "run_id" }}'
+    - key: created-at
+      value: '{{ index .CIMetadata "created_at" }}'
+{{- end }}
 pullSecret: '{{ .PullSecret }}'
 sshKey: '{{ .SSHPubKey }}'
 `))
 
 type openShiftInstallConfigData struct {
+	CIMetadata     map[string]string
 	BaseDomain     string
 	ClusterName    string
 	ProjectID      string
@@ -269,7 +280,7 @@ func (r *OpenShiftRegion) TeardownInfra(t *testing.T) {
 		t.Logf("[%s] Reused infrastructure; skipping cluster teardown", ProviderOpenShift)
 		return
 	}
-	if parseBoolEnv(envOpenShiftSkipTeardown) {
+	if shouldPreserveOpenShift() {
 		t.Logf("[%s] %s=true; skipping cluster teardown", ProviderOpenShift, envOpenShiftSkipTeardown)
 		for clusterName, installDir := range r.installDirs {
 			t.Logf("[%s] Preserved install dir for %q: %s", ProviderOpenShift, clusterName, installDir)
@@ -286,55 +297,69 @@ func (r *OpenShiftRegion) TeardownInfra(t *testing.T) {
 
 	for clusterName, installDir := range r.installDirs {
 		t.Logf("[%s] Destroying cluster %q", ProviderOpenShift, clusterName)
-		cmd := exec.Command("openshift-install", "destroy", "cluster", "--dir", installDir, "--log-level", "info")
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		cmd.Env = openShiftInstallerEnv()
-
-		if err := cmd.Run(); err != nil {
-			t.Logf("[%s] Warning: failed to destroy cluster %q: %v", ProviderOpenShift, clusterName, err)
-		}
-		if err := os.RemoveAll(installDir); err != nil {
-			t.Logf("[%s] Warning: failed to remove install dir %s: %v", ProviderOpenShift, installDir, err)
+		if err := destroyOpenShiftCluster(installDir); err != nil {
+			t.Errorf("[%s] failed to destroy cluster %q; retaining installer state at %s: %v", ProviderOpenShift, clusterName, installDir, err)
 		}
 	}
 }
 
+func destroyOpenShiftCluster(installDir string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), 45*time.Minute)
+	defer cancel()
+	return runCloudCleanup(ctx, append(openShiftInstallerEnv(), "CLEANUP_DRY_RUN=false"), "openshift.sh", "install", installDir)
+}
+
+// CI must clean up even if a debugging branch enables the local preservation flag.
+func shouldPreserveOpenShift() bool {
+	return os.Getenv(githubActions) != "true" && parseBoolEnv(envOpenShiftSkipTeardown)
+}
+
+func publishOpenShiftCleanupState(installDir string) error {
+	metadata, err := gcpCleanupMetadata(ProviderOpenShift)
+	if err != nil || metadata == nil {
+		return err
+	}
+	infraID, err := readOpenShiftInfraID(installDir)
+	if err != nil {
+		return err
+	}
+	metadata["infra_id"] = infraID
+	data, err := json.Marshal(metadata)
+	if err != nil {
+		return err
+	}
+	ownerFile := filepath.Join(installDir, "ci-cleanup.json")
+	if err := os.WriteFile(ownerFile, data, 0600); err != nil {
+		return err
+	}
+	baseURI := strings.TrimRight(os.Getenv("OPENSHIFT_CLEANUP_GCS_URI"), "/")
+	if baseURI == "" {
+		return fmt.Errorf("OPENSHIFT_CLEANUP_GCS_URI is required for CI provisioning")
+	}
+	// Publish ownership last so the sweeper only sees complete installer metadata.
+	for _, name := range []string{"metadata.json", "ci-cleanup.json"} {
+		cmd := exec.Command("gcloud", "storage", "cp", filepath.Join(installDir, name), baseURI+"/"+infraID+"/"+name)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			return fmt.Errorf("save OpenShift cleanup state: %w: %s", err, out)
+		}
+	}
+	return nil
+}
+
 func (r *OpenShiftRegion) cleanupOpenShiftMultiClusterResources(t *testing.T, projectID string) {
 	t.Helper()
-	if len(r.Clusters) <= 1 {
+	var dirs []string
+	for _, dir := range r.installDirs {
+		dirs = append(dirs, dir)
+	}
+	if len(dirs) == 0 {
 		return
 	}
-
-	for _, clusterName := range r.Clusters {
-		infraID := r.infraIDs[clusterName]
-		if infraID == "" {
-			t.Logf("[%s] Skipping Submariner cleanup for %q: missing infra ID", ProviderOpenShift, clusterName)
-			continue
-		}
-		deleteOpenShiftFirewallRule(t, projectID, openShiftSubmarinerFirewallName(infraID, openShiftSubmarinerPublicFirewallRule))
-		deleteOpenShiftFirewallRule(t, projectID, openShiftSubmarinerFirewallName(infraID, openShiftSubmarinerInternalFirewallRule))
-	}
-
-	for i := 0; i < len(r.Clusters); i++ {
-		for j := i + 1; j < len(r.Clusters); j++ {
-			clusterA := r.Clusters[i]
-			clusterB := r.Clusters[j]
-			infraA := r.infraIDs[clusterA]
-			infraB := r.infraIDs[clusterB]
-			if infraA == "" || infraB == "" {
-				t.Logf("[%s] Skipping custom cleanup for %q/%q: missing infra IDs (%q, %q)",
-					ProviderOpenShift, clusterA, clusterB, infraA, infraB)
-				continue
-			}
-
-			t.Logf("[%s] Removing custom multi-cluster resources between %q and %q",
-				ProviderOpenShift, infraA, infraB)
-			deleteOpenShiftFirewallRule(t, projectID, openShiftPeerFirewallName(infraA, infraB))
-			deleteOpenShiftFirewallRule(t, projectID, openShiftPeerFirewallName(infraB, infraA))
-			deleteOpenShiftVPCPeering(t, projectID, openShiftNetworkName(infraA), openShiftPeeringName(infraA, infraB))
-			deleteOpenShiftVPCPeering(t, projectID, openShiftNetworkName(infraB), openShiftPeeringName(infraB, infraA))
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	env := append(openShiftInstallerEnv(), "GCP_PROJECT_ID="+projectID, "CLEANUP_DRY_RUN=false", "OPENSHIFT_INSTALL_DIRS="+strings.Join(dirs, "\n"))
+	if err := runCloudCleanup(ctx, env, "openshift.sh", "multicluster"); err != nil {
+		t.Errorf("[%s] multi-cluster cleanup failed: %v", ProviderOpenShift, err)
 	}
 }
 
@@ -406,7 +431,13 @@ func (r *OpenShiftRegion) provisionCluster(
 		return "", "", fmt.Errorf("failed to create install-config.yaml: %w", err)
 	}
 
+	ciMetadata, err := gcpCleanupMetadata(ProviderOpenShift)
+	if err != nil {
+		_ = configFile.Close()
+		return "", "", err
+	}
 	data := openShiftInstallConfigData{
+		CIMetadata:     ciMetadata,
 		BaseDomain:     baseDomain,
 		ClusterName:    installerName,
 		ProjectID:      projectID,
@@ -438,6 +469,18 @@ func (r *OpenShiftRegion) provisionCluster(
 		_ = os.RemoveAll(installDir)
 		return "", "", err
 	}
+	if os.Getenv(githubActions) == "true" {
+		// This target produces metadata.json without creating cloud infrastructure.
+		// Save it outside the runner before the install can be interrupted.
+		cmd := exec.Command("openshift-install", "create", "ignition-configs", "--dir", installDir, "--log-level", logLevel)
+		cmd.Stdout, cmd.Stderr, cmd.Env = os.Stdout, os.Stderr, openShiftInstallerEnv()
+		if err := cmd.Run(); err != nil {
+			return "", "", fmt.Errorf("generate cleanup metadata: %w", err)
+		}
+		if err := publishOpenShiftCleanupState(installDir); err != nil {
+			return "", "", err
+		}
+	}
 
 	t.Logf("[%s] Running openshift-install create cluster in %s", ProviderOpenShift, installDir)
 	cmd := exec.Command("openshift-install", "create", "cluster", "--dir", installDir, "--log-level", logLevel)
@@ -446,19 +489,16 @@ func (r *OpenShiftRegion) provisionCluster(
 	cmd.Env = openShiftInstallerEnv()
 
 	if err := cmd.Run(); err != nil {
-		if parseBoolEnv(envOpenShiftSkipTeardown) {
+		if shouldPreserveOpenShift() {
 			t.Logf("[%s] openshift-install failed; %s=true, preserving failed install dir and cluster resources: %s",
 				ProviderOpenShift, envOpenShiftSkipTeardown, installDir)
 			return "", "", fmt.Errorf("openshift-install create cluster failed: %w", err)
 		}
 
 		t.Logf("[%s] openshift-install failed, attempting cleanup", ProviderOpenShift)
-		destroyCmd := exec.Command("openshift-install", "destroy", "cluster", "--dir", installDir, "--log-level", "warn")
-		destroyCmd.Stdout = os.Stdout
-		destroyCmd.Stderr = os.Stderr
-		destroyCmd.Env = openShiftInstallerEnv()
-		_ = destroyCmd.Run()
-		_ = os.RemoveAll(installDir)
+		if destroyErr := destroyOpenShiftCluster(installDir); destroyErr != nil {
+			return "", "", fmt.Errorf("openshift-install create cluster failed: %w; cleanup failed (installer state retained at %s): %v", err, installDir, destroyErr)
+		}
 		return "", "", fmt.Errorf("openshift-install create cluster failed: %w", err)
 	}
 
@@ -725,21 +765,6 @@ func createOpenShiftVPCPeering(t *testing.T, projectID, network, peerNetwork, pe
 	require.NoError(t, err, "[%s] failed to create VPC peering %s", ProviderOpenShift, peeringName)
 }
 
-func deleteOpenShiftVPCPeering(t *testing.T, projectID, network, peeringName string) {
-	t.Helper()
-	_, err := runOpenShiftGCloud(t,
-		"compute", "networks", "peerings", "delete", peeringName,
-		"--project", projectID,
-		"--network", network,
-		"--quiet",
-	)
-	if err == nil || isOpenShiftGCloudNotFound(err) {
-		return
-	}
-	t.Logf("[%s] Warning: failed to delete VPC peering %s from %s: %v",
-		ProviderOpenShift, peeringName, network, err)
-}
-
 func createOpenShiftPeerFirewallRule(
 	t *testing.T, projectID, network, firewallName string, peerNetCfg openShiftNetworkConfig,
 ) {
@@ -762,20 +787,6 @@ func createOpenShiftPeerFirewallRule(
 		return
 	}
 	require.NoError(t, err, "[%s] failed to create peer firewall rule %s", ProviderOpenShift, firewallName)
-}
-
-func deleteOpenShiftFirewallRule(t *testing.T, projectID, firewallName string) {
-	t.Helper()
-	_, err := runOpenShiftGCloud(t,
-		"compute", "firewall-rules", "delete", firewallName,
-		"--project", projectID,
-		"--quiet",
-	)
-	if err == nil || isOpenShiftGCloudNotFound(err) {
-		return
-	}
-	t.Logf("[%s] Warning: failed to delete firewall rule %s: %v",
-		ProviderOpenShift, firewallName, err)
 }
 
 func (r *OpenShiftRegion) deployOpenShiftCoreDNS(t *testing.T, kubeConfigPath string) {
@@ -1215,17 +1226,6 @@ func isOpenShiftGCloudAlreadyExists(err error) bool {
 	message := strings.ToLower(err.Error())
 	return strings.Contains(message, "already exists") ||
 		strings.Contains(message, "alreadyexists")
-}
-
-func isOpenShiftGCloudNotFound(err error) bool {
-	if err == nil {
-		return false
-	}
-	message := strings.ToLower(err.Error())
-	return strings.Contains(message, "not found") ||
-		strings.Contains(message, "notfound") ||
-		strings.Contains(message, "was not found") ||
-		strings.Contains(message, "does not exist")
 }
 
 func upsertOpenShiftFirewallRule(t *testing.T, projectID, firewallName string, createFlags, updateFlags []string) {
