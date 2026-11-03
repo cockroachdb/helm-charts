@@ -10,6 +10,7 @@ and shared Operator behavior when those categories apply. -->
 #### Added
 - Added `podAnnotations` and `podLabels` to add annotations and labels to the operator pods,
   for example `sidecar.istio.io/inject: "false"` to keep Istio from injecting a sidecar.
+- Updated Kubernetes compatibility information for the latest GA versions.
 
 ## [1.1.0] — 2026-09-21
 

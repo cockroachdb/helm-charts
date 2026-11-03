@@ -4,10 +4,9 @@ load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
 
 http_archive(
     name = "io_bazel_rules_go",
-    sha256 = "90fe8fb402dee957a375f3eb8511455bd738c7ed562695f4dd117ac7d2d833b1",
+    sha256 = "d4a6e93dc63944172bc3b915a11bfa8d7391c9f1fdc11d7e43724f497617f0e5",
     urls = [
-        "https://mirror.bazel.build/github.com/bazel-contrib/rules_go/releases/download/v0.52.0/rules_go-v0.52.0.zip",
-        "https://github.com/bazel-contrib/rules_go/releases/download/v0.52.0/rules_go-v0.52.0.zip",
+        "https://github.com/bazel-contrib/rules_go/releases/download/v0.65.0/rules_go-v0.65.0.zip",
     ],
 )
 
@@ -25,7 +24,16 @@ load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_depe
 
 go_rules_dependencies()
 
-go_register_toolchains(version = "1.23.4")
+go_register_toolchains(version = "1.26.10")
+
+# Create the host platform repository required by rules_go.
+load("@bazel_tools//tools/build_defs/repo:utils.bzl", "maybe")
+load("@platforms//host:extension.bzl", "host_platform_repo")
+
+maybe(
+    host_platform_repo,
+    name = "host_platform",
+)
 
 gazelle_dependencies()
 

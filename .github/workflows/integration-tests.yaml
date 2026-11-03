@@ -35,7 +35,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.26
+          go-version: "1.26.10"
       - name: Authenticate to Google Cloud
         if: ${{ matrix.provider == 'gcp' }}
         uses: 'google-github-actions/auth@v2'
@@ -168,7 +168,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.26
+          go-version: "1.26.10"
       - name: Authenticate to Google Cloud
         if: ${{ matrix.provider == 'gcp' }}
         uses: 'google-github-actions/auth@v2'

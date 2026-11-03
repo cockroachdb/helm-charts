@@ -75,6 +75,16 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 		_ = apiextv1.AddToScheme(k8sClient.Scheme())
 
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, coreDNSNamespace)
+		if expectedVersion := os.Getenv("K3DVersion"); expectedVersion != "" {
+			nodeVersions, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+				"get", "nodes", "-o", "jsonpath={.items[*].status.nodeInfo.kubeletVersion}")
+			require.NoError(t, err)
+			require.NotEmpty(t, strings.Fields(nodeVersions))
+			for _, actualVersion := range strings.Fields(nodeVersions) {
+				require.Equal(t, expectedVersion, strings.SplitN(actualVersion, "+", 2)[0],
+					"cluster %s must run the requested Kubernetes version", cluster)
+			}
+		}
 
 		// Install Calico.
 		calico.RegisterCalicoGVK(k8sClient.Scheme())
@@ -326,7 +336,11 @@ func (r *LocalRegion) createLocalCluster(t *testing.T, clusterName string, nodeC
 		return fmt.Errorf("unknown provider type: %s", r.ProviderType)
 	}
 	if version := os.Getenv("K3DVersion"); version != "" {
-		cmd.Args = append(cmd.Args, fmt.Sprintf("version=%s", version))
+		if r.ProviderType == ProviderKind {
+			cmd.Args = append(cmd.Args, "--version="+version)
+		} else {
+			cmd.Args = append(cmd.Args, "version="+version)
+		}
 	}
 
 	output, err := shell.RunCommandAndGetOutputE(t, cmd)

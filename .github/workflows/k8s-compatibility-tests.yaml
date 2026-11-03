@@ -16,18 +16,18 @@ jobs:
 
     strategy:
       fail-fast: false
-      # k8s-versions contains the list of kubernetes versions that are officially tested
-      # We officially test 7 Kubernetes versions with the operator and use the latest patch version of that minor version.
-      # Whenever a new Kubernetes version is released, we should add it to the list and remove the oldest one.        
+      # We officially test the latest 7 GA Kubernetes versions with the operator,
+      # using the latest available k3s patch for each minor version.
+      # Whenever a new Kubernetes version is released, add it and remove the oldest one.
       matrix:
         k8s-version:
-          - v1.27.16
-          - v1.28.15
-          - v1.29.15
-          - v1.30.14
           - v1.31.12
           - v1.32.13
           - v1.33.4
+          - v1.34.12
+          - v1.35.9
+          - v1.36.5
+          - v1.37.1
 
     steps:
       - name: Checkout sources
@@ -39,7 +39,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.26
+          go-version: "1.26.10"
 
       - name: Run E2E Test
         env:
@@ -63,18 +63,14 @@ jobs:
 
     strategy:
       fail-fast: false
-      # k8s-versions contains the list of kubernetes versions that are officially tested
-      # We officially test 7 Kubernetes versions with the operator and use the latest patch version of that minor version.
-      # We have already tested the single region test will all the kubernetes versions in the list.
-      # We only test multi region with the oldest, median and latest kubernetes versions in the list.
-      # Whenever a new Kubernetes version is released, we should add it to the list and remove the oldest one.
-      # and recalulate the oldest, median and latest kubernetes versions in the list.
-        
+      # Single-region tests cover all 7 Kubernetes versions above.
+      # For multi-region, we test the oldest, middle and latest versions.
+      # Update these when adding a new version to the single-region matrix.
       matrix:
         k8s-version:
-          - v1.27.16
-          - v1.30.14
-          - v1.33.4
+          - v1.31.12
+          - v1.34.12
+          - v1.37.1
 
     steps:
       - name: Checkout sources
@@ -86,7 +82,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.26
+          go-version: "1.26.10"
 
       - name: Run E2E Test
         env:

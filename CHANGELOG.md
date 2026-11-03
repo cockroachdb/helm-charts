@@ -39,8 +39,13 @@ helm install my-release ./cockroachdb-parent
 
 # After
 helm install my-release ./cockroachdb-legacy
-helm install my-release ./cockroachdb-operator
+helm install crdb-operator ./cockroachdb-operator/charts/operator
+# Wait for the operator, CRDs, and webhooks before installing CockroachDB.
+helm install my-release ./cockroachdb-operator/charts/cockroachdb
 ```
+
+Direct umbrella chart installation is unsupported. Use separate operator and
+CockroachDB releases; see the [installation overview](cockroachdb-operator/README.md).
 
 The umbrella chart's internal `name:` in `Chart.yaml` was updated from `cockroachdb-parent` to `cockroachdb-operator` to match the new folder name. This has no effect on rendered Kubernetes resources — the umbrella chart has no `templates/` of its own, and the subchart-scoped `helm.sh/chart` labels (`cockroachdb-<version>`, `cockroachdb-operator-chart-<version>`) come from each subchart's own `.Chart.Name` and are unchanged. Existing StatefulSet / Deployment pod templates are unaffected, so `helm upgrade` will not trigger a rolling restart. What does change: `helm list` CHART column flips from `cockroachdb-parent-<version>` to `cockroachdb-operator-<version>`, and the release-secret's `chart.metadata.name` is rewritten. Any tooling that filters releases by chart name (e.g. `helm list --filter '^cockroachdb-parent'`, GitOps drift detection keyed on chart name) needs to be updated.
 

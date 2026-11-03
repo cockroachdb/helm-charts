@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"gopkg.in/yaml.v3"
 	batchv1 "k8s.io/api/batch/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 )
@@ -103,7 +104,9 @@ func TestChartCompatibilityUpgrade(t *testing.T) {
 	helmChartPath, operatorChartPath := operator.HelmChartPaths()
 
 	t.Log("Upgrading operator chart from the local checkout")
-	operator.UpgradeCockroachDBOperatorChart(t, kubectlOptions, operatorChartPath, compatibilityOperatorUpgradeValues(t, operatorChartPath))
+	operatorValues := compatibilityOperatorUpgradeValues(t, operatorChartPath)
+	operator.UpgradeCockroachDBOperatorChart(t, kubectlOptions, operatorChartPath, operatorValues)
+	requireUpgradedOperator(t, kubectlOptions, operatorValues)
 	requireOperatorMigrationFlag(t, kubectlOptions, false)
 
 	t.Log("Upgrading CockroachDB chart from the local checkout")
@@ -123,6 +126,9 @@ func TestChartCompatibilityUpgrade(t *testing.T) {
 	}, 600*time.Second)
 	r.ValidateCRDB(t, cluster)
 	requirePostInitSQLDatabase(t, kubectlOptions, postInitSQLDatabase)
+	t.Run("secure helm test after certificate rotation", func(t *testing.T) {
+		requireSecureHelmTest(t, kubectlOptions)
+	})
 
 	t.Log("Checking migration settings and node-reader RBAC transfer after upgrade")
 	nodeReaderName := fmt.Sprintf("compat-node-reader-%s", r.Namespace[cluster])
@@ -201,8 +207,14 @@ func addCompatibilityHelmRepo(t *testing.T) string {
 }
 
 func compatibilityOperatorUpgradeValues(t *testing.T, operatorChartPath string) map[string]string {
+	// TODO: For the next release, verify that upgrading the published chart applies
+	// podAnnotations and podLabels to the running operator pods. Once that release
+	// is validated, remove these markers and the metadata assertions in
+	// requireUpgradedOperator for later releases and keep the image upgrade checks.
 	values := map[string]string{
-		"numReplicas": "1",
+		"numReplicas":                       "1",
+		"podAnnotations.compatibility-test": "operator-upgrade",
+		"podLabels.compatibility-test":      "operator-upgrade",
 	}
 	for key, value := range localOperatorImageValues(t, operatorChartPath) {
 		values[key] = value
@@ -210,12 +222,18 @@ func compatibilityOperatorUpgradeValues(t *testing.T, operatorChartPath string) 
 	return values
 }
 
+type chartImageValues struct {
+	Registry   string `yaml:"registry"`
+	Repository string `yaml:"repository"`
+	Tag        string `yaml:"tag"`
+}
+
 type operatorImageValues struct {
-	Image struct {
-		Registry   string `yaml:"registry"`
-		Repository string `yaml:"repository"`
-		Tag        string `yaml:"tag"`
-	} `yaml:"image"`
+	Image         chartImageValues `yaml:"image"`
+	RelatedImages struct {
+		InitContainer chartImageValues `yaml:"initContainer"`
+		Inotifywait   chartImageValues `yaml:"inotifywait"`
+	} `yaml:"relatedImages"`
 }
 
 func localOperatorImageValues(t *testing.T, operatorChartPath string) map[string]string {
@@ -230,11 +248,70 @@ func localOperatorImageValues(t *testing.T, operatorChartPath string) map[string
 	require.NotEmpty(t, values.Image.Repository)
 	require.NotEmpty(t, values.Image.Tag)
 
-	return map[string]string{
+	result := map[string]string{
 		"image.registry":   values.Image.Registry,
 		"image.repository": values.Image.Repository,
 		"image.tag":        values.Image.Tag,
 	}
+	for name, image := range map[string]chartImageValues{
+		"initContainer": values.RelatedImages.InitContainer,
+		"inotifywait":   values.RelatedImages.Inotifywait,
+	} {
+		if image.Registry == "" {
+			image.Registry = values.Image.Registry
+		}
+		if image.Tag == "" {
+			image.Tag = values.Image.Tag
+		}
+		require.NotEmpty(t, image.Repository)
+		result["relatedImages."+name+".registry"] = image.Registry
+		result["relatedImages."+name+".repository"] = image.Repository
+		result["relatedImages."+name+".tag"] = image.Tag
+	}
+	return result
+}
+
+func requireUpgradedOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, values map[string]string) {
+	t.Helper()
+
+	pods := testutil.ListPodsWithRetry(t, kubectlOptions, metav1.ListOptions{
+		LabelSelector: operator.OperatorLabelSelector,
+	})
+	checked := 0
+	for _, pod := range pods {
+		if pod.DeletionTimestamp != nil {
+			continue
+		}
+		checked++
+		require.Equal(t, "operator-upgrade", pod.Annotations["compatibility-test"])
+		require.Equal(t, "operator-upgrade", pod.Labels["compatibility-test"])
+		var container *corev1.Container
+		for i := range pod.Spec.Containers {
+			if pod.Spec.Containers[i].Name == "cockroach-operator" {
+				container = &pod.Spec.Containers[i]
+				break
+			}
+		}
+		require.NotNil(t, container)
+		require.Equal(t, configuredImage(values, "image"), container.Image)
+		for envName, imageName := range map[string]string{
+			"RELATED_IMAGE_INIT_CONTAINER": "initContainer",
+			"RELATED_IMAGE_INOTIFYWAIT":    "inotifywait",
+		} {
+			var actual string
+			for _, env := range container.Env {
+				if env.Name == envName {
+					actual = env.Value
+				}
+			}
+			require.Equal(t, configuredImage(values, "relatedImages."+imageName), actual, envName)
+		}
+	}
+	require.Positive(t, checked, "no upgraded operator pods found")
+}
+
+func configuredImage(values map[string]string, prefix string) string {
+	return fmt.Sprintf("%s/%s:%s", values[prefix+".registry"], values[prefix+".repository"], values[prefix+".tag"])
 }
 
 func compatibilityOperatorMigrationAndNodeReaderValues(
@@ -275,6 +352,12 @@ func upgradeCockroachDBChart(
 	t *testing.T, kubectlOptions *k8s.KubectlOptions, chart string, overrides ...map[string]string,
 ) {
 	values := cockroachDBCompatibilityValues()
+	// TODO: For the next release, verify that tests.podAnnotations and tests.podLabels
+	// reach the Helm test pod after chart upgrade and certificate rotation. Once
+	// that release is validated, remove these markers and the metadata assertions
+	// in requireSecureHelmTest for later releases and keep the secure connection test.
+	values["cockroachdb.tests.podAnnotations.compatibility-test"] = "secure-helm-test"
+	values["cockroachdb.tests.podLabels.compatibility-test"] = "secure-helm-test"
 	// Reused values can retain the published chart's older self-signer image.
 	valuesBytes, err := os.ReadFile(filepath.Join(chart, "values.yaml"))
 	require.NoError(t, err)
@@ -308,6 +391,29 @@ func upgradeCockroachDBChart(
 
 	operator.HelmUpgradeWithRetry(t, options, chart, operator.ReleaseName)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroachdb-public", 30, 5*time.Second)
+
+	cronJobYAML, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"get", "cronjob", "cockroachdb-rotate-self-signer-client", "-o", "yaml")
+	require.NoError(t, err)
+	var cronJob batchv1.CronJob
+	require.NoError(t, yaml.Unmarshal([]byte(cronJobYAML), &cronJob))
+	require.Len(t, cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers, 1)
+	container := cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers[0]
+	require.Equal(t, configuredImage(values, "cockroachdb.tls.selfSigner.image"), container.Image,
+		"upgrades must replace the published self-signer image with the local chart image")
+	require.Contains(t, container.Args, "--operator-managed=true")
+}
+
+func requireSecureHelmTest(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
+	t.Helper()
+
+	_, err := helm.RunHelmCommandAndGetOutputE(t, &helm.Options{KubectlOptions: kubectlOptions},
+		"test", operator.ReleaseName, "--logs", "--timeout", "5m")
+	require.NoError(t, err)
+	pod := k8s.GetPod(t, kubectlOptions, "cockroachdb-test")
+	require.Equal(t, corev1.PodSucceeded, pod.Status.Phase)
+	require.Equal(t, "secure-helm-test", pod.Annotations["compatibility-test"])
+	require.Equal(t, "secure-helm-test", pod.Labels["compatibility-test"])
 }
 
 func requireOldSelfSignerRotation(
