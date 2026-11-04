@@ -1,0 +1,5 @@
+# Dependencies still live in WORKSPACE. With Bzlmod enabled (the default since
+# Bazel 7), WORKSPACE references to @platforms resolve to the platforms module,
+# not to the version rules_go declares, so it is pinned here. rules_go v0.65.0
+# needs platforms 1.1.0 for @platforms//cpu:loongarch64.
+bazel_dep(name = "platforms", version = "1.1.0")
