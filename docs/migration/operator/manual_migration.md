@@ -6,7 +6,7 @@ at a time with a `CrdbNode`. Cluster capacity is temporarily reduced by one node
 replacement.
 
 Before starting, confirm that all CockroachDB pods are Running and Ready and that no upgrade,
-scale operation, or rolling restart is in progress. This guide supports Public Operator v2.18.3.
+scale operation, or rolling restart is in progress. This guide supports Public Operator v2.18.3 and above.
 Keep the Public Operator running until every cluster it manages has been migrated.
 
 Build the migration helper, and add the ./bin directory to your PATH:
@@ -286,7 +286,7 @@ every cluster managed by the Public Operator has been migrated and is healthy.
 2. Uninstall the Public Operator using the same method used to install it. Remove its Deployment,
    webhook Service, ServiceAccount, ClusterRole, ClusterRoleBinding, and validating and mutating
    webhook configurations. Do not delete the shared CrdbCluster or CrdbNode CRDs. The exact
-   v2.18.3 resource names are listed in
+   v2.18.3 and above resource names are listed in
    [Uninstall the Public Operator and clean up coexistence](controller_migration.md#step-12-uninstall-the-public-operator-and-clean-up-coexistence).
 
 3. After the Public Operator and its webhooks are gone, remove coexistence metadata from each
