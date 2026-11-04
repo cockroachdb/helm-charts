@@ -1,5 +1,9 @@
 # CockroachDB Chart — CHANGELOG
 
+## [26.3.5] — 2026-11-04
+### Changed
+- Updated the default CockroachDB image version from `v26.3.4` to `v26.3.5`.
+
 ## [26.3.4] — 2026-10-29
 ### Changed
 - Updated the default CockroachDB image version from `v26.3.3` to `v26.3.4`.
