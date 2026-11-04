@@ -1,4 +1,4 @@
-{{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.selfSigner.enabled }}
+{{- if include "selfcerts.enabled" . }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -35,14 +35,8 @@ spec:
       imagePullSecrets:
         - name: {{ template "cockroachdb.fullname" . }}.init-certs.registry
     {{- end }}
-    {{- if and .Values.cockroachdb.tls.selfSigner.securityContext.enabled }}
-      securityContext:
-        seccompProfile:
-          type: "RuntimeDefault"
-        runAsGroup: 1000
-        runAsUser: 1000
-        fsGroup: 1000
-        runAsNonRoot: true
+    {{- with include "selfcerts.podSecurityContext" . }}
+      {{- . | nindent 6 }}
     {{- end }}
       restartPolicy: Never
     {{- with .Values.cockroachdb.tls.selfSigner.affinity }}
@@ -82,11 +76,8 @@ spec:
             - name: ADDITIONAL_SANS
               value: {{ .Values.cockroachdb.tls.selfSigner.additionalSANs | join "," | quote }}
             {{- end }}
-        {{- if and .Values.cockroachdb.tls.selfSigner.securityContext.enabled }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
+        {{- with include "selfcerts.containerSecurityContext" . }}
+          {{- . | nindent 10 }}
         {{- end }}
       serviceAccountName: {{ template "selfcerts.fullname" . }}
 {{- end}}

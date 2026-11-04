@@ -26,6 +26,13 @@
   leaving the CA ConfigMap stale, and attempting StatefulSet restarts in deployments
   that do not use StatefulSets.
 - Updated the self-signer image to `1.11`, which includes these fixes.
+- The self-signer certificate-rotation CronJobs now render with the same pod and container
+  `securityContext` as the install Job, and the rotation Role grants the same rules as the install
+  Role, including the OpenShift `securitycontextconstraints` rule. Previously the rotation pods ran
+  without a securityContext, so namespaces enforcing Pod Security Admission `restricted` rejected
+  them, rotation never ran and certificates eventually expired. The rotation ServiceAccount now
+  holds the `securitycontextconstraints` `use` grant permanently, as the install ServiceAccount
+  does for the duration of the pre-install hook.
 
 ### Upgrade notes
 - Node certificates rotated by affected self-signer versions may be missing join-service

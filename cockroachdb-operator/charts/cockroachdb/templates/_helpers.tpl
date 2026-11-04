@@ -85,6 +85,57 @@ Define the default values for the certificate selfSigner inputs
   {{- printf "%s-client" $base -}}
 {{- end -}}
 
+{{/*
+The self-signer install Job, the pre-delete cleaner Job and the two rotation CronJobs run the same
+image against the same resources. They take their gate, pod security and RBAC from the templates
+below so that the four cannot drift apart. The gate also guards the self-signer Role, RoleBinding
+and ServiceAccount templates. The securitycontextconstraints rule is specific to this chart; the
+legacy chart grants none.
+*/}}
+{{- define "selfcerts.enabled" -}}
+  {{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.selfSigner.enabled -}}true{{- end -}}
+{{- end -}}
+
+{{- define "selfcerts.podSecurityContext" -}}
+  {{- if .Values.cockroachdb.tls.selfSigner.securityContext.enabled -}}
+securityContext:
+  seccompProfile:
+    type: "RuntimeDefault"
+  runAsGroup: 1000
+  runAsUser: 1000
+  fsGroup: 1000
+  runAsNonRoot: true
+  {{- end }}
+{{- end -}}
+
+{{- define "selfcerts.containerSecurityContext" -}}
+  {{- if .Values.cockroachdb.tls.selfSigner.securityContext.enabled -}}
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: ["ALL"]
+  {{- end }}
+{{- end -}}
+
+{{- define "selfcerts.roleRules" -}}
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["create", "get", "update", "delete"]
+- apiGroups: ["apps"]
+  resources: ["statefulsets"]
+  verbs: ["get"]
+  resourceNames:
+    - {{ template "cockroachdb.fullname" . }}
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["delete", "get"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["create", "get", "update", "delete"]
+- apiGroups: [ "security.openshift.io" ]
+  resources: [ "securitycontextconstraints" ]
+  verbs: [ "use" ]
+{{- end -}}
 
 {{- define "selfcerts.minimumCertDuration" -}}
   {{- if .Values.cockroachdb.tls.selfSigner.minimumCertDuration -}}

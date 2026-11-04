@@ -19,6 +19,20 @@ All notable changes to the CockroachDB Helm chart will be documented in this fil
 ### Changed
 - Updated the self-signer image to `1.11` for operator-managed certificate rotation fixes.
 
+### Fixed
+- The self-signer certificate-rotation CronJobs now render with the same pod and container
+  `securityContext` as the install Job, require `tls.enabled` like the install Job, and the rotation
+  Role grants the same rules as the install Role. Previously the rotation pods ran without a
+  securityContext, so namespaces enforcing Pod Security Admission `restricted` rejected them,
+  rotation never ran and certificates eventually expired.
+
+### Upgrade notes
+- On OpenShift, if you granted a SecurityContextConstraint to the self-signer install
+  ServiceAccount so that it can run as user 1000, grant the same SCC to the rotation
+  ServiceAccount (`<release>-cockroachdb-rotate-self-signer`), or set
+  `tls.certs.selfSigner.securityContext.enabled=false`. The rotation CronJobs now set the same
+  `securityContext` as the install Job.
+
 ## [22.0.4] 2026-09-23
 ### Changed
   - Updated the default CockroachDB image version from `v26.3.1` to `v26.3.2`.

@@ -1,4 +1,4 @@
-{{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.selfSigner.enabled }}
+{{- if include "selfcerts.enabled" . }}
 kind: Role
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -13,18 +13,5 @@ metadata:
     {{- toYaml . | nindent 4 }}
   {{- end }}
 rules:
-  - apiGroups: [""]
-    resources: ["secrets"]
-    verbs: ["create", "get", "update", "delete"]
-  - apiGroups: [""]
-    resources: ["configmaps"]
-    verbs: ["create", "get", "update"]
-  - apiGroups: ["apps"]
-    resources: ["statefulsets"]
-    verbs: ["get"]
-    resourceNames:
-      - {{ template "cockroachdb.fullname" . }}
-  - apiGroups: [""]
-    resources: ["pods"]
-    verbs: ["delete", "get"]
+{{- include "selfcerts.roleRules" . | nindent 2 }}
 {{- end }}
