@@ -209,6 +209,11 @@ func TestComputeAllArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	operatorChart, err := getVersions(chartPaths[chartKindOperator])
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextOperatorVersion := operatorChart.Version.IncMinor()
 	nextCRDBPatch := cockroachdbChart.AppVersion.IncPatch()
 	nextCRDBPatchVersion := &nextCRDBPatch
 	nextCRDBVersion := nextCRDBPatch.Original()
@@ -269,14 +274,14 @@ func TestComputeAllArgs(t *testing.T) {
 		{
 			name:        "operator explicit version sets both version and appVersion",
 			chartTarget: "operator",
-			version:     "1.1.0",
+			version:     nextOperatorVersion.String(),
 			check: func(t *testing.T, result map[chartKind]templateArgs) {
 				op := result[chartKindOperator]
-				if op.Version != "1.1.0" {
-					t.Errorf("operator version = %s, want 1.1.0", op.Version)
+				if op.Version != nextOperatorVersion.String() {
+					t.Errorf("operator version = %s, want %s", op.Version, nextOperatorVersion.String())
 				}
-				if op.AppVersion != "1.1.0" {
-					t.Errorf("operator appVersion = %s, want 1.1.0", op.AppVersion)
+				if op.AppVersion != nextOperatorVersion.String() {
+					t.Errorf("operator appVersion = %s, want %s", op.AppVersion, nextOperatorVersion.String())
 				}
 			},
 		},

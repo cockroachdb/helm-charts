@@ -1,14 +1,6 @@
 # CockroachDB Chart — CHANGELOG
 
-## [26.3.4] — 2026-10-29
-### Changed
-- Updated the default CockroachDB image version from `v26.3.3` to `v26.3.4`.
-
-## [26.3.3] — 2026-10-21
-### Changed
-- Updated the default CockroachDB image version from `v26.3.2` to `v26.3.3`.
-
-## [Unreleased]
+## [26.3.5] — 2026-10-29
 ### Added
 - Added `cockroachdb.tls.certManager.additionalDnsNames` and
   `cockroachdb.tls.certManager.additionalIpAddresses` to append custom DNS names and
@@ -25,7 +17,9 @@
 - Fixed self-signer rotation dropping join-service SANs for operator-managed deployments,
   leaving the CA ConfigMap stale, and attempting StatefulSet restarts in deployments
   that do not use StatefulSets.
-- Updated the self-signer image to `1.11`, which includes these fixes.
+- Updated the self-signer image to `1.12`, which includes these fixes and the Go `1.26.10`
+  certificate-verification mitigation for CVE-2026-111943 (the e-Mudhra incident).
+  The default CockroachDB image remains `v26.3.4`.
 
 ### Upgrade notes
 - Node certificates rotated by affected self-signer versions may be missing join-service
@@ -34,6 +28,14 @@
   follow the [recovery steps] to regenerate the node certificates.
 
 [recovery steps]: ../../../docs/certificate-management/self-signer.md#recover-missing-join-service-sans-after-rotation
+
+## [26.3.4] — 2026-10-29
+### Changed
+- Updated the default CockroachDB image version from `v26.3.3` to `v26.3.4`.
+
+## [26.3.3] — 2026-10-21
+### Changed
+- Updated the default CockroachDB image version from `v26.3.2` to `v26.3.3`.
 
 ## [26.3.2] — 2026-09-23
 ### Changed
