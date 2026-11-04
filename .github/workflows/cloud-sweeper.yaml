@@ -1,0 +1,83 @@
+name: Cloud sweeper
+
+on:
+  schedule:
+    - cron: "37 3 * * *"
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Only list eligible resources without deleting
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+# A separate hosted runner can recover resources after a test runner disappears.
+concurrency:
+  group: helm-charts-cloud-sweeper
+  cancel-in-progress: false
+
+jobs:
+  gcp:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+      GH_TOKEN: ${{ github.token }}
+      CLEANUP_PROTECTED_RESOURCES: ${{ vars.CLEANUP_PROTECTED_RESOURCES }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: google-github-actions/auth@v2
+        with:
+          project_id: ${{ secrets.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ secrets.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ secrets.GCP_SERVICE_ACCOUNT }}
+      - uses: google-github-actions/setup-gcloud@v2
+        with:
+          install_components: gke-gcloud-auth-plugin,kubectl
+      - name: Install OpenShift installer
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/4.17.16/openshift-install-linux.tar.gz -o "${RUNNER_TEMP}/openshift-install.tar.gz"
+          mkdir -p "${RUNNER_TEMP}/openshift-bin"
+          tar -xzf "${RUNNER_TEMP}/openshift-install.tar.gz" -C "${RUNNER_TEMP}/openshift-bin" openshift-install
+          echo "${RUNNER_TEMP}/openshift-bin" >> "${GITHUB_PATH}"
+      - name: Sweep GKE and OpenShift
+        shell: bash
+        env:
+          DRY_RUN: ${{ inputs.dry_run || false }}
+          USE_GKE_GCLOUD_AUTH_PLUGIN: "true"
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "${DRY_RUN}" == "true" ]]; then args+=(--dry-run); fi
+          export GCP_CLEANUP_STATE_URI="gs://${GCP_PROJECT_ID}-openshift-ci-debug/cleanup"
+          bash scripts/cleanup/sweep.sh gcp "${args[@]}"
+
+  azure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      GH_TOKEN: ${{ github.token }}
+      CLEANUP_PROTECTED_RESOURCES: ${{ vars.CLEANUP_PROTECTED_RESOURCES }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: azure/login@v2
+        with:
+          client-id: ${{ secrets.AZURE_CLIENT_ID }}
+          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
+          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      - name: Sweep Azure resource groups
+        shell: bash
+        env:
+          DRY_RUN: ${{ inputs.dry_run || false }}
+        run: |
+          set -euo pipefail
+          args=()
+          if [[ "${DRY_RUN}" == "true" ]]; then args+=(--dry-run); fi
+          bash scripts/cleanup/sweep.sh azure "${args[@]}"

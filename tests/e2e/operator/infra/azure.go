@@ -432,6 +432,7 @@ func (r *AzureRegion) createResourceGroup(location, testRun string) error {
 		"--subscription", azureSubscriptionID(),
 		"--tags",
 		"ManagedBy=helm-charts-e2e",
+		"CreatedAtUnix=" + fmt.Sprint(time.Now().UTC().Unix()),
 		"TestRun=" + testRun,
 	}
 	for _, tag := range []struct {

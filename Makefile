@@ -1,11 +1,14 @@
 UNAME_S := $(shell uname -s)
+UNAME_M := $(shell uname -m)
+KUBECTL_ARCH := $(if $(filter arm64 aarch64,$(UNAME_M)),arm64,amd64)
 NC := $(shell tput sgr0) # No Color
+KUBECTL_VERSION ?= $(if $(K3DVersion),$(K3DVersion),v1.34.12)
 ifeq ($(UNAME_S),Linux)
   COCKROACH_BIN ?= https://binaries.cockroachdb.com/cockroach-v26.2.1.linux-amd64.tgz
   HELM_BIN ?= https://get.helm.sh/helm-v4.2.3-linux-amd64.tar.gz
   K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-linux-amd64
   KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.29.0/kind-linux-amd64
-  KUBECTL_BIN ?= https://dl.k8s.io/release/v1.29.1/bin/linux/amd64/kubectl
+  KUBECTL_BIN ?= https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/linux/$(KUBECTL_ARCH)/kubectl
   YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_linux_amd64
   JQ_BIN ?= https://github.com/stedolan/jq/releases/download/jq-1.6/jq-linux64
   OPM_TAR ?= https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/latest-4.8/opm-linux-4.8.57.tar.gz
@@ -17,7 +20,7 @@ ifeq ($(UNAME_S),Darwin)
   HELM_BIN ?= https://get.helm.sh/helm-v4.2.3-darwin-amd64.tar.gz
   K3D_BIN ?=  https://github.com/k3d-io/k3d/releases/download/v5.8.3/k3d-darwin-arm64
   KIND_BIN ?= https://kind.sigs.k8s.io/dl/v0.29.0/kind-darwin-arm64
-  KUBECTL_BIN ?= https://dl.k8s.io/release/v1.29.1/bin/darwin/amd64/kubectl
+  KUBECTL_BIN ?= https://dl.k8s.io/release/$(KUBECTL_VERSION)/bin/darwin/$(KUBECTL_ARCH)/kubectl
   YQ_BIN ?= https://github.com/mikefarah/yq/releases/download/v4.31.2/yq_darwin_amd64
   JQ_BIN ?= https://github.com/stedolan/jq/releases/download/jq-1.6/jq-osx-amd64
   OPM_TAR ?= https://mirror.openshift.com/pub/openshift-v4/x86_64/clients/ocp/latest-4.8/opm-mac-4.8.57.tar.gz
@@ -176,7 +179,7 @@ test/e2e/manual-migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper
 	exit $${EXIT_CODE:-0}
 
 test/single-cluster/up: bin/k3d bin/kubectl
-	 PATH="$(PWD)/bin:${PATH}" ./tests/k3d/dev-multi-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters 1
+	 PATH="$(PWD)/bin:${PATH}" ./tests/k3d/dev-multi-cluster.sh up --name "$(K3D_CLUSTER)" --nodes $(MULTI_REGION_NODE_SIZE) --clusters 1 $(if $(version),--version "$(version)")
 
 test/multi-cluster/down: bin/k3d
 	 ./tests/k3d/dev-multi-cluster.sh down
@@ -204,7 +207,7 @@ test/template: bin/cockroach bin/helm ## Run template tests
 	@PATH="$(PWD)/bin:${PATH}" go test -v ./tests/template/...
 
 test/units: bin/cockroach ## Run unit tests
-	@PATH="$(PWD)/bin:${PATH}" go test -v ./pkg/... ./build/... ./cmd/self-signer/...
+	@PATH="$(PWD)/bin:${PATH}" go test -v ./pkg/... ./build/... ./cmd/self-signer/... ./tests/e2e/operator/infra ./scripts/cleanup/...
 
 ##@ Binaries
 bin: bin/cockroach bin/helm bin/k3d bin/kubectl bin/yq ## install all binaries

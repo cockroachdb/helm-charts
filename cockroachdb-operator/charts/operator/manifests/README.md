@@ -16,7 +16,8 @@ The public artifacts are:
 
 ## Prerequisites
 
-- Kubernetes 1.30 or later.
+- Kubernetes 1.30 or later; see the [Kubernetes compatibility matrix](../../../README.md#kubernetes-compatibility)
+  for tested versions.
 - Cluster-admin access to install CRDs and cluster-scoped RBAC.
 - Access to the images listed in
   [`../../../images.txt`](../../../images.txt).

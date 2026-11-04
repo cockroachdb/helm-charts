@@ -5,7 +5,8 @@
 
 This is a subchart for installing the CockroachDB cluster.
 
-See [VERSIONING.md](../../docs/VERSIONING.md) for published chart locations, chart versions, and upgrade order.
+See the [installation overview](../../README.md#supported-installation) for
+published charts and installation order.
 
 ### Running in secure mode
 
@@ -67,7 +68,7 @@ Below is a brief overview of operating the CockroachDB Helm Chart(v2) with Opera
 
 ## Prerequisites
 
-* Kubernetes 1.30 or higher
+* Kubernetes 1.30 or higher; see the [Kubernetes compatibility matrix](../../README.md#kubernetes-compatibility) for tested versions.
 * Helm 3.0 or higher
 * Create a namespace to perform the operations against. In this case, we are using `cockroach-ns` namespace.
 * If you want to secure your cluster to use TLS certificates for all network communications, [Helm must be installed with RBAC privileges](https://helm.sh/docs/topics/rbac/) or else you will get an "attempt to grant extra privileges" error.
@@ -82,8 +83,11 @@ export NAMESPACE=cockroach-ns
 
 ## Notes
 
-All the helm commands below reference the chart folder available locally after checking out this GitHub repository. Alternatively, you may also reference the charts in the Helm repository.
-The operator chart does not exist in the Helm repository yet and will be added soon.
+All the Helm commands below use the local chart folders after checking out this
+repository. You can also use the published charts listed in the
+[installation overview](../../README.md#supported-installation).
+Install the operator and CockroachDB charts as separate releases
+(installing the umbrella chart directly is unsupported).
 
 ## Installation
 

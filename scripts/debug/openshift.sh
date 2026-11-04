@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/cloud-resources.sh"
 
 project_id="${GCP_PROJECT_ID:-}"
 if [[ -z "${project_id}" ]]; then
@@ -18,22 +19,6 @@ timestamp() {
 run_gcloud() {
   echo "+ gcloud $*"
   gcloud "$@" || true
-}
-
-install_dirs() {
-  local tmpdir="${TMPDIR:-${RUNNER_TEMP:-/tmp}}"
-  find "${tmpdir}" -maxdepth 1 -type d -name "helm-charts-ocp-*" 2>/dev/null | sort || true
-}
-
-infra_ids() {
-  local install_dir metadata infra_id
-  for install_dir in $(install_dirs); do
-    metadata="${install_dir}/metadata.json"
-    [[ -f "${metadata}" ]] || continue
-    infra_id="$(sed -n 's/.*"infraID"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "${metadata}" | head -1)"
-    [[ -n "${infra_id}" ]] || continue
-    printf "%s\n" "${infra_id}"
-  done
 }
 
 snapshot() {
@@ -172,93 +157,10 @@ sync_debug() {
   done
 }
 
-short_infra_id() {
-  local infra_id="$1"
-  IFS="-" read -r first second _ <<< "${infra_id}"
-  if [[ -n "${first}" && -n "${second}" ]]; then
-    printf "%s-%s" "${first}" "${second}"
-  else
-    printf "%s" "${infra_id}"
-  fi
-}
-
-delete_if_exists() {
-  echo "+ gcloud $*"
-  gcloud "$@" || true
-}
-
-cleanup_multicluster() {
-  mapfile -t ids < <(infra_ids)
-  if (( ${#ids[@]} == 0 )); then
-    echo "No OpenShift infra IDs found; skipping multi-cluster cleanup"
-    return 0
-  fi
-
-  local infra_id i j a b short_a short_b
-  for infra_id in "${ids[@]}"; do
-    delete_if_exists compute firewall-rules delete \
-      "${infra_id}-submariner-public-ports-ingress" \
-      --project="${project_id}" \
-      --quiet
-    delete_if_exists compute firewall-rules delete \
-      "${infra_id}-submariner-internal-ports-ingress" \
-      --project="${project_id}" \
-      --quiet
-  done
-
-  if (( ${#ids[@]} < 2 )); then
-    echo "Fewer than two OpenShift infra IDs found; skipping peer cleanup"
-    return 0
-  fi
-
-  for ((i = 0; i < ${#ids[@]}; i++)); do
-    for ((j = i + 1; j < ${#ids[@]}; j++)); do
-      a="${ids[$i]}"
-      b="${ids[$j]}"
-      short_a="$(short_infra_id "${a}")"
-      short_b="$(short_infra_id "${b}")"
-
-      delete_if_exists compute firewall-rules delete \
-        "${short_a}-allow-peer-${short_b}" \
-        --project="${project_id}" \
-        --quiet
-      delete_if_exists compute firewall-rules delete \
-        "${short_b}-allow-peer-${short_a}" \
-        --project="${project_id}" \
-        --quiet
-
-      delete_if_exists compute networks peerings delete \
-        "${short_a}-to-${short_b}" \
-        --network="${a}-network" \
-        --project="${project_id}" \
-        --quiet
-      delete_if_exists compute networks peerings delete \
-        "${short_b}-to-${short_a}" \
-        --network="${b}-network" \
-        --project="${project_id}" \
-        --quiet
-    done
-  done
-}
-
 case "${1:-}" in
-  snapshot)
-    snapshot "${2:-snapshot}"
-    ;;
-  watch)
-    watch "${2:-120}"
-    ;;
-  cleanup-multicluster)
-    cleanup_multicluster
-    ;;
-  ensure-gcs)
-    ensure_gcs
-    ;;
-  sync)
-    sync_debug
-    ;;
-  *)
-    echo "usage: $0 {snapshot [label]|watch [seconds]|cleanup-multicluster|ensure-gcs|sync}" >&2
-    exit 2
-    ;;
+  snapshot) snapshot "${2:-snapshot}" ;;
+  watch) watch "${2:-120}" ;;
+  ensure-gcs) ensure_gcs ;;
+  sync) sync_debug ;;
+  *) echo "Usage: $0 snapshot [LABEL] | watch [SECONDS] | ensure-gcs | sync" >&2; exit 2 ;;
 esac

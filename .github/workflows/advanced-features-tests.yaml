@@ -5,8 +5,14 @@ on:
     - cron: "15 8 * * 2"  # Run at 8:15 AM on every Tuesday UTC to avoid peak times
   # Allow manual trigger on any branch
   workflow_dispatch:
+    inputs:
+      collect_debug:
+        description: Collect extra cloud debug snapshots and logs
+        type: boolean
+        default: false
 
 env:
+  E2E_DEBUG: ${{ inputs.collect_debug || false }}
   OPENSHIFT_VERSION: "4.17.16"
   SUBCTL_VERSION: "v0.24.0"
 
@@ -31,7 +37,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.26
+          go-version: "1.26.10"
       - name: Authenticate to Google Cloud
         if: ${{ matrix.provider == 'gcp' || matrix.provider == 'openshift' }}
         uses: 'google-github-actions/auth@v2'
@@ -66,20 +72,6 @@ jobs:
           set -euo pipefail
           az version
           az account show --subscription "${AZURE_SUBSCRIPTION_ID}" --output table
-      - name: Clean up stale Azure resource groups
-        if: ${{ matrix.provider == 'azure' }}
-        shell: bash
-        env:
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          AZURE_RESOURCE_PREFIX: hc-e2e
-          AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
-        run: |
-          set -euo pipefail
-          ./build/azure-ci-debug.sh snapshot before-stale-cleanup
-          stale_status=0
-          ./build/azure-ci-debug.sh cleanup-old-resource-groups || stale_status="$?"
-          ./build/azure-ci-debug.sh snapshot after-stale-cleanup
-          exit "${stale_status}"
       - name: Install OpenShift tools
         if: ${{ matrix.provider == 'openshift' }}
         shell: bash
@@ -137,17 +129,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          ./build/azure-ci-debug.sh snapshot before-single-region
-          ./build/azure-ci-debug.sh watch 120 &
-          debug_pid="$!"
-          finish_debug() {
-            status="$?"
-            kill "${debug_pid}" 2>/dev/null || true
-            wait "${debug_pid}" 2>/dev/null || true
-            ./build/azure-ci-debug.sh snapshot after-single-region || true
-            exit "${status}"
-          }
-          trap finish_debug EXIT
+          if [[ "${E2E_DEBUG}" == "true" ]]; then
+            bash scripts/debug/azure.sh snapshot before-single-region
+            bash scripts/debug/azure.sh watch 120 &
+            debug_pid="$!"
+            finish_debug() {
+              status="$?"
+              kill "${debug_pid}" 2>/dev/null || true
+              wait "${debug_pid}" 2>/dev/null || true
+              bash scripts/debug/azure.sh snapshot after-single-region || true
+              exit "${status}"
+            }
+            trap finish_debug EXIT
+          fi
 
           unset AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID AZURE_REUSE_CONTEXTS AZURE_RESOURCE_GROUP
           stdbuf -oL -eL make test/nightly-e2e/advanced/single-region 2>&1 | tee test_output.log
@@ -159,6 +153,7 @@ jobs:
           USE_GKE_GCLOUD_AUTH_PLUGIN: true
           TMPDIR: ${{ runner.temp }}
           OPENSHIFT_DEBUG_DIR: ${{ runner.temp }}/openshift-debug
+          OPENSHIFT_CLEANUP_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/cleanup
           OPENSHIFT_DEBUG_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/${{ github.run_id }}/${{ github.run_attempt }}/single-region
           OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
           OPENSHIFT_PULL_SECRET: ${{ secrets.OPENSHIFT_PULL_SECRET }}
@@ -167,19 +162,21 @@ jobs:
         run: |
           set -euo pipefail
 
-          ./build/openshift-ci-debug.sh ensure-gcs
-          ./build/openshift-ci-debug.sh snapshot before-single-region
-          ./build/openshift-ci-debug.sh watch 120 &
-          debug_pid="$!"
-          finish_debug() {
-            status="$?"
-            kill "${debug_pid}" 2>/dev/null || true
-            wait "${debug_pid}" 2>/dev/null || true
-            ./build/openshift-ci-debug.sh snapshot after-single-region || true
-            ./build/openshift-ci-debug.sh sync || true
-            exit "${status}"
-          }
-          trap finish_debug EXIT
+          if [[ "${E2E_DEBUG}" == "true" ]]; then
+            bash scripts/debug/openshift.sh ensure-gcs
+            bash scripts/debug/openshift.sh snapshot before-single-region
+            bash scripts/debug/openshift.sh watch 120 &
+            debug_pid="$!"
+            finish_debug() {
+              status="$?"
+              kill "${debug_pid}" 2>/dev/null || true
+              wait "${debug_pid}" 2>/dev/null || true
+              bash scripts/debug/openshift.sh snapshot after-single-region || true
+              bash scripts/debug/openshift.sh sync || true
+              exit "${status}"
+            }
+            trap finish_debug EXIT
+          fi
 
           unset OPENSHIFT_REUSE_CONTEXTS OPENSHIFT_REUSE_KUBECONFIG OPENSHIFT_REUSE_KUBECONFIGS
           stdbuf -oL -eL make test/nightly-e2e/advanced/single-region 2>&1 | tee test_output.log
@@ -193,10 +190,14 @@ jobs:
           AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
         run: |
           set -euo pipefail
-          ./build/azure-ci-debug.sh snapshot cleanup-before-single-region || true
+          if [[ "${E2E_DEBUG}" == "true" ]]; then
+            bash scripts/debug/azure.sh snapshot cleanup-before-single-region || true
+          fi
           cleanup_status=0
-          ./build/azure-ci-debug.sh cleanup-resource-groups || cleanup_status="$?"
-          ./build/azure-ci-debug.sh snapshot cleanup-after-single-region || true
+          bash scripts/cleanup/azure.sh recorded-resource-groups || cleanup_status="$?"
+          if [[ "${E2E_DEBUG}" == "true" ]]; then
+            bash scripts/debug/azure.sh snapshot cleanup-after-single-region || true
+          fi
           exit "${cleanup_status}"
       - name: Archive test results
         if: ${{ always() }}
@@ -208,11 +209,19 @@ jobs:
           path: |
             test_output.log
             test_output.json
-            ${{ runner.temp }}/azure-debug/*.log
             ${{ runner.temp }}/azure-resource-groups.txt
+            ${{ runner.temp }}/helm-charts-ocp-*/metadata.json
+      - name: Archive cloud debug diagnostics
+        if: ${{ always() && env.E2E_DEBUG == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: advanced-single-region-debug-${{ matrix.provider }}
+          if-no-files-found: ignore
+          include-hidden-files: true
+          path: |
+            ${{ runner.temp }}/azure-debug/*.log
             ${{ runner.temp }}/openshift-debug/*.log
             ${{ runner.temp }}/helm-charts-ocp-*/.openshift_install.log
-            ${{ runner.temp }}/helm-charts-ocp-*/metadata.json
       - name: Clean up OpenShift installer state
         if: ${{ always() && matrix.provider == 'openshift' }}
         shell: bash
@@ -220,28 +229,18 @@ jobs:
           TMPDIR: ${{ runner.temp }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           OPENSHIFT_DEBUG_DIR: ${{ runner.temp }}/openshift-debug
+          OPENSHIFT_CLEANUP_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/cleanup
           OPENSHIFT_DEBUG_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/${{ github.run_id }}/${{ github.run_attempt }}/single-region
           OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
           OPENSHIFT_SKIP_TEARDOWN: "false"
         run: |
           set -euo pipefail
-          shopt -s nullglob
-
-          if [[ "${OPENSHIFT_SKIP_TEARDOWN}" == "true" ]]; then
-            echo "OPENSHIFT_SKIP_TEARDOWN=true; preserving OpenShift installer state"
-            ./build/openshift-ci-debug.sh snapshot skip-teardown-single-region || true
-            ./build/openshift-ci-debug.sh sync || true
-            exit 0
+          cleanup_status=0
+          bash scripts/cleanup/openshift.sh recorded-installs || cleanup_status=1
+          if [[ "${E2E_DEBUG}" == "true" ]]; then
+            bash scripts/debug/openshift.sh sync || cleanup_status=1
           fi
-
-          ./build/openshift-ci-debug.sh cleanup-multicluster || true
-
-          for install_dir in "${TMPDIR}"/helm-charts-ocp-*; do
-            [[ -d "${install_dir}" ]] || continue
-            echo "Destroying leftover OpenShift cluster from ${install_dir}"
-            openshift-install destroy cluster --dir "${install_dir}" --log-level info || true
-            rm -rf "${install_dir}"
-          done
+          exit "${cleanup_status}"
       - name: Slack notification
         # Temporarily disabled because notification failures can mask test results.
         # Re-enable or replace once CC-36671 is resolved.
@@ -272,7 +271,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 1.26
+          go-version: "1.26.10"
       - name: Authenticate to Google Cloud
         if: ${{ matrix.provider == 'gcp' || matrix.provider == 'openshift' }}
         uses: 'google-github-actions/auth@v2'
@@ -307,20 +306,6 @@ jobs:
           set -euo pipefail
           az version
           az account show --subscription "${AZURE_SUBSCRIPTION_ID}" --output table
-      - name: Clean up stale Azure resource groups
-        if: ${{ matrix.provider == 'azure' }}
-        shell: bash
-        env:
-          AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-          AZURE_RESOURCE_PREFIX: hc-e2e
-          AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
-        run: |
-          set -euo pipefail
-          ./build/azure-ci-debug.sh snapshot before-stale-cleanup
-          stale_status=0
-          ./build/azure-ci-debug.sh cleanup-old-resource-groups || stale_status="$?"
-          ./build/azure-ci-debug.sh snapshot after-stale-cleanup
-          exit "${stale_status}"
       - name: Install OpenShift tools
         if: ${{ matrix.provider == 'openshift' }}
         shell: bash
@@ -381,17 +366,19 @@ jobs:
         run: |
           set -euo pipefail
 
-          ./build/azure-ci-debug.sh snapshot before-multi-region
-          ./build/azure-ci-debug.sh watch 120 &
-          debug_pid="$!"
-          finish_debug() {
-            status="$?"
-            kill "${debug_pid}" 2>/dev/null || true
-            wait "${debug_pid}" 2>/dev/null || true
-            ./build/azure-ci-debug.sh snapshot after-multi-region || true
-            exit "${status}"
-          }
-          trap finish_debug EXIT
+          if [[ "${E2E_DEBUG}" == "true" ]]; then
+            bash scripts/debug/azure.sh snapshot before-multi-region
+            bash scripts/debug/azure.sh watch 120 &
+            debug_pid="$!"
+            finish_debug() {
+              status="$?"
+              kill "${debug_pid}" 2>/dev/null || true
+              wait "${debug_pid}" 2>/dev/null || true
+              bash scripts/debug/azure.sh snapshot after-multi-region || true
+              exit "${status}"
+            }
+            trap finish_debug EXIT
+          fi
 
           unset AZURE_CLIENT_ID AZURE_CLIENT_SECRET AZURE_TENANT_ID AZURE_REUSE_CONTEXTS AZURE_RESOURCE_GROUP
           stdbuf -oL -eL make test/nightly-e2e/advanced/multi-region 2>&1 | tee test_output.log
@@ -403,6 +390,7 @@ jobs:
           USE_GKE_GCLOUD_AUTH_PLUGIN: true
           TMPDIR: ${{ runner.temp }}
           OPENSHIFT_DEBUG_DIR: ${{ runner.temp }}/openshift-debug
+          OPENSHIFT_CLEANUP_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/cleanup
           OPENSHIFT_DEBUG_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/${{ github.run_id }}/${{ github.run_attempt }}/multi-region
           OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
           OPENSHIFT_PULL_SECRET: ${{ secrets.OPENSHIFT_PULL_SECRET }}
@@ -411,24 +399,26 @@ jobs:
         run: |
           set -euo pipefail
 
-          ./build/openshift-ci-debug.sh ensure-gcs
-          ./build/openshift-ci-debug.sh snapshot before-multi-region
-          ./build/openshift-ci-debug.sh watch 60 &
-          debug_pid="$!"
-          while true; do
-            ./build/openshift-ci-debug.sh sync || true
-            sleep 15
-          done &
-          sync_pid="$!"
-          finish_debug() {
-            status="$?"
-            kill "${debug_pid}" "${sync_pid}" 2>/dev/null || true
-            wait "${debug_pid}" "${sync_pid}" 2>/dev/null || true
-            ./build/openshift-ci-debug.sh snapshot after-multi-region || true
-            ./build/openshift-ci-debug.sh sync || true
-            exit "${status}"
-          }
-          trap finish_debug EXIT
+          if [[ "${E2E_DEBUG}" == "true" ]]; then
+            bash scripts/debug/openshift.sh ensure-gcs
+            bash scripts/debug/openshift.sh snapshot before-multi-region
+            bash scripts/debug/openshift.sh watch 60 &
+            debug_pid="$!"
+            while true; do
+              bash scripts/debug/openshift.sh sync || true
+              sleep 15
+            done &
+            sync_pid="$!"
+            finish_debug() {
+              status="$?"
+              kill "${debug_pid}" "${sync_pid}" 2>/dev/null || true
+              wait "${debug_pid}" "${sync_pid}" 2>/dev/null || true
+              bash scripts/debug/openshift.sh snapshot after-multi-region || true
+              bash scripts/debug/openshift.sh sync || true
+              exit "${status}"
+            }
+            trap finish_debug EXIT
+          fi
 
           unset OPENSHIFT_REUSE_CONTEXTS OPENSHIFT_REUSE_KUBECONFIG OPENSHIFT_REUSE_KUBECONFIGS
           stdbuf -oL -eL make test/nightly-e2e/advanced/multi-region > >(tee test_output.log) 2>&1
@@ -442,10 +432,14 @@ jobs:
           AZURE_DEBUG_DIR: ${{ runner.temp }}/azure-debug
         run: |
           set -euo pipefail
-          ./build/azure-ci-debug.sh snapshot cleanup-before-multi-region || true
+          if [[ "${E2E_DEBUG}" == "true" ]]; then
+            bash scripts/debug/azure.sh snapshot cleanup-before-multi-region || true
+          fi
           cleanup_status=0
-          ./build/azure-ci-debug.sh cleanup-resource-groups || cleanup_status="$?"
-          ./build/azure-ci-debug.sh snapshot cleanup-after-multi-region || true
+          bash scripts/cleanup/azure.sh recorded-resource-groups || cleanup_status="$?"
+          if [[ "${E2E_DEBUG}" == "true" ]]; then
+            bash scripts/debug/azure.sh snapshot cleanup-after-multi-region || true
+          fi
           exit "${cleanup_status}"
       - name: Archive test results
         if: ${{ always() }}
@@ -457,11 +451,19 @@ jobs:
           path: |
             test_output.log
             test_output.json
-            ${{ runner.temp }}/azure-debug/*.log
             ${{ runner.temp }}/azure-resource-groups.txt
+            ${{ runner.temp }}/helm-charts-ocp-*/metadata.json
+      - name: Archive cloud debug diagnostics
+        if: ${{ always() && env.E2E_DEBUG == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: advanced-multi-region-debug-${{ matrix.provider }}
+          if-no-files-found: ignore
+          include-hidden-files: true
+          path: |
+            ${{ runner.temp }}/azure-debug/*.log
             ${{ runner.temp }}/openshift-debug/*.log
             ${{ runner.temp }}/helm-charts-ocp-*/.openshift_install.log
-            ${{ runner.temp }}/helm-charts-ocp-*/metadata.json
       - name: Clean up OpenShift installer state
         if: ${{ always() && matrix.provider == 'openshift' }}
         shell: bash
@@ -469,28 +471,18 @@ jobs:
           TMPDIR: ${{ runner.temp }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           OPENSHIFT_DEBUG_DIR: ${{ runner.temp }}/openshift-debug
+          OPENSHIFT_CLEANUP_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/cleanup
           OPENSHIFT_DEBUG_GCS_URI: gs://${{ secrets.GCP_PROJECT_ID }}-openshift-ci-debug/${{ github.run_id }}/${{ github.run_attempt }}/multi-region
           OPENSHIFT_BASE_DOMAIN: ${{ secrets.OPENSHIFT_BASE_DOMAIN }}
           OPENSHIFT_SKIP_TEARDOWN: "false"
         run: |
           set -euo pipefail
-          shopt -s nullglob
-
-          if [[ "${OPENSHIFT_SKIP_TEARDOWN}" == "true" ]]; then
-            echo "OPENSHIFT_SKIP_TEARDOWN=true; preserving OpenShift installer state"
-            ./build/openshift-ci-debug.sh snapshot skip-teardown-multi-region || true
-            ./build/openshift-ci-debug.sh sync || true
-            exit 0
+          cleanup_status=0
+          bash scripts/cleanup/openshift.sh recorded-installs || cleanup_status=1
+          if [[ "${E2E_DEBUG}" == "true" ]]; then
+            bash scripts/debug/openshift.sh sync || cleanup_status=1
           fi
-
-          ./build/openshift-ci-debug.sh cleanup-multicluster || true
-
-          for install_dir in "${TMPDIR}"/helm-charts-ocp-*; do
-            [[ -d "${install_dir}" ]] || continue
-            echo "Destroying leftover OpenShift cluster from ${install_dir}"
-            openshift-install destroy cluster --dir "${install_dir}" --log-level info || true
-            rm -rf "${install_dir}"
-          done
+          exit "${cleanup_status}"
       - name: Slack notification
         # Temporarily disabled because notification failures can mask test results.
         # Re-enable or replace once CC-36671 is resolved.

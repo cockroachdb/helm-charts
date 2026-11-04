@@ -19,7 +19,7 @@ docker.io/cockroachdb/cockroachdb-operator-v2:v1.1.0
 docker.io/cockroachdb/cockroach:v26.3.4
 
 # Certificate self-signer
-docker.io/cockroachdb/cockroach-self-signer-cert:1.11
+docker.io/cockroachdb/cockroach-self-signer-cert:1.12
 
 # === Operator-managed images ===
 # These images are injected into CockroachDB pods by the operator at runtime and can be

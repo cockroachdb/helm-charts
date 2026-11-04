@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname "${BASH_SOURCE[0]}")/../lib/cloud-resources.sh"
 
 subscription_id="${AZURE_SUBSCRIPTION_ID:-}"
 if [[ -z "${subscription_id}" ]]; then
@@ -24,57 +25,6 @@ timestamp() {
 run_az() {
   echo "+ az $*"
   az "$@" || true
-}
-
-delete_resource_group_async() {
-  local rg="$1"
-  local output
-
-  echo "Deleting Azure resource group ${rg}"
-  if output="$(az group delete \
-    --name "${rg}" \
-    --subscription "${subscription_id}" \
-    --yes \
-    --no-wait \
-    --output none 2>&1)"; then
-    [[ -n "${output}" ]] && echo "${output}"
-    return 0
-  fi
-
-  if [[ "${output}" == *"ResourceGroupNotFound"* || "${output}" == *"could not be found"* || "${output}" == *"was not found"* ]]; then
-    echo "Azure resource group ${rg} is already deleted"
-    return 0
-  fi
-
-  echo "Failed to start async deletion for Azure resource group ${rg}: ${output}" >&2
-  return 1
-}
-
-resource_groups() {
-  [[ -f "${resource_groups_file}" ]] || return 0
-  sed '/^[[:space:]]*$/d' "${resource_groups_file}" | sort -u
-}
-
-old_resource_groups() {
-  local query="[?starts_with(name, '${resource_prefix}-rg-') && tags.ManagedBy=='helm-charts-e2e'"
-  if [[ -n "${current_run_id}" ]]; then
-    query+=" && tags.GitHubRunID!='${current_run_id}'"
-  fi
-  if [[ -n "${current_workflow}" ]]; then
-    query+=" && tags.GitHubWorkflow=='${current_workflow}'"
-  fi
-  if [[ -n "${current_job}" ]]; then
-    query+=" && tags.GitHubJob=='${current_job}'"
-  fi
-  if [[ -n "${current_ref_name}" ]]; then
-    query+=" && tags.GitHubRefName=='${current_ref_name}'"
-  fi
-  query+="].name"
-
-  az group list \
-    --subscription "${subscription_id}" \
-    --query "${query}" \
-    --output tsv
 }
 
 snapshot_resource_group() {
@@ -215,67 +165,8 @@ watch() {
   done
 }
 
-cleanup_resource_groups() {
-  mapfile -t groups < <(resource_groups)
-  if (( ${#groups[@]} == 0 )); then
-    echo "No recorded Azure resource groups found; skipping cleanup"
-    return 0
-  fi
-
-  local cleanup_status=0
-  local rg
-  for rg in "${groups[@]}"; do
-    [[ -n "${rg}" ]] || continue
-    delete_resource_group_async "${rg}" || cleanup_status="$?"
-  done
-  return "${cleanup_status}"
-}
-
-cleanup_old_resource_groups() {
-  local old_groups_output
-  if ! old_groups_output="$(old_resource_groups)"; then
-    return 1
-  fi
-
-  local groups=()
-  if [[ -n "${old_groups_output}" ]]; then
-    mapfile -t groups <<< "${old_groups_output}"
-  fi
-
-  if (( ${#groups[@]} == 0 )); then
-    echo "No old Azure resource groups found for prefix ${resource_prefix}"
-    return 0
-  fi
-
-  echo "Found old Azure resource groups for prefix ${resource_prefix}:"
-  printf '  %s\n' "${groups[@]}"
-  echo "Submitting async cleanup for old Azure resource groups, then failing this run before provisioning new infrastructure."
-
-  local cleanup_status=1
-  local rg
-  for rg in "${groups[@]}"; do
-    [[ -n "${rg}" ]] || continue
-    delete_resource_group_async "${rg}" || cleanup_status="$?"
-  done
-
-  return "${cleanup_status}"
-}
-
 case "${1:-}" in
-  snapshot)
-    snapshot "${2:-snapshot}"
-    ;;
-  watch)
-    watch "${2:-120}"
-    ;;
-  cleanup-resource-groups)
-    cleanup_resource_groups
-    ;;
-  cleanup-old-resource-groups)
-    cleanup_old_resource_groups
-    ;;
-  *)
-    echo "usage: $0 {snapshot [label]|watch [seconds]|cleanup-resource-groups|cleanup-old-resource-groups}" >&2
-    exit 2
-    ;;
+  snapshot) snapshot "${2:-snapshot}" ;;
+  watch) watch "${2:-120}" ;;
+  *) echo "Usage: $0 snapshot [LABEL] | watch [SECONDS]" >&2; exit 2 ;;
 esac

@@ -2,7 +2,7 @@ module github.com/cockroachdb/helm-charts
 
 go 1.26
 
-toolchain go1.26.2
+toolchain go1.26.10
 
 require (
 	github.com/Masterminds/semver/v3 v3.2.1

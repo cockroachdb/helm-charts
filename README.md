@@ -20,7 +20,8 @@ This is a direct installation method for running CockroachDB clusters.
 ### 2. [cockroachdb-operator](./cockroachdb-operator)
 
 The **new recommended way** of installing CockroachDB using the **CockroachDB Operator**.  
-This umbrella chart manages both the Operator and the CockroachDB cluster it provisions.
+Install the Operator and CockroachDB charts as two separate Helm releases, in that order.
+Direct installation of the umbrella chart is unsupported, including for local testing.
 
 ➡️ See the [cockroachdb-operator/charts/operator/README.md](./cockroachdb-operator/charts/operator/README.md) for details on installing the Operator.
 ➡️ See the [cockroachdb-operator/charts/cockroachdb/README.md](./cockroachdb-operator/charts/cockroachdb/README.md) for details on installing cockroachdb.
