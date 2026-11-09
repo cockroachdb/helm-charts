@@ -530,6 +530,7 @@ func ensureKubeConfigFile(kubeConfigPath string) error {
 // Any failure in doing so might cause issues in other tests as some of the
 // cluster resources are tied to the namespace.
 func (r *Region) CleanupResources(t *testing.T) {
+	r.CaptureFailureArtifacts(t)
 	kubeConfig, _ := r.GetCurrentContext(t)
 	for cluster, namespace := range r.Namespace {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, namespace)
@@ -571,6 +572,21 @@ func (r *Region) CleanupResources(t *testing.T) {
 	// Release any encryption infrastructure (KMS keys, IAM bindings, etc.)
 	// that was provisioned during InstallChartsWithAdvancedConfig.
 	r.CleanupEncryptionInfra()
+}
+
+// CaptureFailureArtifacts snapshots every region before cleanup removes resources.
+func (r *Region) CaptureFailureArtifacts(t *testing.T) {
+	if !t.Failed() || os.Getenv("ARTIFACT_DIR") == "" {
+		return
+	}
+	kubeConfig, err := k8s.GetKubeConfigPathE(t)
+	if err != nil {
+		t.Logf("Cannot locate kubeconfig for artifact collection: %v", err)
+		return
+	}
+	for _, cluster := range r.Clusters {
+		testutil.CaptureFailureArtifacts(t, k8s.NewKubectlOptions(cluster, kubeConfig, ""))
+	}
 }
 
 // OperatorRegions returns the regions config based on the index

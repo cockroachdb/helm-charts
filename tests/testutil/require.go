@@ -81,6 +81,7 @@ func RequireClusterToBeReadyEventuallyTimeout(t *testing.T, crdbCluster Cockroac
 
 // RequireCRDBClusterToBeReadyEventuallyTimeout waits for all the CockroachDB pods to come into running state.
 func RequireCRDBClusterToBeReadyEventuallyTimeout(t *testing.T, opts *k8s.KubectlOptions, crdbCluster CockroachCluster, timeout time.Duration) {
+	defer CaptureFailureArtifacts(t, opts)
 	ctx := context.Background()
 	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
 		func(ctx context.Context) (bool, error) {

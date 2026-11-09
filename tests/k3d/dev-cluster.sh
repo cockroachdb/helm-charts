@@ -30,7 +30,7 @@ REQUIRED_IMAGES=(
     "quay.io/jetstack/trust-manager:v0.17.1"
     "quay.io/jetstack/trust-pkg-debian-bookworm:20230311.0"
     "$(bin/yq '.cockroachdb.crdbCluster.image.name' ./cockroachdb-operator/charts/cockroachdb/values.yaml)"
-    "cockroachdb/cockroach-operator:v2.18.3"
+    "cockroachdb/cockroach-operator:v2.18.7"
     "${SELF_SIGNER_IMAGE_REGISTRY}/${SELF_SIGNER_IMAGE_REPOSITORY}:${SELF_SIGNER_IMAGE_TAG}"
 )
 

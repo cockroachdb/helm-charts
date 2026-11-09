@@ -115,6 +115,9 @@ func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T)
 
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, o.CrdbCluster, 600*time.Second)
 	testutil.RequireCRDBToFunction(t, o.CrdbCluster, false)
+	sourceIdentity := snapshotSourceIdentity(t, kubectlOptions, crdbClusterName)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, crdbClusterName)
+	requirePublicServiceSQL(t, kubectlOptions, o.CrdbCluster, publicService)
 	//testutil.TestIngressRoutingDirect(t, kubectlOptions, "ui.local.com")
 
 	prepareForMigration(t, o.CrdbCluster.StatefulSetName, o.Namespace, o.CrdbCluster.CaSecret, "operator")
@@ -159,6 +162,7 @@ func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T)
 	// ValidateCRDB and deferred cleanup require HelmOptions before Helm adoption.
 	o.HelmOptions = &helm.Options{
 		KubectlOptions: kubectlOptions,
+		SetValues:      migrationChartValues(nil),
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 		ExtraArgs: map[string][]string{
 			"install": {"--force-conflicts"},
@@ -188,6 +192,7 @@ func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T)
 	}
 
 	migratePodsToCrdbNodes(t, o.CrdbCluster, o.Namespace)
+	requireSourceIdentity(t, kubectlOptions, crdbClusterName, sourceIdentity)
 
 	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", o.CrdbCluster.StatefulSetName)
 
@@ -210,6 +215,7 @@ func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T)
 
 	o.ValidateExistingData = true
 	o.ValidateCRDB(t)
+	requirePublicServiceSQL(t, kubectlOptions, o.CrdbCluster, publicService)
 	// Manual migration must clear legacy ownership before deleting the StatefulSet.
 	k8s.RunKubectl(t, kubectlOptions, "patch", v1beta1CrdbClusterResource, crdbClusterName,
 		"--type=merge", "-p", `{"metadata":{"managedFields":[{}]}}`)
@@ -224,14 +230,17 @@ func (o *PublicOperatorToCockroachDbOperator) TestDefaultMigration(t *testing.T)
 	verifyHelmSSAUpgrade(t, kubectlOptions, helmPath, crdbClusterName, crdbClusterName,
 		filepath.Join(manifestsDirPath, "values.yaml"))
 	o.ValidateCRDB(t)
+	requirePublicServiceSQL(t, kubectlOptions, o.CrdbCluster, publicService)
 
 	t.Log("Verify Operator Migration")
 	// Verify priority class migration
 	verifyOperatorMigration(t, kubectlOptions, o.CustomResourceBuilder.Cr(), crdbClusterName)
+	requireSourceIdentity(t, kubectlOptions, crdbClusterName, sourceIdentity)
 
 	//testutil.TestIngressRoutingDirect(t, kubectlOptions, "ui.local.com")
 	t.Log("Verify cluster is in MutableOnly mode and uninstall public operator")
 	verifyMutableModeAndCleanupPublicOperator(t, kubectlOptions, crdbClusterName, &o.CrdbCluster)
+	requireSourceIdentity(t, kubectlOptions, crdbClusterName, sourceIdentity)
 }
 
 // verifyOperatorMigration verifies that the operator has been correctly migrated

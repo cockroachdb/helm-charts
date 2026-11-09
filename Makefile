@@ -169,7 +169,7 @@ test/e2e/migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/
 	exit $${EXIT_CODE:-0}
 
 test/e2e/controller-migrate: bin/cockroach bin/kubectl bin/helm bin/migration-helper build/self-signer test/cluster/up/3
-	@PATH="$(PWD)/bin:${PATH}" go test -timeout 120m -v -test.run TestAutoMigration ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
+	@PATH="$(PWD)/bin:${PATH}" go test -timeout 120m -v -test.run "$${CONTROLLER_MIGRATION_TEST_RUN:-^TestAutoMigration$$}" ./tests/e2e/migrate/... || EXIT_CODE=$$?; \
 	$(MAKE) test/cluster/down; \
 	exit $${EXIT_CODE:-0}
 
@@ -207,7 +207,8 @@ test/template: bin/cockroach bin/helm ## Run template tests
 	@PATH="$(PWD)/bin:${PATH}" go test -v ./tests/template/...
 
 test/units: bin/cockroach ## Run unit tests
-	@PATH="$(PWD)/bin:${PATH}" go test -v ./pkg/... ./build/... ./cmd/self-signer/... ./tests/e2e/operator/infra ./scripts/cleanup/...
+	@PATH="$(PWD)/bin:${PATH}" go test -v ./pkg/... ./build/... ./cmd/self-signer/... ./tests/e2e/operator/infra ./scripts/cleanup/... ./tests/testutil/...
+	@PATH="$(PWD)/bin:${PATH}" go test -v -run '^TestMigrationReplacementReady$$' ./tests/e2e/migrate
 
 ##@ Binaries
 bin: bin/cockroach bin/helm bin/k3d bin/kubectl bin/yq ## install all binaries

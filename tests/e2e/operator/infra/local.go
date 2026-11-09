@@ -182,6 +182,7 @@ func (r *LocalRegion) SetUpInfra(t *testing.T) {
 
 // TeardownInfra cleans up all resources created by SetUpInfra
 func (r *LocalRegion) TeardownInfra(t *testing.T) {
+	r.CaptureFailureArtifacts(t)
 	t.Logf("[%s] Tearing down %s infrastructure", r.ProviderType, r.ProviderType)
 
 	var cmd shell.Command

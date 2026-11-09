@@ -51,6 +51,7 @@ func (h *HelmInstall) kubectlOptions(namespace string) *k8s.KubectlOptions {
 
 func (h *HelmInstall) InstallHelm(t *testing.T) {
 	kubectlOptions := h.kubectlOptions(h.Namespace)
+	defer testutil.CaptureFailureArtifacts(t, kubectlOptions)
 
 	h.HelmOptions.KubectlOptions = kubectlOptions
 
@@ -89,6 +90,7 @@ func (h *HelmInstall) ValidateCRDB(t *testing.T) {
 
 func (h *HelmInstall) Uninstall(t *testing.T) {
 	kubectlOptions := h.kubectlOptions(h.Namespace)
+	testutil.CaptureFailureArtifacts(t, kubectlOptions)
 	danglingSecret := []string{}
 	tlsEnabled := h.HelmOptions.SetValues[tlsKey]
 	selfSignerEnabled := h.HelmOptions.SetValues[selfSignerKey]

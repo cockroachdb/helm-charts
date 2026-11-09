@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	publicOperatorVersion                  = "v2.18.3"
+	publicOperatorVersion                  = "v2.18.7"
 	OperatorDeploymentName                 = "cockroach-operator-manager"
 	OperatorNamespace                      = "cockroach-operator-system"
 	OperatorServiceName                    = "cockroach-operator-webhook-service"
@@ -69,12 +69,13 @@ func cockroachVersionFromChart() string {
 
 func (o *PublicOperator) InstallOperator(t *testing.T) {
 	kubectlOptions := o.kubectlOptions(OperatorNamespace)
+	defer testutil.CaptureFailureArtifacts(t, kubectlOptions)
 
 	if _, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "crd", "crdbclusters.crdb.cockroachlabs.com"); err != nil {
 		t.Logf("Installing CRDs for cockroach-operator")
 		applyRemoteManifestWithRetry(t, kubectlOptions,
 			"public operator CRDs",
-			"https://api.github.com/repos/cockroachdb/cockroach-operator/contents/install/crds.yaml?ref="+publicOperatorVersion)
+			"https://api.github.com/repos/cockroachdb/cockroach-operator-legacy/contents/install/crds.yaml?ref="+publicOperatorVersion)
 	}
 	for _, crd := range []string{
 		"crdbclusters.crdb.cockroachlabs.com",
@@ -89,7 +90,7 @@ func (o *PublicOperator) InstallOperator(t *testing.T) {
 		t.Logf("Installing cockroach-operator")
 		applyRemoteManifestWithRetry(t, kubectlOptions,
 			"public operator",
-			"https://api.github.com/repos/cockroachdb/cockroach-operator/contents/install/operator.yaml?ref="+publicOperatorVersion)
+			"https://api.github.com/repos/cockroachdb/cockroach-operator-legacy/contents/install/operator.yaml?ref="+publicOperatorVersion)
 	}
 
 	t.Log("Waiting for cockroach-operator to be ready")

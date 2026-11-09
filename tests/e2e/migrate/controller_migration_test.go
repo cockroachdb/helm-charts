@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 	"github.com/cockroachdb/helm-charts/tests/e2e/operator"
 	"github.com/cockroachdb/helm-charts/tests/testutil"
 	"github.com/cockroachdb/helm-charts/tests/testutil/migration"
@@ -21,6 +22,7 @@ import (
 	"github.com/gruntwork-io/terratest/modules/shell"
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
+	policyv1 "k8s.io/api/policy/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -66,9 +68,57 @@ func TestAutoMigration(t *testing.T) {
 	ensureMigrationTestEnv(t)
 
 	t.Run("helm forward migration", testHelmAutoForwardMigration)
+	t.Run("helm forward with shell cluster name", func(t *testing.T) {
+		testHelmAutoForwardMigrationWithValues(t, map[string]string{"conf.cluster-name": "$(printf test)"}, true)
+	})
+	t.Run("helm rollback with shell cluster name", func(t *testing.T) {
+		testHelmAutoRollbackFromPhase(t, false, map[string]string{"conf.cluster-name": "$(printf test)"})
+	})
+	t.Run("helm provided self-signer CA", func(t *testing.T) {
+		testHelmAutoForwardMigrationWithValues(t, map[string]string{
+			"tls.certs.selfSigner.caProvided": "true", "tls.certs.selfSigner.caSecret": "supplied-ca",
+		}, true)
+	})
 	t.Run("helm stop and resume", testHelmAutoStopResume)
 	t.Run("helm rollback", testHelmAutoRollback)
+	t.Run("helm forward without cluster name verification", func(t *testing.T) {
+		testHelmAutoForwardMigrationWithValues(t, map[string]string{"conf.disable-cluster-name-verification": "true"}, true)
+	})
+	t.Run("helm rollback without cluster name verification", func(t *testing.T) {
+		testHelmAutoRollbackFromPhase(t, false, map[string]string{"conf.disable-cluster-name-verification": "true"})
+	})
+	t.Run("helm rollback during finalization", func(t *testing.T) {
+		testHelmAutoRollbackFromPhase(t, true, nil)
+	})
+	t.Run("helm shared external port migration", func(t *testing.T) {
+		// A distinct client-facing port is supported by migration. Adoption needs
+		// separate Service management, as documented; do not silently normalize it.
+		testHelmAutoForwardMigrationWithValues(t, map[string]string{"service.ports.grpc.external.port": "30057"}, false)
+	})
+	t.Run("helm provided TLS certificates", func(t *testing.T) {
+		testHelmAutoProvidedCertificates(t, true, false)
+	})
+	t.Run("helm provided TLS certificates with SIGHUP", func(t *testing.T) {
+		testHelmAutoProvidedCertificates(t, true, true)
+	})
+	t.Run("helm provided non-TLS Secret layout blocked", func(t *testing.T) {
+		testHelmAutoProvidedCertificates(t, false, false)
+	})
+	t.Run("helm insecure forward migration", func(t *testing.T) { testHelmAutoInsecureMigration(t, false) })
+	t.Run("helm insecure rollback", func(t *testing.T) { testHelmAutoInsecureMigration(t, true) })
 	t.Run("operator forward migration", testOperatorAutoForwardMigration)
+	for _, mode := range []string{"node", "client", "both"} {
+		t.Run("operator custom TLS Secrets "+mode, func(t *testing.T) {
+			node, client := "", ""
+			if mode != "client" {
+				node = "custom-node"
+			}
+			if mode != "node" {
+				client = "custom-client"
+			}
+			testOperatorAutoForwardMigrationWithTLSSecrets(t, node, client)
+		})
+	}
 	t.Run("operator stop and resume", testOperatorAutoStopResume)
 	t.Run("operator rollback", testOperatorAutoRollback)
 	t.Run("helm cert-manager migration", testHelmAutoCertManagerMigration)
@@ -78,24 +128,49 @@ func TestAutoMigration(t *testing.T) {
 // automatic migration to completion, validates data integrity, then adopts it via
 // the Helm chart.
 func testHelmAutoForwardMigration(t *testing.T) {
+	testHelmAutoForwardMigrationWithValues(t, nil, true)
+}
+
+func testHelmAutoForwardMigrationWithValues(t *testing.T, sourceValues map[string]string, adopt bool) {
 	ns := "cockroach" + strings.ToLower(random.UniqueId())
 	kubectlOptions := migrationKubectlOptions(ns)
 
 	cleanupPublicOperatorResources(t)
-	stsName, crdbCluster := installHelmSourceCluster(t, kubectlOptions, ns)
+	operatorInstalled := false
 	defer func() {
 		_ = os.RemoveAll(manifestsDirPath)
 	}()
 	defer func() {
+		testutil.CaptureFailureArtifacts(t, kubectlOptions)
 		_ = helm.DeleteE(t, &helm.Options{KubectlOptions: kubectlOptions}, releaseName, true)
-		waitForClusterResourcesGone(t, kubectlOptions)
-		uninstallMigrationOperator(t, kubectlOptions)
+		if operatorInstalled {
+			_ = k8s.RunKubectlE(t, kubectlOptions, "delete", v1beta1CrdbClusterResource, "--all", "--ignore-not-found=true", "--timeout=60s")
+			waitForClusterResourcesGone(t, kubectlOptions)
+			uninstallMigrationOperator(t, kubectlOptions)
+		}
 		k8s.DeleteNamespace(t, kubectlOptions, ns)
 	}()
 
+	var suppliedCAFingerprint string
+	if sourceValues["tls.certs.selfSigner.caProvided"] == "true" {
+		suppliedCAFingerprint = createHelmSuppliedCA(t, kubectlOptions, releaseName+"-cockroachdb", sourceValues["tls.certs.selfSigner.caSecret"])
+	}
+	stsName, crdbCluster := installHelmSourceCluster(t, kubectlOptions, ns, sourceValues)
+
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+	sourceIdentity := snapshotSourceIdentity(t, kubectlOptions, stsName)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, stsName)
+	if sourceValues["service.ports.grpc.external.port"] == "" {
+		require.EqualValues(t, 26257, publicService.port, "fixture must exercise the legacy shared SQL/gRPC listener")
+	}
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	originalPVCs := snapshotMigrationPVCs(t, kubectlOptions)
+	requireHelmChartPVCMetadata(t, originalPVCs, crdbCluster.DesiredNodes)
+	sourceResources := snapshotMigrationSourceResources(t, kubectlOptions,
+		"poddisruptionbudget/"+stsName+"-budget", "role/"+stsName, "rolebinding/"+stsName)
 
+	operatorInstalled = true
 	installMigrationOperator(t, kubectlOptions, ns)
 
 	// Start migration.
@@ -104,11 +179,20 @@ func testHelmAutoForwardMigration(t *testing.T) {
 	// Wait for migration controller to create CrdbCluster and advance through phases.
 	waitForMigrationPhase(t, kubectlOptions, stsName, phaseCertMigration, 5*time.Minute)
 	waitForMigrationPhase(t, kubectlOptions, stsName, phasePodMigration, 10*time.Minute)
+	waitForFirstHelmReplacement(t, kubectlOptions, stsName)
+	requireSharedListenerReplacement(t, kubectlOptions, stsName, sourceValues["conf.cluster-name"], sourceValues["conf.disable-cluster-name-verification"] == "true")
+	requirePublicServicePreserved(t, kubectlOptions, publicService)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 
 	// Verify CrdbNodes are being created one by one and cluster stays healthy.
 	waitForCrdbNodeCount(t, kubectlOptions, stsName, crdbCluster.DesiredNodes, 20*time.Minute)
 
-	waitForMigrationPhase(t, kubectlOptions, stsName, phaseFinalization, phaseFinalizationTimeout)
+	waitForSettledFinalization(t, kubectlOptions, stsName)
+	requireMigrationSourceResourcesPreserved(t, kubectlOptions, sourceResources)
+	requireSharedListenerReplacement(t, kubectlOptions, stsName, sourceValues["conf.cluster-name"], sourceValues["conf.disable-cluster-name-verification"] == "true")
+	requirePublicServicePreserved(t, kubectlOptions, publicService)
+	requireMigrationPVCsPreserved(t, kubectlOptions, originalPVCs)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 
 	// Finalization complete: delete the StatefulSet to trigger Phase=Complete.
 	t.Log("Deleting StatefulSet to trigger migration completion")
@@ -118,20 +202,55 @@ func testHelmAutoForwardMigration(t *testing.T) {
 
 	// Assert final state.
 	requireMigrationComplete(t, kubectlOptions, stsName)
+	requirePublicServicePreserved(t, kubectlOptions, publicService)
+	requireMigrationSourceRBACPreserved(t, kubectlOptions, sourceResources)
 	requireHelmSourceFieldsPreserved(t, kubectlOptions, stsName)
+	requireSourceIdentity(t, kubectlOptions, stsName, sourceIdentity)
 
 	// Validate data survived migration.
 	crdbCluster.ClientSecret = fmt.Sprintf("%s-client-secret", stsName)
 	crdbCluster.NodeSecret = fmt.Sprintf("%s-node-secret", stsName)
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	if !adopt {
+		return
+	}
 
 	valuesFile := exportValuesForHelmAdoption(t, stsName, ns)
+	customSAN := "migration-client." + ns + ".svc.cluster.local"
+	certificatesBeforeAdoption := requireMigrationSelfSignerExport(t, kubectlOptions, stsName, valuesFile, sourceValues["tls.certs.selfSigner.caSecret"],
+		"migration.example.test", "192.0.2.10", customSAN)
 
 	// Adopt into Helm chart with values generated from the live migrated v1beta1
 	// cluster so takeover reflects the actual controller output.
 	adoptIntoCockroachDBHelmChart(t, kubectlOptions, stsName, releaseName, ns, valuesFile)
+	requireMigrationSelfSignerAdoption(t, kubectlOptions, stsName, crdbCluster.DesiredNodes, certificatesBeforeAdoption)
+	service, err := k8s.GetServiceE(t, kubectlOptions, publicService.name)
+	require.NoError(t, err)
+	var sharedPorts []corev1.ServicePort
+	for _, port := range service.Spec.Ports {
+		if port.Port == publicService.port {
+			sharedPorts = append(sharedPorts, port)
+		}
+	}
+	require.Len(t, sharedPorts, 1, "adoption must render one entry for the shared listener")
+	require.Equal(t, "grpc", sharedPorts[0].TargetPort.String())
 	requireHelmSourceFieldsPreserved(t, kubectlOptions, stsName)
+	requireSourceIdentity(t, kubectlOptions, stsName, sourceIdentity)
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	requireMigrationPVCsPreserved(t, kubectlOptions, originalPVCs)
+	customEndpoint := publicSQLService{name: "migration-client", port: publicService.port}
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, customEndpoint)
+	requireMigrationSelfSignerRotation(t, kubectlOptions, stsName, crdbCluster, certificatesBeforeAdoption,
+		"migration.example.test", "192.0.2.10", customSAN)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, customEndpoint)
+	requireSourceIdentity(t, kubectlOptions, stsName, sourceIdentity)
+	if suppliedCAFingerprint != "" {
+		require.Equal(t, suppliedCAFingerprint, migrationSecretFingerprint(t,
+			k8s.GetSecret(t, kubectlOptions, sourceValues["tls.certs.selfSigner.caSecret"])), "migration or adoption replaced the supplied CA")
+	}
 }
 
 // testHelmAutoStopResume migrates a Helm cluster, stops mid-way, verifies the cluster
@@ -146,7 +265,9 @@ func testHelmAutoStopResume(t *testing.T) {
 		_ = os.RemoveAll(manifestsDirPath)
 	}()
 	defer func() {
+		testutil.CaptureFailureArtifacts(t, kubectlOptions)
 		_ = helm.DeleteE(t, &helm.Options{KubectlOptions: kubectlOptions}, releaseName, true)
+		_ = k8s.RunKubectlE(t, kubectlOptions, "delete", v1beta1CrdbClusterResource, "--all", "--ignore-not-found=true", "--timeout=60s")
 		waitForClusterResourcesGone(t, kubectlOptions)
 		uninstallMigrationOperator(t, kubectlOptions)
 		k8s.DeleteNamespace(t, kubectlOptions, ns)
@@ -154,6 +275,8 @@ func testHelmAutoStopResume(t *testing.T) {
 
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, stsName)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 
 	installMigrationOperator(t, kubectlOptions, ns)
 
@@ -172,11 +295,13 @@ func testHelmAutoStopResume(t *testing.T) {
 	crdbCluster.ClientSecret = fmt.Sprintf("%s-client-secret", stsName)
 	crdbCluster.NodeSecret = fmt.Sprintf("%s-node-secret", stsName)
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 
 	// Resume migration.
 	k8s.RunKubectl(t, kubectlOptions, "label", "sts", stsName, "crdb.io/migrate=start", "--overwrite")
+	waitForMigrationResume(t, kubectlOptions, stsName)
 	waitForCrdbNodeCount(t, kubectlOptions, stsName, crdbCluster.DesiredNodes, 20*time.Minute)
-	waitForMigrationPhase(t, kubectlOptions, stsName, phaseFinalization, phaseFinalizationTimeout)
+	waitForSettledFinalization(t, kubectlOptions, stsName)
 
 	// Per the migration docs, the source StatefulSet must be deleted to move
 	// from Finalization to Complete.
@@ -185,25 +310,32 @@ func testHelmAutoStopResume(t *testing.T) {
 	requireMigrationComplete(t, kubectlOptions, stsName)
 	requireHelmSourceFieldsPreserved(t, kubectlOptions, stsName)
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 
 	valuesFile := exportValuesForHelmAdoption(t, stsName, ns)
 	adoptIntoCockroachDBHelmChart(t, kubectlOptions, stsName, releaseName, ns, valuesFile)
 	requireHelmSourceFieldsPreserved(t, kubectlOptions, stsName)
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 }
 
 // testHelmAutoRollback starts migration, waits until at least one node is replaced,
 // then triggers rollback and verifies the StatefulSet is fully restored.
 func testHelmAutoRollback(t *testing.T) {
+	testHelmAutoRollbackFromPhase(t, false, nil)
+}
+
+func testHelmAutoRollbackFromPhase(t *testing.T, finalization bool, sourceValues map[string]string) {
 	ns := "cockroach" + strings.ToLower(random.UniqueId())
 	kubectlOptions := migrationKubectlOptions(ns)
 
 	cleanupPublicOperatorResources(t)
-	stsName, crdbCluster := installHelmSourceCluster(t, kubectlOptions, ns)
+	stsName, crdbCluster := installHelmSourceCluster(t, kubectlOptions, ns, sourceValues)
 	defer func() {
 		_ = os.RemoveAll(manifestsDirPath)
 	}()
 	defer func() {
+		testutil.CaptureFailureArtifacts(t, kubectlOptions)
 		_ = helm.DeleteE(t, &helm.Options{KubectlOptions: kubectlOptions}, releaseName, true)
 		// Rollback does not adopt into Helm, so explicitly delete CRs before
 		// waiting. The operator is still running and will process finalizers.
@@ -215,13 +347,30 @@ func testHelmAutoRollback(t *testing.T) {
 
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, stsName)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	originalPVCs := snapshotMigrationPVCs(t, kubectlOptions)
+	requireHelmChartPVCMetadata(t, originalPVCs, crdbCluster.DesiredNodes)
+	sourceResources := snapshotMigrationSourceResources(t, kubectlOptions,
+		"poddisruptionbudget/"+stsName+"-budget", "role/"+stsName, "rolebinding/"+stsName,
+		"service/"+stsName)
 
 	installMigrationOperator(t, kubectlOptions, ns)
 
 	k8s.RunKubectl(t, kubectlOptions, "label", "sts", stsName, "crdb.io/migrate=start")
 	waitForMigrationPhase(t, kubectlOptions, stsName, phasePodMigration, 10*time.Minute)
 	// At least 1 CrdbNode must exist before rolling back.
-	waitForCrdbNodeCount(t, kubectlOptions, stsName, 1, 5*time.Minute)
+	waitForFirstHelmReplacement(t, kubectlOptions, stsName)
+	requireSharedListenerReplacement(t, kubectlOptions, stsName, sourceValues["conf.cluster-name"], sourceValues["conf.disable-cluster-name-verification"] == "true")
+	requirePublicServicePreserved(t, kubectlOptions, publicService)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	if finalization {
+		waitForCrdbNodeCount(t, kubectlOptions, stsName, crdbCluster.DesiredNodes, 20*time.Minute)
+		waitForSettledFinalization(t, kubectlOptions, stsName)
+		requireSharedListenerReplacement(t, kubectlOptions, stsName, sourceValues["conf.cluster-name"], sourceValues["conf.disable-cluster-name-verification"] == "true")
+		requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	}
+	requireMigrationSourceResourcesPreserved(t, kubectlOptions, sourceResources)
 
 	// Remove the label to trigger rollback.
 	k8s.RunKubectl(t, kubectlOptions, "label", "sts", stsName, "crdb.io/migrate-")
@@ -230,24 +379,133 @@ func testHelmAutoRollback(t *testing.T) {
 	waitForSTSReplicas(t, kubectlOptions, stsName, crdbCluster.DesiredNodes, 10*time.Minute)
 	waitForCrdbNodeCount(t, kubectlOptions, stsName, 0, 5*time.Minute)
 
+	requireRollbackArtifactsRemoved(t, kubectlOptions, stsName, false)
+	requireMigrationSourceResourcesPreserved(t, kubectlOptions, sourceResources)
+	requireJSONPathEquals(t, kubectlOptions, "sts", stsName, "{.metadata.labels.crdb\\.io/migrate}", "")
+
 	// Cluster must be healthy after rollback.
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 300*time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	requireMigrationPVCsPreserved(t, kubectlOptions, originalPVCs)
+	requirePublicServicePreserved(t, kubectlOptions, publicService)
+	requireDiscoveryRejoinAfterRollback(t, kubectlOptions, stsName, crdbCluster)
 }
 
-// testOperatorAutoForwardMigration migrates a public-operator cluster to the Cloud
-// operator, validates data integrity, then cleans up public operator resources.
+// testHelmAutoInsecureMigration exercises both outcomes without introducing TLS
+// credentials: migrate and adopt the exported values, or restore the source.
+func testHelmAutoInsecureMigration(t *testing.T, rollback bool) {
+	ns := "cockroach" + strings.ToLower(random.UniqueId())
+	options := migrationKubectlOptions(ns)
+	cleanupPublicOperatorResources(t)
+	name, cluster := installHelmSourceCluster(t, options, ns, map[string]string{
+		"tls.enabled": "false", "tls.certs.selfSigner.enabled": "false",
+	})
+	defer func() {
+		testutil.CaptureFailureArtifacts(t, options)
+		_ = os.RemoveAll(manifestsDirPath)
+		_ = helm.DeleteE(t, &helm.Options{KubectlOptions: options}, releaseName, true)
+		_ = k8s.RunKubectlE(t, options, "delete", v1beta1CrdbClusterResource, "--all", "--ignore-not-found=true")
+		waitForClusterResourcesGone(t, options)
+		uninstallMigrationOperator(t, options)
+		k8s.DeleteNamespace(t, options, ns)
+	}()
+	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, options, cluster, 600*time.Second)
+	testutil.RequireCRDBToFunction(t, cluster, false)
+	service := snapshotPublicSQLService(t, options, name)
+	requirePublicServiceSQL(t, options, cluster, service)
+	claims := snapshotMigrationPVCs(t, options)
+	requireHelmChartPVCMetadata(t, claims, cluster.DesiredNodes)
+	installMigrationOperator(t, options, ns)
+	k8s.RunKubectl(t, options, "label", "sts", name, "crdb.io/migrate=start")
+	waitForMigrationPhase(t, options, name, phasePodMigration, 10*time.Minute)
+	wantNodes := cluster.DesiredNodes
+	if rollback {
+		wantNodes = 1
+	}
+	waitForCrdbNodeCount(t, options, name, wantNodes, 20*time.Minute)
+	requireInsecureMigrationState(t, options, name)
+	requirePublicServiceSQL(t, options, cluster, service)
+	events, err := k8s.RunKubectlAndGetOutputE(t, options, "get", "events",
+		"--field-selector", "involvedObject.name="+name, "-o", "jsonpath={.items[*].reason}")
+	require.NoError(t, err)
+	require.Contains(t, events, "InsecureClusterMigration")
+	if rollback {
+		k8s.RunKubectl(t, options, "label", "sts", name, "crdb.io/migrate=rollback", "--overwrite")
+		waitForSTSReplicas(t, options, name, cluster.DesiredNodes, 10*time.Minute)
+		waitForCrdbNodeCount(t, options, name, 0, 5*time.Minute)
+		requireRollbackArtifactsRemoved(t, options, name, false)
+		requireJSONPathEquals(t, options, "sts", name, "{.metadata.labels.crdb\\.io/migrate}", "")
+		testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, options, cluster, 300*time.Second)
+	} else {
+		waitForSettledFinalization(t, options, name)
+		deleteStatefulSetAndWaitGone(t, options, name, 3*time.Minute)
+		waitForMigrationPhase(t, options, name, phaseComplete, 3*time.Minute)
+		requireMigrationComplete(t, options, name)
+		valuesFile := exportValuesForHelmAdoption(t, name, ns)
+		requireInsecureMigrationValues(t, valuesFile)
+		adoptIntoCockroachDBHelmChart(t, options, name, releaseName, ns, valuesFile)
+		waitForClusterPodCount(t, options, name, cluster.DesiredNodes, 5*time.Minute)
+		requireInsecureMigrationState(t, options, name)
+	}
+	testutil.RequireCRDBToFunction(t, cluster, true)
+	requirePublicServiceSQL(t, options, cluster, service)
+	requireMigrationPVCsPreserved(t, options, claims)
+}
+
+func requireInsecureMigrationState(t *testing.T, options *k8s.KubectlOptions, name string) {
+	t.Helper()
+	raw, err := k8s.RunKubectlAndGetOutputE(t, options, "get", v1beta1CrdbClusterResource, name, "-o", "json")
+	require.NoError(t, err)
+	var cluster struct {
+		Spec struct {
+			TLSEnabled bool `json:"tlsEnabled"`
+		} `json:"spec"`
+	}
+	require.NoError(t, json.Unmarshal([]byte(raw), &cluster))
+	// The API omits this field when false, so decode it with the same zero value.
+	require.False(t, cluster.Spec.TLSEnabled, "migration must keep TLS disabled")
+	requireJSONPathEquals(t, options, v1beta1CrdbClusterResource, name,
+		"{.spec.template.spec.certificates.externalCertificates}", "")
+	for _, suffix := range []string{"-ca-secret", "-node-secret", "-client-secret"} {
+		_, err := k8s.GetSecretE(t, options, name+suffix)
+		require.True(t, apierrors.IsNotFound(err), "insecure migration created Secret %s: %v", name+suffix, err)
+	}
+	for _, suffix := range []string{"-ca-crt", "-ca-secret-crt"} {
+		_, err := k8s.GetConfigMapE(t, options, name+suffix)
+		require.True(t, apierrors.IsNotFound(err), "insecure migration created CA ConfigMap %s: %v", name+suffix, err)
+	}
+	cronjobs, err := k8s.RunKubectlAndGetOutputE(t, options, "get", "cronjobs", "-o", "name")
+	require.NoError(t, err)
+	require.Empty(t, strings.TrimSpace(cronjobs), "insecure migration must not install rotation jobs")
+}
+
+// testOperatorAutoForwardMigration migrates a public-operator cluster to the CockroachDB
+// Operator, validates data integrity, then cleans up public operator resources.
 func testOperatorAutoForwardMigration(t *testing.T) {
+	testOperatorAutoForwardMigrationWithTLSSecrets(t, "", "")
+}
+
+func testOperatorAutoForwardMigrationWithTLSSecrets(t *testing.T, nodeSecret, clientSecret string) {
 	ns := "cockroach" + strings.ToLower(random.UniqueId())
 	kubectlOptions := migrationKubectlOptions(ns)
 
 	clusterName, crdbCluster := installPublicOperatorSourceCluster(t, kubectlOptions, ns)
+	operatorInstalled := false
 	defer func() {
 		_ = os.RemoveAll(manifestsDirPath)
 	}()
 	defer func() {
+		testutil.CaptureFailureArtifacts(t, kubectlOptions)
 		_ = helm.DeleteE(t, &helm.Options{KubectlOptions: kubectlOptions}, releaseName, true)
-		waitForClusterResourcesGone(t, kubectlOptions)
+		clusterResource := v1alpha1CrdbClusterResource
+		if operatorInstalled {
+			clusterResource = v1beta1CrdbClusterResource
+		}
+		_ = k8s.RunKubectlE(t, kubectlOptions, "delete", clusterResource, "--all", "--ignore-not-found=true", "--timeout=60s")
+		if operatorInstalled {
+			waitForClusterResourcesGone(t, kubectlOptions)
+		}
 		uninstallMigrationOperator(t, kubectlOptions)
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "operator-critical", "--ignore-not-found")
 		cleanupPublicOperatorResources(t)
@@ -256,9 +514,16 @@ func testOperatorAutoForwardMigration(t *testing.T) {
 
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+	customTLS := nodeSecret != "" || clientSecret != ""
+	if customTLS {
+		crdbCluster = configureLegacyOperatorTLSSecrets(t, kubectlOptions, crdbCluster, nodeSecret, clientSecret)
+	}
+	sourceIdentity := snapshotSourceIdentity(t, kubectlOptions, clusterName)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, clusterName)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	originalPVCs := snapshotMigrationPVCs(t, kubectlOptions)
 
-	// Step 1: Pause public operator before installing Cloud operator.
-	k8s.RunKubectl(t, kubectlOptions, "label", v1alpha1CrdbClusterResource, clusterName, "crdb.io/skip-reconcile=true", "--overwrite")
+	// Leave the public source active initially to verify the explicit opt-in gate.
 
 	// Step 2: Annotate CrdbCluster with cloud region and provider for conversion.
 	retry.DoWithRetry(t, "annotate crdbcluster", 5, 2*time.Second, func() (string, error) {
@@ -270,21 +535,26 @@ func testOperatorAutoForwardMigration(t *testing.T) {
 			fmt.Sprintf("crdb.cockroachlabs.com/regionCode=%s", cloudRegion), "--overwrite")
 	})
 
-	// Step 3: Install Cloud operator scoped to this namespace.
+	// Step 3: Install CockroachDB Operator scoped to this namespace.
+	operatorInstalled = true
 	installMigrationOperator(t, kubectlOptions, ns)
 
-	// While the paused v1alpha1 source still exists, install and upgrade an
+	// While the active v1alpha1 source still exists, install and upgrade an
 	// unrelated native v1beta1 cluster with Helm 4 SSA. This exercises the
 	// conversion webhook coexistence path without adding another suite case.
-	verifyFreshV1Beta1HelmClusterDuringCoexistence(t, kubectlOptions, ns, clusterName, crdbCluster)
+	if !customTLS {
+		verifyFreshV1Beta1HelmClusterDuringCoexistence(t, kubectlOptions, ns, clusterName, crdbCluster)
+	}
 
 	// Step 4: Start migration.
-	k8s.RunKubectl(t, kubectlOptions, "label", v1alpha1CrdbClusterResource, clusterName, "crdb.io/migrate=start")
+	k8s.RunKubectl(t, kubectlOptions, "label", v1beta1CrdbClusterResource, clusterName, "crdb.io/migrate=start")
+	requireMigrationWaitsForSkipReconcile(t, kubectlOptions, clusterName, crdbCluster.DesiredNodes)
+	k8s.RunKubectl(t, kubectlOptions, "label", v1alpha1CrdbClusterResource, clusterName, "crdb.io/skip-reconcile=true", "--overwrite")
 
 	waitForMigrationPhase(t, kubectlOptions, clusterName, phaseCertMigration, 5*time.Minute)
 	waitForMigrationPhase(t, kubectlOptions, clusterName, phasePodMigration, 10*time.Minute)
 	waitForCrdbNodeCount(t, kubectlOptions, clusterName, crdbCluster.DesiredNodes, 20*time.Minute)
-	waitForMigrationPhase(t, kubectlOptions, clusterName, phaseFinalization, phaseFinalizationTimeout)
+	waitForSettledFinalization(t, kubectlOptions, clusterName)
 
 	// Per the migration docs, the source StatefulSet must be deleted to move
 	// from Finalization to Complete.
@@ -293,11 +563,15 @@ func testOperatorAutoForwardMigration(t *testing.T) {
 	requireMigrationComplete(t, kubectlOptions, clusterName)
 	requireNoLegacyV1Alpha1ManagedFields(t, kubectlOptions, clusterName)
 	requireOperatorSourceFieldsPreserved(t, kubectlOptions, clusterName)
+	requireSourceIdentity(t, kubectlOptions, clusterName, sourceIdentity)
 
 	// Validate data survived migration.
-	crdbCluster.ClientSecret = fmt.Sprintf("%s-client-secret", clusterName)
-	crdbCluster.NodeSecret = fmt.Sprintf("%s-node-secret", clusterName)
+	if !customTLS {
+		crdbCluster.ClientSecret = fmt.Sprintf("%s-client-secret", clusterName)
+		crdbCluster.NodeSecret = fmt.Sprintf("%s-node-secret", clusterName)
+	}
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 
 	// Keep skip-reconcile on the source v1alpha1 resource after successful
 	// migration so the public operator cannot resume reconciling it.
@@ -306,12 +580,36 @@ func testOperatorAutoForwardMigration(t *testing.T) {
 	require.Equal(t, "true", skipReconcile, "skip-reconcile label should remain after migration complete")
 
 	valuesFile := exportValuesForHelmAdoption(t, clusterName, ns)
+	var certificateFingerprints map[string]string
+	if customTLS {
+		requireExternalCertificateExport(t, kubectlOptions, clusterName, valuesFile, crdbCluster)
+		certificateFingerprints = map[string]string{}
+		for _, secret := range []string{crdbCluster.CaSecret, crdbCluster.NodeSecret, crdbCluster.ClientSecret} {
+			certificateFingerprints[secret] = migrationSecretFingerprint(t, k8s.GetSecret(t, kubectlOptions, secret))
+		}
+	}
 
 	// Adopt the migrated cluster into the CockroachDB Helm chart with values
 	// generated from the live migrated v1beta1 resources.
 	adoptIntoCockroachDBHelmChart(t, kubectlOptions, clusterName, clusterName, ns, valuesFile)
 	requireOperatorSourceFieldsPreserved(t, kubectlOptions, clusterName)
+	requireSourceIdentity(t, kubectlOptions, clusterName, sourceIdentity)
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	requireMigrationPVCsPreserved(t, kubectlOptions, originalPVCs)
+	if customTLS {
+		requireExternalCertificateReferences(t, kubectlOptions, clusterName, crdbCluster)
+		for secret, fingerprint := range certificateFingerprints {
+			require.Equal(t, fingerprint, migrationSecretFingerprint(t, k8s.GetSecret(t, kubectlOptions, secret)), "adoption replaced an external certificate")
+		}
+		jobs, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "cronjobs", "-o", "name")
+		require.NoError(t, err)
+		require.Empty(t, jobs, "custom certificate names must remain external, without self-signer rotation")
+	}
+	if !customTLS {
+		verifyLegacyOperatorRetirement(t, kubectlOptions, clusterName, valuesFile, crdbCluster, publicService)
+		requireSourceIdentity(t, kubectlOptions, clusterName, sourceIdentity)
+	}
 }
 
 // testOperatorAutoStopResume pauses a public-operator migration and then resumes it.
@@ -324,7 +622,9 @@ func testOperatorAutoStopResume(t *testing.T) {
 		_ = os.RemoveAll(manifestsDirPath)
 	}()
 	defer func() {
+		testutil.CaptureFailureArtifacts(t, kubectlOptions)
 		_ = helm.DeleteE(t, &helm.Options{KubectlOptions: kubectlOptions}, releaseName, true)
+		_ = k8s.RunKubectlE(t, kubectlOptions, "delete", v1beta1CrdbClusterResource, "--all", "--ignore-not-found=true", "--timeout=60s")
 		waitForClusterResourcesGone(t, kubectlOptions)
 		uninstallMigrationOperator(t, kubectlOptions)
 		k8s.RunKubectl(t, kubectlOptions, "delete", "priorityclass", "operator-critical", "--ignore-not-found")
@@ -334,6 +634,8 @@ func testOperatorAutoStopResume(t *testing.T) {
 
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, clusterName)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 
 	k8s.RunKubectl(t, kubectlOptions, "label", v1alpha1CrdbClusterResource, clusterName, "crdb.io/skip-reconcile=true", "--overwrite")
 	retry.DoWithRetry(t, "annotate crdbcluster", 5, 2*time.Second, func() (string, error) {
@@ -359,11 +661,13 @@ func testOperatorAutoStopResume(t *testing.T) {
 	crdbCluster.ClientSecret = fmt.Sprintf("%s-client-secret", clusterName)
 	crdbCluster.NodeSecret = fmt.Sprintf("%s-node-secret", clusterName)
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 
 	// Resume.
 	k8s.RunKubectl(t, kubectlOptions, "label", v1alpha1CrdbClusterResource, clusterName, "crdb.io/migrate=start", "--overwrite")
+	waitForMigrationResume(t, kubectlOptions, clusterName)
 	waitForCrdbNodeCount(t, kubectlOptions, clusterName, crdbCluster.DesiredNodes, 20*time.Minute)
-	waitForMigrationPhase(t, kubectlOptions, clusterName, phaseFinalization, phaseFinalizationTimeout)
+	waitForSettledFinalization(t, kubectlOptions, clusterName)
 
 	// Per the migration docs, the source StatefulSet must be deleted to move
 	// from Finalization to Complete.
@@ -381,6 +685,7 @@ func testOperatorAutoStopResume(t *testing.T) {
 	adoptIntoCockroachDBHelmChart(t, kubectlOptions, clusterName, clusterName, ns, valuesFile)
 	requireOperatorSourceFieldsPreserved(t, kubectlOptions, clusterName)
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 }
 
 // testOperatorAutoRollback triggers rollback mid-migration and verifies the public
@@ -391,6 +696,7 @@ func testOperatorAutoRollback(t *testing.T) {
 
 	clusterName, crdbCluster := installPublicOperatorSourceCluster(t, kubectlOptions, ns)
 	defer func() {
+		testutil.CaptureFailureArtifacts(t, kubectlOptions)
 		// Rollback does not adopt into Helm, so explicitly delete CRs before
 		// waiting. The operator is still running and will process finalizers.
 		_ = k8s.RunKubectlE(t, kubectlOptions, "delete", "crdbclusters.crdb.cockroachlabs.com", "--all", "--ignore-not-found=true")
@@ -403,6 +709,12 @@ func testOperatorAutoRollback(t *testing.T) {
 
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 600*time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, clusterName)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	originalPVCs := snapshotMigrationPVCs(t, kubectlOptions)
+	sourceResources := snapshotMigrationSourceResources(t, kubectlOptions,
+		"poddisruptionbudget/"+clusterName, "role/"+clusterName+"-role",
+		"rolebinding/"+clusterName+"-role-binding", "service/"+clusterName)
 
 	k8s.RunKubectl(t, kubectlOptions, "label", v1alpha1CrdbClusterResource, clusterName, "crdb.io/skip-reconcile=true", "--overwrite")
 	retry.DoWithRetry(t, "annotate crdbcluster", 5, 2*time.Second, func() (string, error) {
@@ -419,6 +731,8 @@ func testOperatorAutoRollback(t *testing.T) {
 	k8s.RunKubectl(t, kubectlOptions, "label", v1alpha1CrdbClusterResource, clusterName, "crdb.io/migrate=start")
 	waitForMigrationPhase(t, kubectlOptions, clusterName, phasePodMigration, 10*time.Minute)
 	waitForCrdbNodeCount(t, kubectlOptions, clusterName, 1, 5*time.Minute)
+
+	requireMigrationSourceResourcesPreserved(t, kubectlOptions, sourceResources)
 
 	// Remove label to trigger rollback.
 	k8s.RunKubectl(t, kubectlOptions, "label", v1alpha1CrdbClusterResource, clusterName, "crdb.io/migrate-")
@@ -440,6 +754,22 @@ func testOperatorAutoRollback(t *testing.T) {
 		return "removed", nil
 	})
 
+	requireJSONPathEqualsEventually(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,
+		"{.status.migration.settledPhase}", "RollbackComplete", 3*time.Minute)
+	requireRollbackArtifactsRemoved(t, kubectlOptions, clusterName, true)
+	for _, secret := range []string{crdbCluster.CaSecret, crdbCluster.NodeSecret, crdbCluster.ClientSecret} {
+		k8s.RunKubectl(t, kubectlOptions, "get", "secret", secret)
+	}
+	// Exercise beta admission after handback: it must not pause the public operator again.
+	k8s.RunKubectl(t, kubectlOptions, "annotate", v1beta1CrdbClusterResource, clusterName,
+		"test.cockroachlabs.com/after-rollback=true", "--overwrite")
+	requireJSONPathEquals(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,
+		"{.spec.mode}", "Disabled")
+	for _, label := range []string{"skip-reconcile", "migrate"} {
+		requireJSONPathEquals(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,
+			"{.metadata.labels.crdb\\.io/"+label+"}", "")
+	}
+
 	// Assert logging ConfigMap key was reverted to logging.yaml on rollback.
 	logConfigData, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
 		"get", "configmap", "logging-config", "-o", "jsonpath={.data}")
@@ -450,12 +780,21 @@ func testOperatorAutoRollback(t *testing.T) {
 	// Cluster must be healthy after rollback with public operator in control.
 	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 300*time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+	requireMigrationPVCsPreserved(t, kubectlOptions, originalPVCs)
+	requireMigrationSourceResourcesPreserved(t, kubectlOptions, sourceResources)
+	requirePublicServicePreserved(t, kubectlOptions, publicService)
+	requireDiscoveryRejoinAfterRollback(t, kubectlOptions, clusterName, crdbCluster)
 }
 
 // testHelmAutoCertManagerMigration installs a Helm cluster with cert-manager TLS,
-// runs automatic migration, and verifies cert-manager resources are preserved.
+// verifies custom SANs through migration and chart adoption, then reissues a leaf.
 func testHelmAutoCertManagerMigration(t *testing.T) {
-	const caSecretName = "cockroach-ca"
+	const (
+		caSecretName = "cockroach-ca"
+		customDNS    = "migration.example.test"
+		customIP     = "192.0.2.10"
+	)
 	ns := "cockroach" + strings.ToLower(random.UniqueId())
 	kubectlOptions := migrationKubectlOptions(ns)
 	certManagerK8sOptions := migrationKubectlOptions(testutil.CertManagerNamespace)
@@ -463,6 +802,7 @@ func testHelmAutoCertManagerMigration(t *testing.T) {
 	cleanupPublicOperatorResources(t)
 	testutil.InstallCertManager(t, certManagerK8sOptions)
 	defer func() {
+		testutil.DeleteTrustManager(t, certManagerK8sOptions)
 		testutil.DeleteCertManager(t, certManagerK8sOptions)
 		k8s.DeleteNamespace(t, certManagerK8sOptions, testutil.CertManagerNamespace)
 	}()
@@ -487,26 +827,32 @@ func testHelmAutoCertManagerMigration(t *testing.T) {
 	helmOptions := &helm.Options{
 		KubectlOptions: kubectlOptions,
 		SetValues: testutil.PatchHelmValues(map[string]string{
-			"operator.enabled":                         "false",
-			"conf.cluster-name":                        "test",
-			"init.provisioning.enabled":                "true",
-			"init.provisioning.databases[0].name":      migration.TestDBName,
-			"init.provisioning.databases[0].owners[0]": "root",
-			"conf.locality":                            fmt.Sprintf("topology.kubernetes.io/region=%s", cloudRegion),
-			"tls.certs.selfSigner.enabled":             "false",
-			"tls.certs.certManager":                    "true",
-			"tls.certs.certManagerIssuer.name":         testutil.SelfSignedIssuerName,
+			"operator.enabled":                                     "false",
+			"conf.cluster-name":                                    "test",
+			"init.provisioning.enabled":                            "true",
+			"init.provisioning.databases[0].name":                  migration.TestDBName,
+			"init.provisioning.databases[0].owners[0]":             "root",
+			"conf.locality":                                        fmt.Sprintf("topology.kubernetes.io/region=%s", cloudRegion),
+			"tls.certs.selfSigner.enabled":                         "false",
+			"tls.certs.certManager":                                "true",
+			"tls.certs.certManagerIssuer.name":                     testutil.SelfSignedIssuerName,
+			"tls.certs.certManagerIssuer.additionalDnsNames[0]":    customDNS,
+			"tls.certs.certManagerIssuer.additionalIpAddresses[0]": customIP,
 		}),
 	}
-	helmChartPath := fmt.Sprintf("%s/cockroachdb-legacy", testutil.GetGitRoot())
+	// Record retention in the source release manifest before migration. The new
+	// chart manages the leaves but does not render the legacy CA Certificate/Issuer.
+	helmChartPath := legacyChartWithRetainedCertManagerCA(t)
 	helm.Install(t, helmOptions, helmChartPath, releaseName)
 	defer func() {
+		testutil.CaptureFailureArtifacts(t, kubectlOptions)
 		_ = helm.DeleteE(t, &helm.Options{KubectlOptions: kubectlOptions}, releaseName, true)
-		// Cert-manager test does not adopt into Helm, so explicitly delete CRs.
+		// Also clean up if the test fails before chart adoption.
 		_ = k8s.RunKubectlE(t, kubectlOptions, "delete", "crdbclusters.crdb.cockroachlabs.com", "--all", "--ignore-not-found=true")
 		waitForClusterResourcesGone(t, kubectlOptions)
 		uninstallMigrationOperator(t, kubectlOptions)
 		k8s.DeleteNamespace(t, kubectlOptions, ns)
+		_ = os.RemoveAll(manifestsDirPath)
 	}()
 
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, fmt.Sprintf("%s-public", stsName), 30, 2*time.Second)
@@ -514,10 +860,19 @@ func testHelmAutoCertManagerMigration(t *testing.T) {
 	caConfigMapName := fmt.Sprintf("%s-ca-crt", stsName)
 	testutil.InstallTrustManager(t, certManagerK8sOptions, ns)
 	testutil.CreateBundle(t, kubectlOptions, caSecretName, caConfigMapName)
-	defer testutil.DeleteBundle(t, kubectlOptions)
+	defer testutil.DeleteBundle(t, kubectlOptions, caConfigMapName)
 
 	testutil.RequireCRDBClusterToBeReadyEventuallyTimeout(t, kubectlOptions, crdbCluster, 600*time.Second)
 	testutil.RequireCRDBToFunction(t, crdbCluster, false)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, stsName)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+
+	originalCertificate := getMigrationCertificateSpec(t, kubectlOptions, stsName+"-node")
+	originalClientCertificate := getMigrationCertificateSpec(t, kubectlOptions, stsName+"-root-client")
+	issuerChain := snapshotMigrationSourceResources(t, kubectlOptions,
+		"issuers.cert-manager.io/"+stsName+"-ca-issuer",
+		"certificates.cert-manager.io/"+stsName+"-ca-cert")
+	originalCA := migrationSecretFingerprint(t, k8s.GetSecret(t, kubectlOptions, caSecretName))
 
 	installMigrationOperator(t, kubectlOptions, ns)
 
@@ -536,22 +891,55 @@ func testHelmAutoCertManagerMigration(t *testing.T) {
 	})
 
 	waitForCrdbNodeCount(t, kubectlOptions, stsName, crdbCluster.DesiredNodes, 20*time.Minute)
-	waitForMigrationPhase(t, kubectlOptions, stsName, phaseFinalization, phaseFinalizationTimeout)
+	waitForSettledFinalization(t, kubectlOptions, stsName)
 
 	// Per the migration docs, the source StatefulSet must be deleted to move
 	// from Finalization to Complete.
 	deleteStatefulSetAndWaitGone(t, kubectlOptions, stsName, 3*time.Minute)
 	waitForMigrationPhase(t, kubectlOptions, stsName, phaseComplete, 3*time.Minute)
 	requireMigrationComplete(t, kubectlOptions, stsName)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 
-	// Cert-manager Certificate resources must still exist after migration.
-	k8s.RunKubectl(t, kubectlOptions, "get", "certificates.cert-manager.io", fmt.Sprintf("%s-node", stsName))
-	k8s.RunKubectl(t, kubectlOptions, "get", "certificates.cert-manager.io", fmt.Sprintf("%s-root-client", stsName))
+	requireJSONPathContains(t, kubectlOptions, v1beta1CrdbClusterResource, stsName,
+		"{.spec.template.spec.startFlags}", "topology.kubernetes.io/region="+cloudRegion)
+	requireMigrationCertificatePreserved(t, kubectlOptions, stsName+"-node", originalCertificate)
+	joinDNS := stsName + "-join." + ns + ".svc.cluster.local"
+	requireNodeCertificateNames(t, kubectlOptions, crdbCluster.NodeSecret, customDNS, customIP, joinDNS)
+
+	valuesFile := exportValuesForHelmAdoption(t, stsName, ns)
+	configureMigrationCertManagerAdoption(t, valuesFile, caConfigMapName,
+		originalCertificate, originalClientCertificate, []string{customDNS}, []string{customIP})
+	adoptIntoCockroachDBHelmChart(t, kubectlOptions, stsName, releaseName, ns, valuesFile)
+
+	// Adoption includes a second Helm upgrade and rolling restart. Keep the
+	// existing issuer chain and certificate settings through both operations.
+	requireMigrationSourceResourcesPreserved(t, kubectlOptions, issuerChain)
+	requireMigrationCertManagerCertificates(t, kubectlOptions, stsName, originalCertificate, originalClientCertificate)
+	requireNodeCertificateNames(t, kubectlOptions, crdbCluster.NodeSecret, customDNS, customIP, joinDNS)
+	for path, expected := range map[string]string{
+		"caConfigMapName":         caConfigMapName,
+		"nodeSecretName":          crdbCluster.NodeSecret,
+		"rootSqlClientSecretName": crdbCluster.ClientSecret,
+	} {
+		requireJSONPathEquals(t, kubectlOptions, v1beta1CrdbClusterResource, stsName,
+			"{.spec.template.spec.certificates.externalCertificates."+path+"}", expected)
+	}
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
+
+	// An existing leaf can mask a broken issuer chain. Recreate the node Secret
+	// after adoption and verify the new certificate's SANs and trust against the CA.
+	requireMigrationCertManagerReissue(t, kubectlOptions, crdbCluster.NodeSecret, caSecretName, customDNS, customIP, joinDNS)
+	requireMigrationCertManagerCertificates(t, kubectlOptions, stsName, originalCertificate, originalClientCertificate)
+	require.Equal(t, originalCA, migrationSecretFingerprint(t, k8s.GetSecret(t, kubectlOptions, caSecretName)),
+		"chart adoption and leaf reissuance must preserve the CA")
+	testutil.RequireClusterToBeReadyEventuallyTimeout(t, crdbCluster, 300*time.Second)
+	testutil.RequireCRDBToFunction(t, crdbCluster, true)
+	requirePublicServiceSQL(t, kubectlOptions, crdbCluster, publicService)
 }
 
 // --- Helpers ---
 
-// installMigrationOperator installs the Cloud Operator with migration enabled and
+// installMigrationOperator installs the CockroachDB Operator with migration enabled and
 // watchNamespaces scoped to the given namespace.
 func installMigrationOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, namespace string) {
 	t.Logf("Installing migration operator scoped to namespace %s", namespace)
@@ -605,7 +993,12 @@ func uninstallMigrationOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions
 		"crdbnodes.crdb.cockroachlabs.com",
 		"crdbtenants.crdb.cockroachlabs.com",
 	} {
-		_ = k8s.RunKubectlE(t, clusterKubectl, "delete", "crd", crd, "--ignore-not-found=true")
+		// A failed migration can leave finalizers behind. Bound this wait so
+		// teardown reports that failure instead of hanging until runner shutdown.
+		if err := k8s.RunKubectlE(t, clusterKubectl, "delete", "crd", crd,
+			"--ignore-not-found=true", "--timeout=60s", "--request-timeout=20s"); err != nil {
+			t.Errorf("deleting migration CRD %s: %v", crd, err)
+		}
 	}
 }
 
@@ -675,7 +1068,7 @@ func waitForClusterResourcesGoneE(t *testing.T, kubectlOptions *k8s.KubectlOptio
 // WAL failover and a logging config to maximize migration coverage.
 // Returns the StatefulSet name and a CockroachCluster descriptor.
 func installHelmSourceCluster(
-	t *testing.T, kubectlOptions *k8s.KubectlOptions, namespace string,
+	t *testing.T, kubectlOptions *k8s.KubectlOptions, namespace string, overrides ...map[string]string,
 ) (string, testutil.CockroachCluster) {
 	stsName := fmt.Sprintf("%s-cockroachdb", releaseName)
 	crdbCluster := testutil.CockroachCluster{
@@ -700,20 +1093,34 @@ func installHelmSourceCluster(
 			"init.provisioning.databases[0].name":      migration.TestDBName,
 			"init.provisioning.databases[0].owners[0]": "root",
 			"statefulset.labels.app":                   "cockroachdb",
-			"conf.locality":                            fmt.Sprintf("topology.kubernetes.io/region=%s", cloudRegion),
+			"conf.locality":                            fmt.Sprintf("region=%s\\,zone=$(printf zone-a)", cloudRegion),
+			"tls.certs.selfSigner.additionalSANs[0]":   "migration.example.test",
+			"tls.certs.selfSigner.additionalSANs[1]":   "192.0.2.10",
+			"tls.certs.selfSigner.additionalSANs[2]":   "migration-client." + namespace + ".svc.cluster.local",
 			// This source cluster uses dedicated volumes for WAL failover and logs.
 			// Migration should preserve both on the v1beta1 target.
-			"storage.PersistentVolume.enabled":           "true",
-			"conf.wal-failover.value":                    "path=/cockroach/wal-failover",
-			"conf.wal-failover.persistentVolume.enabled": "true",
-			"conf.wal-failover.persistentVolume.path":    "wal-failover",
-			"conf.wal-failover.persistentVolume.size":    "1Gi",
-			"conf.log.enabled":                           "true",
-			"conf.log.config.file-defaults.dir":          "/cockroach/test-logs",
-			"conf.log.persistentVolume.enabled":          "true",
-			"conf.log.persistentVolume.path":             "test-logs",
-			"conf.log.persistentVolume.size":             "1Gi",
+			"storage.persistentVolume.enabled":                    "true",
+			"storage.persistentVolume.labels.migration-test":      "keep",
+			"storage.persistentVolume.annotations.migration-test": "keep",
+			"conf.wal-failover.value":                             "path=/cockroach/wal-failover",
+			"conf.wal-failover.persistentVolume.enabled":          "true",
+			"conf.wal-failover.persistentVolume.path":             "wal-failover",
+			"conf.wal-failover.persistentVolume.size":             "1Gi",
+			"conf.log.enabled":                                    "true",
+			"conf.log.config.file-defaults.dir":                   "/cockroach/test-logs",
+			"conf.log.persistentVolume.enabled":                   "true",
+			"conf.log.persistentVolume.path":                      "test-logs",
+			"conf.log.persistentVolume.size":                      "1Gi",
 		}),
+	}
+
+	for _, values := range overrides {
+		for key, value := range values {
+			helmOptions.SetValues[key] = value
+		}
+	}
+	if helmOptions.SetValues["tls.enabled"] == "false" {
+		crdbCluster.CaSecret, crdbCluster.NodeSecret, crdbCluster.ClientSecret = "", "", ""
 	}
 
 	h := &migration.HelmInstall{
@@ -722,6 +1129,15 @@ func installHelmSourceCluster(
 		CrdbCluster: crdbCluster,
 	}
 	h.InstallHelm(t)
+	// Resolve a custom certificate SAN to the same public Service. SQL through
+	// this alias must verify that name, rather than only the default chart DNS.
+	require.NoError(t, k8sClient.Create(context.Background(), &corev1.Service{
+		ObjectMeta: metav1.ObjectMeta{Name: "migration-client", Namespace: namespace},
+		Spec: corev1.ServiceSpec{
+			Type:         corev1.ServiceTypeExternalName,
+			ExternalName: stsName + "-public." + namespace + ".svc.cluster.local",
+		},
+	}))
 	return stsName, crdbCluster
 }
 
@@ -805,6 +1221,9 @@ func waitForMigrationPhase(
 				return false, nil
 			}
 			t.Logf("Current migration phase: %q", phase)
+			if phase == "Failed" || (phase == phaseStopped && expectedPhase != phaseStopped) {
+				return false, fmt.Errorf("migration entered %s while waiting for %s", phase, expectedPhase)
+			}
 			return migrationPhaseReached(phase, expectedPhase), nil
 		},
 	)
@@ -818,6 +1237,25 @@ func waitForMigrationPhase(
 		logMigrationEvents(t, kubectlOptions, clusterName)
 	}
 	require.NoError(t, err, "timed out waiting for migration phase %q", expectedPhase)
+}
+
+// Allow an intentional resume to be observed before the forward waits start
+// treating Stopped as a failure again.
+func waitForMigrationResume(t *testing.T, options *k8s.KubectlOptions, name string) {
+	t.Helper()
+	err := wait.PollUntilContextTimeout(context.Background(), 2*time.Second, 2*time.Minute, true,
+		func(context.Context) (bool, error) {
+			phase, err := k8s.RunKubectlAndGetOutputE(t, options, "get", v1beta1CrdbClusterResource,
+				name, "-o", "jsonpath={.status.migration.phase}")
+			if err != nil {
+				return false, err
+			}
+			if phase == "Failed" {
+				return false, fmt.Errorf("migration failed while resuming")
+			}
+			return phase != "" && phase != phaseStopped, nil
+		})
+	require.NoError(t, err, "waiting for migration resume")
 }
 
 func migrationPhaseReached(currentPhase, expectedPhase string) bool {
@@ -927,7 +1365,8 @@ func waitForSTSMigrationLabel(
 }
 
 // waitForCrdbNodeCount polls until the number of CrdbNodes labelled for the cluster
-// equals expectedCount. Pass 0 to wait for all CrdbNodes to be deleted.
+// equals expectedCount and each replacement pod is Ready. Pass 0 to wait for all
+// CrdbNodes to be deleted during rollback.
 func waitForCrdbNodeCount(
 	t *testing.T,
 	kubectlOptions *k8s.KubectlOptions,
@@ -939,6 +1378,24 @@ func waitForCrdbNodeCount(
 	ctx := context.Background()
 	err := wait.PollUntilContextTimeout(ctx, 10*time.Second, timeout, true,
 		func(ctx context.Context) (bool, error) {
+			if expectedCount > 0 {
+				phase, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+					"get", v1beta1CrdbClusterResource, clusterName, "--ignore-not-found",
+					"-o", "jsonpath={.status.migration.phase}")
+				if err != nil {
+					return false, err
+				}
+				// Helm migration creates the CrdbCluster asynchronously after the
+				// StatefulSet is labeled. An absent cluster or phase is not a failure.
+				if phase == "" {
+					return false, nil
+				}
+				if phase == phaseStopped || phase == "Failed" {
+					logMigrationResources(t, kubectlOptions, clusterName)
+					logMigrationEvents(t, kubectlOptions, clusterName)
+					return false, fmt.Errorf("migration entered %s while waiting for Ready replacements", phase)
+				}
+			}
 			out, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
 				"get", "crdbnode",
 				"-l", fmt.Sprintf("crdb.cockroachlabs.com/cluster=%s", clusterName),
@@ -951,7 +1408,17 @@ func waitForCrdbNodeCount(
 				count = len(strings.Split(strings.TrimSpace(out), "\n"))
 			}
 			t.Logf("CrdbNode count: %d (expected %d)", count, expectedCount)
-			return count == expectedCount, nil
+			if count != expectedCount || expectedCount == 0 {
+				return count == expectedCount, nil
+			}
+			for _, name := range strings.Fields(out) {
+				_, podName, _ := strings.Cut(name, "/")
+				pod, err := k8s.GetPodE(t, kubectlOptions, podName)
+				if err != nil || !migrationReplacementReady(pod) {
+					return false, nil
+				}
+			}
+			return true, nil
 		},
 	)
 	require.NoError(t, err, "timed out waiting for %d CrdbNode(s)", expectedCount)
@@ -1003,6 +1470,8 @@ func requireMigrationComplete(
 
 	requireJSONPathEqualsEventually(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,
 		"{.metadata.labels.crdb\\.io/migrate}", migrateLabelComplete, 2*time.Minute)
+	requireMigrationPDBHandoff(t, kubectlOptions, clusterName)
+	requireMigrationMarkersRemoved(t, kubectlOptions, clusterName)
 }
 
 // annotateResourcesForHelmAdoption applies Helm ownership annotations and labels to
@@ -1050,6 +1519,7 @@ func exportValuesForHelmAdoption(t *testing.T, clusterName, namespace string) st
 			Command: migrationHelperPath,
 			Args: []string{
 				"export-values",
+				"--kubeconfig", migrationKubeConfig,
 				fmt.Sprintf("--crdb-cluster=%s", clusterName),
 				fmt.Sprintf("--namespace=%s", namespace),
 				fmt.Sprintf("--output-dir=%s", manifestsDirPath),
@@ -1071,20 +1541,21 @@ func adoptIntoCockroachDBHelmChart(
 	annotateResourcesForHelmAdoption(t, kubectlOptions, clusterName, helmReleaseName, namespace)
 	annotateIngressResourcesForHelmAdoption(t, kubectlOptions, helmReleaseName, namespace)
 	deleteStaleClusterScopedRBAC(t, kubectlOptions, clusterName, namespace)
-	deleteStalePodDisruptionBudgets(t, kubectlOptions, clusterName)
 
 	helmPath, _ := operator.HelmChartPaths()
+	verifyMigrationChartApply(t, kubectlOptions, helmPath, helmReleaseName, clusterName, valuesFile)
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{valuesFile},
-		SetValues: map[string]string{
+		SetValues: migrationChartValues(map[string]string{
 			"cockroachdb.crdbCluster.rollingRestartDelay": "10s",
-		},
+		}),
 		ExtraArgs: map[string][]string{
 			"upgrade": {"--force-conflicts"},
 		},
 	}, helmPath, helmReleaseName)
 	requireHelmSSAOwnership(t, kubectlOptions, clusterName)
+	requireNoOperatorSpecOwnership(t, kubectlOptions, clusterName)
 
 	managedBy, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", v1beta1CrdbClusterResource, clusterName,
 		"-o", "jsonpath={.metadata.labels.app\\.kubernetes\\.io/managed-by}")
@@ -1156,11 +1627,9 @@ func verifyHelmAdoptionSupportsUpgrade(
 	})
 	require.NotEmpty(t, initialPods, "no cockroachdb pods found before helm upgrade")
 
-	initialTimestamp := initialPods[0].CreationTimestamp.Time
-	for _, pod := range initialPods[1:] {
-		if pod.CreationTimestamp.Time.Before(initialTimestamp) {
-			initialTimestamp = pod.CreationTimestamp.Time
-		}
+	initialPodUIDs := make(map[string]string, len(initialPods))
+	for _, pod := range initialPods {
+		initialPodUIDs[pod.Name] = string(pod.UID)
 	}
 
 	upgradeTime := time.Now().UTC()
@@ -1168,10 +1637,10 @@ func verifyHelmAdoptionSupportsUpgrade(
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
 		ValuesFiles:    []string{valuesFile},
-		SetValues: map[string]string{
-			"cockroachdb.crdbCluster.rollingRestartDelay": "10s",
+		SetValues: migrationChartValues(map[string]string{
+			"cockroachdb.crdbCluster.rollingRestartDelay": "12s",
 			"cockroachdb.crdbCluster.timestamp":           upgradeTime.Format(time.RFC3339),
-		},
+		}),
 	}, helmPath, helmReleaseName)
 	requireHelmSSAOwnership(t, kubectlOptions, clusterName)
 
@@ -1192,12 +1661,12 @@ func verifyHelmAdoptionSupportsUpgrade(
 		pods := k8s.ListPods(t, kubectlOptions, metav1.ListOptions{
 			LabelSelector: operator.LabelSelector,
 		})
-		if len(pods) == 0 {
-			return "", fmt.Errorf("no cockroachdb pods found after helm upgrade")
+		if len(pods) != len(initialPods) {
+			return "", fmt.Errorf("expected %d cockroachdb pods after helm upgrade, found %d", len(initialPods), len(pods))
 		}
 
 		for _, pod := range pods {
-			if !pod.CreationTimestamp.After(initialTimestamp) {
+			if initialPodUIDs[pod.Name] == string(pod.UID) {
 				return "", fmt.Errorf("pod %s has not been recreated after helm upgrade", pod.Name)
 			}
 			if pod.Status.Phase != corev1.PodRunning {
@@ -1211,10 +1680,13 @@ func verifyHelmAdoptionSupportsUpgrade(
 		return "helm adoption upgrade completed", nil
 	})
 	require.NoError(t, err)
+	requireJSONPathEquals(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,
+		"{.spec.rollingRestartDelay}", "12s")
+	requireNoOperatorSpecOwnership(t, kubectlOptions, clusterName)
 }
 
 // verifyFreshV1Beta1HelmClusterDuringCoexistence verifies that a native
-// v1beta1 cluster can be installed and upgraded with Helm 4 SSA while a paused,
+// v1beta1 cluster can be installed and upgraded with Helm 4 SSA while an active,
 // non-Helm v1alpha1 cluster remains available in the same watched namespace.
 func verifyFreshV1Beta1HelmClusterDuringCoexistence(
 	t *testing.T,
@@ -1223,6 +1695,9 @@ func verifyFreshV1Beta1HelmClusterDuringCoexistence(
 	sourceCluster testutil.CockroachCluster,
 ) {
 	t.Helper()
+
+	requireJSONPathEquals(t, kubectlOptions, v1alpha1CrdbClusterResource, sourceClusterName,
+		"{.metadata.labels.crdb\\.io/skip-reconcile}", "")
 
 	const (
 		freshReleaseName = "ssa-coexistence"
@@ -1293,10 +1768,10 @@ func verifyFreshV1Beta1HelmClusterDuringCoexistence(
 	freshPodName = requireSingleClusterPodName(t, kubectlOptions, freshClusterName)
 	testutil.RequireCRDBClusterToFunction(t, freshCluster, true, freshPodName)
 
-	// The source remains paused, functional, and outside Helm ownership while
+	// The source remains active, functional, and outside Helm ownership while
 	// the native v1beta1 release is installed and upgraded.
 	requireJSONPathEquals(t, kubectlOptions, v1alpha1CrdbClusterResource, sourceClusterName,
-		"{.metadata.labels.crdb\\.io/skip-reconcile}", "true")
+		"{.metadata.labels.crdb\\.io/skip-reconcile}", "")
 	helmManagedBy, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
 		"get", v1alpha1CrdbClusterResource, sourceClusterName,
 		"-o", "jsonpath={.metadata.labels.app\\.kubernetes\\.io/managed-by}")
@@ -1396,18 +1871,48 @@ func deleteStaleClusterScopedRBAC(
 		fmt.Sprintf("%s-%s", namespace, clusterName), "--ignore-not-found")
 	k8s.RunKubectl(t, kubectlOptions, "delete", "clusterrolebinding",
 		fmt.Sprintf("%s-%s", namespace, clusterName), "--ignore-not-found")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "clusterrole", clusterName, "--ignore-not-found")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "clusterrolebinding", clusterName, "--ignore-not-found")
 }
 
-// deleteStalePodDisruptionBudgets removes the old source PDB before Helm adoption.
-// Helm StatefulSet sources use the -budget suffix while public operator sources use
-// the cluster name directly.
-func deleteStalePodDisruptionBudgets(
+// Verify the controller completed the PDB handoff before chart adoption. Deleting
+// source budgets in the test would hide a missing controller cleanup step.
+func requireMigrationPDBHandoff(
 	t *testing.T, kubectlOptions *k8s.KubectlOptions, clusterName string,
 ) {
-	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", clusterName, "--ignore-not-found")
-	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", fmt.Sprintf("%s-budget", clusterName), "--ignore-not-found")
+	t.Helper()
+	for _, name := range []string{clusterName, clusterName + "-budget"} {
+		retry.DoWithRetry(t, "wait for source PDB removal: "+name, 12, 5*time.Second, func() (string, error) {
+			out, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "pdb", name, "--ignore-not-found", "-o", "name")
+			if err != nil {
+				return "", err
+			}
+			if strings.TrimSpace(out) != "" {
+				return "", fmt.Errorf("source PDB %s remains after handoff", name)
+			}
+			return "source PDB removed", nil
+		})
+	}
+	raw, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "pdb", clusterName+"-pdb", "-o", "json")
+	require.NoError(t, err)
+	var pdb policyv1.PodDisruptionBudget
+	require.NoError(t, json.Unmarshal([]byte(raw), &pdb))
+	require.NotNil(t, pdb.Spec.MinAvailable)
+	require.Equal(t, map[string]string{
+		"app": "cockroachdb", "crdb.cockroachlabs.com/cluster": clusterName,
+	}, pdb.Spec.Selector.MatchLabels)
+	raw, err = k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", v1beta1CrdbClusterResource, clusterName, "-o", "json")
+	require.NoError(t, err)
+	var cluster v1beta1.CrdbCluster
+	require.NoError(t, json.Unmarshal([]byte(raw), &cluster))
+	expected := 0
+	for _, region := range cluster.Spec.Regions {
+		expected += int(region.Nodes)
+	}
+	require.Positive(t, expected)
+	waitForCrdbNodeCount(t, kubectlOptions, clusterName, expected, 3*time.Minute)
+	require.Equal(t, expected-1, pdb.Spec.MinAvailable.IntValue(), "handoff must allow one unavailable node")
+	names, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions, "get", "pdb", "-o", "jsonpath={.items[*].metadata.name}")
+	require.NoError(t, err)
+	require.Equal(t, []string{clusterName + "-pdb"}, strings.Fields(names), "handoff left extra disruption budgets")
 }
 
 func requireHelmSourceFieldsPreserved(
@@ -1426,7 +1931,9 @@ func requireHelmSourceFieldsPreserved(
 	requireJSONPathEquals(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,
 		"{.spec.template.spec.loggingConfigMapName}", fmt.Sprintf("%s-log-config", clusterName))
 	requireJSONPathContains(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,
-		"{.spec.template.spec.localityLabels}", "topology.kubernetes.io/region")
+		"{.spec.template.spec.startFlags}", fmt.Sprintf("region=%s,zone=$(printf zone-a)", cloudRegion))
+	requirePodJoin(t, kubectlOptions, clusterName, fmt.Sprintf("%s-join.%s.svc.cluster.local:26257", clusterName, kubectlOptions.Namespace))
+	requireNodeCertificateNames(t, kubectlOptions, clusterName+"-node-secret", "migration.example.test", "192.0.2.10", clusterName+"-join."+kubectlOptions.Namespace+".svc.cluster.local")
 	requireJSONPathEquals(t, kubectlOptions, "crdbnode", fmt.Sprintf("%s-0", clusterName),
 		"{.spec.logsStore.mountPath}", "/cockroach/test-logs/")
 	requireJSONPathEquals(t, kubectlOptions, "crdbnode", fmt.Sprintf("%s-0", clusterName),
@@ -1436,6 +1943,19 @@ func requireHelmSourceFieldsPreserved(
 func requireOperatorSourceFieldsPreserved(
 	t *testing.T, kubectlOptions *k8s.KubectlOptions, clusterName string,
 ) {
+	t.Helper()
+	raw, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"get", v1beta1CrdbClusterResource, clusterName, "-o", "json")
+	require.NoError(t, err)
+	var cluster v1beta1.CrdbCluster
+	require.NoError(t, json.Unmarshal([]byte(raw), &cluster))
+	require.Len(t, cluster.Spec.Regions, 1)
+	region := cluster.Spec.Regions[0]
+	require.Equal(t, cloudRegion, region.Code)
+	require.Equal(t, cloudProvider, region.CloudProvider,
+		"the region must retain the source cloudProvider through migration and chart adoption")
+	require.Positive(t, region.Nodes)
+
 	requireJSONPathEquals(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,
 		"{.spec.template.spec.loggingConfigMapName}", "logging-config")
 	requireJSONPathEquals(t, kubectlOptions, v1beta1CrdbClusterResource, clusterName,

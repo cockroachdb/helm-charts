@@ -833,34 +833,3 @@ func waitForComputeOperation(ctx context.Context, get func(context.Context) (*co
 		}
 	}
 }
-
-// waitForGKEOperation waits for a GKE operation to complete
-func (r *GcpRegion) waitForGKEOperation(service *container.Service, operationName, location, zone string) error {
-	opID := parseOperationID(operationName)
-	for {
-		var op *container.Operation
-		var err error
-		if zone != "" {
-			op, err = service.Projects.Zones.Operations.Get(getProjectID(), zone, opID).Context(context.Background()).Do()
-		} else {
-			name := fmt.Sprintf("projects/%s/locations/%s/operations/%s", getProjectID(), location, opID)
-			op, err = service.Projects.Locations.Operations.Get(name).Context(context.Background()).Do()
-		}
-		if err != nil {
-			return fmt.Errorf("failed to get GKE operation status: %w", err)
-		}
-		if op.Status == "DONE" {
-			if op.Error != nil {
-				return fmt.Errorf("GKE operation failed: %s", op.Error.Message)
-			}
-			break
-		}
-		time.Sleep(15 * time.Second)
-	}
-	return nil
-}
-
-func parseOperationID(fullName string) string {
-	parts := strings.Split(fullName, "/")
-	return parts[len(parts)-1]
-}

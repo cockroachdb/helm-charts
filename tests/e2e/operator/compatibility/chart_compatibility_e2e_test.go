@@ -2,6 +2,7 @@ package compatibility
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -125,6 +126,7 @@ func TestChartCompatibilityUpgrade(t *testing.T) {
 		DesiredNodes: r.NodeCount,
 	}, 600*time.Second)
 	r.ValidateCRDB(t, cluster)
+	requireRunningRelatedImages(t, kubectlOptions, operatorValues)
 	requirePostInitSQLDatabase(t, kubectlOptions, postInitSQLDatabase)
 	t.Run("secure helm test after certificate rotation", func(t *testing.T) {
 		requireSecureHelmTest(t, kubectlOptions)
@@ -341,6 +343,41 @@ func requireUpgradedOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, v
 	require.Positive(t, checked, "no upgraded operator pods found")
 }
 
+// Check what replacement pods actually pulled, in addition to the operator's
+// RELATED_IMAGE environment variables. This catches stale sidecar tags or pins.
+func requireRunningRelatedImages(t *testing.T, options *k8s.KubectlOptions, values map[string]string) {
+	t.Helper()
+	require.Eventually(t, func() bool {
+		pods, err := k8s.ListPodsE(t, options, metav1.ListOptions{LabelSelector: operator.LabelSelector})
+		if err != nil || len(pods) == 0 {
+			return false
+		}
+		checked := 0
+		for _, pod := range pods {
+			if pod.DeletionTimestamp != nil {
+				continue
+			}
+			checked++
+			for containerName, imageName := range map[string]string{
+				"cockroachdb-init": "initContainer", "cert-reloader": "inotifywait",
+			} {
+				statuses := append(append([]corev1.ContainerStatus{}, pod.Status.InitContainerStatuses...), pod.Status.ContainerStatuses...)
+				found := false
+				for _, status := range statuses {
+					if status.Name != containerName {
+						continue
+					}
+					found = status.Image == configuredImage(values, "relatedImages."+imageName) && strings.Contains(status.ImageID, "sha256:")
+				}
+				if !found {
+					return false
+				}
+			}
+		}
+		return checked > 0
+	}, 10*time.Minute, 5*time.Second, "waiting for all related containers to use the upgraded images and resolved digests")
+}
+
 func configuredImage(values map[string]string, prefix string) string {
 	return fmt.Sprintf("%s/%s:%s", values[prefix+".registry"], values[prefix+".repository"], values[prefix+".tag"])
 }
@@ -423,11 +460,11 @@ func upgradeCockroachDBChart(
 	operator.HelmUpgradeWithRetry(t, options, chart, operator.ReleaseName)
 	k8s.WaitUntilServiceAvailable(t, kubectlOptions, "cockroachdb-public", 30, 5*time.Second)
 
-	cronJobYAML, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
-		"get", "cronjob", "cockroachdb-rotate-self-signer-client", "-o", "yaml")
+	cronJobJSON, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
+		"get", "cronjob", "cockroachdb-rotate-self-signer-client", "-o", "json")
 	require.NoError(t, err)
 	var cronJob batchv1.CronJob
-	require.NoError(t, yaml.Unmarshal([]byte(cronJobYAML), &cronJob))
+	require.NoError(t, json.Unmarshal([]byte(cronJobJSON), &cronJob))
 	require.Len(t, cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers, 1)
 	container := cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers[0]
 	require.Equal(t, configuredImage(values, "cockroachdb.tls.selfSigner.image"), container.Image,
@@ -504,6 +541,7 @@ func requireSelfSignerRotation(
 	caSecret := k8s.GetSecret(t, kubectlOptions, "cockroachdb-ca-secret")
 	upgradeCockroachDBChart(t, kubectlOptions, chart, map[string]string{
 		"cockroachdb.tls.selfSigner.additionalSANs[0]":                       "compat.example.com",
+		"cockroachdb.tls.selfSigner.additionalSANs[1]":                       "192.0.2.20",
 		"cockroachdb.crdbCluster.clusterSettings.sql\\.defaults\\.vectorize": "on",
 	})
 
@@ -535,6 +573,7 @@ func requireSelfSignerRotation(
 		"cockroachdb-join." + kubectlOptions.Namespace,
 		fmt.Sprintf("cockroachdb-join.%s.svc.%s", kubectlOptions.Namespace, operator.CustomDomains[0]),
 		"compat.example.com",
+		"192.0.2.20",
 	} {
 		require.NoError(t, cert.VerifyHostname(hostname))
 	}
@@ -545,11 +584,14 @@ func requireSelfSignerRotation(
 	caBundle, err := k8s.RunKubectlAndGetOutputE(t, kubectlOptions,
 		"get", "configmap", "cockroachdb-ca-secret-crt", "-o", "jsonpath={.data.ca\\.crt}")
 	require.NoError(t, err)
-	require.Equal(t, string(caSecret.Data["ca.crt"]), caBundle)
+	// Terratest trims kubectl output, including the PEM's trailing newline.
+	require.Equal(t, strings.TrimSpace(string(caSecret.Data["ca.crt"])), strings.TrimSpace(caBundle))
 
-	// This makes the operator open a SQL connection using the rotated join certificate.
+	// Apply SQL settings with the recovered join certificate and request a rolling
+	// restart. Existing pods keep the old auxiliary images until they are recreated.
 	upgradeCockroachDBChart(t, kubectlOptions, chart, map[string]string{
 		"cockroachdb.crdbCluster.clusterSettings.sql\\.defaults\\.vectorize": "off",
+		"cockroachdb.crdbCluster.timestamp":                                  time.Now().UTC().Format(time.RFC3339Nano),
 	})
 	_, err = retry.DoWithRetryE(t, "waiting for cluster setting after certificate rotation", 60, 10*time.Second, func() (string, error) {
 		pods, err := k8s.ListPodsE(t, kubectlOptions, metav1.ListOptions{LabelSelector: operator.LabelSelector})
