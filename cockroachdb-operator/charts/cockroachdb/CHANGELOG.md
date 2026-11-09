@@ -2,17 +2,25 @@
 
 ## [26.4.1] — 2026-11-13
 ### Fixed
-- Restored self-signer rotation in exported migration values for recognized legacy
-  self-signer sources, including certificate lifetimes and custom DNS/IP SANs.
-- Preserved explicit join lists and Kubernetes DNS domains during chart adoption.
+
+#### Charts and certificate utility
+- Synced the self-signer CA ConfigMap when reusing existing certificates during chart adoption.
+- Reported incomplete supplied CA Secrets before attempting certificate generation.
 - Rendered one public Service port when SQL and gRPC share a listener, allowing
   chart adoption after controller migration from a legacy Helm cluster. SQL ingress
-  uses the shared port name too.
+  uses the shared port name too, and Ingress backends honor configured Service port names.
+
+#### Migration helper
+- Restored self-signer rotation in exported migration values for recognized legacy
+  self-signer sources, including certificate lifetimes and custom DNS/IP SANs.
+- Used the migrated region's DNS domain for exported certificate settings. Preserved
+  custom join overrides through start flags instead of ineffective template fields.
 - Preserved public Service names, types, custom metadata and named targets in controller
-  migration exports. Ingress backends honor configured Service port names.
+  migration exports.
 - Honored explicit `--insecure=false` in the manual migration helper.
 - Preserved supplied CA settings in exported migration values and custom TLS Secret
   names in manual legacy-operator migrations.
+- Preserved source pod security contexts in manual migration manifests and adoption values.
 - Recognized the legacy chart's certificate volume with SIGHUP rotation enabled in
   the manual migration helper.
 
