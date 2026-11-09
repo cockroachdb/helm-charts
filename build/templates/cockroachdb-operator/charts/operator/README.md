@@ -153,7 +153,7 @@ Complete the migration quickly. Minutes to hours, not days.
 Controls who provisions the `cockroach-operator-certs` Secret used by the operator's webhook.
 
 ```yaml
-# false (default): Helm provisions the Secret. Cert is stable and only changes on helm upgrade.
+# false (default): Helm generates certificates on each render, including GitOps syncs.
 selfSignedOperatorCerts: false
 
 # true: the operator provisions and owns the shared Secret.
@@ -161,11 +161,17 @@ selfSignedOperatorCerts: false
 selfSignedOperatorCerts: true
 ```
 
-In operator-managed mode, certificates persist across Pod restarts and change
-only when the shared Secret is replaced.
+In operator-managed mode, certificates are created with a ten-year lifetime and persist
+across Pod restarts. They are not automatically renewed. Replacing them requires deleting
+the shared Secret and restarting all operator replicas so they load the replacement
+certificates; plan for a brief webhook interruption.
 
-Switching this flag on an existing installation requires the `cockroach-operator-certs` Secret
-to be deleted first. If it is not, the chart will fail with a clear error explaining the required steps.
+For GitOps, use `selfSignedOperatorCerts: true` to avoid generating new certificates on each sync.
+
+Before switching this flag on an existing installation, delete the `cockroach-operator-certs`
+Secret and plan for a brief webhook interruption while it is recreated. Helm checks for an
+incompatible existing Secret when it has cluster access. Render-only GitOps tools may not
+report that error.
 
 ## Operator Pod Annotations and Labels
 

@@ -7,7 +7,8 @@ GitOps system.
 The public artifacts are:
 
 - [`../api/v1beta1`](../api/v1beta1): Go API type reference.
-- [`crds`](crds): `CrdbCluster` and `CrdbNode` CRDs.
+- [CockroachDB Operator sources](https://github.com/cockroachdb/cockroachdb-operator):
+  API definitions and CRD sources.
 - [`cockroachdb-operator.yaml`](cockroachdb-operator.yaml): operator RBAC,
   ServiceAccount, Service, and Deployment.
 - [`examples/crdb`](examples/crdb): directly applicable `CrdbCluster` examples
@@ -35,9 +36,6 @@ Run these commands from the repository root:
 ```shell
 kubectl create namespace cockroachdb
 
-kubectl apply --server-side \
-  -f cockroachdb-operator/charts/operator/manifests/crds
-
 kubectl apply \
   -f cockroachdb-operator/charts/operator/manifests/cockroachdb-operator.yaml
 
@@ -45,7 +43,17 @@ kubectl -n cockroachdb rollout status deployment/cockroach-operator
 ```
 
 The operator creates its validating and mutating webhook configurations at
-runtime.
+runtime and installs the CRDs for its image version. Wait for the required CRDs
+before applying a CockroachDB cluster:
+
+```shell
+kubectl wait --for=condition=Established \
+  crd/crdbclusters.crdb.cockroachlabs.com \
+  crd/crdbnodes.crdb.cockroachlabs.com --timeout=120s
+```
+
+Do not pre-apply CRDs from another operator version. Review API and CRD sources in
+the [CockroachDB Operator source repository](https://github.com/cockroachdb/cockroachdb-operator).
 
 ## Deploy a CockroachDB cluster
 
@@ -92,16 +100,14 @@ which are Helm values examples rather than directly applicable manifests.
 - Replace the self-signed certificate mode if stable, externally managed
   webhook certificates are required.
 
-Cockroach Labs maintainers can compare the published artifacts with the
-[CockroachDB Operator source README](https://github.com/cockroachlabs/cockroach-enterprise-operator#readme).
+The [CockroachDB Operator source README](https://github.com/cockroachdb/cockroachdb-operator#readme)
+describes the operator implementation and source artifacts.
 
 ## Update and uninstall
 
-Apply updated CRDs before updating the operator bundle:
+Update the operator bundle. The operator installs its matching CRDs at startup:
 
 ```shell
-kubectl apply --server-side \
-  -f cockroachdb-operator/charts/operator/manifests/crds
 kubectl apply \
   -f cockroachdb-operator/charts/operator/manifests/cockroachdb-operator.yaml
 ```

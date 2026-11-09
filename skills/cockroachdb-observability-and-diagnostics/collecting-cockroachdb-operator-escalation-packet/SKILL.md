@@ -1,10 +1,10 @@
 ---
 name: collecting-cockroachdb-operator-escalation-packet
 description: Collects a complete CockroachDB Operator escalation packet for TSC/TSE or operator-team handoff, including Helm state, Kubernetes resources, logs, operation-specific evidence, pprof goroutine dumps, metrics, and a customer action timeline. Use when general diagnosis cannot resolve an operator-managed CockroachDB Helm issue or before restarting a stuck operator.
-compatibility: CockroachDB Helm v2 charts and operator-managed crdb.cockroachlabs.com/v1beta1 resources. Requires Kubernetes read access to the operator namespace and CockroachDB namespace; pprof and metrics collection require port-forward access to the operator Deployment.
+compatibility: CockroachDB Helm v2 charts and operator-managed crdb.cockroachlabs.com/v1beta1 resources. Requires Kubernetes read access to the operator namespace and CockroachDB namespace. Pprof and metrics collection require port-forward access to the operator Deployment.
 metadata:
   author: cockroachdb
-  version: "1.0"
+  version: "1.1"
 ---
 
 # Collecting CockroachDB Operator Escalation Packet
@@ -23,20 +23,23 @@ Collects the artifacts needed for TSC/TSE or operator-team escalation. Use this 
 
 - Collect this packet before restarting, scaling, or deleting the operator during active operations.
 - Do not delete `CrdbNode`, PVC, Secret, service, version checker job, or StatefulSet resources while collecting data.
-- Do not print private key contents. Collect only Secret names, keys, certificate metadata, expiry, issuer, subject, and SANs.
+- Never save Secret YAML, `.data`, `.stringData`, tokens, passwords, or private keys. Collect only Secret names, key names, and decoded public certificate metadata. Helm values, resource YAML, logs, annotations and command lines can also contain credentials. Redact them before sharing. Keep an unshared original only under the user's access controls.
 - Do not manually edit `CrdbCluster.status`.
 - Do not run `cockroach init` on an existing cluster.
 - If the operator is paused or disabled, record that state before changing anything.
 
 ## Execution Discipline
 
-- Execute one step at a time and inspect the output before moving on. Do not run the packet collection in parallel; earlier results determine which operation-specific sections are relevant.
-- Run every step in the same shell session. Packet collection depends on `OPERATOR_NAMESPACE`, `CRDB_NAMESPACE`, `CRDBCLUSTER`, and the `CRDB_*_PATH` exports set in Step 1; opening a new shell drops those variables and downstream `jq`/`kubectl` calls will read from the wrong object or emit empty artifacts.
+- Execute one step at a time and inspect the output before moving on. Do not run the packet collection in parallel. Earlier results determine which operation-specific sections are relevant.
+- Run every step in the same shell session. Packet collection depends on `OPERATOR_NAMESPACE`, `CRDB_NAMESPACE`, `CRDBCLUSTER`, and the `CRDB_*_PATH` exports set in Step 1. Opening a new shell drops those variables and downstream `jq`/`kubectl` calls will read from the wrong object or emit empty artifacts.
 - Keep collection read-only unless the user explicitly approves a mutating action for the target cluster.
 - Never infer a `CrdbCluster` object name from a Helm release, service name, or CockroachDB image/version string. List `CrdbCluster` objects and use the exact `metadata.name`.
 - Before reading version-sensitive `CrdbCluster` fields, save the live CRD YAML and derive field paths from the served CRD schema for the object's `apiVersion`.
 - Do not run interactive `kubectl exec` shells, `kubectl debug`, port-forwards, pprof/metrics collection, or commands that use external images in production unless the user approves them. If impact or policy is unclear, involve TSE or the operator team first.
 - Do not patch, annotate, delete, restart, scale, drain, decommission, or run `helm upgrade` as part of packet collection.
+
+For operator logs, use the deployed `appLabel` if it differs from
+`app=cockroach-operator` in the commands below.
 
 ## Required Inputs
 
@@ -66,7 +69,7 @@ export CRDB_NAMESPACE="<cockroachdb-namespace>"
 export CRDB_HELM_RELEASE="<cockroachdb-release>"
 
 kubectl config current-context > crdb-operator-escalation/kube-context.txt
-kubectl version --short > crdb-operator-escalation/kubernetes-version.txt
+kubectl version -o yaml > crdb-operator-escalation/kubernetes-version.txt
 
 helm -n "$OPERATOR_NAMESPACE" status "$OPERATOR_RELEASE" > crdb-operator-escalation/operator-helm-status.txt 2>&1 || true
 helm -n "$OPERATOR_NAMESPACE" history "$OPERATOR_RELEASE" > crdb-operator-escalation/operator-helm-history.txt 2>&1 || true
@@ -86,7 +89,7 @@ kubectl -n "$CRDB_NAMESPACE" get crdbcluster -o json | jq -r '
 ' > crdb-operator-escalation/crdbcluster-candidates.tsv
 ```
 
-Inspect `crdbcluster-candidates.tsv`. If it is empty, stop object-specific packet collection and report that no live `CrdbCluster` exists in the namespace. You may collect `CrdbNode` owner references and labels as teardown evidence, but do not treat those values as a replacement for a discovered `CrdbCluster`. If more than one `CrdbCluster` exists in the namespace, select the target by `metadata.name`; do not use a CockroachDB version or image tag as the object name.
+Inspect `crdbcluster-candidates.tsv`. If it is empty, record that no live target exists yet and collect source StatefulSet, events and logs for an early migration wait. Do not invent a CrdbCluster name or status. If more than one `CrdbCluster` exists in the namespace, select the target by `metadata.name`. Do not use a CockroachDB version or image tag as the object name.
 
 ```bash
 export CRDBCLUSTER="<metadata.name-from-crdbcluster-candidates.tsv>"
@@ -231,16 +234,16 @@ kubectl -n "$CRDB_NAMESPACE" get crdbnodes \
 Collect full recent logs, not filtered snippets:
 
 ```bash
-kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --tail=500 > crdb-operator-escalation/operator-logs.txt 2>&1
-kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --previous --tail=500 > crdb-operator-escalation/operator-previous-logs.txt 2>&1 || true
+kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --since=30m --tail=2000 > crdb-operator-escalation/operator-logs.txt 2>&1
+kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --previous --since=30m --tail=2000 > crdb-operator-escalation/operator-previous-logs.txt 2>&1 || true
 ```
 
 For each CockroachDB pod:
 
 ```bash
-kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cockroachdb --tail=500 > crdb-operator-escalation/<crdb-pod>-cockroachdb.log 2>&1
-kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cockroachdb --previous --tail=500 > crdb-operator-escalation/<crdb-pod>-cockroachdb-previous.log 2>&1 || true
-kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cert-reloader --tail=100 > crdb-operator-escalation/<crdb-pod>-cert-reloader.log 2>&1 || true
+kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cockroachdb --since=30m --tail=2000 > crdb-operator-escalation/<crdb-pod>-cockroachdb.log 2>&1
+kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cockroachdb --previous --since=30m --tail=2000 > crdb-operator-escalation/<crdb-pod>-cockroachdb-previous.log 2>&1 || true
+kubectl -n "$CRDB_NAMESPACE" logs <crdb-pod> -c cert-reloader --since=30m --tail=500 > crdb-operator-escalation/<crdb-pod>-cert-reloader.log 2>&1 || true
 ```
 
 ## Step 4: Operation-Specific Evidence
@@ -308,15 +311,91 @@ kubectl -n "$CRDB_NAMESPACE" get pvc -o wide > crdb-operator-escalation/pvc-wide
 kubectl -n "$CRDB_NAMESPACE" get secret,configmap | grep -E 'ca|node|client|tls|cert' > crdb-operator-escalation/cert-resources.txt || true
 kubectl -n "$CRDB_NAMESPACE" get certificate,issuer,clusterissuer -o wide > crdb-operator-escalation/cert-manager-resources.txt 2>&1 || true
 
-kubectl -n "$CRDB_NAMESPACE" get secret <node-tls-secret> -o jsonpath='{.data.tls\.crt}' | base64 -d | \
-  openssl x509 -noout -dates -subject -issuer -ext subjectAltName > crdb-operator-escalation/node-cert-metadata.txt
+export NODE_SECRET="<node-tls-secret>"
+export CERT_KEY="<public-certificate-key>"  # tls.crt or node.crt, as used by the source
+kubectl -n "$CRDB_NAMESPACE" get secret "$NODE_SECRET" -o json |
+  jq -r --arg key "$CERT_KEY" '.data[$key]' | openssl base64 -d -A |
+  openssl x509 -noout -dates -subject -issuer -text > crdb-operator-escalation/node-cert-metadata.txt
 ```
 
+The `-text` output includes DNS and IP SANs and works with macOS LibreSSL too.
 Do not collect private key values.
 
 ### Migration
 
-Use [debugging-cockroachdb-operator-migrations](../../cockroachdb-onboarding-and-migrations/debugging-cockroachdb-operator-migrations/SKILL.md) and attach its migration state output. Include source StatefulSet or v1alpha1 `CrdbCluster`, migration labels, migration phase, source ownerReferences, and migration controller logs.
+Use [debugging-cockroachdb-operator-migrations](../../cockroachdb-onboarding-and-migrations/debugging-cockroachdb-operator-migrations/SKILL.md) for interpretation and the public certificate join-name check. Record whether this is forward migration or rollback, whether it is waiting or stopped, whether the source still exists, and the one proposed next action. Collect this before any approved mitigation and again afterward using `before` and `after` directories. An unavailable pre-change snapshot must be called out.
+
+```bash
+export SNAPSHOT="before"  # use after for the second snapshot
+export MIGRATION_PACKET="crdb-operator-escalation/$SNAPSHOT"
+export SOURCE_STS="<source-statefulset>"
+mkdir -p "$MIGRATION_PACKET"
+kubectl -n "$CRDB_NAMESPACE" get crdbclusters.v1beta1.crdb.cockroachlabs.com "$CRDBCLUSTER" -o yaml > "$MIGRATION_PACKET/crdbcluster-beta.yaml"
+kubectl -n "$CRDB_NAMESPACE" get crdbclusters.v1alpha1.crdb.cockroachlabs.com "$CRDBCLUSTER" -o yaml > "$MIGRATION_PACKET/crdbcluster-alpha.yaml" 2>&1
+kubectl -n "$CRDB_NAMESPACE" get crdbnodes -o yaml > "$MIGRATION_PACKET/crdbnodes.yaml"
+kubectl -n "$CRDB_NAMESPACE" get sts "$SOURCE_STS" -o yaml > "$MIGRATION_PACKET/source-sts.yaml" 2>&1
+kubectl -n "$CRDB_NAMESPACE" get crdbclusters.v1beta1.crdb.cockroachlabs.com "$CRDBCLUSTER" -o json | jq '{
+  mode: .spec.mode, migrate: .metadata.labels["crdb.io/migrate"],
+  skipReconcile: .metadata.labels["crdb.io/skip-reconcile"],
+  migration: (.status.migration | {phase, settledPhase, message, lastError, migratedNodes, totalPods})
+}' > "$MIGRATION_PACKET/migration-state.json"
+kubectl -n "$CRDB_NAMESPACE" get events -o json | jq '[.items[] |
+  select(.reason | test("^(MigrationPaused|MigrationBlocked|MigrationSourceUnreadable|MigrationSourceLost|RollbackSourceLost|DegradedHandoff|UnsupportedStartFlags|UnreadableStartCommand|DynamicStartFlag)$"))]
+' > "$MIGRATION_PACKET/migration-events.json"
+kubectl -n "$CRDB_NAMESPACE" get pods -o yaml > "$MIGRATION_PACKET/pods.yaml"
+kubectl -n "$CRDB_NAMESPACE" get svc "$CRDBCLUSTER-join" -o yaml > "$MIGRATION_PACKET/join-service.yaml" 2>&1
+kubectl -n "$CRDB_NAMESPACE" get endpoints "$CRDBCLUSTER-join" -o yaml > "$MIGRATION_PACKET/join-endpoints.yaml" 2>&1
+kubectl -n "$CRDB_NAMESPACE" get configmap "$CRDBCLUSTER-ca-crt" -o json | jq '{metadata: .metadata, keys: (.data // {} | keys)}' > "$MIGRATION_PACKET/ca-configmap.json"
+kubectl -n "$CRDB_NAMESPACE" get secrets -o json | jq '[.items[] | {name: .metadata.name, type, keys: (.data // {} | keys)}]' > "$MIGRATION_PACKET/secret-metadata.json"
+kubectl -n "$CRDB_NAMESPACE" get certificates.cert-manager.io -o yaml > "$MIGRATION_PACKET/certificates.yaml" 2>&1
+kubectl -n "$CRDB_NAMESPACE" get pvc -o json | jq '[.items[] | {
+  name: .metadata.name, uid: .metadata.uid, phase: .status.phase, volume: .spec.volumeName,
+  dataSource: .spec.dataSource, owners: .metadata.ownerReferences,
+  labels: .metadata.labels, annotations: .metadata.annotations}]
+' > "$MIGRATION_PACKET/pvcs.json"
+# Optional: requires cluster-scoped read access to PersistentVolumes.
+kubectl get pv -o json | jq --arg ns "$CRDB_NAMESPACE" '[.items[] |
+  select(.spec.claimRef.namespace == $ns) | {name: .metadata.name, phase: .status.phase,
+  claim: .spec.claimRef, reclaimPolicy: .spec.persistentVolumeReclaimPolicy}]
+' > "$MIGRATION_PACKET/pvs.json"
+kubectl get crd crdbclusters.crdb.cockroachlabs.com -o json | jq '{
+  versions: [.spec.versions[] | {name, served, storage}], storedVersions: .status.storedVersions,
+  conversion: .spec.conversion}' > "$MIGRATION_PACKET/crd-versions.json"
+kubectl -n "$OPERATOR_NAMESPACE" get deploy cockroach-operator -o yaml > "$MIGRATION_PACKET/operator-deployment.yaml"
+kubectl -n "$OPERATOR_NAMESPACE" get pods -o json | jq '[.items[] | {name: .metadata.name,
+  containers: [.status.containerStatuses[]? | {name, image, imageID}]}]' > "$MIGRATION_PACKET/operator-digests.json"
+kubectl -n "$OPERATOR_NAMESPACE" logs -l app=cockroach-operator --all-containers --prefix --max-log-requests=20 --since=30m --tail=2000 > "$MIGRATION_PACKET/operator.log" 2>&1
+```
+
+
+For adoption or renewal failures, also collect the public Service and its EndpointSlices,
+rotation CronJobs, the parent/node certificate references, and live pod CA mounts. Record
+the original client port, effective TLS mode and the result of a SQL connection through the
+Service. For secure sources use TLS hostname verification, including a custom client DNS
+name when configured. For insecure sources use `sslmode=disable` and record whether all
+certificate modes stayed disabled in exported values. Direct pod SQL
+success does not establish Service connectivity. Collect only the four signer annotation
+values (`certificate-valid-from`, `certificate-valid-upto`, `certificate-duration` and
+`secret-data-hash`), Secret names/key names, and decoded public certificate expiry/SANs.
+Never save Secret data. Record whether export kept external certificates or restored the
+self-signer, and any missing-data-hash error. A CA key alone does not restore rotation.
+Explicit `caProvided` settings in a matching source Helm release can restore the signer
+without CA annotations. Record the exported CA name and rotation setting, never the stored
+release Secret. Custom node/client Secret names remain external. Check references before
+calling the old `<cluster>-ca-crt` ConfigMap unused.
+
+For a same-release Helm adoption, record which source resources disappeared and the
+retention plan, especially the cert-manager issuer chain and discovery Service. After
+rollback, verify the source PDB budget and Role/RoleBinding are unchanged. Record the
+`crdb.cockroachlabs.com/migration-created` labels on certificate/RBAC resource metadata
+when cleanup appears incomplete. Only marked certificate/RBAC resources are deleted.
+Do not collect
+the old Helm release manifest or provisioning Secret in the packet because they can
+contain credentials. Collect relevant resource names, specs and redacted metadata instead.
+
+For legacy-operator migrations, discover the legacy operator deployment and namespace and collect its deployment args, image digests and bounded logs with the same commands. Include admission webhook configurations and CRD conversion service endpoints when coexistence or source reads fail. Compare source replicas with pinned `totalPods` and the unreplaced count in the controller message. Record certificate SANs and the join-host check result without saving Secret contents. Record missing resources as evidence, not as permission to recreate or delete them.
+
+Before sharing, redact credentials, SQL literals with sensitive data, connection strings, customer hostnames/IPs where required, and sensitive labels/annotations from YAML, logs, Helm output and diagnostics. Keep consistent placeholders so resource relationships remain understandable. Do not include kubeconfig or cloud credentials.
 
 ## Step 5: Operator pprof and Metrics
 
@@ -386,4 +465,4 @@ Return a concise summary with:
 
 - [diagnosing-cockroachdb-helm-deployments](../diagnosing-cockroachdb-helm-deployments/SKILL.md)
 - [debugging-cockroachdb-operator-migrations](../../cockroachdb-onboarding-and-migrations/debugging-cockroachdb-operator-migrations/SKILL.md)
-- [CockroachDB Helm Chart Changelog](../../../CHANGELOG.md)
+- [CockroachDB Operator chart changelog](../../../cockroachdb-operator/charts/operator/CHANGELOG.md)

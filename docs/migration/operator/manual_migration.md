@@ -1,13 +1,67 @@
-## Migrate from the Public Operator to the CockroachDB Operator
+## Migrate from the Legacy Operator to the CockroachDB Operator
 
-This guide migrates an existing CockroachDB cluster managed by the Public Operator to the
+Use the [controller migration](controller_migration.md) unless your deployment requires the
+manual path. Rehearse on a separate cluster with similar configuration first. Do not upgrade
+either operator or change cluster configuration during migration. Complete or roll back first.
+
+This guide migrates an existing CockroachDB cluster managed by the Legacy Operator to the
 CockroachDB Operator. The process preserves the existing PVCs and replaces one StatefulSet pod
 at a time with a `CrdbNode`. Cluster capacity is temporarily reduced by one node during each
 replacement.
 
 Before starting, confirm that all CockroachDB pods are Running and Ready and that no upgrade,
-scale operation, or rolling restart is in progress. This guide supports Public Operator v2.18.3 and above.
-Keep the Public Operator running until every cluster it manages has been migrated.
+scale operation, or rolling restart is in progress. Use Legacy Operator v2.18.7 as the
+recommended source version. Coexistence requires at least v2.18.6.
+Keep the Legacy Operator running until every cluster it manages has been migrated.
+For an OLM-managed source or a new operator installed through GitOps, review the
+[installation prerequisites](controller_migration.md#step-5-install-cockroachdb-operator-with-migration-enabled)
+before changing CRDs, webhooks or operator certificate ownership.
+
+## Insecure clusters
+
+Keep the source TLS mode throughout migration and adoption. For insecure clusters, the
+exported values disable TLS and all certificate modes. If editing values yourself, set
+`cockroachdb.tls.enabled`, `cockroachdb.tls.selfSigner.enabled`,
+`cockroachdb.tls.certManager.enabled` and
+`cockroachdb.tls.externalCertificates.enabled` to `false`. Disabling TLS alone fails
+because the self-signer defaults to enabled.
+
+Do not enable TLS on this running cluster later. Changing TLS mode is unsupported and
+can leave the cluster unhealthy and unrecoverable. Check pod readiness and SQL through
+the original public Service with `--insecure` after adoption or rollback.
+
+## Certificates and renewal
+
+Verify custom certificate DNS and IP names before and after running the migration helper.
+The manual helper has separate certificate handling from the controller. Do not assume that
+controller certificate-preservation behavior applies to this path.
+
+The helper needs `get` and `list` access to Secrets in the cluster namespace when
+checking for source Helm signer settings. Review the generated TLS values before chart adoption. The legacy operator's built-in
+self-signed certificates stay externally managed. The exporter does not enable chart
+self-signer rotation for them. Keep the existing CA, check node and client certificate
+expiry, and arrange renewal before either expires. Preserve the required DNS/IP SANs.
+Do not delete Secrets or the CA ConfigMap while pods still use them. See
+[certificate management after adoption](controller_migration.md#check-certificate-management-after-adoption)
+for how to check expiry and references. The controller's reissuance lifetime does not
+apply to the manual helper.
+
+The CA ConfigMap is copied once and isn't refreshed. Update it yourself after the CA is
+renewed, before nodes pick up certificates signed by the new CA. Check that exported values
+name the same node and client Secrets as the migrated CrdbCluster, especially with custom
+`nodeTLSSecret` and `clientTLSSecret` names.
+The helper preserves custom names. If only one is set, the other keeps its source Secret,
+normally `<name>-node` or `<name>-root`. These certificates remain externally managed.
+
+## Review exported start flags
+
+Before chart adoption, review `cockroachdb.crdbCluster.startFlags.upsert` in the generated
+values. Preserved flags, including `--join`, override operator defaults. You can change or
+remove them after migration when they are no longer needed. Before removing a join override,
+verify the region namespaces, DNS domains, join Service connectivity and certificate names.
+Changes can trigger a rolling restart, so check readiness and SQL connectivity afterward.
+
+## Prepare the migration helper
 
 Build the migration helper, and add the ./bin directory to your PATH:
 
@@ -20,7 +74,7 @@ Set environment variables as per your setup:
 
 ```
 
-# CRDBCLUSTER refers to your crdbcluster CR in public operator.
+# CRDBCLUSTER refers to your crdbcluster CR in legacy operator.
 export CRDBCLUSTER=cockroachdb
 
 # NAMESPACE refers to the namespace where crdbcluster CR is installed.
@@ -47,7 +101,7 @@ kubectl get statefulset $CRDBCLUSTER -n $NAMESPACE -o yaml \
 ```
 
 Next, migrate the TLS certificates. The CockroachDB Operator uses different certificate Secret
-and ConfigMap names from the Public Operator. The `migrate-certs` command generates and uploads
+and ConfigMap names from the Legacy Operator. The `migrate-certs` command generates and uploads
 the required resources:
 
 ```
@@ -68,18 +122,18 @@ bin/migration-helper build-manifest operator \
   --output-dir ./manifests
 ```
 
-The migration helper reads the public operator's `v1alpha1` CrdbCluster and StatefulSet before
-generating these manifests. Do not delete the target `CrdbCluster` or the CRDs; the converted
+The migration helper reads the legacy operator's `v1alpha1` CrdbCluster and StatefulSet before
+generating these manifests. Do not delete the target `CrdbCluster` or the CRDs. The converted
 `v1beta1` view is served from the same Kubernetes object during migration.
 
 ## Prepare for CockroachDB Operator installation
 
-The manual migration can be run while the public operator continues managing other clusters.
-In that case, keep the public operator and public operator CRD installed. Pause only the
+The manual migration can be run while the legacy operator continues managing other clusters.
+In that case, keep the legacy operator and legacy operator CRD installed. Pause only the
 target `CrdbCluster` before installing the CockroachDB Operator.
 
 ```
-# Prevent the public operator from reconciling this cluster during migration.
+# Prevent the legacy operator from reconciling this cluster during migration.
 kubectl label crdbcluster $CRDBCLUSTER crdb.io/skip-reconcile="true" -n $NAMESPACE --overwrite
 
 # Preserve the source cluster's region and provider through v1alpha1/v1beta1 conversion.
@@ -88,14 +142,14 @@ kubectl annotate crdbcluster $CRDBCLUSTER -n $NAMESPACE --overwrite \
   crdb.cockroachlabs.com/regionCode=$REGION
 ```
 
-Because the public operator remains installed in this coexistence mode, install the
+Because the legacy operator remains installed in this coexistence mode, install the
 CockroachDB Operator with migration enabled so Kubernetes can serve both API versions during
 the transition. This does not create a second object for each cluster. Existing clusters remain
-managed by the Public Operator until they are explicitly migrated. Use a distinct `appLabel` if
+managed by the Legacy Operator until they are explicitly migrated. Use a distinct `appLabel` if
 both operators run in the same namespace.
 
-Patch the public operator webhooks to use `matchPolicy: Exact` before Helm applies the
-`v1beta1` CrdbCluster. Without this, the public operator webhooks can intercept v1beta1
+Patch the legacy operator webhooks to use `matchPolicy: Exact` before Helm applies the
+`v1beta1` CrdbCluster. Without this, the legacy operator webhooks can intercept v1beta1
 requests after Kubernetes converts them to v1alpha1.
 
 ```
@@ -184,7 +238,7 @@ kubectl exec $CRDBCLUSTER-0 -n $NAMESPACE -c cockroachdb -- \
 All nodes must be live and every `ranges_underreplicated` value must be zero. For insecure
 clusters, use `--insecure` instead of `--certs-dir`.
 
-Delete the Public Operator PDB before Helm adoption because it conflicts with the
+Delete the Legacy Operator PDB before Helm adoption because it conflicts with the
 CockroachDB Operator PDB:
 
 ```
@@ -211,8 +265,12 @@ kubectl annotate crdbcluster $CRDBCLUSTER kubectl.kubernetes.io/last-applied-con
 
 ```
 
-If the Public Operator CrdbCluster created Ingress resources, transfer those resources to Helm
-as well:
+If the Legacy Operator CrdbCluster created Ingress resources, compare the rendered
+hosts, paths, ingress class, annotations and TLS settings before transferring them to
+Helm. These commands use the cluster name as the release name so the chart's
+`ui-<release>` and `sql-<release>` names match. Otherwise, keep the existing Ingresses
+under separate management. The operator does not manage Ingress resources. See
+[Ingress adoption and backend ports](controller_migration.md#annotate-resources-for-helm-ownership).
 
 ```
 for INGRESS in ui-$CRDBCLUSTER sql-$CRDBCLUSTER; do
@@ -250,7 +308,7 @@ helm upgrade --install $CRDBCLUSTER ./cockroachdb-operator/charts/cockroachdb \
 ```
 
 `--force-conflicts` performs the one-time ownership handoff for resources previously managed by
-the Public Operator. Helm applies the generated `values.yaml`, including `mode: MutableOnly`.
+the Legacy Operator. Helm applies the generated `values.yaml`, including `mode: MutableOnly`.
 
 Verify that Helm set `mode: MutableOnly`:
 
@@ -268,28 +326,28 @@ helm upgrade $CRDBCLUSTER ./cockroachdb-operator/charts/cockroachdb \
   -f manifests/values.yaml
 ```
 
-Keep `crdb.io/skip-reconcile=true` on the migrated cluster while the Public Operator remains
-installed. Removing it early allows the Public Operator to recreate the StatefulSet.
+Keep `crdb.io/skip-reconcile=true` on the migrated cluster while the Legacy Operator remains
+installed. Removing it early allows the Legacy Operator to recreate the StatefulSet.
 
 ## Complete coexistence cleanup after the last cluster is migrated
 
 You can migrate and adopt clusters one at a time. Perform this cluster-wide cleanup only after
-every cluster managed by the Public Operator has been migrated and is healthy.
+every cluster managed by the Legacy Operator has been migrated and is healthy.
 
-1. Verify that no Public Operator cluster remains in `Mode=Disabled`:
+1. Verify that no Legacy Operator cluster remains in `Mode=Disabled`:
 
    ```bash
    kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com --all-namespaces \
      -o custom-columns='NAMESPACE:.metadata.namespace,NAME:.metadata.name,MODE:.spec.mode'
    ```
 
-2. Uninstall the Public Operator using the same method used to install it. Remove its Deployment,
+2. Uninstall the Legacy Operator using the same method used to install it. Remove its Deployment,
    webhook Service, ServiceAccount, ClusterRole, ClusterRoleBinding, and validating and mutating
    webhook configurations. Do not delete the shared CrdbCluster or CrdbNode CRDs. The exact
-   v2.18.3 and above resource names are listed in
-   [Uninstall the Public Operator and clean up coexistence](controller_migration.md#step-12-uninstall-the-public-operator-and-clean-up-coexistence).
+   v2.18.7 resource names are listed in
+   [Uninstall the Legacy Operator and clean up coexistence](controller_migration.md#step-12-uninstall-the-legacy-operator-and-clean-up-coexistence).
 
-3. After the Public Operator and its webhooks are gone, remove coexistence metadata from each
+3. After the Legacy Operator and its webhooks are gone, remove coexistence metadata from each
    migrated cluster:
 
    ```bash
@@ -326,7 +384,7 @@ every cluster managed by the Public Operator has been migrated and is healthy.
 
 This rollback procedure is valid only while the original StatefulSet still exists. After the
 StatefulSet is deleted, stop and contact support instead of following this rollback procedure.
-The Public Operator and the shared CRDs must remain installed throughout rollback because other
+The Legacy Operator and the shared CRDs must remain installed throughout rollback because other
 clusters and the conversion webhook may still depend on them.
 
 If migration fails while applying CrdbNode manifests, use the preserved StatefulSet and PVCs to
@@ -364,13 +422,13 @@ For insecure clusters, replace `--certs-dir=/cockroach/cockroach-certs` with `--
 
 Note: It might take some time for the `under-replicated` value to be zero.
 
-Repeat the kubectl delete -f ... command for each crdbnode manifest you applied during migration.
+Repeat the kubectl delete -f ... Command for each crdbnode manifest you applied during migration.
 
 
 2. Remove Helm adoption metadata if it was already applied
 
 If you already annotated resources for Helm adoption, remove those annotations before handing
-the cluster back to the public operator:
+the cluster back to the legacy operator:
 
 ```
 kubectl annotate service $CRDBCLUSTER-public meta.helm.sh/release-name- meta.helm.sh/release-namespace- -n $NAMESPACE
@@ -402,7 +460,7 @@ kubectl delete -f manifests/rbac.yaml --ignore-not-found
 4. Disable CockroachDB Operator reconciliation for the target cluster
 
 If the Helm command was started and changed the converted v1beta1 CrdbCluster to
-`MutableOnly`, set it back to `Disabled` before handing the cluster back to the public
+`MutableOnly`, set it back to `Disabled` before handing the cluster back to the legacy
 operator:
 
 ```
@@ -411,13 +469,13 @@ kubectl patch crdbclusters.v1beta1.crdb.cockroachlabs.com $CRDBCLUSTER -n $NAMES
 ```
 
 Do not run `helm uninstall $CRDBCLUSTER` as a rollback step. Once Helm has adopted the
-CrdbCluster, uninstalling the release can delete the CrdbCluster object that the public
+CrdbCluster, uninstalling the release can delete the CrdbCluster object that the legacy
 operator needs to resume control.
 
-5. Resume public operator reconciliation for the target cluster
+5. Resume legacy operator reconciliation for the target cluster
 
 Remove migration-only labels from restored StatefulSet pods, then remove `skip-reconcile` so the
-Public Operator can resume:
+Legacy Operator can resume:
 
 ```
 kubectl label pods -n $NAMESPACE \
@@ -426,11 +484,11 @@ kubectl label pods -n $NAMESPACE \
 kubectl label crdbcluster $CRDBCLUSTER crdb.io/skip-reconcile- -n $NAMESPACE
 ```
 
-After `skip-reconcile` is removed, the public operator should resume reconciliation and
-recreate any public-operator resources that were removed during the attempted migration,
-such as the public operator PDB.
+After `skip-reconcile` is removed, the legacy operator should resume reconciliation and
+recreate any legacy-operator resources that were removed during the attempted migration,
+such as the legacy operator PDB.
 
-6. Verify the target cluster is back under public operator control
+6. Verify the target cluster is back under legacy operator control
 
 ```
 kubectl rollout status statefulset/$CRDBCLUSTER -n $NAMESPACE
@@ -439,7 +497,7 @@ kubectl get pods -n $NAMESPACE
 
 Keep the CockroachDB Operator installed with `migration.enabled=true` while any v1alpha1
 clusters remain in the Kubernetes cluster. It provides the conversion webhook required for
-the public operator and Kubernetes API server to read and write those objects. Only uninstall
+the legacy operator and Kubernetes API server to read and write those objects. Only uninstall
 it or disable migration mode after all v1alpha1 clusters have been migrated and
 `status.storedVersions` has been patched as described in the controller migration guide.
 

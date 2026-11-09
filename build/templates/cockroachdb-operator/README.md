@@ -52,9 +52,10 @@ helm install cockroachdb cockroachdb-v2/cockroachdb-chart \
 For local testing, use the source directories in the table above and install
 the charts in the same order.
 
-Do not pre-apply `charts/operator/manifests/crds/` as a workaround for Helm
-installation. Those files are reference copies and may differ from the operator
-image. The operator installs the CRDs it needs at startup.
+The operator installs the CRDs it needs at startup. Wait for them before installing
+the CockroachDB chart. Do not pre-apply CRDs from another operator version as a
+workaround. The [CockroachDB Operator source repository](https://github.com/cockroachdb/cockroachdb-operator)
+contains the API definitions and CRD sources.
 
 ## Uninstall
 

@@ -1,5 +1,9 @@
 ## Migrate from a Helm StatefulSet to the CockroachDB Operator
 
+Use the [controller migration](controller_migration.md) unless your deployment requires the
+manual path. Rehearse on a separate cluster with similar configuration first. Do not upgrade
+the CockroachDB Operator or change cluster configuration during migration. Complete or roll back first.
+
 This guide migrates an existing CockroachDB cluster managed by the StatefulSet-based Helm
 chart to the CockroachDB Operator. The process preserves the existing PVCs and replaces one
 StatefulSet pod at a time with a `CrdbNode`. Cluster capacity is temporarily reduced by one
@@ -7,7 +11,62 @@ node during each replacement.
 
 Before starting, confirm that all CockroachDB pods are Running and Ready and that no upgrade,
 scale operation, or rolling restart is in progress. Keep the original chart version and values
-available for rollback.
+available for rollback. Before starting, review
+[resources to preserve before Helm adoption](controller_migration.md#resources-to-preserve-before-helm-adoption).
+The same-release upgrade can delete source resources that the new chart does not render.
+
+## Insecure clusters
+
+Keep the source TLS mode throughout migration and adoption. For insecure clusters, the
+exported values disable TLS and all certificate modes. If editing values yourself, set
+`cockroachdb.tls.enabled`, `cockroachdb.tls.selfSigner.enabled`,
+`cockroachdb.tls.certManager.enabled` and
+`cockroachdb.tls.externalCertificates.enabled` to `false`. Disabling TLS alone fails
+because the self-signer defaults to enabled.
+
+Do not enable TLS on this running cluster later. Changing TLS mode is unsupported and
+can leave the cluster unhealthy and unrecoverable. Check pod readiness and SQL through
+the original public Service with `--insecure` after adoption or rollback.
+
+## Certificates and renewal
+
+Verify custom certificate DNS and IP names before and after running the migration helper.
+The manual helper has separate certificate handling from the controller. Do not assume that
+controller certificate-preservation behavior applies to this path.
+
+Review the generated TLS values before chart adoption. Recognized legacy self-signer
+sources retain automatic rotation, existing certificate lifetimes and DNS/IP SANs. Other
+sources stay externally managed unless cert-manager is explicitly detected. A CA key
+without the chart signer annotations or explicit provided-CA settings in the source Helm
+release does not enable rotation in exported values.
+Custom node or client Secret names also stay external. Keep the existing CA and verify
+how renewal will continue. Do not delete the node/client Secrets
+that the new pods still use. See
+[certificate management after adoption](controller_migration.md#check-certificate-management-after-adoption)
+for the CA ConfigMap references to check before cleaning up old resources.
+The manual Helm path already uses `<name>-ca-secret-crt`. The controller path initially
+uses `<name>-ca-crt` and changes that reference during self-signer adoption.
+
+The key layout and CA steps in
+[legacy chart TLS options](controller_migration.md#legacy-chart-tls-options) apply here too.
+Rewrite `tlsSecret: false` Secrets with `tls.crt`, `tls.key` and `ca.crt` keys. For
+`selfSigner.caProvided`, export preserves the supplied CA name and rotation setting from
+the matching source Helm release in default Secret storage. The helper needs `get` and
+`list` access to Secrets in that namespace. Review those values before
+adoption. The manual helper supports the `tls.enableSighupRotation` projected volume and
+keeps its node Secret name. With cert-manager or external certificates, the CA ConfigMap
+isn't refreshed after a CA renewal. Update it yourself before nodes pick up certificates
+signed by the new CA.
+
+## Review exported start flags
+
+Before chart adoption, review `cockroachdb.crdbCluster.startFlags.upsert` in the generated
+values. Preserved flags, including `--join`, override operator defaults. You can change or
+remove them after migration when they are no longer needed. Before removing a join override,
+verify the region namespaces, DNS domains, join Service connectivity and certificate names.
+Changes can trigger a rolling restart, so check readiness and SQL connectivity afterward.
+
+## Prepare the migration helper
 
 Build the migration helper and add the `bin` directory to your `PATH`:
 
@@ -159,6 +218,12 @@ the migration upgrade while this object still exists:
 kubectl delete statefulset $STS_NAME -n $NAMESPACE --wait=true
 ```
 
+Review any existing Ingress before adoption. The new chart uses `ui-<release>` and
+`sql-<release>` and does not translate the legacy chart's Ingress name or routes.
+Retain separately managed routes when the chart cannot express them. See
+[Ingress adoption and backend ports](controller_migration.md#step-10-annotate-resources-for-helm-adoption)
+for ownership and shared SQL/gRPC port handling. The operator leaves Ingresses unchanged.
+
 Finally, apply the CrdbCluster manifest using helm upgrade to complete the migration:
 
 ```
@@ -239,7 +304,7 @@ For insecure clusters, replace `--certs-dir=/cockroach/cockroach-certs` with `--
 
 Note: It might take some time for the `under-replicated` value to be zero.
 
-Repeat the kubectl delete -f ... command for each crdbnode manifest you applied during migration.
+Repeat the kubectl delete -f ... Command for each crdbnode manifest you applied during migration.
 
 3. Restore the original Helm-managed resources
 

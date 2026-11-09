@@ -3,7 +3,7 @@
 
 > **⚠️ Deprecation notice**
 >
-> This is the **legacy** CockroachDB Helm chart (the "public operator" StatefulSet-based chart). It is deprecated and no longer receives new features. New deployments should use the [CockroachDB Operator umbrella chart](../cockroachdb-operator/README.md) at `./cockroachdb-operator/` instead.
+> This is the **legacy** CockroachDB Helm chart (the StatefulSet-based chart). It is deprecated and no longer receives new features. For new deployments, install the CockroachDB Operator and CockroachDB charts as separate releases. See the [installation guide](../cockroachdb-operator/README.md).
 >
 > See the official [Kubernetes deployment deprecation notice](https://www.cockroachlabs.com/docs/v26.2/kubernetes-deprecation-notice) for the full timeline and migration guidance.
 >
