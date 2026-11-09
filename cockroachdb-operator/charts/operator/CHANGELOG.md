@@ -3,14 +3,43 @@
 <!-- For new releases, separate Helm installations, Non-Helm installations,
 and shared Operator behavior when those categories apply. -->
 
-## [Unreleased]
+## [1.2.0] — 2026-11-13
 
 ### Helm installations
 
 #### Added
 - Added `podAnnotations` and `podLabels` to add annotations and labels to the operator pods,
   for example `sidecar.istio.io/inject: "false"` to keep Istio from injecting a sidecar.
+- Added `get` and `patch` access to cert-manager `Certificate` resources for migration
+  ownership discovery and join-name updates. See the [migration RBAC prerequisites](../../../docs/migration/helm/controller_migration.md#prerequisites).
+
+#### Changed
+- Updated the default operator image and related init-container and certificate-reloader images
+  to `v1.2.0`.
 - Updated Kubernetes compatibility information for the latest GA versions.
+
+### Non-Helm installations
+
+#### Added
+- Added the same migration certificate-discovery and update permissions to the bundle RBAC;
+  see the [migration RBAC prerequisites](../../../docs/migration/helm/controller_migration.md#prerequisites).
+
+#### Changed
+- Updated the rendered operator bundle to use the `v1.2.0` operator and related images.
+- Removed the bundled CRD reference copies. The operator installs its matching CRDs at startup.
+
+### Operator behavior
+
+#### Changed
+- Updated the Go toolchains used to build the operator, init container and certificate
+  reloader for the certificate-verification mitigation for CVE-2026-111943
+  (the e-Mudhra incident).
+
+#### Fixed
+- Fixed and enhanced automated migration, including prerequisite checks, progress reporting
+  and recovery.
+- Improved preservation of certificates, storage and cluster settings, and made handoff,
+  chart adoption and rollback more reliable.
 
 ## [1.1.0] — 2026-09-21
 
@@ -132,7 +161,7 @@ for the Helm configuration and temporary compatibility steps.
 
 ## [1.0.0-rc.2] — 2026-05-25
 ### Added
-- Support for automated migration from Helm-managed StatefulSet clusters and Public Operator
+- Support for automated migration from Helm-managed StatefulSet clusters and legacy operator
   `v1alpha1` clusters to CockroachDB Operator `v1beta1` clusters. Use the operator chart's
   `migration.enabled=true` flag only for these migration flows and follow the controller
   migration guides in [docs/migration](../../../docs/migration). Preview customers upgrading
@@ -156,7 +185,7 @@ for the Helm configuration and temporary compatibility steps.
   `1.0.0-rc.2`.
   **Note:** Preview customers upgrading existing CockroachDB Operator deployments do not need to
   set `migration.enabled=true`. That flag is only for automated Helm StatefulSet and Public
-  Operator migration flows. Migrated Public Operator clusters may continue using v1alpha1 until
+  Operator migration flows. Migrated legacy operator clusters may continue using v1alpha1 until
   the CRD `storedVersions` is patched. Follow the controller migration guides in
   [docs/migration](../../../docs/migration) for when to patch `storedVersions` and disable
   migration mode.

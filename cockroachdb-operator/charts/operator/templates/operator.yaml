@@ -160,6 +160,14 @@ rules:
       - get
       - patch
       - update
+  # Migration reads certificate mode and adds join names to cert-manager Certificates.
+  - apiGroups:
+      - cert-manager.io
+    resources:
+      - certificates
+    verbs:
+      - get
+      - patch
   - apiGroups:
       - ""
     resources:

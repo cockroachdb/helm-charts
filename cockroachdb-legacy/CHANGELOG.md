@@ -2,6 +2,15 @@
 
 All notable changes to the CockroachDB Helm chart will be documented in this file.
 
+## [23.0.1] 2026-11-13
+### Changed
+  - Updated the self-signer image to `1.13`.
+
+### Release notes
+- No chart release was published for CockroachDB `v26.3.5`. This chart defaults
+  to `v26.4.0`. To deploy `v26.3.5`, set `image.tag` to `v26.3.5`
+  in your values file.
+
 ## [23.0.0] 2026-11-11
 ### Changed
   - Updated the default CockroachDB image version from `v26.3.4` to `v26.4.0`.

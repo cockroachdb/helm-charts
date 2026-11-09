@@ -37,8 +37,6 @@ spec:
   {{- with .Values.operator.podLabels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  # Cockroach Cloud operator doesn't provide a way to change the sql,grpc and http ports for the pods. Hence, making these
-  # ports static here.
   type: {{ .Values.operator.service.public.type | quote }}
   ports:
   {{- $ports := .Values.operator.service.ports }}
