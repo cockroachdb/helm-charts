@@ -531,12 +531,12 @@ spec:
               value: local
             # When watchNamespaces is set, restrict the operator to those namespaces only.
           resources:
-            requests:
-              cpu: 500m
-              memory: 1000Mi
             limits:
               cpu: 2000m
               memory: 4000Mi
+            requests:
+              cpu: 500m
+              memory: 1000Mi
           volumeMounts:
             - name: certs
               mountPath: /certs
@@ -574,6 +574,7 @@ spec:
           # the shared cockroach-operator-certs Secret into this volume. The Secret
           # and its certificates persist across Pod restarts.
           emptyDir: {}
+
 ---
 # Source: cockroachdb-operator-chart/templates/operator.yaml
 # operator.yaml defines how the operator is installed in a K8s

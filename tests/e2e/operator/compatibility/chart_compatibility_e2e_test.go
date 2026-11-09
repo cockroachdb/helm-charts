@@ -215,7 +215,21 @@ func compatibilityOperatorUpgradeValues(t *testing.T, operatorChartPath string) 
 		"numReplicas":                       "1",
 		"podAnnotations.compatibility-test": "operator-upgrade",
 		"podLabels.compatibility-test":      "operator-upgrade",
+		"resources.requests.cpu":            "250m",
+		"resources.requests.memory":         "512Mi",
+		"resources.limits.cpu":              "1500m",
+		"resources.limits.memory":           "2Gi",
+		"nodeSelector.kubernetes\\.io/os":   "linux",
+		"tolerations[0].key":                "compatibility-test",
+		"tolerations[0].operator":           "Equal",
+		"tolerations[0].value":              "operator-upgrade",
+		"tolerations[0].effect":             "NoSchedule",
 	}
+	// Match the test nodes without requiring dedicated nodes or extra taints.
+	affinityPrefix := "affinity.nodeAffinity.requiredDuringSchedulingIgnoredDuringExecution.nodeSelectorTerms[0].matchExpressions[0]."
+	values[affinityPrefix+"key"] = "kubernetes.io/os"
+	values[affinityPrefix+"operator"] = "In"
+	values[affinityPrefix+"values[0]"] = "linux"
 	for key, value := range localOperatorImageValues(t, operatorChartPath) {
 		values[key] = value
 	}
@@ -294,6 +308,23 @@ func requireUpgradedOperator(t *testing.T, kubectlOptions *k8s.KubectlOptions, v
 		}
 		require.NotNil(t, container)
 		require.Equal(t, configuredImage(values, "image"), container.Image)
+		require.Equal(t, values["resources.requests.cpu"], container.Resources.Requests.Cpu().String())
+		require.Equal(t, values["resources.requests.memory"], container.Resources.Requests.Memory().String())
+		require.Equal(t, values["resources.limits.cpu"], container.Resources.Limits.Cpu().String())
+		require.Equal(t, values["resources.limits.memory"], container.Resources.Limits.Memory().String())
+		require.Equal(t, "linux", pod.Spec.NodeSelector["kubernetes.io/os"])
+		require.Contains(t, pod.Spec.Tolerations, corev1.Toleration{
+			Key: "compatibility-test", Operator: corev1.TolerationOpEqual, Value: "operator-upgrade", Effect: corev1.TaintEffectNoSchedule,
+		})
+		require.NotNil(t, pod.Spec.Affinity)
+		require.NotNil(t, pod.Spec.Affinity.NodeAffinity)
+		requiredAffinity := pod.Spec.Affinity.NodeAffinity.RequiredDuringSchedulingIgnoredDuringExecution
+		require.NotNil(t, requiredAffinity)
+		require.Equal(t, []corev1.NodeSelectorTerm{{
+			MatchExpressions: []corev1.NodeSelectorRequirement{{
+				Key: "kubernetes.io/os", Operator: corev1.NodeSelectorOpIn, Values: []string{"linux"},
+			}},
+		}}, requiredAffinity.NodeSelectorTerms)
 		for envName, imageName := range map[string]string{
 			"RELATED_IMAGE_INIT_CONTAINER": "initContainer",
 			"RELATED_IMAGE_INOTIFYWAIT":    "inotifywait",

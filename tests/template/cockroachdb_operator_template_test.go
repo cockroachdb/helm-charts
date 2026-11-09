@@ -53,9 +53,9 @@ type operatorValues struct {
 // renderOperatorResources renders operator.yaml and returns each parsed resource.
 // It uses a YAML stream decoder so that --- separators and Helm's # Source headers
 // are handled correctly regardless of whitespace or extra blank documents.
-func renderOperatorResources(t *testing.T, options *helm.Options) operatorResources {
+func renderOperatorResources(t *testing.T, options *helm.Options, extraHelmArgs ...string) operatorResources {
 	t.Helper()
-	output, renderErr := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/operator.yaml"})
+	output, renderErr := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/operator.yaml"}, extraHelmArgs...)
 	require.NoError(t, renderErr)
 
 	decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(output), 4096)
@@ -316,6 +316,137 @@ func TestOperatorImageDigestUpdated(t *testing.T) {
 	res := renderOperatorResources(t, options)
 
 	require.Equal(t, expectedOperatorImage(t), res.Deployment.Spec.Template.Spec.Containers[0].Image)
+}
+
+func TestOperatorResources(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		values   string
+		upgrade  bool
+		requests map[corev1.ResourceName]string
+		limits   map[corev1.ResourceName]string
+	}{
+		{
+			name:     "defaults",
+			requests: map[corev1.ResourceName]string{corev1.ResourceCPU: "500m", corev1.ResourceMemory: "1000Mi"},
+			limits:   map[corev1.ResourceName]string{corev1.ResourceCPU: "2", corev1.ResourceMemory: "4000Mi"},
+		},
+		{
+			name:     "upgrade reusing old values without resources",
+			values:   "image:\n  tag: v1.1.0\n",
+			upgrade:  true,
+			requests: map[corev1.ResourceName]string{corev1.ResourceCPU: "500m", corev1.ResourceMemory: "1000Mi"},
+			limits:   map[corev1.ResourceName]string{corev1.ResourceCPU: "2", corev1.ResourceMemory: "4000Mi"},
+		},
+		{
+			name:     "custom requests and limits",
+			values:   "resources:\n  requests:\n    cpu: 125m\n    memory: 256Mi\n  limits:\n    cpu: 1\n    memory: 1Gi\n",
+			requests: map[corev1.ResourceName]string{corev1.ResourceCPU: "125m", corev1.ResourceMemory: "256Mi"},
+			limits:   map[corev1.ResourceName]string{corev1.ResourceCPU: "1", corev1.ResourceMemory: "1Gi"},
+		},
+		{
+			name:     "partial override preserves other defaults",
+			values:   "resources:\n  requests:\n    cpu: 125m\n",
+			requests: map[corev1.ResourceName]string{corev1.ResourceCPU: "125m", corev1.ResourceMemory: "1000Mi"},
+			limits:   map[corev1.ResourceName]string{corev1.ResourceCPU: "2", corev1.ResourceMemory: "4000Mi"},
+		},
+		{
+			name:     "remove CPU limit",
+			values:   "resources:\n  limits:\n    cpu: null\n",
+			requests: map[corev1.ResourceName]string{corev1.ResourceCPU: "500m", corev1.ResourceMemory: "1000Mi"},
+			limits:   map[corev1.ResourceName]string{corev1.ResourceMemory: "4000Mi"},
+		},
+		{
+			name:   "empty resources override",
+			values: "resources: {}\n",
+		},
+		{
+			name:   "remove all resources",
+			values: "resources: null\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			valuesFile := filepath.Join(t.TempDir(), "values.yaml")
+			require.NoError(t, os.WriteFile(valuesFile, []byte(tc.values), 0600))
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				ValuesFiles:    []string{valuesFile},
+			}
+			var extraArgs []string
+			if tc.upgrade {
+				extraArgs = []string{"--is-upgrade"}
+			}
+			res := renderOperatorResources(t, options, extraArgs...)
+			resources := res.Deployment.Spec.Template.Spec.Containers[0].Resources
+			require.Len(t, resources.Requests, len(tc.requests))
+			require.Len(t, resources.Limits, len(tc.limits))
+			for name, expected := range tc.requests {
+				actual := resources.Requests[name]
+				require.Equal(t, expected, actual.String(), "request %s", name)
+			}
+			for name, expected := range tc.limits {
+				actual := resources.Limits[name]
+				require.Equal(t, expected, actual.String(), "limit %s", name)
+			}
+		})
+	}
+}
+
+func TestOperatorScheduling(t *testing.T) {
+	t.Parallel()
+
+	t.Run("defaults", func(t *testing.T) {
+		t.Parallel()
+		res := renderOperatorResources(t, &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		})
+		podSpec := res.Deployment.Spec.Template.Spec
+		require.Empty(t, podSpec.NodeSelector)
+		require.Empty(t, podSpec.Tolerations)
+		require.Nil(t, podSpec.Affinity)
+	})
+
+	t.Run("custom scheduling", func(t *testing.T) {
+		t.Parallel()
+		valuesFile := filepath.Join(t.TempDir(), "values.yaml")
+		require.NoError(t, os.WriteFile(valuesFile, []byte(`nodeSelector:
+  workload: operators
+tolerations:
+  - key: workload
+    operator: Equal
+    value: operators
+    effect: NoSchedule
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: cockroach-operator
+          topologyKey: kubernetes.io/hostname
+`), 0600))
+		res := renderOperatorResources(t, &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+			ValuesFiles:    []string{valuesFile},
+		})
+		podSpec := res.Deployment.Spec.Template.Spec
+		require.Equal(t, map[string]string{"workload": "operators"}, podSpec.NodeSelector)
+		require.Equal(t, []corev1.Toleration{{
+			Key: "workload", Operator: corev1.TolerationOpEqual, Value: "operators", Effect: corev1.TaintEffectNoSchedule,
+		}}, podSpec.Tolerations)
+		require.NotNil(t, podSpec.Affinity)
+		require.NotNil(t, podSpec.Affinity.PodAntiAffinity)
+		terms := podSpec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+		require.Len(t, terms, 1)
+		require.EqualValues(t, 100, terms[0].Weight)
+		require.Equal(t, "kubernetes.io/hostname", terms[0].PodAffinityTerm.TopologyKey)
+		require.NotNil(t, terms[0].PodAffinityTerm.LabelSelector)
+		require.Equal(t, map[string]string{"app": "cockroach-operator"}, terms[0].PodAffinityTerm.LabelSelector.MatchLabels)
+	})
 }
 
 func TestOperatorRelatedImages(t *testing.T) {

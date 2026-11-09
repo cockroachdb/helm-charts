@@ -8,6 +8,7 @@ and shared Operator behavior when those categories apply. -->
 ### Helm installations
 
 #### Added
+- Added `resources`, `nodeSelector`, `tolerations`, and `affinity` settings for operator pods.
 - Added `podAnnotations` and `podLabels` to add annotations and labels to the operator pods,
   for example `sidecar.istio.io/inject: "false"` to keep Istio from injecting a sidecar.
 - Added `get` and `patch` access to cert-manager `Certificate` resources for migration
