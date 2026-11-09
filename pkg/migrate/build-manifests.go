@@ -162,6 +162,10 @@ func (m *Manifest) FromPublicOperator() error {
 	}
 
 	helmValues := buildHelmValuesFromOperator(publicCluster, sts, m.cloudProvider, m.cloudRegion, m.namespace, input.startFlags)
+	certs := operatorExternalCertificates(publicCluster, sts)
+	if err := m.restoreSelfSignerValues(ctx, helmValues, publicCluster.Name, certs.NodeSecretName, certs.RootSQLClientSecretName); err != nil {
+		return err
+	}
 
 	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{helmValues}); err != nil {
 		return errors.Wrap(err, "writing helm values to disk")
@@ -203,14 +207,70 @@ func (m *Manifest) ExportValuesFromV1beta1() error {
 	}
 
 	values := buildHelmValuesFromV1beta1(cluster, ingresses)
+	if err := m.preservePublicServiceValues(ctx, values, cluster.Name); err != nil {
+		return err
+	}
+	if certs := cluster.Spec.Template.Spec.Certificates.ExternalCertificates; certs != nil && (certs.HTTPSecretName == "" || certs.HTTPSecretName == certs.RootSQLClientSecretName) {
+		if err := m.restoreSelfSignerValues(ctx, values, cluster.Name, certs.NodeSecretName, certs.RootSQLClientSecretName); err != nil {
+			return err
+		}
+	}
 	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{values}); err != nil {
 		return errors.Wrap(err, "writing helm values to disk")
 	}
 	return nil
 }
 
+// preservePublicServiceValues carries chart-supported client Service settings
+// into adoption. Try <name>-public first, then <name> if it is a non-headless
+// client Service. The legacy operator's bare-name headless Service is skipped.
+func (m *Manifest) preservePublicServiceValues(ctx context.Context, values map[string]interface{}, clusterName string) error {
+	for _, name := range []string{clusterName + "-public", clusterName} {
+		svc, err := m.clientset.CoreV1().Services(m.namespace).Get(ctx, name, metav1.GetOptions{})
+		if apierrors.IsNotFound(err) {
+			continue
+		}
+		if err != nil {
+			return errors.Wrapf(err, "fetching public Service %s", name)
+		}
+		if svc.Spec.ClusterIP == "None" {
+			continue // Never adopt the operator's discovery Service as the client Service.
+		}
+		service := values["cockroachdb"].(map[string]interface{})["crdbCluster"].(map[string]interface{})["service"].(map[string]interface{})
+		public := map[string]interface{}{"name": svc.Name, "type": string(svc.Spec.Type)}
+		labels := make(map[string]string)
+		for key, value := range svc.Labels {
+			switch key {
+			case "helm.sh/chart", "app.kubernetes.io/name", "app.kubernetes.io/instance", "app.kubernetes.io/managed-by":
+				continue
+			}
+			labels[key] = value
+		}
+		annotations := make(map[string]string)
+		for key, value := range svc.Annotations {
+			switch key {
+			case "meta.helm.sh/release-name", "meta.helm.sh/release-namespace", "kubectl.kubernetes.io/last-applied-configuration", "service.alpha.kubernetes.io/app-protocols":
+				continue
+			}
+			annotations[key] = value
+		}
+		public["labels"] = labels
+		public["annotations"] = annotations
+		service["public"] = public
+		ports := service["ports"].(map[string]interface{})
+		for _, port := range svc.Spec.Ports {
+			if entry, ok := ports[port.TargetPort.String()].(map[string]interface{}); ok && port.Name != "" {
+				entry["name"] = port.Name
+			}
+		}
+		return nil
+	}
+	return nil
+}
+
 // loadIngressesForCluster fetches the optional UI and SQL ingress resources
-// that should be carried into Helm adoption when present.
+// that should be carried into Helm adoption when present. Legacy Helm ingress
+// names are not translated; users must review those routes before adoption.
 func (m *Manifest) loadIngressesForCluster(
 	ctx context.Context, clusterName string,
 ) ([]networkingv1.Ingress, error) {
@@ -308,6 +368,9 @@ func (m *Manifest) FromHelmChart() error {
 	}
 
 	newHelmValues := buildHelmValuesFromHelm(sts, m.cloudProvider, m.cloudRegion, m.namespace, input)
+	if err := m.restoreSelfSignerValues(ctx, newHelmValues, sts.Name, input.nodeSecretName, input.clientSecretName); err != nil {
+		return err
+	}
 
 	if err := yamlToDisk(filepath.Join(m.outputDir, "values.yaml"), []any{newHelmValues}); err != nil {
 		return errors.Wrap(err, "writing helm values to disk")

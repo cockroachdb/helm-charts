@@ -37,8 +37,6 @@ spec:
   {{- with .Values.cockroachdb.crdbCluster.podTemplate.metadata.labels }}
     {{- toYaml . | nindent 4 }}
   {{- end }}
-  # Cockroach Cloud operator doesn't provide a way to change the sql,grpc and http ports for the pods. Hence, making these
-  # ports static here.
   type: {{ .Values.cockroachdb.crdbCluster.service.public.type | quote }}
   ports:
   {{- $ports := .Values.cockroachdb.crdbCluster.service.ports }}
@@ -47,9 +45,11 @@ spec:
     - name: {{ $ports.grpc.name | quote }}
       port: {{ $ports.grpc.port | int64 }}
       targetPort: grpc
+    {{- if ne ($ports.sql.port | int64) ($ports.grpc.port | int64) }}
     - name: {{ $ports.sql.name | quote }}
       port: {{ $ports.sql.port | int64 }}
       targetPort: sql
+    {{- end }}
     # The secondary port serves the UI as well as health and debug endpoints.
     - name: {{ $ports.http.name | quote }}
       port: {{ $ports.http.port | int64 }}

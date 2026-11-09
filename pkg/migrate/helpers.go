@@ -1,8 +1,15 @@
 package migrate
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -10,6 +17,9 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/cockroachdb/helm-charts/pkg/resource"
 
 	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
 	"github.com/cockroachdb/errors"
@@ -28,6 +38,7 @@ import (
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/util/intstr"
+	yamlutil "k8s.io/apimachinery/pkg/util/yaml"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 	"sigs.k8s.io/yaml"
@@ -61,7 +72,7 @@ const (
 
 var (
 	ignoreInitContainers    = []string{"copy-certs"}
-	ignoreVolumes           = []string{"datadir", "certs", "certs-secret", "client-secret", "emptydir", "failoverdir", "logsdir", "log-config"}
+	ignoreVolumes           = []string{"datadir", "certs", "certs-secret", "certs-combined", "client-secret", "emptydir", "failoverdir", "logsdir", "log-config"}
 	creationTimestampNullRE = regexp.MustCompile(`\s*creationTimestamp: null`)
 	startFlagRE             = regexp.MustCompile(`--([\w-]+)=(.*)`)
 )
@@ -88,8 +99,10 @@ type parsedMigrationInput struct {
 }
 
 type certManagerInput struct {
-	issuerName string
-	issuerKind string
+	issuerName        string
+	issuerKind        string
+	nodeCertificate   *certv1.Certificate
+	clientCertificate *certv1.Certificate
 }
 
 type walFailoverPVCDetails struct {
@@ -192,17 +205,75 @@ func validateStatefulSetForHelmMigration(sts *appsv1.StatefulSet) error {
 	return errors.Newf("statefulset %s does not contain %q container", sts.Name, crdbContainerName)
 }
 
+// operatorExternalCertificates keeps custom source certificates. Only the built-in
+// signer path uses the new leaf Secrets produced by migrate-certs.
+func operatorExternalCertificates(cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet) *v1beta1.ExternalCertificates {
+	certs := &v1beta1.ExternalCertificates{
+		CAConfigMapName:         cluster.Name + "-ca-crt",
+		NodeSecretName:          cluster.Name + "-node-secret",
+		RootSQLClientSecretName: cluster.Name + "-client-secret",
+	}
+	if cluster.Spec.NodeTLSSecret == "" && cluster.Spec.ClientTLSSecret == "" {
+		return certs
+	}
+	certs.NodeSecretName, certs.RootSQLClientSecretName = cluster.Name+"-node", cluster.Name+"-root"
+	// A partial override leaves the other certificate in its source Secret.
+	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		if volume.Name != "certs" || volume.Projected == nil {
+			continue
+		}
+		for _, source := range volume.Projected.Sources {
+			if source.Secret == nil {
+				continue
+			}
+			for _, item := range source.Secret.Items {
+				switch item.Path {
+				case "node.crt":
+					certs.NodeSecretName = source.Secret.Name
+				case "client.root.crt":
+					certs.RootSQLClientSecretName = source.Secret.Name
+				}
+			}
+		}
+	}
+	if cluster.Spec.NodeTLSSecret != "" {
+		certs.NodeSecretName = cluster.Spec.NodeTLSSecret
+	}
+	if cluster.Spec.ClientTLSSecret != "" {
+		certs.RootSQLClientSecretName = cluster.Spec.ClientTLSSecret
+	}
+	certs.HTTPSecretName = certs.RootSQLClientSecretName
+	return certs
+}
+
+// migrationPodSecurityContext keeps replacement nodes and adoption values on the
+// same identity as controller migration. Public-operator root sources use the
+// operator defaults; Helm sources retain their configured identity. Align the
+// primary group with fsGroup so CockroachDB can read group-readable TLS keys.
+func migrationPodSecurityContext(source *corev1.PodSecurityContext, publicOperator bool) *corev1.PodSecurityContext {
+	if source == nil || (publicOperator && (source.RunAsUser == nil || *source.RunAsUser == 0)) {
+		return nil
+	}
+	result := source.DeepCopy()
+	if result.FSGroup == nil {
+		group := int64(1000)
+		if publicOperator {
+			group = *result.RunAsUser
+		}
+		result.FSGroup = &group
+	}
+	group := *result.FSGroup
+	result.RunAsGroup = &group
+	return result
+}
+
 // buildNodeSpecFromOperator builds a CrdbNodeSpec from a publicv1.CrdbCluster and a StatefulSet created by the public operator.
 func buildNodeSpecFromOperator(
 	cluster publicv1.CrdbCluster, sts *appsv1.StatefulSet, nodeName string, startFlags *v1beta1.Flags,
 ) v1beta1.CrdbNodeSpec {
 	certificates := v1beta1.Certificates{}
 	if cluster.Spec.TLSEnabled {
-		certificates.ExternalCertificates = &v1beta1.ExternalCertificates{
-			CAConfigMapName:         cluster.Name + "-ca-crt",
-			NodeSecretName:          cluster.Name + "-node-secret",
-			RootSQLClientSecretName: cluster.Name + "-client-secret",
-		}
+		certificates.ExternalCertificates = operatorExternalCertificates(cluster, sts)
 	}
 
 	return v1beta1.CrdbNodeSpec{
@@ -213,6 +284,7 @@ func buildNodeSpecFromOperator(
 				Labels:      sts.Spec.Template.Labels,
 			},
 			Spec: corev1.PodSpec{
+				SecurityContext:  migrationPodSecurityContext(sts.Spec.Template.Spec.SecurityContext, true),
 				ImagePullSecrets: sts.Spec.Template.Spec.ImagePullSecrets,
 				Containers: []corev1.Container{
 					{
@@ -275,13 +347,16 @@ func buildHelmValuesFromOperator(
 		},
 	}
 	if cluster.Spec.TLSEnabled {
+		certs := operatorExternalCertificates(cluster, sts)
+		references := map[string]interface{}{
+			"caConfigMapName":         certs.CAConfigMapName,
+			"nodeSecretName":          certs.NodeSecretName,
+			"rootSqlClientSecretName": certs.RootSQLClientSecretName,
+		}
+		setIfNotEmpty(references, "httpSecretName", certs.HTTPSecretName)
 		tls["externalCertificates"] = map[string]interface{}{
-			"enabled": true,
-			"certificates": map[string]interface{}{
-				"caConfigMapName":         cluster.Name + "-ca-crt",
-				"nodeSecretName":          cluster.Name + "-node-secret",
-				"rootSqlClientSecretName": cluster.Name + "-client-secret",
-			},
+			"enabled":      true,
+			"certificates": references,
 		}
 	}
 
@@ -306,6 +381,7 @@ func buildHelmValuesFromOperator(
 		"topologySpreadConstraints":     topologySpreadConstraintsForValues(sts.Spec.Template.Spec.TopologySpreadConstraints),
 	}
 	setIfNotEmpty(podTemplateSpec, "imagePullSecrets", sts.Spec.Template.Spec.ImagePullSecrets)
+	setIfNotEmpty(podTemplateSpec, "securityContext", migrationPodSecurityContext(sts.Spec.Template.Spec.SecurityContext, true))
 	setIfNotEmpty(podTemplateSpec, "affinity", sts.Spec.Template.Spec.Affinity)
 	setIfNotEmpty(podTemplateSpec, "nodeSelector", sts.Spec.Template.Spec.NodeSelector)
 	setIfNotEmpty(podTemplateSpec, "priorityClassName", sts.Spec.Template.Spec.PriorityClassName)
@@ -531,10 +607,24 @@ func buildHelmValuesFromV1beta1(
 		}
 	}
 
+	// Node discovery is rebuilt from regions. Custom join overrides already live
+	// in startFlags; do not turn the template's generated Join into an override.
+	// Certificate generation must use this Kubernetes cluster's region domain.
+	clusterDomain := "cluster.local"
+	for _, region := range cluster.Spec.Regions {
+		if region.Code == cluster.Status.Region || len(cluster.Spec.Regions) == 1 {
+			if region.Domain != "" {
+				clusterDomain = region.Domain
+			}
+			break
+		}
+	}
+
 	return map[string]interface{}{
 		"cockroachdb": map[string]interface{}{
-			"tls":         tls,
-			"crdbCluster": crdbCluster,
+			"tls":           tls,
+			"clusterDomain": clusterDomain,
+			"crdbCluster":   crdbCluster,
 		},
 		"k8s": map[string]interface{}{
 			"fullnameOverride": cluster.Name,
@@ -738,6 +828,7 @@ func buildNodeSpecFromHelm(
 				Annotations: sts.Spec.Template.Annotations,
 			},
 			Spec: corev1.PodSpec{
+				SecurityContext:  migrationPodSecurityContext(sts.Spec.Template.Spec.SecurityContext, false),
 				ImagePullSecrets: input.imagePullSecrets,
 				InitContainers:   input.initContainers,
 				Containers: []corev1.Container{
@@ -817,7 +908,7 @@ func buildHelmValuesFromHelm(
 			"enabled": false,
 		},
 		"externalCertificates": map[string]interface{}{
-			"enabled": true,
+			"enabled": input.tlsEnabled,
 			"certificates": map[string]interface{}{
 				"caConfigMapName":         input.caConfigMap,
 				"nodeSecretName":          input.nodeSecretName,
@@ -826,7 +917,11 @@ func buildHelmValuesFromHelm(
 			},
 		},
 	}
-	if input.certManagerInput != nil {
+	certManagerSupported := input.certManagerInput != nil
+	if certManagerSupported && input.certManagerInput.nodeCertificate != nil && input.certManagerInput.clientCertificate != nil {
+		certManagerSupported = input.certManagerInput.nodeCertificate.Spec.IssuerRef == input.certManagerInput.clientCertificate.Spec.IssuerRef
+	}
+	if input.tlsEnabled && certManagerSupported {
 		tls = map[string]interface{}{
 			"enabled": input.tlsEnabled,
 			"selfSigner": map[string]interface{}{
@@ -845,6 +940,29 @@ func buildHelmValuesFromHelm(
 		}
 	}
 
+	if input.tlsEnabled && certManagerSupported && input.certManagerInput.nodeCertificate != nil {
+		cm := tls["certManager"].(map[string]interface{})
+		issuer := cm["issuer"].(map[string]interface{})
+		node := input.certManagerInput.nodeCertificate
+		setIfNotEmpty(issuer, "group", node.Spec.IssuerRef.Group)
+		setIfNotEmpty(cm, "additionalDnsNames", node.Spec.DNSNames)
+		setIfNotEmpty(cm, "additionalIpAddresses", node.Spec.IPAddresses)
+		if node.Spec.Duration != nil {
+			issuer["nodeCertDuration"] = node.Spec.Duration.Duration.String()
+		}
+		if node.Spec.RenewBefore != nil {
+			issuer["nodeCertExpiryWindow"] = node.Spec.RenewBefore.Duration.String()
+		}
+		if root := input.certManagerInput.clientCertificate; root != nil {
+			if root.Spec.Duration != nil {
+				issuer["clientCertDuration"] = root.Spec.Duration.Duration.String()
+			}
+			if root.Spec.RenewBefore != nil {
+				issuer["clientCertExpiryWindow"] = root.Spec.RenewBefore.Duration.String()
+			}
+		}
+	}
+
 	podTemplateSpec := map[string]interface{}{
 		"containers": []map[string]interface{}{
 			{
@@ -857,6 +975,7 @@ func buildHelmValuesFromHelm(
 		"topologySpreadConstraints": topologySpreadConstraintsForValues(sts.Spec.Template.Spec.TopologySpreadConstraints),
 	}
 	setIfNotEmpty(podTemplateSpec, "imagePullSecrets", input.imagePullSecrets)
+	setIfNotEmpty(podTemplateSpec, "securityContext", migrationPodSecurityContext(sts.Spec.Template.Spec.SecurityContext, false))
 	setIfNotEmpty(podTemplateSpec, "priorityClassName", input.priorityClassName)
 	setIfNotEmpty(podTemplateSpec, "initContainers", input.initContainers)
 	setIfNotEmpty(podTemplateSpec, "volumes", input.customVolumes)
@@ -942,6 +1061,244 @@ func buildHelmValuesFromHelm(
 			"crdbCluster": crdbCluster,
 		},
 	}
+}
+
+type providedCASettings struct {
+	secretName  string
+	rotateCerts bool
+}
+
+// sourceProvidedCA reads explicit signer intent from Helm's default Secret storage.
+// Match the rendered source StatefulSet, since controller handoff removes that
+// workload and the new parent need not have Helm ownership annotations yet.
+func (m *Manifest) sourceProvidedCA(ctx context.Context, name string) (*providedCASettings, error) {
+	releases, err := m.clientset.CoreV1().Secrets(m.namespace).List(ctx, metav1.ListOptions{LabelSelector: "owner=helm,status=deployed"})
+	if err != nil {
+		return nil, errors.Wrap(err, "reading source Helm release settings")
+	}
+	var settings *providedCASettings
+	matched := false
+	for _, secret := range releases.Items {
+		if secret.Type != "helm.sh/release.v1" {
+			continue
+		}
+		data, err := base64.StdEncoding.DecodeString(string(secret.Data["release"]))
+		if err != nil {
+			continue
+		}
+		// Helm also supports old, uncompressed release records. An unreadable
+		// record cannot identify the source and must not block other releases.
+		if bytes.HasPrefix(data, []byte{0x1f, 0x8b, 0x08}) {
+			reader, err := gzip.NewReader(bytes.NewReader(data))
+			if err != nil {
+				continue
+			}
+			data, err = io.ReadAll(io.LimitReader(reader, 32<<20))
+			closeErr := reader.Close()
+			if err != nil || closeErr != nil {
+				continue
+			}
+		}
+		var release struct {
+			Namespace string          `json:"namespace"`
+			Manifest  string          `json:"manifest"`
+			Config    json.RawMessage `json:"config"`
+		}
+		if json.Unmarshal(data, &release) != nil || release.Namespace != m.namespace {
+			continue
+		}
+		decoder := yamlutil.NewYAMLOrJSONDecoder(strings.NewReader(release.Manifest), 4096)
+		source := false
+		for {
+			var obj struct {
+				Kind     string            `json:"kind"`
+				Metadata metav1.ObjectMeta `json:"metadata"`
+			}
+			if err := decoder.Decode(&obj); err != nil {
+				break
+			}
+			if obj.Kind == "StatefulSet" && obj.Metadata.Name == name &&
+				(obj.Metadata.Namespace == "" || obj.Metadata.Namespace == m.namespace) {
+				source = true
+				break
+			}
+		}
+		if !source {
+			continue
+		}
+		if matched {
+			return nil, errors.New("multiple deployed Helm releases match the source StatefulSet")
+		}
+		matched = true
+		// Other charts may use entirely different tls/certs value types.
+		// Decode chart-specific values only after identifying our source.
+		var config struct {
+			TLS struct {
+				Certs struct {
+					SelfSigner struct {
+						Enabled     *bool  `json:"enabled"`
+						CAProvided  bool   `json:"caProvided"`
+						CASecret    string `json:"caSecret"`
+						RotateCerts *bool  `json:"rotateCerts"`
+					} `json:"selfSigner"`
+				} `json:"certs"`
+			} `json:"tls"`
+		}
+		if len(release.Config) != 0 && json.Unmarshal(release.Config, &config) != nil {
+			return nil, errors.Newf("cannot read source Helm release settings in Secret %s", secret.Name)
+		}
+		signer := config.TLS.Certs.SelfSigner
+		if !signer.CAProvided || (signer.Enabled != nil && !*signer.Enabled) {
+			continue
+		}
+		if signer.CASecret == "" {
+			return nil, errors.New("source Helm release enables caProvided without caSecret")
+		}
+		settings = &providedCASettings{secretName: signer.CASecret, rotateCerts: signer.RotateCerts == nil || *signer.RotateCerts}
+	}
+	return settings, nil
+}
+
+// restoreSelfSignerValues recognizes a legacy Helm self-signer source by its CA
+// metadata and signing key, or explicit provided-CA settings from its release.
+// The default leaf Secrets must chain to that CA. Export lifetimes and SANs from
+// the current certificates; a signing key alone leaves the source external.
+// Discovery and Service settings are exported independently of signer ownership.
+func (m *Manifest) restoreSelfSignerValues(
+	ctx context.Context, values map[string]interface{}, name, nodeName, clientName string,
+) error {
+	tlsValues := values["cockroachdb"].(map[string]interface{})["tls"].(map[string]interface{})
+	if tlsValues["enabled"] != true {
+		return nil
+	}
+	if cm, ok := tlsValues["certManager"].(map[string]interface{}); ok && cm["enabled"] == true {
+		return nil
+	}
+	// The self-signer writes these names. Never redirect a custom external Secret.
+	if nodeName != name+"-node-secret" || clientName != name+"-client-secret" {
+		return nil
+	}
+	providedCA, err := m.sourceProvidedCA(ctx, name)
+	if err != nil {
+		return err
+	}
+	caName := name + "-ca-secret"
+	if providedCA != nil {
+		caName = providedCA.secretName
+	}
+	ca, err := m.clientset.CoreV1().Secrets(m.namespace).Get(ctx, caName, metav1.GetOptions{})
+	if apierrors.IsNotFound(err) && providedCA == nil {
+		return nil
+	}
+	if err != nil {
+		return errors.Wrap(err, "reading self-signer CA metadata")
+	}
+	if providedCA == nil && (ca.Annotations[resource.CertValidFrom] == "" || ca.Annotations[resource.CertValidUpto] == "" || ca.Annotations[resource.CertDuration] == "") {
+		return nil
+	}
+	// The install hook otherwise treats this CA as incomplete and replaces it.
+	if providedCA == nil && ca.Annotations[resource.SecretDataHash] == "" {
+		return errors.New("self-signer CA is missing secret-data-hash; repair its metadata before exporting values")
+	}
+	caPair, err := tls.X509KeyPair(ca.Data[resource.CaCert], ca.Data[resource.CaKey])
+	if err != nil {
+		return errors.Wrap(err, "validating self-signer CA pair")
+	}
+	caCert, err := x509.ParseCertificate(caPair.Certificate[0])
+	if err != nil {
+		return errors.Wrap(err, "parsing self-signer CA")
+	}
+	if !caCert.IsCA {
+		return errors.New("self-signer CA certificate is not a CA")
+	}
+	durations := map[string]int64{}
+	var nodeCert *x509.Certificate
+	for field, secretName := range map[string]string{"ca": ca.Name, "node": nodeName, "client": clientName} {
+		secret := ca
+		if field != "ca" {
+			secret, err = m.clientset.CoreV1().Secrets(m.namespace).Get(ctx, secretName, metav1.GetOptions{})
+			if err != nil {
+				return errors.Wrapf(err, "reading self-signer %s Secret", field)
+			}
+		}
+		if secret.Annotations["cert-manager.io/certificate-name"] != "" || secret.Annotations["cert-manager.io/issuer-name"] != "" {
+			return nil
+		}
+		cert := caCert
+		if field != "ca" {
+			pair, err := tls.X509KeyPair(secret.Data[corev1.TLSCertKey], secret.Data[corev1.TLSPrivateKeyKey])
+			if err != nil {
+				return errors.Wrapf(err, "validating self-signer %s pair", field)
+			}
+			cert, err = x509.ParseCertificate(pair.Certificate[0])
+			if err != nil {
+				return errors.Wrapf(err, "parsing self-signer %s certificate", field)
+			}
+			if err := cert.CheckSignatureFrom(caCert); err != nil {
+				return errors.Wrapf(err, "self-signer %s certificate does not use the original CA", field)
+			}
+		}
+		hours, err := exportedCertificateHours(secret, cert)
+		if err != nil {
+			return errors.Wrapf(err, "exporting self-signer %s duration", field)
+		}
+		durations[field] = hours
+		if field == "node" {
+			nodeCert = cert
+		}
+	}
+	sans := append([]string{}, nodeCert.DNSNames...)
+	for _, ip := range nodeCert.IPAddresses {
+		sans = append(sans, ip.String())
+	}
+	sans = slices.Compact(sans)
+	// Keep the chart's normal windows, reducing them for shorter custom lifetimes.
+	caWindow := min(int64(648), durations["ca"]/4)
+	nodeWindow := min(int64(168), durations["node"]/4)
+	clientWindow := min(int64(48), durations["client"]/4)
+	minimum := min(int64(624), caWindow, durations["ca"]-caWindow,
+		durations["node"]-nodeWindow, durations["client"]-clientWindow)
+	if minimum < 1 {
+		return errors.New("self-signer certificate lifetimes must allow at least one hour for rotation")
+	}
+	tlsValues["selfSigner"] = map[string]interface{}{
+		"enabled": true, "rotateCerts": true,
+		"caProvided":             false,
+		"caCertDuration":         fmt.Sprintf("%dh", durations["ca"]),
+		"nodeCertDuration":       fmt.Sprintf("%dh", durations["node"]),
+		"clientCertDuration":     fmt.Sprintf("%dh", durations["client"]),
+		"caCertExpiryWindow":     fmt.Sprintf("%dh", caWindow),
+		"nodeCertExpiryWindow":   fmt.Sprintf("%dh", nodeWindow),
+		"clientCertExpiryWindow": fmt.Sprintf("%dh", clientWindow),
+		"minimumCertDuration":    fmt.Sprintf("%dh", minimum),
+		"additionalSANs":         sans,
+	}
+	if providedCA != nil {
+		signer := tlsValues["selfSigner"].(map[string]interface{})
+		signer["caProvided"], signer["caSecret"], signer["rotateCerts"] = true, providedCA.secretName, providedCA.rotateCerts
+	}
+	tlsValues["externalCertificates"] = map[string]interface{}{"enabled": false, "certificates": map[string]interface{}{}}
+	return nil
+}
+
+func exportedCertificateHours(secret *corev1.Secret, cert *x509.Certificate) (int64, error) {
+	duration := cert.NotAfter.Sub(cert.NotBefore)
+	// The migration controller can regenerate a leaf without updating annotations.
+	// Use the recorded intent only when the annotation dates still match the leaf.
+	from, fromErr := time.Parse(time.RFC3339, secret.Annotations[resource.CertValidFrom])
+	until, untilErr := time.Parse(time.RFC3339, secret.Annotations[resource.CertValidUpto])
+	if fromErr == nil && untilErr == nil && from.Equal(cert.NotBefore) && until.Equal(cert.NotAfter) {
+		var err error
+		duration, err = time.ParseDuration(secret.Annotations[resource.CertDuration])
+		if err != nil || duration <= 0 {
+			return 0, errors.New("invalid certificate-duration annotation")
+		}
+	}
+	if duration <= 0 {
+		return 0, errors.New("invalid certificate lifetime")
+	}
+	// Helm's certificate schedule helpers consume whole hours.
+	return int64((duration + time.Hour - 1) / time.Hour), nil
 }
 
 // setIfNotEmpty adds a generated Helm value only when it has meaningful
@@ -1048,6 +1405,23 @@ func generateParsedMigrationInput(
 
 	// Extract custom volumes from StatefulSet (excluding default cockroach volumes)
 	for _, volume := range sts.Spec.Template.Spec.Volumes {
+		switch volume.Name {
+		case "certs-secret", "certs-combined", "client-secret":
+			var secretName string
+			if volume.Secret != nil {
+				secretName = volume.Secret.SecretName
+			} else if volume.Projected != nil && len(volume.Projected.Sources) == 1 && volume.Projected.Sources[0].Secret != nil {
+				secretName = volume.Projected.Sources[0].Secret.Name
+			}
+			if secretName == "" {
+				return parsedInput, errors.Newf("%s must reference a single certificate Secret", volume.Name)
+			}
+			if volume.Name == "client-secret" {
+				parsedInput.clientSecretName = secretName
+			} else {
+				parsedInput.nodeSecretName = secretName
+			}
+		}
 		if !slices.Contains(ignoreVolumes, volume.Name) {
 			parsedInput.customVolumes = append(parsedInput.customVolumes, volume)
 		}
@@ -1072,9 +1446,8 @@ func generateParsedMigrationInput(
 	return parsedInput, nil
 }
 
-// certificatesInput checks if the node certificate exists in the cluster and adds the certificate input based on
-// the presence of the node certificate. If the node certificate is present, it means the cert-manager manages the certificates.
-// If not, then certs are managed by self-signer utility
+// certificatesInput detects cert-manager and otherwise keeps the source Secret
+// names. Signer ownership is checked separately before restoring chart rotation.
 func certificatesInput(
 	ctx context.Context,
 	dynamicClient dynamic.Interface,
@@ -1094,8 +1467,12 @@ func certificatesInput(
 			return errors.Wrap(err, "fetching node certificate")
 		}
 		parsedInput.caConfigMap = fmt.Sprintf("%s-ca-secret-crt", sts.Name)
-		parsedInput.nodeSecretName = fmt.Sprintf("%s-node-secret", sts.Name)
-		parsedInput.clientSecretName = fmt.Sprintf("%s-client-secret", sts.Name)
+		if parsedInput.nodeSecretName == "" {
+			parsedInput.nodeSecretName = fmt.Sprintf("%s-node-secret", sts.Name)
+		}
+		if parsedInput.clientSecretName == "" {
+			parsedInput.clientSecretName = fmt.Sprintf("%s-client-secret", sts.Name)
+		}
 		return nil
 	}
 
@@ -1112,6 +1489,8 @@ func certificatesInput(
 		return err
 	}
 	parsedInput.clientSecretName = clientCertificate.Spec.SecretName
+	parsedInput.certManagerInput.nodeCertificate = nodeCertificate
+	parsedInput.certManagerInput.clientCertificate = clientCertificate
 
 	return nil
 }
@@ -1141,8 +1520,14 @@ func extractJoinStringAndFlags(parsedInput *parsedMigrationInput, args []string)
 			}
 			parsedInput.httpPort = num
 
-		case strings.HasPrefix(arg, insecureFlag):
+		case arg == insecureFlag:
 			parsedInput.tlsEnabled = false
+		case strings.HasPrefix(arg, insecureFlag+"="):
+			insecure, err := strconv.ParseBool(strings.TrimPrefix(arg, insecureFlag+"="))
+			if err != nil {
+				return fmt.Errorf("invalid --insecure value: %w", err)
+			}
+			parsedInput.tlsEnabled = !insecure
 
 		case strings.HasPrefix(arg, localityFlag):
 			value := strings.TrimPrefix(arg, localityFlag+"=")

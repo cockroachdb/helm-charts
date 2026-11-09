@@ -1,6 +1,21 @@
 # CockroachDB Chart — CHANGELOG
 
 ## [26.4.1] — 2026-11-13
+### Fixed
+- Restored self-signer rotation in exported migration values for recognized legacy
+  self-signer sources, including certificate lifetimes and custom DNS/IP SANs.
+- Preserved explicit join lists and Kubernetes DNS domains during chart adoption.
+- Rendered one public Service port when SQL and gRPC share a listener, allowing
+  chart adoption after controller migration from a legacy Helm cluster. SQL ingress
+  uses the shared port name too.
+- Preserved public Service names, types, custom metadata and named targets in controller
+  migration exports. Ingress backends honor configured Service port names.
+- Honored explicit `--insecure=false` in the manual migration helper.
+- Preserved supplied CA settings in exported migration values and custom TLS Secret
+  names in manual legacy-operator migrations.
+- Recognized the legacy chart's certificate volume with SIGHUP rotation enabled in
+  the manual migration helper.
+
 ### Changed
 - Updated the self-signer image to `1.13` with the CA ConfigMap adoption fix.
   The image is built with Go `1.26.10` for the certificate-verification mitigation

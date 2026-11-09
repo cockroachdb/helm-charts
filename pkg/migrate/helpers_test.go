@@ -10,6 +10,8 @@ import (
 
 	publicv1alpha1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
 	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
+	certv1 "github.com/jetstack/cert-manager/pkg/apis/certmanager/v1"
+	certmeta "github.com/jetstack/cert-manager/pkg/apis/meta/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
@@ -19,8 +21,11 @@ import (
 	rbacv1 "k8s.io/api/rbac/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime"
+	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
+	"time"
 )
 
 func TestParseInt32(t *testing.T) {
@@ -44,6 +49,85 @@ func TestParseInt32(t *testing.T) {
 				assert.NoError(t, err)
 				assert.Equal(t, tt.expected, result)
 			}
+		})
+	}
+}
+
+func TestManualMigrationSecurityContext(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		source *corev1.PodSecurityContext
+		group  int64
+	}{
+		{name: "non-root identity", source: &corev1.PodSecurityContext{RunAsUser: new(int64(2000)), FSGroup: new(int64(3000))}, group: 3000},
+		{name: "primary group must read TLS keys", source: &corev1.PodSecurityContext{RunAsUser: new(int64(2000)), RunAsGroup: new(int64(0)), FSGroup: new(int64(3000))}, group: 3000},
+		{name: "missing volume group", source: &corev1.PodSecurityContext{RunAsUser: new(int64(2000))}},
+		{name: "root identity", source: &corev1.PodSecurityContext{RunAsUser: new(int64(0)), FSGroup: new(int64(0))}},
+		{name: "operator defaults"},
+	} {
+		for _, publicOperator := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/public-operator=%t", tc.name, publicOperator), func(t *testing.T) {
+				sts := &appsv1.StatefulSet{Spec: appsv1.StatefulSetSpec{
+					Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+						SecurityContext: tc.source.DeepCopy(),
+						Containers:      []corev1.Container{{Name: "db", Image: "cockroachdb/cockroach:v26.4.0"}},
+					}},
+					VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{}},
+				}}
+				original := sts.DeepCopy()
+				var node v1beta1.CrdbNodeSpec
+				var values map[string]interface{}
+				if publicOperator {
+					cluster := publicv1alpha1.CrdbCluster{Spec: publicv1alpha1.CrdbClusterSpec{
+						Image: &publicv1alpha1.PodImage{Name: sts.Spec.Template.Spec.Containers[0].Image},
+					}}
+					node = buildNodeSpecFromOperator(cluster, sts, "worker", nil)
+					values = buildHelmValuesFromOperator(cluster, sts, "k3d", "local", "default", nil)
+				} else {
+					node = buildNodeSpecFromHelm(sts, "worker", parsedMigrationInput{})
+					values = buildHelmValuesFromHelm(sts, "k3d", "local", "default", parsedMigrationInput{})
+				}
+				podSpec := values["cockroachdb"].(map[string]interface{})["crdbCluster"].(map[string]interface{})["podTemplate"].(map[string]interface{})["spec"].(map[string]interface{})
+				if tc.source == nil || (publicOperator && *tc.source.RunAsUser == 0) {
+					require.Nil(t, node.PodTemplate.Spec.SecurityContext)
+					require.NotContains(t, podSpec, "securityContext")
+				} else {
+					group := tc.group
+					if tc.source.FSGroup == nil {
+						group = 1000
+						if publicOperator {
+							group = *tc.source.RunAsUser
+						}
+					}
+					identity := node.PodTemplate.Spec.SecurityContext
+					require.NotNil(t, identity)
+					require.Equal(t, tc.source.RunAsUser, identity.RunAsUser)
+					require.Equal(t, group, *identity.RunAsGroup)
+					require.Equal(t, group, *identity.FSGroup)
+					require.Equal(t, identity, podSpec["securityContext"])
+				}
+				require.Equal(t, original, sts, "generating manifests must not mutate the source")
+			})
+		}
+	}
+}
+
+func TestExportClusterDomain(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		current string
+		regions []v1beta1.CrdbClusterRegion
+		want    string
+	}{
+		{name: "default", want: "cluster.local"},
+		{name: "single region without status", regions: []v1beta1.CrdbClusterRegion{{Code: "east", Domain: "east.test"}}, want: "east.test"},
+		{name: "current region", current: "west", regions: []v1beta1.CrdbClusterRegion{{Code: "east", Domain: "east.test"}, {Code: "west", Domain: "west.test"}}, want: "west.test"},
+		{name: "current region uses default", current: "west", regions: []v1beta1.CrdbClusterRegion{{Code: "east", Domain: "east.test"}, {Code: "west"}}, want: "cluster.local"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cluster := v1beta1.CrdbCluster{Spec: v1beta1.CrdbClusterSpec{Regions: tc.regions}, Status: v1beta1.CrdbClusterStatus{Region: tc.current}}
+			values := buildHelmValuesFromV1beta1(cluster, nil)
+			require.Equal(t, tc.want, values["cockroachdb"].(map[string]interface{})["clusterDomain"])
 		})
 	}
 }
@@ -572,6 +656,30 @@ func TestBuildHelmValuesFromHelm_WALFailover(t *testing.T) {
 	}
 }
 
+func TestExtractInsecureFlag(t *testing.T) {
+	for _, tc := range []struct {
+		flag       string
+		tlsEnabled bool
+		wantError  bool
+	}{
+		{flag: "--insecure", tlsEnabled: false},
+		{flag: "--insecure=true", tlsEnabled: false},
+		{flag: "--insecure=false", tlsEnabled: true},
+		{flag: "--insecure=invalid", wantError: true},
+	} {
+		t.Run(tc.flag, func(t *testing.T) {
+			input := parsedMigrationInput{tlsEnabled: true}
+			err := extractJoinStringAndFlags(&input, []string{tc.flag})
+			if tc.wantError {
+				require.ErrorContains(t, err, "invalid --insecure value")
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, tc.tlsEnabled, input.tlsEnabled)
+		})
+	}
+}
+
 func TestBuildHelmValuesFromHelm_OmitsEmptyPodSpecFields(t *testing.T) {
 	replicas := int32(3)
 	sts := &appsv1.StatefulSet{
@@ -603,6 +711,9 @@ func TestBuildHelmValuesFromHelm_OmitsEmptyPodSpecFields(t *testing.T) {
 		parsedMigrationInput{},
 	)
 	cockroachdbValues := values["cockroachdb"].(map[string]interface{})
+	tlsValues := cockroachdbValues["tls"].(map[string]interface{})
+	assert.Equal(t, false, tlsValues["enabled"])
+	assert.Equal(t, false, tlsValues["externalCertificates"].(map[string]interface{})["enabled"], "insecure exports must render without enabling a TLS provider")
 	crdbClusterValues := cockroachdbValues["crdbCluster"].(map[string]interface{})
 	podTemplateValues := crdbClusterValues["podTemplate"].(map[string]interface{})
 	podSpecValues := podTemplateValues["spec"].(map[string]interface{})
@@ -1355,6 +1466,109 @@ func TestBuildNodeSpecFromHelm_WithWalFailover(t *testing.T) {
 			} else {
 				assert.Nil(t, nodeSpec.WALFailoverSpec)
 			}
+		})
+	}
+}
+
+func TestHelmCertificateVolumes(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		projected bool
+	}{
+		{"certs-secret", false},
+		{"certs-secret", true},
+		{"certs-combined", true},
+	} {
+		t.Run(fmt.Sprintf("%s/projected=%t", tc.name, tc.projected), func(t *testing.T) {
+			const name, namespace = "cockroachdb", "default"
+			nodeVolume := corev1.Volume{Name: tc.name, VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: "provided-node"},
+			}}
+			clientVolume := corev1.Volume{Name: "client-secret", VolumeSource: corev1.VolumeSource{
+				Secret: &corev1.SecretVolumeSource{SecretName: "provided-client"},
+			}}
+			if tc.projected {
+				nodeVolume = corev1.Volume{Name: tc.name, VolumeSource: corev1.VolumeSource{
+					Projected: &corev1.ProjectedVolumeSource{Sources: []corev1.VolumeProjection{{
+						Secret: &corev1.SecretProjection{LocalObjectReference: corev1.LocalObjectReference{Name: "provided-node"}},
+					}}},
+				}}
+				clientVolume.VolumeSource = corev1.VolumeSource{Projected: &corev1.ProjectedVolumeSource{Sources: []corev1.VolumeProjection{{
+					Secret: &corev1.SecretProjection{LocalObjectReference: corev1.LocalObjectReference{Name: "provided-client"}},
+				}}}}
+			}
+			customVolume := corev1.Volume{Name: "custom", VolumeSource: corev1.VolumeSource{EmptyDir: &corev1.EmptyDirVolumeSource{}}}
+			sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: appsv1.StatefulSetSpec{
+				Replicas: new(int32(3)),
+				Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{
+					Containers: []corev1.Container{{Name: "db", Args: []string{"sh", "-c", "start --port=26257"}}},
+					Volumes:    []corev1.Volume{nodeVolume, clientVolume, customVolume},
+				}},
+				VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{ObjectMeta: metav1.ObjectMeta{Name: "datadir"}}},
+			}}
+			input, err := generateParsedMigrationInput(context.Background(), fake.NewSimpleClientset(), sts)
+			require.NoError(t, err)
+			require.NoError(t, certificatesInput(context.Background(), dynamicfake.NewSimpleDynamicClient(runtime.NewScheme()), &input, sts))
+			require.Equal(t, "provided-node", input.nodeSecretName)
+			require.Equal(t, "provided-client", input.clientSecretName)
+			require.Equal(t, []corev1.Volume{customVolume}, input.customVolumes)
+			node := buildNodeSpecFromHelm(sts, "worker", input)
+			require.Equal(t, input.customVolumes, node.PodTemplate.Spec.Volumes)
+			require.Equal(t, "provided-node", node.Certificates.ExternalCertificates.NodeSecretName)
+			require.Equal(t, "provided-client", node.Certificates.ExternalCertificates.RootSQLClientSecretName)
+			values := buildHelmValuesFromHelm(sts, "gcp", "us-east1", namespace, input)
+			tls := values["cockroachdb"].(map[string]interface{})["tls"].(map[string]interface{})
+			refs := tls["externalCertificates"].(map[string]interface{})["certificates"].(map[string]interface{})
+			require.Equal(t, "provided-node", refs["nodeSecretName"])
+			require.Equal(t, "provided-client", refs["rootSqlClientSecretName"])
+		})
+	}
+}
+
+func TestHelmCertManagerExportKeepsCertificateSettings(t *testing.T) {
+	for _, differentIssuer := range []bool{false, true} {
+		t.Run(fmt.Sprintf("different-client-issuer=%t", differentIssuer), func(t *testing.T) {
+			const name, namespace = "test-crdb", "default"
+			issuer := certmeta.ObjectReference{Name: "existing-issuer", Kind: "ClusterIssuer", Group: "cert-manager.io"}
+			node := &certv1.Certificate{ObjectMeta: metav1.ObjectMeta{Name: name + "-node", Namespace: namespace}, Spec: certv1.CertificateSpec{
+				SecretName: "custom-node-secret", IssuerRef: issuer, DNSNames: []string{"sql.example.com", name + "-join.default.svc.cluster.local"}, IPAddresses: []string{"192.0.2.10"},
+				Duration: &metav1.Duration{Duration: 8760 * time.Hour}, RenewBefore: &metav1.Duration{Duration: 168 * time.Hour},
+			}}
+			root := &certv1.Certificate{ObjectMeta: metav1.ObjectMeta{Name: name + "-root-client", Namespace: namespace}, Spec: certv1.CertificateSpec{
+				SecretName: "custom-root-secret", IssuerRef: issuer, Duration: &metav1.Duration{Duration: 1440 * time.Hour}, RenewBefore: &metav1.Duration{Duration: 48 * time.Hour},
+			}}
+			if differentIssuer {
+				root.Spec.IssuerRef.Name = "separate-client-issuer"
+			}
+			scheme := runtime.NewScheme()
+			require.NoError(t, certv1.AddToScheme(scheme))
+			dynamic := dynamicfake.NewSimpleDynamicClient(scheme, node, root)
+			sts := &appsv1.StatefulSet{ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace}, Spec: appsv1.StatefulSetSpec{
+				Replicas: new(int32(3)), Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{Name: "db", Image: "cockroachdb/cockroach:v26.3.5"}}}}, VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{ObjectMeta: metav1.ObjectMeta{Name: "datadir"}}},
+			}}
+			input := parsedMigrationInput{tlsEnabled: true}
+			require.NoError(t, certificatesInput(context.Background(), dynamic, &input, sts))
+			values := buildHelmValuesFromHelm(sts, "gcp", "us-central1", namespace, input)
+			tls := values["cockroachdb"].(map[string]interface{})["tls"].(map[string]interface{})
+			if differentIssuer {
+				require.NotContains(t, tls, "certManager", "keep independently managed issuers external")
+				require.Equal(t, true, tls["externalCertificates"].(map[string]interface{})["enabled"])
+				return
+			}
+			cm := tls["certManager"].(map[string]interface{})
+			require.Equal(t, true, cm["enabled"])
+			require.Equal(t, node.Spec.SecretName, cm["nodeSecret"])
+			require.Equal(t, root.Spec.SecretName, cm["clientRootSecret"])
+			require.Equal(t, node.Spec.DNSNames, cm["additionalDnsNames"])
+			require.Equal(t, node.Spec.IPAddresses, cm["additionalIpAddresses"])
+			issuerValues := cm["issuer"].(map[string]interface{})
+			require.Equal(t, issuer.Name, issuerValues["name"])
+			require.Equal(t, issuer.Kind, issuerValues["kind"])
+			require.Equal(t, issuer.Group, issuerValues["group"])
+			require.Equal(t, "8760h0m0s", issuerValues["nodeCertDuration"])
+			require.Equal(t, "168h0m0s", issuerValues["nodeCertExpiryWindow"])
+			require.Equal(t, "1440h0m0s", issuerValues["clientCertDuration"])
+			require.Equal(t, "48h0m0s", issuerValues["clientCertExpiryWindow"])
 		})
 	}
 }
