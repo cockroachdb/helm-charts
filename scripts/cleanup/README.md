@@ -82,7 +82,7 @@ use this for the initial cleanup of existing leftovers and for later retries.
 The CLI equivalent is:
 
 ```sh
-gh workflow run cloud-sweeper.yaml -f dry_run=true
+gh workflow run cloud-sweeper.yaml --ref master -f dry_run=true
 # Use dry_run=false when ready to delete.
 ```
 
@@ -97,6 +97,36 @@ Those identities need permission to list and delete the selected test resources.
 GCP cleanup also needs access to the relevant IAM accounts, storage and DNS
 resources used by OpenShift, plus read/write/delete access to the cleanup state
 in GCS. The job uses the existing bucket without creating a new one.
+
+### Azure federation for scheduled cleanup
+
+The sweeper runs on `master` without a GitHub environment. Its OIDC subject is
+`repo:cockroachdb/helm-charts:ref:refs/heads/master`. The Azure CI identity must
+trust that subject. A credential for pull requests or a GitHub environment uses
+a different subject.
+
+For an Entra application, set `AZURE_CLIENT_ID` to the same application client ID
+as the repository secret and add a credential alongside the existing test-job
+credentials:
+
+```sh
+az ad app federated-credential create \
+  --id "${AZURE_CLIENT_ID}" \
+  --parameters '{
+    "name": "helm-charts-master-sweeper",
+    "issuer": "https://token.actions.githubusercontent.com",
+    "subject": "repo:cockroachdb/helm-charts:ref:refs/heads/master",
+    "audiences": ["api://AzureADTokenExchange"]
+  }'
+```
+
+This requires permission to manage that application's federated credentials.
+The credential uses issuer `https://token.actions.githubusercontent.com` and
+audience `api://AzureADTokenExchange`, matching `azure/login@v2`.
+
+After applying it, run the sweeper on `master` with `dry_run=true` and confirm
+Azure login and resource discovery succeed before running cleanup with deletion.
+Manual runs on other branches need their own matching federated credential.
 
 ## Running locally
 
@@ -201,7 +231,7 @@ These are the settings used by the cleanup and diagnostic scripts:
 | `OPENSHIFT_CLEANUP_GCS_URI` | Where CI provisioning saves installer/ownership metadata and normal teardown removes it. CI uses the same `cleanup/` prefix. |
 | `CLEANUP_PROTECTED_RESOURCES` | Resource names or infra IDs to retain. Set the same repository variable for CI. |
 | `CLEANUP_DRY_RUN` | `true` previews script deletions and defaults to `false`. `--dry-run` sets this for the helpers too. Test teardown does not use this preview switch. |
-| `GOOGLE_APPLICATION_CREDENTIALS` | Optional credentials-file path for Google clients/the installer when not using application-default login. gcloud also needs its own authenticated account. |
+| `GOOGLE_APPLICATION_CREDENTIALS` | Optional credentials-file path for Google clients/the installer when not using application-default login. Gcloud also needs its own authenticated account. |
 | `GOOGLE_CREDENTIALS` | The OpenShift test wrapper also accepts a credentials-file path here and passes it to the installer as `GOOGLE_APPLICATION_CREDENTIALS`. |
 | `USE_GKE_GCLOUD_AUTH_PLUGIN` | Set to `true` when using the GKE kubectl auth plugin, as CI does. |
 | `E2E_DEBUG` | Workflow switch set from `collect_debug`. Defaults to `false`. Local Make targets do not start snapshots just because this is set. |

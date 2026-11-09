@@ -557,6 +557,45 @@ func TestCloudLegacyOpenShiftDiscovery(t *testing.T) {
 	}
 }
 
+func TestCloudOpenShiftDiscoveryWithGlobalResources(t *testing.T) {
+	for _, tc := range []struct {
+		name, instances string
+		selected        bool
+	}{
+		{name: "global resources without region evidence", instances: `[]`},
+		{
+			name: "global and zonal resources",
+			instances: `[{"name":"ocp-0123456789-abc12-master-0","zone":"zones/us-central1-a",
+				"creationTimestamp":"2025-01-01T00:00:00Z"}]`,
+			selected: true,
+		},
+		{
+			name: "conflicting region evidence",
+			instances: `[
+				{"name":"ocp-0123456789-abc12-master-0","zone":"zones/us-central1-a","creationTimestamp":"2025-01-01T00:00:00Z"},
+				{"name":"ocp-0123456789-abc12-master-1","zone":"zones/us-east1-b","creationTimestamp":"2025-01-01T00:00:00Z"}]`,
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newCleanupHarness(t)
+			h.write("networks.json", `[{"name":"ocp-0123456789-abc12-network","creationTimestamp":"2025-01-01T00:00:00Z"}]`)
+			h.write("instances.json", tc.instances)
+			out, err := h.run("sweep.sh", "gcp", "--dry-run")
+			require.NoError(t, err, out)
+			if tc.selected {
+				require.Contains(t, out, "openshift-install\tocp-0123456789-abc12\tus-central1")
+				require.Contains(t, out, "DRY RUN openshift-install destroy cluster")
+			} else {
+				require.Contains(t, out, "SKIP installer cleanup for ocp-0123456789-abc12: no unambiguous dated region evidence")
+				require.NotContains(t, out, "openshift-install destroy cluster")
+			}
+			require.NotContains(t, h.commands(), " delete ")
+			require.NotContains(t, h.commands(), "storage cp")
+			require.NotContains(t, h.commands(), "openshift-install destroy")
+		})
+	}
+}
+
 func TestCloudOrphanAccountObservation(t *testing.T) {
 	for _, tc := range []struct {
 		name, observation string

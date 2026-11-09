@@ -57,7 +57,7 @@ discover_openshift() {
   gcloud storage buckets list --project="${GCP_PROJECT_ID}" --format=json > "${work}/buckets.json"
   policy -c 'include "policy"; .[] | (.name | test_infra) as $infra | select($infra != null) |
     {infra:$infra,created_at:((.creationTimestamp // .creation_time // .timeCreated) | epoch),
-     region:((.region // (.zone // "" | sub("-[a-z]$"; "")) // "") | split("/")[-1]),protected:protected}' \
+     region:(((.region // (.zone // "" | sub("-[a-z]$"; "")) // "") | split("/")[-1]) // ""),protected:protected}' \
     "${work}/networks.json" "${work}/instances.json" "${work}/disks.json" "${work}/health-checks.json" \
     "${work}/http-health-checks.json" "${work}/forwarding-rules.json" "${work}/addresses.json" >> "${work}/evidence.jsonl"
   policy -c 'include "policy"; .[] | (.name | test_infra) as $infra | select($infra != null) |
@@ -113,7 +113,7 @@ discover_openshift() {
   done < <(jq -c '.[]' "${work}/saved.json")
 
   records="$(jq -sc 'group_by(.infra) | map({infra:.[0].infra,created_at:(map(.created_at) | max),
-    regions:(map(.region | select(test("^[a-z]+-[a-z]+[0-9]+$"))) | unique),protected:any(.[]; .protected)})' "${work}/evidence.jsonl")"
+    regions:(map(.region | strings | select(test("^[a-z]+-[a-z]+[0-9]+$"))) | unique),protected:any(.[]; .protected)})' "${work}/evidence.jsonl")"
   while IFS= read -r row; do
     infra="$(jq -r '.infra' <<< "${row}")"
     if grep -Fxq -- "${infra}" "${work}/known-infra"; then continue; fi
