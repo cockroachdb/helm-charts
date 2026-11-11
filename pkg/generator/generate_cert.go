@@ -366,70 +366,6 @@ func (rc *GenerateCert) GenerateClientCert(ctx context.Context, clientSecretName
 		return errors.Wrap(err, "failed to get client secret")
 	}
 
-	// inline func used to generate client cert and key
-	generate := func(rc *GenerateCert, clientSecretName, namespace string) error {
-		logrus.Info("Generating client certificate")
-
-		// Create the user for the certificate
-		u := &security.SQLUsername{
-			U: user,
-		}
-
-		// Create the client certificates
-		if err = errors.Wrap(
-			security.CreateClientPair(
-				rc.CertsDir,
-				rc.CAKey,
-				keySize,
-				rc.ClientCertConfig.Duration,
-				overwriteFiles,
-				*u,
-				generatePKCS8Key),
-			"failed to generate client certificate and key"); err != nil {
-			return err
-		}
-
-		// Load the CA certificate into memory
-		ca, err := os.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
-		if err != nil {
-			return errors.Wrap(err, "unable to read ca.crt")
-		}
-
-		// Load the client user certificate into memory
-		userCertFile := fmt.Sprintf("client.%s.crt", user)
-		pemCert, err := os.ReadFile(filepath.Join(rc.CertsDir, userCertFile))
-		if err != nil {
-			return errors.Wrap(err, fmt.Sprintf("unable to read %s", userCertFile))
-		}
-
-		validFrom, validUpto, err := rc.getCertLife(pemCert)
-		if err != nil {
-			return err
-
-		}
-
-		// Load the client root key into memory
-		userKeyFile := fmt.Sprintf("client.%s.key", user)
-		pemKey, err := os.ReadFile(filepath.Join(rc.CertsDir, userKeyFile))
-		if err != nil {
-			return errors.Wrap(err, fmt.Sprintf("unable to read %s", userKeyFile))
-		}
-
-		// add certificate info in the secret annotations
-		annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.ClientCertConfig.Duration.String())
-
-		// create and save the TLS certificates into a secret
-		secret = resource.CreateTLSSecret(clientSecretName, corev1.SecretTypeTLS,
-			resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
-
-		if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
-			return errors.Wrap(err, "failed to update client TLS secret certs")
-		}
-
-		logrus.Infof("Generated and saved client key and certificate in secret [%s]", clientSecretName)
-		return nil
-	}
-
 	// check if the existing is ready to be consumed. If found ready, skip cert generation
 	if secret.Ready() && secret.ValidateAnnotations() {
 
@@ -437,7 +373,7 @@ func (rc *GenerateCert) GenerateClientCert(ctx context.Context, clientSecretName
 			isRequired, reason := secret.IsRotationRequired(rc.ClientCertConfig.Duration, rc.NodeAndClientCronSchedule)
 			if isRequired {
 				logrus.Infof("Client Certificate: %s", reason)
-				return generate(rc, clientSecretName, namespace)
+				return rc.generateClientCert(ctx, user, clientSecretName, namespace)
 			}
 		}
 
@@ -445,7 +381,82 @@ func (rc *GenerateCert) GenerateClientCert(ctx context.Context, clientSecretName
 		return nil
 	}
 
-	return generate(rc, clientSecretName, namespace)
+	return rc.generateClientCert(ctx, user, clientSecretName, namespace)
+}
+
+// generateClientCert issues the client certificate for user and stores it in
+// clientSecretName, replacing whatever the secret held. GenerateClientCert
+// calls it when no ready secret exists or rotation is due.
+func (rc *GenerateCert) generateClientCert(ctx context.Context, user, clientSecretName, namespace string) error {
+	logrus.Info("Generating client certificate")
+
+	// Create the user for the certificate
+	u := &security.SQLUsername{
+		U: user,
+	}
+
+	// Create the client certificates
+	if err := errors.Wrap(
+		security.CreateClientPair(
+			rc.CertsDir,
+			rc.CAKey,
+			keySize,
+			rc.ClientCertConfig.Duration,
+			overwriteFiles,
+			*u,
+			generatePKCS8Key),
+		"failed to generate client certificate and key"); err != nil {
+		return err
+	}
+
+	// Load the CA certificate into memory
+	ca, err := os.ReadFile(filepath.Join(rc.CertsDir, resource.CaCert))
+	if err != nil {
+		return errors.Wrap(err, "unable to read ca.crt")
+	}
+
+	// Load the client user certificate into memory
+	userCertFile := fmt.Sprintf("client.%s.crt", user)
+	pemCert, err := os.ReadFile(filepath.Join(rc.CertsDir, userCertFile))
+	if err != nil {
+		return errors.Wrap(err, fmt.Sprintf("unable to read %s", userCertFile))
+	}
+
+	validFrom, validUpto, err := rc.getCertLife(pemCert)
+	if err != nil {
+		return err
+	}
+
+	// Load the client root key into memory
+	userKeyFile := fmt.Sprintf("client.%s.key", user)
+	pemKey, err := os.ReadFile(filepath.Join(rc.CertsDir, userKeyFile))
+	if err != nil {
+		return errors.Wrap(err, fmt.Sprintf("unable to read %s", userKeyFile))
+	}
+
+	// add certificate info in the secret annotations
+	annotations := resource.GetSecretAnnotations(validFrom, validUpto, rc.ClientCertConfig.Duration.String())
+
+	// create and save the TLS certificates into a secret
+	secret := resource.CreateTLSSecret(clientSecretName, corev1.SecretTypeTLS,
+		resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+
+	if err = secret.UpdateTLSSecret(pemCert, pemKey, ca, annotations); err != nil {
+		return errors.Wrap(err, "failed to update client TLS secret certs")
+	}
+
+	logrus.Infof("Generated and saved client key and certificate in secret [%s]", clientSecretName)
+	return nil
+}
+
+// RegenerateClientCert issues a new client certificate for user even when a
+// ready one exists, unlike GenerateClientCert, which keeps a ready secret and
+// reads the user from USER_NAME. Callers that cannot rely on later rotation
+// (see pkg/migrate) use it to reset the certificate's lifetime; they name the
+// user explicitly so the ambient environment cannot redirect the write to a
+// different secret.
+func (rc *GenerateCert) RegenerateClientCert(ctx context.Context, user, clientSecretName, namespace string) error {
+	return rc.generateClientCert(ctx, user, clientSecretName, namespace)
 }
 
 func (rc *GenerateCert) getCASecretName() string {
@@ -544,12 +555,15 @@ func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) erro
 	return nil
 }
 
-// GenerateNodeCert generates the Node key and certificate and stores them in a secret.
-func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, namespace string) error {
-	logrus.Info("Generating node certificate")
-
-	// hosts are the various DNS names and IP address that have to exist in the Node certificates
-	// for the database to function
+// NodeCertHosts returns the DNS names and IP addresses every node certificate
+// must carry for the database to function: the loopback names, the public
+// service, the per-pod discovery wildcards and, for operator-managed clusters,
+// the join service nodes use to find each other. It is the single definition
+// of the standard host list; anything that must tell standard SANs from
+// user-added ones builds on it. User-provided AdditionalSANs are appended by
+// GenerateNodeCert, not here, so a caller can tell the identity the chart
+// requires from the identity the user added.
+func (rc *GenerateCert) NodeCertHosts(namespace string) []string {
 	hosts := []string{
 		"localhost",
 		"127.0.0.1",
@@ -560,16 +574,60 @@ func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, na
 		fmt.Sprintf("*.%s.%s", rc.DiscoveryServiceName, namespace),
 		fmt.Sprintf("*.%s.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
 	}
-
 	if rc.OperatorManaged {
-		operatorJoinServiceHosts := []string{
+		hosts = append(hosts,
 			fmt.Sprintf("%s-join", rc.DiscoveryServiceName),
 			fmt.Sprintf("%s-join.%s", rc.DiscoveryServiceName, namespace),
 			fmt.Sprintf("%s-join.%s.svc.%s", rc.DiscoveryServiceName, namespace, rc.ClusterDomain),
-		}
-
-		hosts = append(hosts, operatorJoinServiceHosts...)
+		)
 	}
+	return hosts
+}
+
+// InheritSANs adds to AdditionalSANs every DNS name and IP address in pemCert
+// that is not in NodeCertHosts(namespace) and not already present. A path
+// that reissues an existing node certificate (today, the migration helper)
+// uses it to keep the identity the certificate already had without knowing
+// which configuration produced it: the certificate is the record, not the
+// values that generated it.
+func (rc *GenerateCert) InheritSANs(pemCert []byte, namespace string) error {
+	cert, err := security.GetCertObj(pemCert)
+	if err != nil {
+		return errors.Wrap(err, "parsing existing node certificate")
+	}
+	known := make(map[string]struct{})
+	for _, h := range rc.NodeCertHosts(namespace) {
+		known[h] = struct{}{}
+	}
+	for _, s := range rc.AdditionalSANs {
+		known[s] = struct{}{}
+	}
+	var extra []string
+	add := func(s string) {
+		if _, ok := known[s]; ok {
+			return
+		}
+		known[s] = struct{}{}
+		extra = append(extra, s)
+	}
+	for _, name := range cert.DNSNames {
+		add(name)
+	}
+	for _, ip := range cert.IPAddresses {
+		add(ip.String())
+	}
+	if len(extra) > 0 {
+		logrus.Infof("Inheriting SANs from the existing node certificate: %v", extra)
+		rc.AdditionalSANs = append(rc.AdditionalSANs, extra...)
+	}
+	return nil
+}
+
+// GenerateNodeCert generates the Node key and certificate and stores them in a secret.
+func (rc *GenerateCert) GenerateNodeCert(ctx context.Context, nodeSecretName, namespace string) error {
+	logrus.Info("Generating node certificate")
+
+	hosts := rc.NodeCertHosts(namespace)
 
 	// Append additional user-provided SANs
 	if len(rc.AdditionalSANs) > 0 {
