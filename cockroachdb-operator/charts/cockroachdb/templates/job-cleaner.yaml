@@ -1,4 +1,4 @@
-{{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.selfSigner.enabled }}
+{{- if include "selfcerts.enabled" . }}
 apiVersion: batch/v1
 kind: Job
 metadata:
@@ -31,14 +31,8 @@ spec:
       annotations: {{- toYaml . | nindent 8 }}
     {{- end }}
     spec:
-    {{- if and .Values.cockroachdb.tls.selfSigner.securityContext.enabled }}
-      securityContext:
-        seccompProfile:
-          type: "RuntimeDefault"
-        runAsGroup: 1000
-        runAsUser: 1000
-        fsGroup: 1000
-        runAsNonRoot: true
+    {{- with include "selfcerts.podSecurityContext" . }}
+      {{- . | nindent 6 }}
     {{- end }}
     {{- if and .Values.cockroachdb.tls.enabled .Values.cockroachdb.tls.selfSigner.image.credentials }}
       imagePullSecrets:
@@ -64,11 +58,8 @@ spec:
           env:
             - name: STATEFULSET_NAME
               value: {{ template "cockroachdb.fullname" . }}
-        {{- if and .Values.cockroachdb.tls.selfSigner.securityContext.enabled }}
-          securityContext:
-            allowPrivilegeEscalation: false
-            capabilities:
-              drop: ["ALL"]
+        {{- with include "selfcerts.containerSecurityContext" . }}
+          {{- . | nindent 10 }}
         {{- end }}
       serviceAccountName: {{ template "rotatecerts.fullname" . }}
 {{- end}}
