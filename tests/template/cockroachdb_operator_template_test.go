@@ -10,8 +10,6 @@ import (
 	"github.com/gruntwork-io/terratest/modules/k8s"
 	"github.com/stretchr/testify/require"
 	appsv1 "k8s.io/api/apps/v1"
-	batchv1 "k8s.io/api/batch/v1"
-	"k8s.io/api/batch/v1beta1"
 	corev1 "k8s.io/api/core/v1"
 	rbacv1 "k8s.io/api/rbac/v1"
 	schedulingv1 "k8s.io/api/scheduling/v1"
@@ -53,9 +51,9 @@ type operatorValues struct {
 // renderOperatorResources renders operator.yaml and returns each parsed resource.
 // It uses a YAML stream decoder so that --- separators and Helm's # Source headers
 // are handled correctly regardless of whitespace or extra blank documents.
-func renderOperatorResources(t *testing.T, options *helm.Options) operatorResources {
+func renderOperatorResources(t *testing.T, options *helm.Options, extraHelmArgs ...string) operatorResources {
 	t.Helper()
-	output, renderErr := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/operator.yaml"})
+	output, renderErr := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/operator.yaml"}, extraHelmArgs...)
 	require.NoError(t, renderErr)
 
 	decoder := yaml.NewYAMLOrJSONDecoder(strings.NewReader(output), 4096)
@@ -318,6 +316,137 @@ func TestOperatorImageDigestUpdated(t *testing.T) {
 	require.Equal(t, expectedOperatorImage(t), res.Deployment.Spec.Template.Spec.Containers[0].Image)
 }
 
+func TestOperatorResources(t *testing.T) {
+	t.Parallel()
+
+	for _, tc := range []struct {
+		name     string
+		values   string
+		upgrade  bool
+		requests map[corev1.ResourceName]string
+		limits   map[corev1.ResourceName]string
+	}{
+		{
+			name:     "defaults",
+			requests: map[corev1.ResourceName]string{corev1.ResourceCPU: "500m", corev1.ResourceMemory: "1000Mi"},
+			limits:   map[corev1.ResourceName]string{corev1.ResourceCPU: "2", corev1.ResourceMemory: "4000Mi"},
+		},
+		{
+			name:     "upgrade reusing old values without resources",
+			values:   "image:\n  tag: v1.1.0\n",
+			upgrade:  true,
+			requests: map[corev1.ResourceName]string{corev1.ResourceCPU: "500m", corev1.ResourceMemory: "1000Mi"},
+			limits:   map[corev1.ResourceName]string{corev1.ResourceCPU: "2", corev1.ResourceMemory: "4000Mi"},
+		},
+		{
+			name:     "custom requests and limits",
+			values:   "resources:\n  requests:\n    cpu: 125m\n    memory: 256Mi\n  limits:\n    cpu: 1\n    memory: 1Gi\n",
+			requests: map[corev1.ResourceName]string{corev1.ResourceCPU: "125m", corev1.ResourceMemory: "256Mi"},
+			limits:   map[corev1.ResourceName]string{corev1.ResourceCPU: "1", corev1.ResourceMemory: "1Gi"},
+		},
+		{
+			name:     "partial override preserves other defaults",
+			values:   "resources:\n  requests:\n    cpu: 125m\n",
+			requests: map[corev1.ResourceName]string{corev1.ResourceCPU: "125m", corev1.ResourceMemory: "1000Mi"},
+			limits:   map[corev1.ResourceName]string{corev1.ResourceCPU: "2", corev1.ResourceMemory: "4000Mi"},
+		},
+		{
+			name:     "remove CPU limit",
+			values:   "resources:\n  limits:\n    cpu: null\n",
+			requests: map[corev1.ResourceName]string{corev1.ResourceCPU: "500m", corev1.ResourceMemory: "1000Mi"},
+			limits:   map[corev1.ResourceName]string{corev1.ResourceMemory: "4000Mi"},
+		},
+		{
+			name:   "empty resources override",
+			values: "resources: {}\n",
+		},
+		{
+			name:   "remove all resources",
+			values: "resources: null\n",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			valuesFile := filepath.Join(t.TempDir(), "values.yaml")
+			require.NoError(t, os.WriteFile(valuesFile, []byte(tc.values), 0600))
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+				ValuesFiles:    []string{valuesFile},
+			}
+			var extraArgs []string
+			if tc.upgrade {
+				extraArgs = []string{"--is-upgrade"}
+			}
+			res := renderOperatorResources(t, options, extraArgs...)
+			resources := res.Deployment.Spec.Template.Spec.Containers[0].Resources
+			require.Len(t, resources.Requests, len(tc.requests))
+			require.Len(t, resources.Limits, len(tc.limits))
+			for name, expected := range tc.requests {
+				actual := resources.Requests[name]
+				require.Equal(t, expected, actual.String(), "request %s", name)
+			}
+			for name, expected := range tc.limits {
+				actual := resources.Limits[name]
+				require.Equal(t, expected, actual.String(), "limit %s", name)
+			}
+		})
+	}
+}
+
+func TestOperatorScheduling(t *testing.T) {
+	t.Parallel()
+
+	t.Run("defaults", func(t *testing.T) {
+		t.Parallel()
+		res := renderOperatorResources(t, &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		})
+		podSpec := res.Deployment.Spec.Template.Spec
+		require.Empty(t, podSpec.NodeSelector)
+		require.Empty(t, podSpec.Tolerations)
+		require.Nil(t, podSpec.Affinity)
+	})
+
+	t.Run("custom scheduling", func(t *testing.T) {
+		t.Parallel()
+		valuesFile := filepath.Join(t.TempDir(), "values.yaml")
+		require.NoError(t, os.WriteFile(valuesFile, []byte(`nodeSelector:
+  workload: operators
+tolerations:
+  - key: workload
+    operator: Equal
+    value: operators
+    effect: NoSchedule
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: cockroach-operator
+          topologyKey: kubernetes.io/hostname
+`), 0600))
+		res := renderOperatorResources(t, &helm.Options{
+			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+			ValuesFiles:    []string{valuesFile},
+		})
+		podSpec := res.Deployment.Spec.Template.Spec
+		require.Equal(t, map[string]string{"workload": "operators"}, podSpec.NodeSelector)
+		require.Equal(t, []corev1.Toleration{{
+			Key: "workload", Operator: corev1.TolerationOpEqual, Value: "operators", Effect: corev1.TaintEffectNoSchedule,
+		}}, podSpec.Tolerations)
+		require.NotNil(t, podSpec.Affinity)
+		require.NotNil(t, podSpec.Affinity.PodAntiAffinity)
+		terms := podSpec.Affinity.PodAntiAffinity.PreferredDuringSchedulingIgnoredDuringExecution
+		require.Len(t, terms, 1)
+		require.EqualValues(t, 100, terms[0].Weight)
+		require.Equal(t, "kubernetes.io/hostname", terms[0].PodAffinityTerm.TopologyKey)
+		require.NotNil(t, terms[0].PodAffinityTerm.LabelSelector)
+		require.Equal(t, map[string]string{"app": "cockroach-operator"}, terms[0].PodAffinityTerm.LabelSelector.MatchLabels)
+	})
+}
+
 func TestOperatorRelatedImages(t *testing.T) {
 	t.Parallel()
 
@@ -498,245 +627,4 @@ func TestOperatorStorageMigrationTemplateRemoved(t *testing.T) {
 	_, err := helm.RenderTemplateE(t, options, operatorChartPath, releaseName, []string{"templates/storage-migration.yaml"})
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "Could not resolve template file templates/storage-migration.yaml")
-}
-
-// TestCockroachDBParentSelfSignerAdditionalSANs tests that additionalSANs are properly passed to the self-signer Job and CronJob in the umbrella
-// (cockroachdb-operator) chart
-func TestCockroachDBParentSelfSignerAdditionalSANs(t *testing.T) {
-	t.Parallel()
-
-	chartPath, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
-	require.NoError(t, err)
-
-	testCases := []struct {
-		name                 string
-		setValues            map[string]string
-		expectAdditionalSANs bool
-		expectedValue        string
-	}{
-		{
-			name: "additionalSANs with multiple values",
-			setValues: map[string]string{
-				"cockroachdb.tls.selfSigner.enabled":           "true",
-				"cockroachdb.tls.selfSigner.additionalSANs[0]": "my-loadbalancer.example.com",
-				"cockroachdb.tls.selfSigner.additionalSANs[1]": "10.20.30.40",
-				"cockroachdb.tls.selfSigner.additionalSANs[2]": "backup-lb.example.com",
-			},
-			expectAdditionalSANs: true,
-			expectedValue:        "my-loadbalancer.example.com,10.20.30.40,backup-lb.example.com",
-		},
-		{
-			name: "additionalSANs with single value",
-			setValues: map[string]string{
-				"cockroachdb.tls.selfSigner.enabled":           "true",
-				"cockroachdb.tls.selfSigner.additionalSANs[0]": "my-lb.example.com",
-			},
-			expectAdditionalSANs: true,
-			expectedValue:        "my-lb.example.com",
-		},
-		{
-			name: "no additionalSANs configured",
-			setValues: map[string]string{
-				"cockroachdb.tls.selfSigner.enabled": "true",
-			},
-			expectAdditionalSANs: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		tc := tc
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-
-			options := &helm.Options{
-				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-				SetValues:      tc.setValues,
-			}
-
-			// Test Job template
-			jobOutput := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/job-certSelfSigner.yaml"})
-			var job batchv1.Job
-			helm.UnmarshalK8SYaml(t, jobOutput, &job)
-
-			additionalSANsEnv := findEnvVar(job.Spec.Template.Spec.Containers[0].Env, "ADDITIONAL_SANS")
-
-			if tc.expectAdditionalSANs {
-				require.NotNil(t, additionalSANsEnv, "ADDITIONAL_SANS env var should be present in Job")
-				require.Equal(t, tc.expectedValue, additionalSANsEnv.Value, "ADDITIONAL_SANS value should match")
-			} else {
-				require.Nil(t, additionalSANsEnv, "ADDITIONAL_SANS env var should not be present when not configured")
-			}
-
-			// Test CronJob template
-			cronJobOutput := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/cronjob-client-node-certSelfSigner.yaml"})
-			var cronJob v1beta1.CronJob
-			helm.UnmarshalK8SYaml(t, cronJobOutput, &cronJob)
-
-			additionalSANsEnvCron := findEnvVar(cronJob.Spec.JobTemplate.Spec.Template.Spec.Containers[0].Env, "ADDITIONAL_SANS")
-
-			if tc.expectAdditionalSANs {
-				require.NotNil(t, additionalSANsEnvCron, "ADDITIONAL_SANS env var should be present in CronJob")
-				require.Equal(t, tc.expectedValue, additionalSANsEnvCron.Value, "ADDITIONAL_SANS value should match")
-			} else {
-				require.Nil(t, additionalSANsEnvCron, "ADDITIONAL_SANS env var should not be present when not configured")
-			}
-		})
-	}
-}
-
-// TestCockroachDBTestPodAnnotationsAndLabels tests that tests.podAnnotations and
-// tests.podLabels are added to the helm test pod alongside the helm hook annotation.
-func TestCockroachDBTestPodAnnotationsAndLabels(t *testing.T) {
-	t.Parallel()
-
-	chartPath, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
-	require.NoError(t, err)
-
-	render := func(t *testing.T, setStrValues map[string]string) corev1.Pod {
-		t.Helper()
-		options := &helm.Options{
-			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-			SetStrValues:   setStrValues,
-		}
-		output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/tests/client.yaml"})
-		var pod corev1.Pod
-		helm.UnmarshalK8SYaml(t, output, &pod)
-		return pod
-	}
-
-	t.Run("unset", func(t *testing.T) {
-		t.Parallel()
-		pod := render(t, nil)
-
-		require.Equal(t, map[string]string{"helm.sh/hook": "test-success"}, pod.Annotations)
-		require.Empty(t, pod.Labels)
-	})
-
-	t.Run("set", func(t *testing.T) {
-		t.Parallel()
-		pod := render(t, map[string]string{
-			"cockroachdb.tests.podAnnotations.sidecar\\.istio\\.io/inject": "false",
-			"cockroachdb.tests.podLabels.team":                             "platform",
-		})
-
-		require.Equal(t, "test-success", pod.Annotations["helm.sh/hook"])
-		require.Equal(t, "false", pod.Annotations["sidecar.istio.io/inject"])
-		require.Equal(t, map[string]string{"team": "platform"}, pod.Labels)
-	})
-}
-
-// TestCockroachDBTestPodClientCerts tests that the helm test pod mounts the root client
-// certificate and CA used by the CrdbCluster for each TLS mode, and connects to the SQL port.
-func TestCockroachDBTestPodClientCerts(t *testing.T) {
-	t.Parallel()
-
-	chartPath, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
-	require.NoError(t, err)
-
-	testCases := []struct {
-		name         string
-		setValues    map[string]string
-		expectSecret string
-		expectCA     string
-	}{
-		{
-			name:         "self-signer",
-			setValues:    map[string]string{},
-			expectSecret: releaseName + "-cockroachdb-client-secret",
-			expectCA:     releaseName + "-cockroachdb-ca-secret-crt",
-		},
-		{
-			name: "cert-manager",
-			setValues: map[string]string{
-				"cockroachdb.tls.selfSigner.enabled":           "false",
-				"cockroachdb.tls.certManager.enabled":          "true",
-				"cockroachdb.tls.certManager.issuer.name":      "issuer",
-				"cockroachdb.tls.certManager.clientRootSecret": "my-root",
-				"cockroachdb.tls.certManager.caConfigMap":      "my-ca",
-			},
-			expectSecret: "my-root",
-			expectCA:     "my-ca",
-		},
-		{
-			name: "external certificates",
-			setValues: map[string]string{
-				"cockroachdb.tls.selfSigner.enabled":                                        "false",
-				"cockroachdb.tls.externalCertificates.enabled":                              "true",
-				"cockroachdb.tls.externalCertificates.certificates.caConfigMapName":         "ext-ca",
-				"cockroachdb.tls.externalCertificates.certificates.nodeSecretName":          "ext-node",
-				"cockroachdb.tls.externalCertificates.certificates.httpSecretName":          "ext-root",
-				"cockroachdb.tls.externalCertificates.certificates.rootSqlClientSecretName": "ext-root",
-			},
-			expectSecret: "ext-root",
-			expectCA:     "ext-ca",
-		},
-		{
-			// Split CA: caConfigMapName is left empty and the node CA is set
-			// instead. The test pod validates the server it connects to, so it
-			// must fall back to the node CA. See the external-certificates docs
-			// on split CA certificates in values.yaml.
-			name: "external certificates split CA",
-			setValues: map[string]string{
-				"cockroachdb.tls.selfSigner.enabled":                                        "false",
-				"cockroachdb.tls.externalCertificates.enabled":                              "true",
-				"cockroachdb.tls.externalCertificates.certificates.nodeCaConfigMapName":     "ext-node-ca",
-				"cockroachdb.tls.externalCertificates.certificates.clientCaConfigMapName":   "ext-client-ca",
-				"cockroachdb.tls.externalCertificates.certificates.nodeSecretName":          "ext-node",
-				"cockroachdb.tls.externalCertificates.certificates.httpSecretName":          "ext-root",
-				"cockroachdb.tls.externalCertificates.certificates.rootSqlClientSecretName": "ext-root",
-			},
-			expectSecret: "ext-root",
-			expectCA:     "ext-node-ca",
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			t.Parallel()
-			options := &helm.Options{
-				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-				SetValues:      tc.setValues,
-			}
-			output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/tests/client.yaml"})
-			var pod corev1.Pod
-			helm.UnmarshalK8SYaml(t, output, &pod)
-
-			require.Len(t, pod.Spec.Volumes, 1)
-			projected := pod.Spec.Volumes[0].Projected
-			require.NotNil(t, projected)
-			require.Len(t, projected.Sources, 2)
-
-			secret := projected.Sources[0].Secret
-			require.NotNil(t, secret)
-			require.Equal(t, tc.expectSecret, secret.Name)
-			require.Equal(t, []corev1.KeyToPath{
-				{Key: "tls.crt", Path: "client.root.crt"},
-				{Key: "tls.key", Path: "client.root.key"},
-			}, secret.Items)
-
-			ca := projected.Sources[1].ConfigMap
-			require.NotNil(t, ca)
-			require.Equal(t, tc.expectCA, ca.Name)
-			require.Equal(t, []corev1.KeyToPath{{Key: "ca.crt", Path: "ca.crt"}}, ca.Items)
-
-			require.Contains(t, strings.Join(pod.Spec.Containers[0].Command, " "), "--port 26257")
-		})
-	}
-
-	t.Run("insecure", func(t *testing.T) {
-		t.Parallel()
-		options := &helm.Options{
-			KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
-			SetValues: map[string]string{
-				"cockroachdb.tls.enabled":            "false",
-				"cockroachdb.tls.selfSigner.enabled": "false",
-			},
-		}
-		output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{"templates/tests/client.yaml"})
-		var pod corev1.Pod
-		helm.UnmarshalK8SYaml(t, output, &pod)
-
-		require.Empty(t, pod.Spec.Volumes)
-		require.Contains(t, pod.Spec.Containers[0].Command, "--insecure")
-	})
 }

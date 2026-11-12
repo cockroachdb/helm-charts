@@ -2,8 +2,8 @@ package testutil
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -126,18 +126,14 @@ spec:
   selfSigned: {}
 `, SelfSignedIssuerName, issuerNamespace)
 
-	err := os.WriteFile(selfSignedIssuerYaml, []byte(issuerCreateData), fs.ModePerm)
-	require.NoError(t, err)
-
-	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", selfSignedIssuerYaml)
+	applyCertManagerManifest(t, kubectlOptions, selfSignedIssuerYaml, issuerCreateData)
 }
 
 // DeleteSelfSignedIssuer deletes the self-signed issuer.
 func DeleteSelfSignedIssuer(
 	t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string,
 ) {
-	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", selfSignedIssuerYaml)
-	_ = os.Remove(selfSignedIssuerYaml)
+	k8s.RunKubectl(t, kubectlOptions, "delete", "issuers.cert-manager.io", SelfSignedIssuerName, "--namespace", issuerNamespace, "--ignore-not-found=true")
 }
 
 // CreateSelfSignedCertificate creates a self-signed certificate which is stored in a secret.
@@ -165,17 +161,13 @@ spec:
     kind: Issuer
 `, SelfSignedCertName, issuerNamespace, CASecretName, SelfSignedIssuerName)
 
-	err := os.WriteFile(caCertYaml, []byte(certCreateData), fs.ModePerm)
-	require.NoError(t, err)
-
-	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", caCertYaml)
+	applyCertManagerManifest(t, kubectlOptions, caCertYaml, certCreateData)
 }
 
 func DeleteSelfSignedCertificate(
 	t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string,
 ) {
-	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", caCertYaml)
-	_ = os.Remove(caCertYaml)
+	k8s.RunKubectl(t, kubectlOptions, "delete", "certificates.cert-manager.io", SelfSignedCertName, "--namespace", issuerNamespace, "--ignore-not-found=true")
 }
 
 // CreateCAIssuer creates a CA issuer using the CA certificate stored in a secret.
@@ -192,15 +184,11 @@ spec:
     secretName: %s
 `, CAIssuerName, issuerNamespace, CASecretName)
 
-	err := os.WriteFile(caIssuerYaml, []byte(issuerCreateData), fs.ModePerm)
-	require.NoError(t, err)
-
-	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", caIssuerYaml)
+	applyCertManagerManifest(t, kubectlOptions, caIssuerYaml, issuerCreateData)
 }
 
 func DeleteCAIssuer(t *testing.T, kubectlOptions *k8s.KubectlOptions, issuerNamespace string) {
-	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", caIssuerYaml)
-	_ = os.Remove(caIssuerYaml)
+	k8s.RunKubectl(t, kubectlOptions, "delete", "issuers.cert-manager.io", CAIssuerName, "--namespace", issuerNamespace, "--ignore-not-found=true")
 }
 
 // CreateBundle creates a bundle which transfers the CA certificate from secret to configmap in the target namespace.
@@ -224,20 +212,23 @@ spec:
       matchLabels:
        kubernetes.io/metadata.name: %s`, caConfigMapName, caSecretName, kubectlOptions.Namespace)
 
-	err := os.WriteFile(bundleYaml, []byte(bundleCreateData), fs.ModePerm)
-	require.NoError(t, err)
-
-	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", bundleYaml)
+	applyCertManagerManifest(t, kubectlOptions, bundleYaml, bundleCreateData)
 }
 
 // DeleteBundle deletes the bundle.
-func DeleteBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions) {
-	if _, err := os.Stat(bundleYaml); os.IsNotExist(err) {
-		return
-	} else {
-		require.NoError(t, err)
+func DeleteBundle(t *testing.T, kubectlOptions *k8s.KubectlOptions, names ...string) {
+	if len(names) == 0 {
+		names = []string{CAConfigMapName}
 	}
+	for _, name := range names {
+		k8s.RunKubectl(t, kubectlOptions, "delete", "bundles.trust.cert-manager.io", name, "--ignore-not-found=true")
+	}
+}
 
-	k8s.RunKubectl(t, kubectlOptions, "delete", "-f", bundleYaml)
-	_ = os.Remove(bundleYaml)
+// Keep generated manifests out of the checkout and isolate fixtures per test.
+func applyCertManagerManifest(t *testing.T, options *k8s.KubectlOptions, name, manifest string) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), name)
+	require.NoError(t, os.WriteFile(path, []byte(manifest), 0600))
+	k8s.RunKubectl(t, options, "apply", "-f", path)
 }

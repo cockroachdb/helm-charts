@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+env:
+  # Each job uploads diagnostics for 14 days, then removes its local copy.
+  ARTIFACT_DIR: ${{ github.workspace }}/output/failure-artifacts
+
 jobs:
 
 
@@ -239,6 +243,20 @@ jobs:
       - name: Run E2E Test
         run: make test/e2e/install
 
+      - name: Archive failed test diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-failure-artifacts
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove local failure diagnostics
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf -- "${ARTIFACT_DIR:?}"
+
       - name: Clean up Docker resources
         shell: bash
         run: |
@@ -266,6 +284,20 @@ jobs:
 
       - name: Run E2E Test
         run: make test/e2e/rotate
+
+      - name: Archive failed test diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-failure-artifacts
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove local failure diagnostics
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf -- "${ARTIFACT_DIR:?}"
 
       - name: Clean up Docker resources
         shell: bash
@@ -297,6 +329,20 @@ jobs:
           set -e
           make test/e2e/single-region
         continue-on-error: false
+
+      - name: Archive failed test diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-failure-artifacts
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove local failure diagnostics
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf -- "${ARTIFACT_DIR:?}"
 
       - name: Clean up Docker resources
         shell: bash
@@ -360,6 +406,20 @@ jobs:
       - name: Run Chart Compatibility E2E Test
         run: make test/e2e/chart-compatibility
 
+      - name: Archive failed test diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-failure-artifacts
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove local failure diagnostics
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf -- "${ARTIFACT_DIR:?}"
+
       - name: Clean up Docker resources
         shell: bash
         run: |
@@ -388,6 +448,20 @@ jobs:
       - name: Run E2E Test
         run: make test/e2e/multi-region
 
+      - name: Archive failed test diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-failure-artifacts
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove local failure diagnostics
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf -- "${ARTIFACT_DIR:?}"
+
       - name: Clean up Docker resources
         shell: bash
         run: |
@@ -396,10 +470,20 @@ jobs:
           docker volume prune -f
 
   controller-migration-e2e:
-    name: controller-migration-e2e
+    name: controller-migration-e2e (${{ matrix.suite }})
     runs-on: [self-hosted, ubuntu_2404]
     needs: detect-heavy-e2e-change
     if: needs.detect-heavy-e2e-change.outputs.heavyE2E == 'true'
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: helm
+            test-run: '^TestAutoMigration$/^helm_(forward.*|stop_and_resume|rollback.*|shared_external_port_migration|provided.*|insecure.*)$'
+          - suite: legacy-operator-and-cert-manager
+            test-run: '^TestAutoMigration$/^(operator_.*|helm_cert-manager_migration)$'
+    env:
+      CONTROLLER_MIGRATION_TEST_RUN: ${{ matrix.test-run }}
     steps:
       - name: Checkout sources
         uses: actions/checkout@v4
@@ -414,6 +498,20 @@ jobs:
 
       - name: Run Controller Migration E2E Test
         run: make test/e2e/controller-migrate
+
+      - name: Archive failed test diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-${{ matrix.suite }}-failure-artifacts
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove local failure diagnostics
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf -- "${ARTIFACT_DIR:?}"
 
       - name: Clean up Docker resources
         shell: bash
@@ -441,6 +539,20 @@ jobs:
 
       - name: Run Manual Migration E2E Tests
         run: make test/e2e/manual-migrate
+
+      - name: Archive failed test diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ github.job }}-failure-artifacts
+          path: ${{ env.ARTIFACT_DIR }}
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Remove local failure diagnostics
+        if: ${{ always() }}
+        shell: bash
+        run: rm -rf -- "${ARTIFACT_DIR:?}"
 
       - name: Clean up Docker resources
         shell: bash

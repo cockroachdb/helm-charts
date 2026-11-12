@@ -4,10 +4,10 @@ The [`v1beta1`](v1beta1) package is the public Go type reference for the
 `CrdbCluster` and `CrdbNode` resources supported by the self-hosted CockroachDB
 Operator.
 
-The CRD YAML in [`../manifests/crds`](../manifests/crds) is authoritative for
-Kubernetes validation. This package is maintained in this repository so
-customers can review the consumer-facing API without access to the closed-source
-operator implementation. It is not a generated Kubernetes client.
+The [CockroachDB Operator source repository](https://github.com/cockroachdb/cockroachdb-operator)
+contains the API definitions and generated CRD sources. The CRDs installed by the
+running operator are authoritative for Kubernetes validation. This package is a
+consumer-facing reference, not a generated Kubernetes client.
 
 ## Deprecated `CrdbNodeSpec` fields
 

@@ -61,6 +61,23 @@ selfSignedOperatorCerts: false
 podAnnotations: {}
 # podLabels defines additional labels for the operator pods.
 podLabels: {}
+# resources defines requests and limits for the operator container.
+# Unset values use the defaults below, including upgrades with --reuse-values.
+# Partial overrides keep the other defaults. Set an entry to null to omit it.
+# Set resources to null or {} to omit all requests and limits.
+# resources:
+#   requests:
+#     cpu: 500m
+#     memory: 1000Mi
+#   limits:
+#     cpu: 2000m
+#     memory: 4000Mi
+# nodeSelector restricts operator pods to nodes with matching labels.
+nodeSelector: {}
+# tolerations allows operator pods to be scheduled on matching tainted nodes.
+tolerations: []
+# affinity configures node and pod affinity for operator pods.
+affinity: {}
 # migration defines the migration settings for the Operator.
 migration:
   # enabled determines if the migration controller should be enabled.

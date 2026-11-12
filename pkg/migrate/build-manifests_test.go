@@ -1,13 +1,33 @@
 package migrate
 
 import (
+	"bytes"
+	"compress/gzip"
 	"context"
+	"crypto/ecdsa"
+	"crypto/elliptic"
+	"crypto/rand"
+	"crypto/x509"
+	"crypto/x509/pkix"
+	"encoding/base64"
+	"encoding/json"
+	"encoding/pem"
+	"math/big"
+	"net"
+	"net/http"
+	"net/http/httptest"
+	"os/exec"
+	"time"
+
 	"flag"
+	certresource "github.com/cockroachdb/helm-charts/pkg/resource"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 
+	publicv1 "github.com/cockroachdb/cockroach-operator/apis/v1alpha1"
 	"github.com/cockroachdb/helm-charts/pkg/upstream/cockroach-operator/api/v1beta1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -20,6 +40,7 @@ import (
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/util/intstr"
 	dynamicfake "k8s.io/client-go/dynamic/fake"
 	"k8s.io/client-go/kubernetes/fake"
 	"sigs.k8s.io/yaml"
@@ -186,6 +207,59 @@ func TestFromOperator(t *testing.T) {
 		validateGoldenFile(t, filepath.Join(outputDir, "crdbnode-"+strconv.Itoa(i)+".yaml"), "testdata/operator/allInput/crdbnode-"+strconv.Itoa(i)+".yaml.golden")
 	}
 
+}
+
+func TestManualOperatorCertificateNames(t *testing.T) {
+	const name, namespace = "cockroachdb", "default"
+	sts := &appsv1.StatefulSet{}
+	data, err := os.ReadFile("testdata/operator/allInput/cockroachdb-statefulset.yaml")
+	require.NoError(t, err)
+	require.NoError(t, yaml.Unmarshal(data, sts))
+	for _, tc := range []struct {
+		name, node, client, wantNode, wantClient string
+	}{
+		{"built-in signer", "", "", name + "-node-secret", name + "-client-secret"},
+		{"both overrides", "custom-node", "custom-client", "custom-node", "custom-client"},
+		{"node override", "custom-node", "", "custom-node", name + "-root"},
+		{"client override", "", "custom-client", name + "-node", "custom-client"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cluster := publicv1.CrdbCluster{ObjectMeta: sts.ObjectMeta, Spec: publicv1.CrdbClusterSpec{
+				TLSEnabled: true, NodeTLSSecret: tc.node, ClientTLSSecret: tc.client, Nodes: 3,
+				Image: &publicv1.PodImage{Name: "cockroachdb/cockroach:v26.3.5"},
+			}}
+			node := buildNodeSpecFromOperator(cluster, sts, "worker", &v1beta1.Flags{})
+			require.Equal(t, tc.wantNode, node.Certificates.ExternalCertificates.NodeSecretName)
+			require.Equal(t, tc.wantClient, node.Certificates.ExternalCertificates.RootSQLClientSecretName)
+			values := buildHelmValuesFromOperator(cluster, sts, "gcp", "us-east1", namespace, &v1beta1.Flags{})
+			m := &Manifest{namespace: namespace, clientset: fake.NewSimpleClientset()}
+			require.NoError(t, m.restoreSelfSignerValues(context.Background(), values, name, tc.wantNode, tc.wantClient))
+			valuesFile := filepath.Join(t.TempDir(), "values.yaml")
+			require.NoError(t, yamlToDisk(valuesFile, []any{values}))
+			chart, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
+			require.NoError(t, err)
+			rendered, err := exec.Command("helm", "template", name, chart, "--namespace", namespace, "--values", valuesFile).CombinedOutput()
+			require.NoError(t, err, "%s", rendered)
+			var found bool
+			for _, doc := range strings.Split(string(rendered), "\n---") {
+				var obj map[string]interface{}
+				require.NoError(t, yaml.Unmarshal([]byte(doc), &obj))
+				require.NotEqual(t, "CronJob", obj["kind"], "external source must not gain rotation jobs")
+				if obj["kind"] != "CrdbCluster" {
+					continue
+				}
+				found = true
+				refs := obj["spec"].(map[string]interface{})["template"].(map[string]interface{})["spec"].(map[string]interface{})["certificates"].(map[string]interface{})["externalCertificates"].(map[string]interface{})
+				require.Equal(t, name+"-ca-crt", refs["caConfigMapName"])
+				require.Equal(t, tc.wantNode, refs["nodeSecretName"])
+				require.Equal(t, tc.wantClient, refs["rootSqlClientSecretName"])
+				if tc.node != "" || tc.client != "" {
+					require.Equal(t, tc.wantClient, refs["httpSecretName"])
+				}
+			}
+			require.True(t, found)
+		})
+	}
 }
 
 func TestExportValuesFromV1beta1(t *testing.T) {
@@ -397,6 +471,429 @@ func TestExportValuesFromV1beta1(t *testing.T) {
 	uiValues, ok := ingressValues["ui"].(map[string]interface{})
 	require.True(t, ok)
 	assert.Equal(t, "ui.local.com", uiValues["host"])
+}
+
+func TestExportPublicServiceValues(t *testing.T) {
+	for _, serviceName := range []string{"cockroachdb-public", "cockroachdb"} {
+		t.Run(serviceName, func(t *testing.T) {
+			const name, namespace = "cockroachdb", "default"
+			cluster := v1beta1.CrdbCluster{
+				TypeMeta:   metav1.TypeMeta{APIVersion: "crdb.cockroachlabs.com/v1beta1", Kind: "CrdbCluster"},
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: v1beta1.CrdbClusterSpec{Template: v1beta1.CrdbNodeTemplate{Spec: v1beta1.CrdbNodeSpec{
+					GRPCPort: new(int32(26257)), SQLPort: new(int32(26257)),
+				}}},
+			}
+			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&cluster)
+			require.NoError(t, err)
+			service := &corev1.Service{
+				ObjectMeta: metav1.ObjectMeta{Name: serviceName, Namespace: namespace,
+					Labels:      map[string]string{"app.kubernetes.io/instance": "old-release", "monitoring": "enabled"},
+					Annotations: map[string]string{"meta.helm.sh/release-name": "old-release", "example.com/load-balancer": "internal"}},
+				Spec: corev1.ServiceSpec{Type: corev1.ServiceTypeLoadBalancer, Ports: []corev1.ServicePort{
+					{Name: "database", Port: 26257, TargetPort: intstr.FromString("grpc")},
+					{Name: "console", Port: 8080, TargetPort: intstr.FromString("http")},
+				}},
+			}
+			m := &Manifest{namespace: namespace, objectName: name, outputDir: t.TempDir(),
+				clientset:     fake.NewSimpleClientset(service),
+				dynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), &unstructured.Unstructured{Object: obj})}
+			require.NoError(t, m.ExportValuesFromV1beta1())
+			valuesFile := filepath.Join(m.outputDir, "values.yaml")
+			chart, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
+			require.NoError(t, err)
+			rendered, err := exec.Command("helm", "template", "adopted", chart, "--namespace", namespace,
+				"--values", valuesFile, "--show-only", "templates/service.public.yaml").CombinedOutput()
+			require.NoError(t, err, "%s", rendered)
+			var adopted corev1.Service
+			require.NoError(t, yaml.Unmarshal(rendered, &adopted))
+			require.Equal(t, serviceName, adopted.Name)
+			require.Equal(t, corev1.ServiceTypeLoadBalancer, adopted.Spec.Type)
+			require.Equal(t, "enabled", adopted.Labels["monitoring"])
+			require.Equal(t, "adopted", adopted.Labels["app.kubernetes.io/instance"])
+			require.Equal(t, map[string]string{"example.com/load-balancer": "internal"}, adopted.Annotations)
+			require.Len(t, adopted.Spec.Ports, 2)
+			require.Equal(t, service.Spec.Ports[0], adopted.Spec.Ports[0])
+			require.Equal(t, service.Spec.Ports[1], adopted.Spec.Ports[1])
+		})
+	}
+	t.Run("discovery Service is not adopted", func(t *testing.T) {
+		m := &Manifest{namespace: "default", clientset: fake.NewSimpleClientset(&corev1.Service{
+			ObjectMeta: metav1.ObjectMeta{Name: "cockroachdb", Namespace: "default"},
+			Spec:       corev1.ServiceSpec{ClusterIP: corev1.ClusterIPNone},
+		})}
+		values := buildHelmValuesFromV1beta1(v1beta1.CrdbCluster{}, nil)
+		require.NoError(t, m.preservePublicServiceValues(context.Background(), values, "cockroachdb"))
+		service := values["cockroachdb"].(map[string]interface{})["crdbCluster"].(map[string]interface{})["service"].(map[string]interface{})
+		require.NotContains(t, service, "public")
+	})
+}
+
+func TestInsecureMigrationValues(t *testing.T) {
+	const name, namespace = "cockroachdb", "default"
+	sts := &appsv1.StatefulSet{
+		ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+		Spec: appsv1.StatefulSetSpec{
+			Replicas: new(int32(3)),
+			Template: corev1.PodTemplateSpec{Spec: corev1.PodSpec{Containers: []corev1.Container{{
+				Name: "db", Image: "cockroachdb/cockroach:v26.3.5",
+			}}}},
+			VolumeClaimTemplates: []corev1.PersistentVolumeClaim{{ObjectMeta: metav1.ObjectMeta{Name: "datadir"}}},
+		},
+	}
+	legacy := publicv1.CrdbCluster{ObjectMeta: sts.ObjectMeta, Spec: publicv1.CrdbClusterSpec{
+		Nodes: 3, TLSEnabled: false, Image: &publicv1.PodImage{Name: sts.Spec.Template.Spec.Containers[0].Image},
+	}}
+	for _, source := range []string{"controller export", "manual Helm", "manual legacy operator"} {
+		t.Run(source, func(t *testing.T) {
+			m := &Manifest{namespace: namespace, objectName: name, outputDir: t.TempDir(), clientset: fake.NewSimpleClientset()}
+			var values map[string]interface{}
+			switch source {
+			case "controller export":
+				cluster := v1beta1.CrdbCluster{TypeMeta: metav1.TypeMeta{APIVersion: "crdb.cockroachlabs.com/v1beta1", Kind: "CrdbCluster"},
+					ObjectMeta: sts.ObjectMeta, Spec: v1beta1.CrdbClusterSpec{TLSEnabled: false,
+						Template: v1beta1.CrdbNodeTemplate{Spec: v1beta1.CrdbNodeSpec{Image: legacy.Spec.Image.Name}}}}
+				obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&cluster)
+				require.NoError(t, err)
+				m.dynamicClient = dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), &unstructured.Unstructured{Object: obj})
+				require.NoError(t, m.ExportValuesFromV1beta1())
+				data, err := os.ReadFile(filepath.Join(m.outputDir, "values.yaml"))
+				require.NoError(t, err)
+				require.NoError(t, yaml.Unmarshal(data, &values))
+			case "manual Helm":
+				values = buildHelmValuesFromHelm(sts, "gcp", "us-east1", namespace,
+					parsedMigrationInput{tlsEnabled: false, grpcPort: 26258, sqlPort: 26257, httpPort: 8080})
+			case "manual legacy operator":
+				values = buildHelmValuesFromOperator(legacy, sts, "gcp", "us-east1", namespace, &v1beta1.Flags{})
+			}
+			// Certificate restoration must leave TLS-off values unchanged.
+			require.NoError(t, m.restoreSelfSignerValues(context.Background(), values, name, name+"-node-secret", name+"-client-secret"))
+			tls := values["cockroachdb"].(map[string]interface{})["tls"].(map[string]interface{})
+			require.Equal(t, false, tls["enabled"])
+			require.Equal(t, false, tls["selfSigner"].(map[string]interface{})["enabled"])
+			for _, mode := range []string{"certManager", "externalCertificates"} {
+				if settings, ok := tls[mode].(map[string]interface{}); ok {
+					require.Equal(t, false, settings["enabled"], mode)
+				}
+			}
+			valuesFile := filepath.Join(m.outputDir, "values.yaml")
+			require.NoError(t, yamlToDisk(valuesFile, []any{values}))
+			chart, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
+			require.NoError(t, err)
+			rendered, err := exec.Command("helm", "template", name, chart, "--values", valuesFile).CombinedOutput()
+			require.NoError(t, err, "%s", rendered)
+			var found bool
+			for _, doc := range strings.Split(string(rendered), "\n---") {
+				var obj map[string]interface{}
+				require.NoError(t, yaml.Unmarshal([]byte(doc), &obj))
+				switch obj["kind"] {
+				case "CrdbCluster":
+					found = true
+					spec := obj["spec"].(map[string]interface{})
+					require.Equal(t, false, spec["tlsEnabled"])
+					require.NotContains(t, spec["template"].(map[string]interface{})["spec"], "certificates")
+				case "Certificate", "Issuer", "CronJob":
+					t.Fatalf("insecure values rendered certificate resource %s", obj["kind"])
+				}
+			}
+			require.True(t, found)
+		})
+	}
+}
+
+func TestExportSelfSignerValues(t *testing.T) {
+	const name, namespace = "cockroachdb", "default"
+	// Build real pairs so incorrect keys, SANs or stale certificate metadata
+	// cannot accidentally pass as a successful export.
+	now := time.Now().UTC().Truncate(time.Second)
+	caKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	caCert := &x509.Certificate{SerialNumber: big.NewInt(1), Subject: pkix.Name{CommonName: "test CA"},
+		NotBefore: now, NotAfter: now.Add(43800 * time.Hour), IsCA: true, BasicConstraintsValid: true,
+		KeyUsage: x509.KeyUsageCertSign | x509.KeyUsageDigitalSignature}
+	makeSecret := func(secretName string, template *x509.Certificate, key *ecdsa.PrivateKey, ca bool) *corev1.Secret {
+		t.Helper()
+		der, err := x509.CreateCertificate(rand.Reader, template, caCert, &key.PublicKey, caKey)
+		require.NoError(t, err)
+		keyDER, err := x509.MarshalECPrivateKey(key)
+		require.NoError(t, err)
+		certPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: der})
+		keyPEM := pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: keyDER})
+		data := map[string][]byte{corev1.TLSCertKey: certPEM, corev1.TLSPrivateKeyKey: keyPEM}
+		if ca {
+			data = map[string][]byte{certresource.CaCert: certPEM, certresource.CaKey: keyPEM}
+		}
+		annotations := certresource.GetSecretAnnotations(template.NotBefore.Format(time.RFC3339), template.NotAfter.Format(time.RFC3339), template.NotAfter.Sub(template.NotBefore).String())
+		annotations[certresource.SecretDataHash] = "existing-self-signer-hash"
+		return &corev1.Secret{ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace, Annotations: annotations}, Data: data}
+	}
+	ca := makeSecret(name+"-ca-secret", caCert, caKey, true)
+	leafKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	require.NoError(t, err)
+	leaf := &x509.Certificate{SerialNumber: big.NewInt(2), NotBefore: now, NotAfter: now.Add(8760 * time.Hour),
+		DNSNames: []string{"sql.example.com", name + "-join.default.svc.cluster.local"}, IPAddresses: []net.IP{net.ParseIP("10.0.0.10")},
+		KeyUsage: x509.KeyUsageDigitalSignature, ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth}}
+	node := makeSecret(name+"-node-secret", leaf, leafKey, false)
+	clientCert := *leaf
+	clientCert.SerialNumber = big.NewInt(3)
+	clientCert.NotAfter = now.Add(672 * time.Hour)
+	client := makeSecret(name+"-client-secret", &clientCert, leafKey, false)
+	for _, tc := range []struct {
+		name           string
+		mutate         func(*corev1.Secret, *corev1.Secret, *corev1.Secret)
+		enabled        bool
+		wantError      bool
+		clientDuration string
+		providedCA     bool
+		rotationOff    bool
+		otherRelease   bool
+		signerDisabled bool
+		uncompressed   bool
+	}{
+		{name: "legacy self-signer", enabled: true, clientDuration: "672h"},
+		{name: "provided custom CA without signer annotations", enabled: true, clientDuration: "672h", providedCA: true,
+			mutate: func(ca, node, client *corev1.Secret) { ca.Name, ca.Annotations = "supplied-ca", nil }},
+		{name: "provided default CA without signer annotations", enabled: true, clientDuration: "672h", providedCA: true,
+			mutate: func(ca, node, client *corev1.Secret) { ca.Annotations = nil }},
+		{name: "provided CA with rotation disabled", enabled: true, clientDuration: "672h", providedCA: true, rotationOff: true,
+			mutate: func(ca, node, client *corev1.Secret) { ca.Name, ca.Annotations = "supplied-ca", nil }},
+		{name: "provided CA in an uncompressed Helm record", enabled: true, clientDuration: "672h", providedCA: true, uncompressed: true,
+			mutate: func(ca, node, client *corev1.Secret) { ca.Name, ca.Annotations = "supplied-ca", nil }},
+		{name: "disabled source signer does not enable rotation", providedCA: true, signerDisabled: true,
+			mutate: func(ca, node, client *corev1.Secret) { ca.Annotations = nil }},
+		{name: "provided CA without signing key fails", providedCA: true, wantError: true,
+			mutate: func(ca, node, client *corev1.Secret) { ca.Annotations = nil; delete(ca.Data, certresource.CaKey) }},
+		{name: "unrelated release does not establish CA ownership", providedCA: true, otherRelease: true,
+			mutate: func(ca, node, client *corev1.Secret) { ca.Annotations = nil }},
+		{name: "controller reissued client with stale annotations", enabled: true, clientDuration: "672h", mutate: func(ca, node, client *corev1.Secret) {
+			client.Annotations[certresource.CertDuration] = "48h"
+			client.Annotations[certresource.CertValidUpto] = now.Add(48 * time.Hour).Format(time.RFC3339)
+		}},
+		{name: "external CA with signing key", mutate: func(ca, node, client *corev1.Secret) { ca.Annotations = nil }},
+		{name: "custom node Secret name", mutate: func(ca, node, client *corev1.Secret) { node.Name = "custom-node" }},
+		{name: "custom client Secret name", mutate: func(ca, node, client *corev1.Secret) { client.Name = "custom-client" }},
+		{name: "legacy operator controller-reissued certificates", mutate: func(ca, node, client *corev1.Secret) {
+			// Controller migration creates standard leaf Secret names, but keeps
+			// the legacy operator's CA name and does not add signer metadata.
+			ca.Name = name + "-ca"
+			ca.Annotations, node.Annotations, client.Annotations = nil, nil, nil
+		}},
+		{name: "legacy operator source certificates", mutate: func(ca, node, client *corev1.Secret) {
+			ca.Name, node.Name, client.Name = name+"-ca", name+"-node", name+"-root"
+			ca.Annotations, node.Annotations, client.Annotations = nil, nil, nil
+		}},
+		{name: "cert-manager Secret", mutate: func(ca, node, client *corev1.Secret) {
+			node.Annotations["cert-manager.io/certificate-name"] = "custom-node"
+		}},
+		{name: "incomplete CA metadata", wantError: true, mutate: func(ca, node, client *corev1.Secret) { delete(ca.Annotations, certresource.SecretDataHash) }},
+		{name: "mismatched node key", wantError: true, mutate: func(ca, node, client *corev1.Secret) {
+			node.Data[corev1.TLSPrivateKeyKey] = ca.Data[certresource.CaKey]
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ca, node, client := ca.DeepCopy(), node.DeepCopy(), client.DeepCopy()
+			if tc.mutate != nil {
+				tc.mutate(ca, node, client)
+			}
+			cluster := v1beta1.CrdbCluster{
+				TypeMeta:   metav1.TypeMeta{APIVersion: "crdb.cockroachlabs.com/v1beta1", Kind: "CrdbCluster"},
+				ObjectMeta: metav1.ObjectMeta{Name: name, Namespace: namespace},
+				Spec: v1beta1.CrdbClusterSpec{
+					TLSEnabled: true,
+					Mode:       new(v1beta1.MutableOnly),
+					Regions:    []v1beta1.CrdbClusterRegion{{Code: "local", Nodes: 3, Namespace: namespace, Domain: "example.test"}},
+					Template: v1beta1.CrdbNodeTemplate{Spec: v1beta1.CrdbNodeSpec{
+						Image:      "cockroachdb/cockroach:v26.4.0",
+						Join:       name + "-join.default.svc.example.test",
+						Domain:     "obsolete.test",
+						StartFlags: &v1beta1.Flags{Upsert: []string{"--join=seed.other.svc.example.test:26257"}},
+						Certificates: v1beta1.Certificates{ExternalCertificates: &v1beta1.ExternalCertificates{
+							CAConfigMapName: name + "-ca-crt", NodeSecretName: node.Name, RootSQLClientSecretName: client.Name,
+						}},
+					}},
+				},
+				Status: v1beta1.CrdbClusterStatus{Region: "local"},
+			}
+			obj, err := runtime.DefaultUnstructuredConverter.ToUnstructured(&cluster)
+			require.NoError(t, err)
+			m := &Manifest{namespace: namespace, objectName: name, outputDir: t.TempDir(), clientset: fake.NewSimpleClientset(ca, node, client), dynamicClient: dynamicfake.NewSimpleDynamicClient(runtime.NewScheme(), &unstructured.Unstructured{Object: obj})}
+			if tc.providedCA {
+				stsName := name
+				if tc.otherRelease {
+					stsName = "unrelated-cluster"
+				}
+				release, err := json.Marshal(map[string]interface{}{
+					"namespace": namespace,
+					"manifest":  "apiVersion: apps/v1\nkind: StatefulSet\nmetadata:\n  name: " + stsName + "\n",
+					"config": map[string]interface{}{"tls": map[string]interface{}{"certs": map[string]interface{}{
+						"selfSigner": map[string]interface{}{"enabled": !tc.signerDisabled, "caProvided": true, "caSecret": ca.Name, "rotateCerts": !tc.rotationOff},
+					}}},
+				})
+				require.NoError(t, err)
+				var compressed bytes.Buffer
+				writer := gzip.NewWriter(&compressed)
+				_, err = writer.Write(release)
+				require.NoError(t, err)
+				require.NoError(t, writer.Close())
+				storedRelease := compressed.Bytes()
+				if tc.uncompressed {
+					storedRelease = release
+				}
+				_, err = m.clientset.CoreV1().Secrets(namespace).Create(context.Background(), &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: "sh.helm.release.v1.source.v1", Namespace: namespace,
+						Labels: map[string]string{"owner": "helm", "status": "deployed"}},
+					Type: "helm.sh/release.v1", Data: map[string][]byte{"release": []byte(base64.StdEncoding.EncodeToString(storedRelease))},
+				}, metav1.CreateOptions{})
+				require.NoError(t, err)
+			}
+			err = m.ExportValuesFromV1beta1()
+			if tc.wantError {
+				require.Error(t, err)
+				if tc.name == "incomplete CA metadata" {
+					require.ErrorContains(t, err, "self-signer CA is missing secret-data-hash; repair its metadata before exporting values")
+				}
+				_, statErr := os.Stat(filepath.Join(m.outputDir, "values.yaml"))
+				require.True(t, os.IsNotExist(statErr))
+				return
+			}
+			require.NoError(t, err)
+			bytes, err := os.ReadFile(filepath.Join(m.outputDir, "values.yaml"))
+			require.NoError(t, err)
+			var values map[string]interface{}
+			require.NoError(t, yaml.Unmarshal(bytes, &values))
+			crdb := values["cockroachdb"].(map[string]interface{})
+			require.Equal(t, "example.test", crdb["clusterDomain"])
+			require.NotContains(t, string(bytes), "PRIVATE KEY")
+			tls := crdb["tls"].(map[string]interface{})
+			signer := tls["selfSigner"].(map[string]interface{})
+			require.Equal(t, tc.enabled, signer["enabled"])
+			if !tc.enabled {
+				require.NotEqual(t, true, signer["rotateCerts"])
+				external := tls["externalCertificates"].(map[string]interface{})
+				require.Equal(t, true, external["enabled"])
+				references := external["certificates"].(map[string]interface{})
+				require.Equal(t, name+"-ca-crt", references["caConfigMapName"])
+				require.Equal(t, node.Name, references["nodeSecretName"])
+				require.Equal(t, client.Name, references["rootSqlClientSecretName"])
+			} else {
+				require.Equal(t, !tc.rotationOff, signer["rotateCerts"])
+				require.Equal(t, tc.providedCA, signer["caProvided"])
+				if tc.providedCA {
+					require.Equal(t, ca.Name, signer["caSecret"])
+				}
+				require.Equal(t, tc.clientDuration, signer["clientCertDuration"])
+				require.ElementsMatch(t, []interface{}{"sql.example.com", name + "-join.default.svc.cluster.local", "10.0.0.10"}, signer["additionalSANs"])
+			}
+			if _, err := exec.LookPath("helm"); err != nil {
+				t.Log("Helm unavailable; chart round-trip unverified")
+				return
+			}
+			chart, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
+			require.NoError(t, err)
+			args := []string{"template", name, chart, "--namespace", namespace, "--values", filepath.Join(m.outputDir, "values.yaml")}
+			if tc.providedCA && tc.enabled {
+				// Provided-CA validation uses lookup. Let Helm query a small API
+				// server instead of bypassing the chart's real Secret check.
+				resources := map[string][]metav1.APIResource{
+					"v1": {{Name: "secrets", Kind: "Secret", Namespaced: true}, {Name: "configmaps", Kind: "ConfigMap", Namespaced: true},
+						{Name: "services", Kind: "Service", Namespaced: true}, {Name: "serviceaccounts", Kind: "ServiceAccount", Namespaced: true}},
+					"rbac.authorization.k8s.io/v1": {{Name: "roles", Kind: "Role", Namespaced: true}, {Name: "rolebindings", Kind: "RoleBinding", Namespaced: true},
+						{Name: "clusterroles", Kind: "ClusterRole"}, {Name: "clusterrolebindings", Kind: "ClusterRoleBinding"}},
+					"batch/v1":                       {{Name: "jobs", Kind: "Job", Namespaced: true}, {Name: "cronjobs", Kind: "CronJob", Namespaced: true}},
+					"policy/v1":                      {{Name: "poddisruptionbudgets", Kind: "PodDisruptionBudget", Namespaced: true}},
+					"crdb.cockroachlabs.com/v1beta1": {{Name: "crdbclusters", Kind: "CrdbCluster", Namespaced: true}},
+				}
+				groups := metav1.APIGroupList{}
+				for version := range resources {
+					if version == "v1" {
+						continue
+					}
+					gv := schema.FromAPIVersionAndKind(version, "").GroupVersion()
+					v := metav1.GroupVersionForDiscovery{GroupVersion: version, Version: gv.Version}
+					groups.Groups = append(groups.Groups, metav1.APIGroup{Name: gv.Group, Versions: []metav1.GroupVersionForDiscovery{v}, PreferredVersion: v})
+				}
+				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					w.Header().Set("Content-Type", "application/json")
+					assert.Equal(t, http.MethodGet, r.Method)
+					var obj interface{}
+					switch r.URL.Path {
+					case "/version":
+						obj = map[string]string{"major": "1", "minor": "34", "gitVersion": "v1.34.0"}
+					case "/api":
+						obj = metav1.APIVersions{Versions: []string{"v1"}}
+					case "/apis":
+						obj = groups
+					case "/api/v1":
+						obj = metav1.APIResourceList{GroupVersion: "v1", APIResources: resources["v1"]}
+					case "/api/v1/namespaces/" + namespace + "/secrets/" + ca.Name:
+						obj = ca.DeepCopy()
+						obj.(*corev1.Secret).TypeMeta = metav1.TypeMeta{APIVersion: "v1", Kind: "Secret"}
+					default:
+						version := strings.TrimPrefix(r.URL.Path, "/apis/")
+						if list, ok := resources[version]; ok {
+							obj = metav1.APIResourceList{GroupVersion: version, APIResources: list}
+						} else {
+							w.WriteHeader(http.StatusNotFound)
+							obj = metav1.Status{TypeMeta: metav1.TypeMeta{APIVersion: "v1", Kind: "Status"}, Reason: metav1.StatusReasonNotFound, Code: 404}
+						}
+					}
+					if err := json.NewEncoder(w).Encode(obj); err != nil {
+						t.Errorf("encoding API response: %v", err)
+					}
+				}))
+				defer server.Close()
+				configFile := filepath.Join(m.outputDir, "kubeconfig")
+				config := "apiVersion: v1\nkind: Config\nclusters:\n- name: test\n  cluster:\n    server: " + server.URL + "\ncontexts:\n- name: test\n  context:\n    cluster: test\ncurrent-context: test\n"
+				require.NoError(t, os.WriteFile(configFile, []byte(config), 0600))
+				args = append(args, "--dry-run=server", "--disable-openapi-validation", "--kubeconfig", configFile)
+			}
+			rendered, err := exec.Command("helm", args...).CombinedOutput()
+			require.NoError(t, err, "%s", rendered)
+			objects := strings.Split(string(rendered), "\n---")
+			cronjobs := 0
+			for _, object := range objects {
+				var res map[string]interface{}
+				require.NoError(t, yaml.Unmarshal([]byte(object), &res))
+				if res["kind"] == "CronJob" {
+					cronjobs++
+					if tc.providedCA {
+						require.NotContains(t, object, "--rotate-ca")
+						require.Contains(t, object, "--ca-secret="+ca.Name)
+					}
+					if strings.Contains(object, "--rotate-node") {
+						require.Contains(t, object, "sql.example.com")
+						require.Contains(t, object, "10.0.0.10")
+					}
+				}
+				if res["kind"] == "Job" && tc.providedCA && tc.enabled && strings.Contains(object, "- generate") {
+					require.Contains(t, object, "--ca-secret="+ca.Name)
+				}
+				if res["kind"] == "CrdbCluster" {
+					spec := res["spec"].(map[string]interface{})["template"].(map[string]interface{})["spec"].(map[string]interface{})
+					require.NotContains(t, spec, "join")
+					require.NotContains(t, spec, "domain")
+					flags := spec["startFlags"].(map[string]interface{})
+					require.Equal(t, []interface{}{"--join=seed.other.svc.example.test:26257"}, flags["upsert"])
+					regions := res["spec"].(map[string]interface{})["regions"].([]interface{})
+					require.Equal(t, "example.test", regions[0].(map[string]interface{})["domain"])
+					if !tc.enabled {
+						references := spec["certificates"].(map[string]interface{})["externalCertificates"].(map[string]interface{})
+						require.Equal(t, node.Name, references["nodeSecretName"])
+						require.Equal(t, client.Name, references["rootSqlClientSecretName"])
+					}
+				}
+			}
+			if tc.enabled && !tc.rotationOff {
+				wantJobs := 2
+				if tc.providedCA {
+					wantJobs = 1 // Only the combined node/client job; the supplied CA is not rotated.
+				}
+				require.Equal(t, wantJobs, cronjobs)
+			} else {
+				require.Zero(t, cronjobs, "external sources must not gain chart rotation jobs")
+			}
+		})
+	}
 }
 
 // validateGoldenFile compares the generated file with the golden file
@@ -906,5 +1403,73 @@ func TestFromHelmChart_WithWalFailoverDisabled(t *testing.T) {
 		require.NoError(t, err)
 
 		require.Nil(t, nodeData.Spec.WALFailoverSpec, "WAL failover spec should not be present in node %d when disabled", i)
+	}
+}
+
+// A namespace can contain unrelated charts with incompatible values or old,
+// unreadable release records. Only the source StatefulSet establishes CA intent.
+func TestSourceProvidedCAReleaseSelection(t *testing.T) {
+	const namespace, name = "default", "source"
+	provided := `{"tls":{"certs":{"selfSigner":{"caProvided":true,"caSecret":"supplied-ca"}}}}`
+	for _, tc := range []struct {
+		name, otherConfig, otherManifest, sourceConfig string
+		unreadable, duplicate                          bool
+		wantError                                      string
+	}{
+		{name: "boolean TLS on another chart", otherConfig: `{"tls":true}`},
+		{name: "list certs on another chart", otherConfig: `{"tls":{"certs":[]}}`},
+		{name: "unreadable release record", unreadable: true},
+		{name: "invalid unrelated manifest", otherConfig: `{}`, otherManifest: "metadata: ["},
+		{name: "same name in another namespace", otherConfig: `{"tls":true}`,
+			otherManifest: "kind: StatefulSet\nmetadata:\n  name: source\n  namespace: another\n"},
+		{name: "incompatible source settings", sourceConfig: `{"tls":true}`, wantError: "cannot read source Helm release settings"},
+		{name: "missing source CA Secret", sourceConfig: `{"tls":{"certs":{"selfSigner":{"caProvided":true}}}}`, wantError: "without caSecret"},
+		{name: "ambiguous source", duplicate: true, wantError: "multiple deployed Helm releases"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			client := fake.NewSimpleClientset()
+			addRelease := func(secretName, manifest, config string, unreadable bool) {
+				data, err := json.Marshal(map[string]interface{}{
+					"namespace": namespace, "manifest": manifest, "config": json.RawMessage(config),
+				})
+				require.NoError(t, err)
+				encoded := base64.StdEncoding.EncodeToString(data)
+				if unreadable {
+					encoded = "not base64!"
+				}
+				_, err = client.CoreV1().Secrets(namespace).Create(context.Background(), &corev1.Secret{
+					ObjectMeta: metav1.ObjectMeta{Name: secretName, Namespace: namespace,
+						Labels: map[string]string{"owner": "helm", "status": "deployed"}},
+					Type: "helm.sh/release.v1", Data: map[string][]byte{"release": []byte(encoded)},
+				}, metav1.CreateOptions{})
+				require.NoError(t, err)
+			}
+			config := tc.otherConfig
+			if config == "" {
+				config = `{}`
+			}
+			manifest := tc.otherManifest
+			if manifest == "" {
+				manifest = "kind: StatefulSet\nmetadata:\n  name: unrelated\n"
+			}
+			addRelease("a-unrelated", manifest, config, tc.unreadable)
+			config = tc.sourceConfig
+			if config == "" {
+				config = provided
+			}
+			manifest = "kind: StatefulSet\nmetadata:\n  name: source\n"
+			addRelease("b-source", manifest, config, false)
+			if tc.duplicate {
+				addRelease("c-duplicate", manifest, provided, false)
+			}
+			m := &Manifest{namespace: namespace, clientset: client}
+			settings, err := m.sourceProvidedCA(context.Background(), name)
+			if tc.wantError != "" {
+				require.ErrorContains(t, err, tc.wantError)
+				return
+			}
+			require.NoError(t, err)
+			require.Equal(t, &providedCASettings{secretName: "supplied-ca", rotateCerts: true}, settings)
+		})
 	}
 }

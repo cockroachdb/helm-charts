@@ -154,7 +154,7 @@ Complete the migration quickly. Minutes to hours, not days.
 Controls who provisions the `cockroach-operator-certs` Secret used by the operator's webhook.
 
 ```yaml
-# false (default): Helm provisions the Secret. Cert is stable and only changes on helm upgrade.
+# false (default): Helm generates certificates on each render, including GitOps syncs.
 selfSignedOperatorCerts: false
 
 # true: the operator provisions and owns the shared Secret.
@@ -162,11 +162,17 @@ selfSignedOperatorCerts: false
 selfSignedOperatorCerts: true
 ```
 
-In operator-managed mode, certificates persist across Pod restarts and change
-only when the shared Secret is replaced.
+In operator-managed mode, certificates are created with a ten-year lifetime and persist
+across Pod restarts. They are not automatically renewed. Replacing them requires deleting
+the shared Secret and restarting all operator replicas so they load the replacement
+certificates; plan for a brief webhook interruption.
 
-Switching this flag on an existing installation requires the `cockroach-operator-certs` Secret
-to be deleted first. If it is not, the chart will fail with a clear error explaining the required steps.
+For GitOps, use `selfSignedOperatorCerts: true` to avoid generating new certificates on each sync.
+
+Before switching this flag on an existing installation, delete the `cockroach-operator-certs`
+Secret and plan for a brief webhook interruption while it is recreated. Helm checks for an
+incompatible existing Secret when it has cluster access. Render-only GitOps tools may not
+report that error.
 
 ## Operator Pod Annotations and Labels
 
@@ -193,6 +199,49 @@ podAnnotations:
 
 To annotate the CockroachDB pods, use `cockroachdb.crdbCluster.podTemplate.metadata.annotations`
 in the CockroachDB chart.
+
+## Operator Resources and Scheduling
+
+Use `resources` to configure requests and limits for the operator container, and
+`nodeSelector`, `tolerations`, and `affinity` to control where its pods run.
+The resource defaults remain requests of `500m` CPU and `1000Mi` memory, with limits
+of `2000m` CPU and `4000Mi` memory. Scheduling settings default to empty.
+
+For example, pass these operator chart values when installing or upgrading:
+
+```yaml
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 1Gi
+nodeSelector:
+  workload: operators
+tolerations:
+  - key: workload
+    operator: Equal
+    value: operators
+    effect: NoSchedule
+affinity:
+  podAntiAffinity:
+    preferredDuringSchedulingIgnoredDuringExecution:
+      - weight: 100
+        podAffinityTerm:
+          labelSelector:
+            matchLabels:
+              app: cockroach-operator
+          topologyKey: kubernetes.io/hostname
+```
+
+Unset resources keep these defaults on upgrades with `--reuse-values` too.
+Set `resources: null` or `resources: {}` to omit all resource requests and limits, or set individual
+entries to `null` to remove them. For example, `resources.limits.cpu: null` removes
+the CPU limit while keeping the other defaults.
+
+These values apply to the operator Deployment. Configure CockroachDB pod scheduling
+through `cockroachdb.crdbCluster.podTemplate` in the CockroachDB chart.
 
 ## Split-Chart Node Reader RBAC
 

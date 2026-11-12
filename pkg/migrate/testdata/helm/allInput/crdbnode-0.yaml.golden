@@ -103,6 +103,13 @@ spec:
       nodeSelector:
         cloud.google.com/gke-nodepool: default-pool
       priorityClassName: crdb-critical
+      securityContext:
+        fsGroup: 1000
+        runAsGroup: 1000
+        runAsNonRoot: true
+        runAsUser: 1000
+        seccompProfile:
+          type: RuntimeDefault
       serviceAccountName: cockroachdb
       terminationGracePeriodSeconds: 300
       tolerations:

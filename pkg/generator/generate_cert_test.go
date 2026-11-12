@@ -29,12 +29,90 @@ import (
 	"github.com/stretchr/testify/require"
 	corev1 "k8s.io/api/core/v1"
 	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	"github.com/cockroachdb/helm-charts/pkg/resource"
 	"github.com/cockroachdb/helm-charts/pkg/security"
 	"github.com/cockroachdb/helm-charts/pkg/testutils"
 )
+
+func TestLoadCASecretRequiresCertificateAndKey(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		data map[string][]byte
+	}{
+		{name: "empty"},
+		{name: "empty values", data: map[string][]byte{resource.CaKey: nil, resource.CaCert: nil}},
+		{name: "key only", data: map[string][]byte{resource.CaKey: []byte("key")}},
+		{name: "certificate only", data: map[string][]byte{resource.CaCert: []byte("certificate")}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			cl := testutils.NewFakeClient(testutils.InitScheme(t))
+			require.NoError(t, cl.Create(ctx, &corev1.Secret{
+				ObjectMeta: metav1.ObjectMeta{Name: "provided-ca", Namespace: "test"},
+				Data:       tc.data,
+			}))
+			gen := NewGenerateCert(cl)
+			gen.CaSecret = "provided-ca"
+			gen.CertsDir = t.TempDir()
+			gen.CAKey = filepath.Join(gen.CertsDir, resource.CaKey)
+			require.EqualError(t, gen.LoadCASecret(ctx, "test"), "CA secret provided-ca must contain ca.crt and ca.key")
+			_, err := os.Stat(filepath.Join(gen.CertsDir, resource.CaCert))
+			require.True(t, os.IsNotExist(err), "incomplete CA must not be written to disk")
+		})
+	}
+}
+
+// Self-signer chart adoption reuses the CA and issued leaves. The chart references
+// <cluster>-ca-secret-crt, so sync it even if migration only created <cluster>-ca-crt.
+func TestAdoptExistingSelfSignerCertificates(t *testing.T) {
+	for _, providedCA := range []bool{false, true} {
+		t.Run(fmt.Sprintf("provided-ca=%t", providedCA), func(t *testing.T) {
+			ctx := context.Background()
+			const namespace = "test-namespace"
+			cl := testutils.NewFakeClient(testutils.InitScheme(t))
+			gen := NewGenerateCert(cl)
+			gen.DiscoveryServiceName = "test-crdb"
+			gen.PublicServiceName = "test-crdb-public"
+			gen.ClusterDomain = "cluster.local"
+			gen.AdditionalSANs = []string{"sql.example.com", "10.0.0.10"}
+			require.NoError(t, gen.CaCertConfig.SetConfig("43800h", "648h"))
+			require.NoError(t, gen.NodeCertConfig.SetConfig("8760h", "168h"))
+			require.NoError(t, gen.ClientCertConfig.SetConfig("672h", "48h"))
+			t.Setenv("USER_NAME", "")
+			require.NoError(t, os.Unsetenv("USER_NAME"))
+			require.NoError(t, gen.Do(ctx, namespace))
+			caName := gen.getCASecretName()
+			if providedCA {
+				ca := &corev1.Secret{}
+				require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: caName}, ca))
+				require.NoError(t, cl.Delete(ctx, ca))
+				caName = "user-provided-ca"
+				ca.Name, ca.ResourceVersion, ca.UID, ca.Annotations = caName, "", "", nil
+				require.NoError(t, cl.Create(ctx, ca))
+				gen.CaSecret = caName
+			}
+			before := map[string]map[string][]byte{}
+			for _, name := range []string{caName, gen.getNodeSecretName(), gen.getClientSecretName()} {
+				secret := &corev1.Secret{}
+				require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret))
+				before[name] = secret.Data
+			}
+			gen.OperatorManaged = true
+			require.NoError(t, gen.Do(ctx, namespace))
+			for name, data := range before {
+				secret := &corev1.Secret{}
+				require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: name}, secret))
+				require.Equal(t, data, secret.Data, "adoption must not replace %s", name)
+			}
+			cm := &corev1.ConfigMap{}
+			require.NoError(t, cl.Get(ctx, client.ObjectKey{Namespace: namespace, Name: gen.getCASecretName() + "-crt"}, cm))
+			require.Equal(t, string(before[caName][resource.CaCert]), cm.Data[resource.CaCert])
+		})
+	}
+}
 
 func TestCertificateRotation(t *testing.T) {
 	for _, operatorManaged := range []bool{false, true} {

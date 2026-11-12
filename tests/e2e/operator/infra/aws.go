@@ -733,7 +733,7 @@ func (r *AwsRegion) CreateKeySecret(
 	}
 
 	// Create secret with all AWS KMS fields as required by the operator
-	// See: cockroach-enterprise-operator/manifests/cmek.go for field requirements
+	// See https://github.com/cockroachdb/cockroachdb-operator for CMEK field requirements.
 	// NOTE: The operator passes this URI directly to AWS KMS API, which doesn't understand the aws-kms:// prefix
 	// So we store just the ARN, not the full URI with prefix
 	keyURI := keyARN

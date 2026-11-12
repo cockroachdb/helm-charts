@@ -178,6 +178,10 @@ func (r *multiRegion) TestHelmUpgrade(t *testing.T) {
 		kubectlOptions := k8s.NewKubectlOptions(cluster, kubeConfig, r.Namespace[cluster])
 		options := &helm.Options{
 			KubectlOptions: kubectlOptions,
+			SetValues: map[string]string{
+				"cockroachdb.tls.selfSigner.image.registry":   testutil.TestSelfSignerImageRegistry,
+				"cockroachdb.tls.selfSigner.image.repository": testutil.TestSelfSignerImageRepository,
+			},
 			ExtraArgs: map[string][]string{
 				"upgrade": {
 					"--reuse-values",
@@ -247,6 +251,10 @@ func (r *multiRegion) TestClusterRollingRestart(t *testing.T) {
 
 		options := &helm.Options{
 			KubectlOptions: kubectlOptions,
+			SetValues: map[string]string{
+				"cockroachdb.tls.selfSigner.image.registry":   testutil.TestSelfSignerImageRegistry,
+				"cockroachdb.tls.selfSigner.image.repository": testutil.TestSelfSignerImageRepository,
+			},
 			ExtraArgs: map[string][]string{
 				"upgrade": {"--reuse-values", "--set", fmt.Sprintf("cockroachdb.crdbCluster.timestamp=%s", upgradeTime.Format(time.RFC3339))},
 			},
@@ -392,6 +400,10 @@ func (r *multiRegion) TestClusterScaleUp(t *testing.T, cloudProvider infra.Cloud
 
 		options := &helm.Options{
 			KubectlOptions: kubectlOptions,
+			SetValues: map[string]string{
+				"cockroachdb.tls.selfSigner.image.registry":   testutil.TestSelfSignerImageRegistry,
+				"cockroachdb.tls.selfSigner.image.repository": testutil.TestSelfSignerImageRepository,
+			},
 			SetJsonValues: map[string]string{
 				"cockroachdb.crdbCluster.regions": operator.MustMarshalJSON(r.OperatorRegions(i, r.NodeCount)),
 			},

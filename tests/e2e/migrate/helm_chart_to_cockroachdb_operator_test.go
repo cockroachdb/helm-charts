@@ -246,7 +246,7 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 			"init.provisioning.databases[0].owners[0]":   "root",
 			"statefulset.labels.app":                     "cockroachdb",
 			"conf.locality":                              "topology.kubernetes.io/region=us-east-1",
-			"storage.PersistentVolume.enabled":           "true",
+			"storage.persistentVolume.enabled":           "true",
 			"conf.log.persistentVolume.enabled":          "false",
 			"conf.wal-failover.value":                    "path=/cockroach/wal-failover",
 			"conf.wal-failover.persistentVolume.enabled": "true",
@@ -259,6 +259,9 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 
 	h.InstallHelm(t)
 	h.ValidateCRDB(t)
+	sourceIdentity := snapshotSourceIdentity(t, kubectlOptions, h.CrdbCluster.StatefulSetName)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, h.CrdbCluster.StatefulSetName)
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 
 	t.Log("Migrate the existing helm chart to CockroachDB Operator")
 
@@ -288,6 +291,7 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	t.Log("All the statefulset pods are migrated to CrdbNodes")
 	t.Log("Update the public service")
 	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", filepath.Join(manifestsDirPath, "public-service.yaml"))
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", fmt.Sprintf("%s-budget", h.CrdbCluster.StatefulSetName))
 
 	t.Log("Verify WAL failover configuration in migrated values.yaml")
@@ -298,11 +302,13 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 	require.Contains(t, string(valuesContent), "path: /cockroach/wal-failover")
 	require.Contains(t, string(valuesContent), "size: 1Gi")
 	require.Contains(t, string(valuesContent), "status: enable")
+	certificatesBeforeAdoption := requireMigrationSelfSignerExport(t, kubectlOptions, h.CrdbCluster.StatefulSetName, valuesFile, "")
 
 	t.Log("helm upgrade the CockroachDB operator")
 	helmPath, _ := operator.HelmChartPaths()
 	err = helm.UpgradeE(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
+		SetValues:      migrationChartValues(nil),
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 	}, helmPath, releaseName)
 	require.ErrorContains(t, err, "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Operator.")
@@ -312,6 +318,7 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
+		SetValues:      migrationChartValues(nil),
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 		ExtraArgs: map[string][]string{
 			"upgrade": {"--force-conflicts"},
@@ -325,9 +332,15 @@ func (h *HelmChartToOperator) TestDefaultMigration(t *testing.T) {
 
 	h.ValidateExistingData = true
 	h.ValidateCRDB(t)
+	requireMigrationSelfSignerAdoption(t, kubectlOptions, h.CrdbCluster.StatefulSetName, h.CrdbCluster.DesiredNodes, certificatesBeforeAdoption)
+	requireSourceIdentity(t, kubectlOptions, h.CrdbCluster.StatefulSetName, sourceIdentity)
 	verifyHelmSSAUpgrade(t, kubectlOptions, helmPath, releaseName,
 		h.CrdbCluster.StatefulSetName, valuesFile)
 	h.ValidateCRDB(t)
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
+	requireMigrationSelfSignerRotation(t, kubectlOptions, h.CrdbCluster.StatefulSetName, h.CrdbCluster, certificatesBeforeAdoption)
+	requireSourceIdentity(t, kubectlOptions, h.CrdbCluster.StatefulSetName, sourceIdentity)
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 }
 
 func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
@@ -376,6 +389,8 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 	h.ValidateExistingData = false
 	h.InstallHelm(t)
 	h.ValidateCRDB(t)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, h.CrdbCluster.StatefulSetName)
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 
 	t.Log("Migrate the existing helm chart to CockroachDB Operator")
 
@@ -388,7 +403,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 	testutil.InstallTrustManager(t, certManagerK8sOptions, h.Namespace)
 	testutil.CreateBundle(t, kubectlOptions, caSecretName, caConfigMapName)
 	defer func() {
-		testutil.DeleteBundle(t, kubectlOptions)
+		testutil.DeleteBundle(t, kubectlOptions, caConfigMapName)
 	}()
 
 	t.Log("Install the CockroachDB operator")
@@ -412,6 +427,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 	t.Log("All the statefulset pods are migrated to CrdbNodes")
 	t.Log("Update the public service")
 	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", filepath.Join(manifestsDirPath, "public-service.yaml"))
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", fmt.Sprintf("%s-budget", h.CrdbCluster.StatefulSetName))
 
 	t.Log("helm upgrade the cockroach CockroachDB operator")
@@ -421,6 +437,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
+		SetValues:      migrationChartValues(nil),
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 		ExtraArgs: map[string][]string{
 			"upgrade": {"--force-conflicts"},
@@ -437,6 +454,7 @@ func (h *HelmChartToOperator) TestCertManagerMigration(t *testing.T) {
 	verifyHelmSSAUpgrade(t, kubectlOptions, helmPath, releaseName,
 		h.CrdbCluster.StatefulSetName, filepath.Join(manifestsDirPath, "values.yaml"))
 	h.ValidateCRDB(t)
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 }
 
 func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
@@ -462,7 +480,7 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 			"init.provisioning.databases[0].owners[0]": "root",
 			"statefulset.labels.app":                   "cockroachdb",
 			"conf.locality":                            "topology.kubernetes.io/region=us-east-1",
-			"storage.PersistentVolume.enabled":         "true",
+			"storage.persistentVolume.enabled":         "true",
 			"conf.log.enabled":                         "true",
 			"conf.log.config.file-defaults.dir":        "/cockroach/test-logs",
 			"conf.log.persistentVolume.enabled":        "true",
@@ -475,6 +493,8 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 	h.ValidateExistingData = false
 	h.InstallHelm(t)
 	h.ValidateCRDB(t)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, h.CrdbCluster.StatefulSetName)
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 
 	t.Log("Verify logsdir PVCs are created by the public chart StatefulSet")
 	for i := 0; i < h.CrdbCluster.DesiredNodes; i++ {
@@ -531,6 +551,7 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 	t.Log("All the statefulset pods are migrated to CrdbNodes")
 	t.Log("Update the public service")
 	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", filepath.Join(manifestsDirPath, "public-service.yaml"))
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", fmt.Sprintf("%s-budget", h.CrdbCluster.StatefulSetName))
 
 	t.Log("Verify logsdir PVCs are retained after pod migration")
@@ -543,6 +564,7 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 	helmPath, _ := operator.HelmChartPaths()
 	err = helm.UpgradeE(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
+		SetValues:      migrationChartValues(nil),
 		ValuesFiles:    []string{valuesFile},
 	}, helmPath, releaseName)
 	require.ErrorContains(t, err, "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Operator.")
@@ -552,6 +574,7 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
+		SetValues:      migrationChartValues(nil),
 		ValuesFiles:    []string{valuesFile},
 		ExtraArgs: map[string][]string{
 			"upgrade": {"--force-conflicts"},
@@ -572,6 +595,7 @@ func (h *HelmChartToOperator) TestDedicatedLogsPVCMigration(t *testing.T) {
 	verifyHelmSSAUpgrade(t, kubectlOptions, helmPath, releaseName,
 		h.CrdbCluster.StatefulSetName, valuesFile)
 	h.ValidateCRDB(t)
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 }
 
 func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
@@ -606,6 +630,8 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 	h.ValidateExistingData = false
 	h.InstallHelm(t)
 	h.ValidateCRDB(t)
+	publicService := snapshotPublicSQLService(t, kubectlOptions, h.CrdbCluster.StatefulSetName)
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 
 	t.Log("Migrate the existing helm chart to Cockroach CockroachDB Operator with PCR primary configuration")
 
@@ -635,6 +661,7 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 	t.Log("All the statefulset pods are migrated to CrdbNodes")
 	t.Log("Update the public service")
 	k8s.RunKubectl(t, kubectlOptions, "apply", "-f", filepath.Join(manifestsDirPath, "public-service.yaml"))
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 	k8s.RunKubectl(t, kubectlOptions, "delete", "poddisruptionbudget", fmt.Sprintf("%s-budget", h.CrdbCluster.StatefulSetName))
 
 	t.Log("Verify PCR primary configuration in migrated values.yaml")
@@ -648,6 +675,7 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 	helmPath, _ := operator.HelmChartPaths()
 	err = helm.UpgradeE(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
+		SetValues:      migrationChartValues(nil),
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 	}, helmPath, releaseName)
 	require.ErrorContains(t, err, "You are attempting to upgrade from a StatefulSet-based CockroachDB Helm chart to the CockroachDB Operator.")
@@ -657,6 +685,7 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 
 	helm.Upgrade(t, &helm.Options{
 		KubectlOptions: kubectlOptions,
+		SetValues:      migrationChartValues(nil),
 		ValuesFiles:    []string{filepath.Join(manifestsDirPath, "values.yaml")},
 		ExtraArgs: map[string][]string{
 			"upgrade": {"--force-conflicts"},
@@ -673,4 +702,5 @@ func (h *HelmChartToOperator) TestPCRPrimaryMigration(t *testing.T) {
 	verifyHelmSSAUpgrade(t, kubectlOptions, helmPath, releaseName,
 		h.CrdbCluster.StatefulSetName, filepath.Join(manifestsDirPath, "values.yaml"))
 	h.ValidateCRDB(t)
+	requirePublicServiceSQL(t, kubectlOptions, h.CrdbCluster, publicService)
 }

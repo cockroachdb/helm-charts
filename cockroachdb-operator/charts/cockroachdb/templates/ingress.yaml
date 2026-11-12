@@ -24,7 +24,7 @@ spec:
             name: {{ template "cockroachdb.fullname" . }}-public
             {{- end }}
             port:
-              name: http
+              name: {{ .Values.cockroachdb.crdbCluster.service.ports.http.name | quote }}
         pathType: ImplementationSpecific
 {{- end }}
 
@@ -55,6 +55,11 @@ spec:
             name: {{ template "cockroachdb.fullname" . }}-public
             {{- end }}
             port:
-              name: sql
+              {{- /* A shared listener has only the gRPC entry in the public Service. Use its configured name. */}}
+              {{- if eq (.Values.cockroachdb.crdbCluster.service.ports.sql.port | int64) (.Values.cockroachdb.crdbCluster.service.ports.grpc.port | int64) }}
+              name: {{ .Values.cockroachdb.crdbCluster.service.ports.grpc.name | quote }}
+              {{- else }}
+              name: {{ .Values.cockroachdb.crdbCluster.service.ports.sql.name | quote }}
+              {{- end }}
         pathType: ImplementationSpecific
 {{- end }}

@@ -271,7 +271,7 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 			if err = cm.Update(); err != nil {
 				return errors.Wrap(err, "failed to update CA cert in ConfigMap")
 			}
-			logrus.Infof("Generated and saved CA certificate in ConfigMap [%s]", CASecretName)
+			logrus.Infof("Generated and saved CA certificate in ConfigMap [%s]", cm.Name())
 		}
 
 		logrus.Infof("Generated and saved CA key and certificate in secret [%s]", CASecretName)
@@ -301,6 +301,17 @@ func (rc *GenerateCert) generateCA(ctx context.Context, CASecretName string, nam
 		}
 
 		logrus.Infof("CA secret [%s] is found in ready state, skipping CA generation", CASecretName)
+
+		if rc.OperatorManaged {
+			// Controller migration creates <cluster>-ca-crt, while chart adoption
+			// with the self-signer enabled references <cluster>-ca-secret-crt. Sync the
+			// chart's ConfigMap from the reused CA without regenerating it.
+			cm := resource.CreateConfigMap(namespace, CASecretName, secret.CA(),
+				resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
+			if err := cm.Update(); err != nil {
+				return errors.Wrap(err, "syncing existing CA certificate to ConfigMap")
+			}
+		}
 
 		if err := os.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {
 			return errors.Wrap(err, "failed to write CA cert")
@@ -518,19 +529,19 @@ func (rc *GenerateCert) LoadCASecret(ctx context.Context, namespace string) erro
 	}
 
 	// check if the secret contains required info
-	if !secret.ReadyCA() {
-		return errors.Wrap(err, "CA secret doesn't contain the required CA cert/key")
+	if len(secret.CA()) == 0 || len(secret.CAKey()) == 0 {
+		return errors.Errorf("CA secret %s must contain ca.crt and ca.key", rc.CaSecret)
 	}
 
-	// If we are using the operator to manage secrets then we need to store the CA cert in a
-	// ConfigMap.
+	// Operator-managed pods read <cluster>-ca-secret-crt even when the supplied
+	// CA Secret has a custom name. CaSecret selects the input Secret only.
 	if rc.CaSecret != "" && rc.OperatorManaged {
 		cm := resource.CreateConfigMap(namespace, rc.getCASecretName(), secret.CA(),
 			resource.NewKubeResource(ctx, rc.client, namespace, kube.DefaultPersister))
 		if err = cm.Update(); err != nil {
 			return errors.Wrap(err, "failed to update CA cert in ConfigMap")
 		}
-		logrus.Infof("Generated and saved CA certificate in ConfigMap [%s]", rc.CaSecret)
+		logrus.Infof("Saved supplied CA certificate in ConfigMap [%s]", cm.Name())
 	}
 
 	if err := os.WriteFile(filepath.Join(rc.CertsDir, resource.CaCert), secret.CA(), security.CertFileMode); err != nil {

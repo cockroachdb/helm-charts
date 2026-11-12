@@ -45,7 +45,7 @@ spec:
         {{- end }}
         {{- if .Values.cockroachdb.tls.selfSigner.enabled }}
         externalCertificates:
-          {{- /* Note: these defaults must match the secrets and configmaps created by the self-signer job. */}}
+          {{- /* Match the self-signer's fixed output names; caSecret only selects the supplied CA input Secret. */}}
           caConfigMapName: {{ default (printf "%s-ca-secret-crt" (include "cockroachdb.fullname" .)) }}
           httpSecretName: {{ default (printf "%s-client-secret" (include "cockroachdb.fullname" .)) }}
           nodeSecretName: {{ default (printf "%s-node-secret" (include "cockroachdb.fullname" .)) }}

@@ -465,7 +465,7 @@ func computeAllArgs(chartTarget, version string) (map[chartKind]templateArgs, er
 	}
 
 	result[chartKindParent] = templateArgs{
-		Version:              result[chartKindCockroachDB].AppVersion,
+		Version:              result[chartKindCockroachDB].Version,
 		AppVersion:           result[chartKindCockroachDB].AppVersion,
 		OperatorVersion:      result[chartKindOperator].Version,
 		OperatorImageVersion: operatorImageVersion,

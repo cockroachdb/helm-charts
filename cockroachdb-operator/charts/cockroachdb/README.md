@@ -287,7 +287,7 @@ This chart can be adopted after a cluster has been migrated to the CockroachDB O
 
 The supported migration paths are:
 
-* Public Operator `v1alpha1` `CrdbCluster` to CockroachDB Operator `v1beta1` `CrdbCluster`
+* Legacy Operator `v1alpha1` `CrdbCluster` to CockroachDB Operator `v1beta1` `CrdbCluster`
 * StatefulSet based Helm deployment to CockroachDB Operator `v1beta1` `CrdbCluster`
 
 This is different from the older CockroachDB Operator API transition where existing
@@ -295,13 +295,13 @@ CockroachDB Operator users moved from the Operator's own `v1alpha1` API to `v1be
 
 For the migration steps, use the dedicated guides:
 
-* Automatic migration from Public Operator to CockroachDB Operator: [docs/migration/operator/controller_migration.md](../../../docs/migration/operator/controller_migration.md)
+* Automatic migration from Legacy Operator to CockroachDB Operator: [docs/migration/operator/controller_migration.md](../../../docs/migration/operator/controller_migration.md)
 * Automatic migration from StatefulSet to CockroachDB Operator: [docs/migration/helm/controller_migration.md](../../../docs/migration/helm/controller_migration.md)
 * Manual migration guides: [docs/migration/operator/manual_migration.md](../../../docs/migration/operator/manual_migration.md) and [docs/migration/helm/manual_migration.md](../../../docs/migration/helm/manual_migration.md)
 
 For chart adoption after migration:
 
-* Public Operator or Helm StatefulSet migration users should follow the controller migration
+* Legacy Operator or Helm StatefulSet migration users should follow the controller migration
   guides before adopting this chart.
 * After migration is complete, verify the migrated cluster is readable through the `v1beta1` API:
   `kubectl get crdbclusters.v1beta1.crdb.cockroachlabs.com <cluster-name> -n <namespace>`.

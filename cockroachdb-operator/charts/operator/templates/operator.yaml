@@ -160,6 +160,14 @@ rules:
       - get
       - patch
       - update
+  # Migration reads certificate mode and adds join names to cert-manager Certificates.
+  - apiGroups:
+      - cert-manager.io
+    resources:
+      - certificates
+    verbs:
+      - get
+      - patch
   - apiGroups:
       - ""
     resources:
@@ -501,6 +509,18 @@ spec:
       shareProcessNamespace: true
       serviceAccountName: cockroach-operator-default
       priorityClassName: {{ if (.Values.watchNamespaces | trim) }}cockroachdb-operator-{{ .Release.Namespace }}{{ else }}cockroachdb-operator{{ end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
       containers:
         - name: cockroach-operator
           image: {{ .Values.image.registry }}/{{ .Values.image.repository }}:{{ .Values.image.tag }}
@@ -547,13 +567,26 @@ spec:
             - name: WATCH_NAMESPACE
               value: {{ .Values.watchNamespaces | trim | quote }}
             {{- end }}
+          {{- /* Mirror values.yaml defaults for pre-1.2 upgrades using --reuse-values without a resources key. */}}
+          {{- $resources := dict "requests" (dict "cpu" "500m" "memory" "1000Mi") "limits" (dict "cpu" "2000m" "memory" "4000Mi") }}
+          {{- if hasKey .Values "resources" }}
+            {{- if .Values.resources }}
+              {{- $resources = mergeOverwrite $resources .Values.resources }}
+              {{- range $group := list "requests" "limits" }}
+                {{- range $name, $quantity := index $resources $group }}
+                  {{- if kindIs "invalid" $quantity }}
+                    {{- $_ := unset (index $resources $group) $name }}
+                  {{- end }}
+                {{- end }}
+              {{- end }}
+            {{- else }}
+              {{- $resources = dict }}
+            {{- end }}
+          {{- end }}
+          {{- with $resources }}
           resources:
-            requests:
-              cpu: 500m
-              memory: 1000Mi
-            limits:
-              cpu: 2000m
-              memory: 4000Mi
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           volumeMounts:
             - name: certs
               mountPath: /certs

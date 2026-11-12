@@ -23,7 +23,7 @@ Diagnoses CockroachDB Helm install, upgrade, and readiness failures for operator
 ## Related Skills
 
 - Use [collecting-cockroachdb-operator-escalation-packet](../collecting-cockroachdb-operator-escalation-packet/SKILL.md) when the customer needs to escalate or when TSC asks for a complete data bundle.
-- Use [debugging-cockroachdb-operator-migrations](../../cockroachdb-onboarding-and-migrations/debugging-cockroachdb-operator-migrations/SKILL.md) for Helm StatefulSet or public operator migration problems.
+- Use [debugging-cockroachdb-operator-migrations](../../cockroachdb-onboarding-and-migrations/debugging-cockroachdb-operator-migrations/SKILL.md) for Helm StatefulSet or legacy operator migration problems.
 - Use [configuring-cockroachdb-helm-tls](../../cockroachdb-operations-and-lifecycle/configuring-cockroachdb-helm-tls/SKILL.md) for TLS provider selection and certificate validation.
 - Use [validating-cockroachdb-helm-multiregion](../../cockroachdb-onboarding-and-migrations/validating-cockroachdb-helm-multiregion/SKILL.md) for cross-region DNS, networking, and certificate checks.
 

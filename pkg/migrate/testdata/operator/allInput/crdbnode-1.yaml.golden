@@ -98,6 +98,10 @@ spec:
       - name: myregistrykey
       nodeSelector:
         cloud.google.com/gke-nodepool: default-pool
+      securityContext:
+        fsGroup: 1000581000
+        runAsGroup: 1000581000
+        runAsUser: 1000581000
       serviceAccountName: cockroachdb-sa
       terminationGracePeriodSeconds: 300
       tolerations:

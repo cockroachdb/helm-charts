@@ -209,6 +209,11 @@ func TestComputeAllArgs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	operatorChart, err := getVersions(chartPaths[chartKindOperator])
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextOperatorVersion := operatorChart.Version.IncMinor()
 	nextCRDBPatch := cockroachdbChart.AppVersion.IncPatch()
 	nextCRDBPatchVersion := &nextCRDBPatch
 	nextCRDBVersion := nextCRDBPatch.Original()
@@ -220,6 +225,38 @@ func TestComputeAllArgs(t *testing.T) {
 		wantErr     string
 		check       func(t *testing.T, result map[chartKind]templateArgs)
 	}{
+		{
+			name:        "generate preserves chart version independently of appVersion",
+			chartTarget: "",
+			version:     "",
+			check: func(t *testing.T, result map[chartKind]templateArgs) {
+				parent := result[chartKindParent]
+				if parent.Version != cockroachdbChart.Version.String() {
+					t.Errorf("parent version = %s, want %s", parent.Version, cockroachdbChart.Version)
+				}
+				if parent.AppVersion != cockroachdbChart.AppVersion.String() {
+					t.Errorf("parent appVersion = %s, want %s", parent.AppVersion, cockroachdbChart.AppVersion)
+				}
+			},
+		},
+		{
+			name:        "chart-only bump advances umbrella without changing image version",
+			chartTarget: "cockroachdb",
+			version:     "helm",
+			check: func(t *testing.T, result map[chartKind]templateArgs) {
+				wantVersion := cockroachdbChart.Version.IncPatch().String()
+				parent := result[chartKindParent]
+				if parent.Version != wantVersion {
+					t.Errorf("parent version = %s, want %s", parent.Version, wantVersion)
+				}
+				if parent.AppVersion != cockroachdbChart.AppVersion.String() {
+					t.Errorf("parent appVersion = %s, want %s", parent.AppVersion, cockroachdbChart.AppVersion)
+				}
+				if parent.CockroachDBVersion != wantVersion {
+					t.Errorf("cockroachdb dependency version = %s, want %s", parent.CockroachDBVersion, wantVersion)
+				}
+			},
+		},
 		{
 			name:        "operator helm shortcut rejected",
 			chartTarget: "operator",
@@ -269,14 +306,14 @@ func TestComputeAllArgs(t *testing.T) {
 		{
 			name:        "operator explicit version sets both version and appVersion",
 			chartTarget: "operator",
-			version:     "1.1.0",
+			version:     nextOperatorVersion.String(),
 			check: func(t *testing.T, result map[chartKind]templateArgs) {
 				op := result[chartKindOperator]
-				if op.Version != "1.1.0" {
-					t.Errorf("operator version = %s, want 1.1.0", op.Version)
+				if op.Version != nextOperatorVersion.String() {
+					t.Errorf("operator version = %s, want %s", op.Version, nextOperatorVersion.String())
 				}
-				if op.AppVersion != "1.1.0" {
-					t.Errorf("operator appVersion = %s, want 1.1.0", op.AppVersion)
+				if op.AppVersion != nextOperatorVersion.String() {
+					t.Errorf("operator appVersion = %s, want %s", op.AppVersion, nextOperatorVersion.String())
 				}
 			},
 		},

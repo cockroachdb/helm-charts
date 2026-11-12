@@ -42,7 +42,7 @@ Direct installation of the umbrella chart is unsupported, including for local te
 
 There are two common migration paths:
 
-1. **From the public operator → CockroachDB Operator**
+1. **From the legacy operator → CockroachDB Operator**
    - Automatic (recommended): [docs/migration/operator/controller_migration.md](docs/migration/operator/controller_migration.md)
    - Manual: [docs/migration/operator/manual_migration.md](docs/migration/operator/manual_migration.md)
 
