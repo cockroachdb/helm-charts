@@ -380,46 +380,78 @@ func TestIsRotationRequired(t *testing.T) {
 	}
 }
 
-// TestNextRotationRunWithTimeZoneSkew reproduces client certs expiring when the
-// kube-controller-manager time zone differs from the UTC container running the rotate job.
-// Without spec.timeZone, the CronJob fires at midnight controller-local time, so for zones
-// ahead of UTC the job starts before its own scheduled slot in UTC.
-func TestNextRotationRunWithTimeZoneSkew(t *testing.T) {
-	// Values from the production incident: minimumCertDuration 624h renders to
-	// "0 0 */26 * *" (days 1 and 27), and the client cert was valid until Feb 23.
-	const cronStr = "0 0 */26 * *"
-	expiry := time.Date(2024, time.February, 23, 23, 0, 2, 0, time.UTC)
-
+// TestNextRotationRun verifies that the next rotation run is calculated in UTC, matching the
+// rotation CronJobs, which set spec.timeZone to "Etc/UTC". Previously the CronJobs were scheduled
+// in the kube-controller-manager's local time zone while the next run was calculated in UTC, so
+// certificates expiring before the real next run could be skipped and expire.
+func TestNextRotationRun(t *testing.T) {
 	tests := []struct {
-		name     string
-		location string
+		name    string
+		cronStr string
+		// now is when the rotate job runs, in UTC.
+		now             time.Time
+		expectedNextRun time.Time
+		expiry          time.Time
+		expectRotation  bool
 	}{
-		{name: "controller in UTC", location: "UTC"},
-		{name: "controller behind UTC", location: "America/New_York"},
-		{name: "controller in CET (incident)", location: "Europe/Amsterdam"},
-		{name: "controller in IST", location: "Asia/Kolkata"},
-		{name: "controller at UTC+14", location: "Pacific/Kiritimati"},
+		{
+			// Production incident: minimumCertDuration 624h renders "0 0 */26 * *" (days 1 and
+			// 27) and a client cert valid until Feb 23 was not rotated by the Feb 1 run.
+			name:            "default schedule, cert expiring before next run",
+			cronStr:         "0 0 */26 * *",
+			now:             time.Date(2024, time.February, 1, 0, 0, 1, 0, time.UTC),
+			expectedNextRun: time.Date(2024, time.February, 27, 0, 0, 0, 0, time.UTC),
+			expiry:          time.Date(2024, time.February, 23, 23, 0, 2, 0, time.UTC),
+			expectRotation:  true,
+		},
+		{
+			name:            "default schedule, cert expiring after next run",
+			cronStr:         "0 0 */26 * *",
+			now:             time.Date(2024, time.February, 1, 0, 0, 1, 0, time.UTC),
+			expectedNextRun: time.Date(2024, time.February, 27, 0, 0, 0, 0, time.UTC),
+			expiry:          time.Date(2024, time.March, 10, 0, 0, 0, 0, time.UTC),
+			expectRotation:  false,
+		},
+		{
+			// minimumCertDuration 23h renders "0 */23 * * *" (00:00 and 23:00). With a controller
+			// at UTC+14, skipping one slot was not enough to catch a cert expiring at 05:00 UTC.
+			name:            "23h schedule, cert expiring before next run",
+			cronStr:         "0 */23 * * *",
+			now:             time.Date(2024, time.February, 1, 0, 0, 1, 0, time.UTC),
+			expectedNextRun: time.Date(2024, time.February, 1, 23, 0, 0, 0, time.UTC),
+			expiry:          time.Date(2024, time.February, 1, 5, 0, 0, 0, time.UTC),
+			expectRotation:  true,
+		},
+		{
+			name:            "23h schedule, cert expiring after next run",
+			cronStr:         "0 */23 * * *",
+			now:             time.Date(2024, time.February, 1, 0, 0, 1, 0, time.UTC),
+			expectedNextRun: time.Date(2024, time.February, 1, 23, 0, 0, 0, time.UTC),
+			expiry:          time.Date(2024, time.February, 2, 5, 0, 0, 0, time.UTC),
+			expectRotation:  false,
+		},
 	}
 
+	// The result must not depend on the time zone of the container running the rotate job.
+	containerLocations := []string{"UTC", "America/New_York", "Europe/Amsterdam", "Asia/Kolkata", "Pacific/Kiritimati"}
+
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			loc, err := time.LoadLocation(tt.location)
-			require.NoError(t, err)
+		for _, location := range containerLocations {
+			t.Run(tt.name+"/container in "+location, func(t *testing.T) {
+				loc, err := time.LoadLocation(location)
+				require.NoError(t, err)
 
-			// The Feb 1 run as fired by the controller, and the run that actually follows it.
-			now := time.Date(2024, time.February, 1, 0, 0, 1, 0, loc)
-			actualNextRun := time.Date(2024, time.February, 27, 0, 0, 0, 0, loc)
+				nextRun, err := resource.NextRotationRun(tt.cronStr, tt.now.In(loc))
+				require.NoError(t, err)
 
-			// The rotate container runs in UTC.
-			nextRun, err := resource.NextRotationRun(cronStr, now.UTC())
-			require.NoError(t, err)
-
-			assert.False(t, nextRun.Before(actualNextRun),
-				"run at %s computed next run %s, but the job next runs at %s",
-				now.UTC().Format(time.RFC3339), nextRun.Format(time.RFC3339), actualNextRun.UTC().Format(time.RFC3339))
-			assert.True(t, expiry.Before(nextRun),
-				"cert expiring %s would not be rotated before it expires", expiry.Format(time.RFC3339))
-		})
+				assert.Equal(t, time.UTC, nextRun.Location())
+				assert.True(t, tt.expectedNextRun.Equal(nextRun),
+					"run at %s computed next run %s, expected %s",
+					tt.now.Format(time.RFC3339), nextRun.Format(time.RFC3339), tt.expectedNextRun.Format(time.RFC3339))
+				assert.Equal(t, tt.expectRotation, tt.expiry.Before(nextRun),
+					"cert expiring %s, next run %s", tt.expiry.Format(time.RFC3339), nextRun.Format(time.RFC3339))
+			})
+		}
 	}
 }
 

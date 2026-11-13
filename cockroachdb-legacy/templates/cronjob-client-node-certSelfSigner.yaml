@@ -15,6 +15,10 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
 spec:
   schedule: {{ template "selfcerts.clientRotateSchedule" . }}
+  {{- if and (.Capabilities.APIVersions.Has "batch/v1/CronJob") (semverCompare ">=1.25-0" .Capabilities.KubeVersion.Version) }}
+  # The rotate job calculates the next run in UTC, so the schedule must be evaluated in UTC too.
+  timeZone: "Etc/UTC"
+  {{- end }}
   jobTemplate:
     spec:
       backoffLimit: 1

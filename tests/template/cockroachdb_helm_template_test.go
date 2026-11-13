@@ -393,6 +393,62 @@ func TestHelmSelfCertSignerCronJobSchedule(t *testing.T) {
 	}
 }
 
+// TestHelmSelfCertSignerCronJobTimeZone verifies that the cert rotation CronJobs are scheduled in
+// UTC, matching the next run calculated by the rotate job, on clusters that support spec.timeZone.
+func TestHelmSelfCertSignerCronJobTimeZone(t *testing.T) {
+	t.Parallel()
+
+	testCases := []struct {
+		name      string
+		extraArgs []string
+		// expectedTimeZone is empty when spec.timeZone should not be set.
+		expectedTimeZone string
+	}{
+		{
+			"batch/v1 CronJob with timeZone support",
+			[]string{"--kube-version", "1.27.0", "--api-versions", "batch/v1/CronJob"},
+			"Etc/UTC",
+		},
+		{
+			"batch/v1 CronJob without timeZone support",
+			[]string{"--kube-version", "1.24.0", "--api-versions", "batch/v1/CronJob"},
+			"",
+		},
+		{
+			"batch/v1beta1 CronJob",
+			[]string{"--kube-version", "1.20.0"},
+			"",
+		},
+	}
+
+	for _, testCase := range testCases {
+		testCase := testCase
+		t.Run(testCase.name, func(subT *testing.T) {
+			subT.Parallel()
+
+			options := &helm.Options{
+				KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+			}
+
+			for _, template := range []string{
+				"templates/cronjob-ca-certSelfSigner.yaml",
+				"templates/cronjob-client-node-certSelfSigner.yaml",
+			} {
+				output := helm.RenderTemplate(subT, options, helmChartPath, releaseName, []string{template}, testCase.extraArgs...)
+
+				var cronjob batchv1.CronJob
+				helm.UnmarshalK8SYaml(subT, output, &cronjob)
+				if testCase.expectedTimeZone == "" {
+					require.Nil(subT, cronjob.Spec.TimeZone, template)
+				} else {
+					require.NotNil(subT, cronjob.Spec.TimeZone, template)
+					require.Equal(subT, testCase.expectedTimeZone, *cronjob.Spec.TimeZone, template)
+				}
+			}
+		})
+	}
+}
+
 // TestHelmSelfCertSignerStatefulSet contains the tests around the statefulset of self signer utility
 func TestHelmSelfCertSignerStatefulSet(t *testing.T) {
 	t.Parallel()

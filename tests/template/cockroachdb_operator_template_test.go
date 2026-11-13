@@ -462,6 +462,34 @@ func TestOperatorStorageMigrationTemplateRemoved(t *testing.T) {
 	require.Contains(t, err.Error(), "Could not resolve template file templates/storage-migration.yaml")
 }
 
+// TestCockroachDBSelfSignerCronJobTimeZone verifies that the cert rotation CronJobs are scheduled
+// in UTC, matching the next run calculated by the rotate job.
+func TestCockroachDBSelfSignerCronJobTimeZone(t *testing.T) {
+	t.Parallel()
+
+	chartPath, err := filepath.Abs("../../cockroachdb-operator/charts/cockroachdb")
+	require.NoError(t, err)
+
+	options := &helm.Options{
+		KubectlOptions: k8s.NewKubectlOptions("", "", namespaceName),
+		SetValues: map[string]string{
+			"cockroachdb.tls.selfSigner.enabled": "true",
+		},
+	}
+
+	for _, template := range []string{
+		"templates/cronjob-ca-certSelfSigner.yaml",
+		"templates/cronjob-client-node-certSelfSigner.yaml",
+	} {
+		output := helm.RenderTemplate(t, options, chartPath, releaseName, []string{template})
+
+		var cronJob batchv1.CronJob
+		helm.UnmarshalK8SYaml(t, output, &cronJob)
+		require.NotNil(t, cronJob.Spec.TimeZone, template)
+		require.Equal(t, "Etc/UTC", *cronJob.Spec.TimeZone, template)
+	}
+}
+
 // TestCockroachDBParentSelfSignerAdditionalSANs tests that additionalSANs are properly passed to the self-signer Job and CronJob in the umbrella
 // (cockroachdb-operator) chart
 func TestCockroachDBParentSelfSignerAdditionalSANs(t *testing.T) {

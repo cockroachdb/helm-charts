@@ -12,6 +12,8 @@ metadata:
     app.kubernetes.io/managed-by: {{ .Release.Service | quote }}
 spec:
   schedule: {{ template "selfcerts.caRotateSchedule" . }}
+  # The rotate job calculates the next run in UTC, so the schedule must be evaluated in UTC too.
+  timeZone: "Etc/UTC"
   jobTemplate:
     spec:
       backoffLimit: 1

@@ -184,19 +184,19 @@ func (s *TLSSecret) IsRotationRequired(duration time.Duration, cronStr string) (
 
 }
 
-// NextRotationRun returns the time of the rotate job run that follows the one in progress at now.
+// NextRotationRun returns the time, in UTC, of the rotate job run that follows now.
+//
+// The rotation CronJobs set spec.timeZone to "Etc/UTC", so the schedule must be evaluated in UTC
+// as well. Converting now to UTC keeps the calculation independent of the time zone of the
+// container running this code; otherwise the computed run could differ from the real one by the
+// zone offset and a certificate expiring in between would not be rotated.
 func NextRotationRun(cronStr string, now time.Time) (time.Time, error) {
 	cronSchedule, err := cron.ParseStandard(cronStr)
 	if err != nil {
 		return time.Time{}, err
 	}
 
-	// Without spec.timeZone, the CronJob schedule is evaluated in the kube-controller-manager's
-	// local time zone, while this job runs in UTC. When that zone is ahead of UTC the job starts
-	// before its own scheduled slot in UTC, so a single Next(now) returns the current run; when it
-	// is behind UTC, it returns a time earlier than the real next run. Skip one slot so the result
-	// is never earlier than the real next run, at the cost of rotating up to one interval early.
-	return cronSchedule.Next(cronSchedule.Next(now)), nil
+	return cronSchedule.Next(now.UTC()), nil
 }
 
 // Ready checks if secret contains required data
