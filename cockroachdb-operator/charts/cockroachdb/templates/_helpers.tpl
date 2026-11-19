@@ -131,7 +131,7 @@ securityContext:
   verbs: ["delete", "get"]
 - apiGroups: [""]
   resources: ["configmaps"]
-  verbs: ["create", "get", "update", "delete"]
+  verbs: ["create", "get", "update"]
 - apiGroups: [ "security.openshift.io" ]
   resources: [ "securitycontextconstraints" ]
   verbs: [ "use" ]

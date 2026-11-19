@@ -156,8 +156,10 @@ func TestSelfSignerRotationMatchesInstall(t *testing.T) {
 				rotate := renderSelfSignerRoleRules(t, options, chartPath, "role-certRotateSelfSigner.yaml")
 				require.NotEmpty(t, install)
 				require.Equal(t, install, rotate)
-				// These are the rules the rotate Role lacked before the Role templates shared selfcerts.roleRules.
-				require.True(t, hasRule(rotate, "", "configmaps", "delete"), "rotate Role must delete configmaps")
+				// The self-signer creates and updates the CA ConfigMap but never deletes it, so
+				// neither Role grants the verb.
+				require.False(t, hasRule(install, "", "configmaps", "delete"), "install Role must not delete configmaps")
+				// This is the rule the rotate Role lacked before the Role templates shared selfcerts.roleRules.
 				if chart.grantsOpenShiftSCC {
 					require.True(t, hasRule(rotate, "security.openshift.io", "securitycontextconstraints", "use"),
 						"rotate Role must use securitycontextconstraints")

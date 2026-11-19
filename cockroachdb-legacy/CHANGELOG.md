@@ -41,6 +41,8 @@ All notable changes to the CockroachDB Helm chart will be documented in this fil
   rules. The rotation CronJobs also render the same pod and container `securityContext` as the
   install Job and require `tls.enabled` like it, so namespaces enforcing Pod Security Admission
   `restricted` no longer reject them.
+- Removed the unused `delete` verb on ConfigMaps from the self-signer Roles. The self-signer
+  creates and updates the CA ConfigMap but never deletes it.
 
 ### Upgrade notes
 - On OpenShift, if you granted a SecurityContextConstraint to the self-signer install
