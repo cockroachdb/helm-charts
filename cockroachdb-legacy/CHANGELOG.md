@@ -35,6 +35,7 @@ All notable changes to the CockroachDB Helm chart will be documented in this fil
 
 ### Changed
 - Updated the self-signer image to `1.11` for operator-managed certificate rotation fixes.
+- Updated the self-signer image to `1.14`.
 
 ### Fixed
 - Fixed permission drift between self-signer install and rotation jobs by sharing their RBAC

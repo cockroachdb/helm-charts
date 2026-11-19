@@ -16,6 +16,7 @@
 ### Changed
 - Removed the unused `delete` verb on ConfigMaps from the self-signer Roles. The self-signer
   creates and updates the CA ConfigMap but never deletes it.
+- Updated the self-signer image to `1.14`.
 
 ## [26.4.2] — 2026-11-18
 ### Changed
