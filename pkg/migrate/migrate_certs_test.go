@@ -199,15 +199,13 @@ const (
 )
 
 // TestGenerateCertsForOperatorSelfSigner drives the self-signer branch of the
-// migration against each pre-migration deployment shape and records what
-// comes out the other side. Every case checks that the regenerated node
-// certificate carries the standard hosts and the join names; the case fields
-// say whether the SANs the legacy deployment added survive, and what happens
-// to the root client certificate.
-//
-// It documents the current behavior: the regenerated node certificate loses
-// the SANs the legacy deployment added, and the legacy 672h client
-// certificate is kept as is. The next commit flips both expectations.
+// migration against each pre-migration deployment shape and checks that the
+// identity the old certificates carried survives. Every case checks that the
+// regenerated node certificate carries the standard hosts and the join names;
+// the case fields say whether the SANs the legacy deployment added survive,
+// and what happens to the root client certificate. The legacy 672h client
+// certificate is reissued with the node certificate's lifetime, so the two
+// start fresh together.
 func TestGenerateCertsForOperatorSelfSigner(t *testing.T) {
 	for _, tc := range []struct {
 		name  string
@@ -220,8 +218,8 @@ func TestGenerateCertsForOperatorSelfSigner(t *testing.T) {
 		{
 			name:            "helm chart",
 			shape:           helmChart,
-			keepsLegacySANs: false,
-			client:          clientKept,
+			keepsLegacySANs: true,
+			client:          clientReissued,
 		},
 		{
 			// There is nothing to carry over, and a missing node secret is
@@ -229,14 +227,14 @@ func TestGenerateCertsForOperatorSelfSigner(t *testing.T) {
 			name:            "helm chart without node secret",
 			shape:           helmChartNoNodeSecret,
 			keepsLegacySANs: false,
-			client:          clientKept,
+			client:          clientReissued,
 		},
 		{
 			// The node certificate lives in <name>-node rather than
 			// <name>-node-secret, and there is no client secret.
 			name:            "public operator",
 			shape:           publicOperator,
-			keepsLegacySANs: false,
+			keepsLegacySANs: true,
 			client:          clientIssued,
 		},
 	} {

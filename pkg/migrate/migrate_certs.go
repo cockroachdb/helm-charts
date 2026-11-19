@@ -102,11 +102,39 @@ EOF`, rc.DiscoveryServiceName, caSecret, namespace)
 		return err
 	}
 
+	// Preserve existing DNS/IP SANs when regenerating the node certificate
+	// with the required join-service DNS names. Source Secrets are
+	// <name>-node-secret for Helm and <name>-node for the public operator.
+	inherited := false
+	for _, name := range []string{nodeSecretName, fmt.Sprintf("%s-node", rc.DiscoveryServiceName)} {
+		existing, err := resource.LoadTLSSecret(name, resource.NewKubeResource(ctx, cl, namespace, kube.DefaultPersister))
+		if client.IgnoreNotFound(err) != nil {
+			return errors.Wrapf(err, "loading node secret [%s]", name)
+		}
+		if err != nil || len(existing.TLSCert()) == 0 {
+			continue
+		}
+		if err := rc.InheritSANs(existing.TLSCert(), namespace); err != nil {
+			return errors.Wrapf(err, "node secret [%s]", name)
+		}
+		inherited = true
+		break
+	}
+	if !inherited {
+		logrus.Warnf("No existing node certificate found in [%s] or [%s-node]; no SANs to carry over", nodeSecretName, rc.DiscoveryServiceName)
+	}
+
 	if err := rc.GenerateNodeCert(ctx, nodeSecretName, namespace); err != nil {
 		return err
 	}
 
-	if err := rc.GenerateClientCert(ctx, clientSecretName, namespace); err != nil {
+	// Reissue the client certificate rather than keep the legacy one, so it
+	// starts fresh alongside the regenerated node certificate. Exported values
+	// restore self-signer rotation only for recognized legacy Helm self-signer
+	// sources. For any other source rotation stays disabled after migration,
+	// and a legacy client certificate (28 days by default) would expire long
+	// before the node certificate (a year by default).
+	if err := rc.RegenerateClientCert(ctx, security.RootUser, clientSecretName, namespace); err != nil {
 		return err
 	}
 
