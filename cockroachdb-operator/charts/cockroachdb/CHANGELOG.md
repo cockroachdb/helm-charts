@@ -2,13 +2,21 @@
 
 ## [Unreleased]
 ### Fixed
+
+#### Charts and certificate utility
 - Fixed permission drift between self-signer install and rotation jobs by sharing their RBAC
   rules. The rotation CronJobs also render the same pod and container `securityContext` as the
   install Job, so namespaces enforcing Pod Security Admission `restricted` no longer reject them.
 
+#### Migration helper
+- Preserved existing DNS/IP SANs when `migrate-certs` regenerates the node certificate
+  with the join-service DNS names, and reissued the root client certificate alongside it.
+  `--client-duration` now defaults to `--node-duration`.
+
 ### Changed
 - Removed the unused `delete` verb on ConfigMaps from the self-signer Roles. The self-signer
   creates and updates the CA ConfigMap but never deletes it.
+- Updated the self-signer image to `1.14`.
 
 ## [26.4.2] — 2026-11-18
 ### Changed

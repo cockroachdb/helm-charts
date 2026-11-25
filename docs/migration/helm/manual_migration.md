@@ -34,6 +34,11 @@ Verify custom certificate DNS and IP names before and after running the migratio
 The manual helper has separate certificate handling from the controller. Do not assume that
 controller certificate-preservation behavior applies to this path.
 
+`migrate-certs` regenerates the node certificate with the join-service DNS names the operator
+requires and keeps the DNS/IP SANs of the existing node certificate in `<name>-node-secret`.
+It logs the names it carries over. It also reissues the root client certificate alongside
+the node certificate. `--client-duration` defaults to `--node-duration`.
+
 Review the generated TLS values before chart adoption. Recognized legacy self-signer
 sources retain automatic rotation, existing certificate lifetimes and DNS/IP SANs. Other
 sources stay externally managed unless cert-manager is explicitly detected. A CA key

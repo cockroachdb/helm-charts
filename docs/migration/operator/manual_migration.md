@@ -36,6 +36,11 @@ Verify custom certificate DNS and IP names before and after running the migratio
 The manual helper has separate certificate handling from the controller. Do not assume that
 controller certificate-preservation behavior applies to this path.
 
+`migrate-certs` regenerates the node certificate with the join-service DNS names the operator
+requires and keeps the DNS/IP SANs of the existing node certificate in `<name>-node`.
+It logs the names it carries over. It also reissues the root client certificate alongside
+the node certificate. `--client-duration` defaults to `--node-duration`.
+
 The helper needs `get` and `list` access to Secrets in the cluster namespace when
 checking for source Helm signer settings. Review the generated TLS values before chart adoption. The legacy operator's built-in
 self-signed certificates stay externally managed. The exporter does not enable chart
